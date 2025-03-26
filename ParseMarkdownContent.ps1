@@ -1,3 +1,6 @@
+## ParseMarkdownContent - https://github.com/dmsweetser/Toolkit
+# This script extracts all the markdown content in an LLM response and emits it to folders and files in the current directory
+
 # Function to log messages with timestamp
 function Write-Log {
     param (

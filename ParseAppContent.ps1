@@ -1,8 +1,12 @@
+## ParseAppContent - https://github.com/dmsweetser/Toolkit
+# This script extracts all the app content in a directory except for specific exclusions and contents of .gitignore
+
+
 # Define the output file
 $outputFile = "output.txt"
 
 # List of specific filenames to exclude
-$excludedFiles = @("package-lock.json")
+$excludedFiles = @("package-lock.json", "ParseAppContent.ps1", "ParseMarkdownContent.ps1")
 
 # Remove the output file if it exists
 if (Test-Path $outputFile) {
