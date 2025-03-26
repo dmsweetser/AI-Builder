@@ -78,10 +78,12 @@ function Parse-MarkdownContent {
             continue
         }
 
+        # Adjusted parsing logic to handle filenames with or without backticks
         if (-not $insideCodeBlock) {
-            if ($line -match '^#### (.+)$') {
+            if ($line -match '^###\s*`?(.+?)`?$') {
                 $filePathComponents = $matches[1].Split("/")
                 $fileName = Sanitize-PathComponent -pathComponent $filePathComponents[-1]
+                $fileName = $fileName.Trim('`') # Ensure no trailing or leading backticks
                 $relativeDir = if ($filePathComponents.Length -gt 1) {
                     $relativeDir = $baseDir
                     foreach ($component in $filePathComponents[0..($filePathComponents.Length - 2)]) {
