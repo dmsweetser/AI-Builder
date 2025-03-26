@@ -76,8 +76,7 @@ function Process-Directory {
         if (-not (IsExcluded -path $relativePath -rules $allRules -excludedFiles $excludedFiles)) {
             try {
                 $content = Get-Content $_.FullName -ErrorAction Stop
-                Add-Content -Path $outputFile -Value ("`n" + '### ' + "[$relativePath]")
-                Add-Content -Path $outputFile -Value ("`n" + '```' + "`n")
+                Add-Content -Path $outputFile -Value ("`n" + '```' + "$relativePath" + "`n")
                 Add-Content -Path $outputFile -Value $content
                 Add-Content -Path $outputFile -Value '```'
             } catch {
