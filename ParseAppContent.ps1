@@ -6,7 +6,7 @@
 $outputFile = "output.txt"
 
 # List of specific filenames to exclude
-$excludedFiles = @("package-lock.json", "ParseAppContent.ps1", "ParseMarkdownContent.ps1")
+$excludedFiles = @("package-lock.json", "ParseAppContent.ps1", "ParseMarkdownContent.ps1", "output.txt", "markdown.txt")
 
 # Remove the output file if it exists
 if (Test-Path $outputFile) {
