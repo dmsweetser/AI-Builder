@@ -1,5 +1,5 @@
 <#
-    ParseAppContent - https://github.com/dmsweetser/Toolkit
+    ParseAppContent.ps1 - https://github.com/dmsweetser/Toolkit
     This script extracts all the app content in a directory (using the current working directory as the root)
     except for files in a specified exclusion list and those matching any .gitignore rules.
 #>
@@ -82,12 +82,12 @@ function Process-Directory {
             try {
                 $content = Get-Content $_.FullName -ErrorAction Stop
                 # Write file content to the output file with a markdown code fence header
-                Add-Content -Path $outputFile -Value "`n```$relativePath`n"
+                Add-Content -Path $outputFile -Value "`n```$(${relativePath})`n"
                 Add-Content -Path $outputFile -Value $content
-                Add-Content -Path $outputFile -Value "```"
+                Add-Content -Path $outputFile -Value "````"
             }
             catch {
-                Write-Host "Skipped unreadable file: $relativePath"
+                Write-Host "Skipped unreadable file: ${relativePath}"
             }
         }
     }
@@ -101,4 +101,4 @@ function Process-Directory {
 # Start processing in the current directory
 Process-Directory -directory (Get-Location).Path -parentRules @()
 
-Write-Host "Processing completed. Check the output in $outputFile."
+Write-Host "Processing completed. Check the output in ${outputFile}."
