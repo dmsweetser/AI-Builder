@@ -1,7 +1,16 @@
-## ParseMarkdownContent - https://github.com/dmsweetser/Toolkit
-# This script extracts all the markdown content in an LLM response and emits it to folders and files in the current directory
+<#
+    ParseMarkdownContent.ps1 - 
+    This script extracts all the markdown content (that represents file structure and file content)
+    from an exported LLM response (markdown.txt) and re-creates the files and folders
+    in the current directory.
+#>
 
-# Function to log messages with timestamp
+# Set up the script directory and base directory
+$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$baseDir = $scriptDir
+$logFilePath = Join-Path -Path $scriptDir -ChildPath 'script.log'
+
+# Function to log messages with a timestamp
 function Write-Log {
     param (
         [string]$message
@@ -11,158 +20,172 @@ function Write-Log {
     $logMessage | Out-File -Append -FilePath $logFilePath
 }
 
-# Function to sanitize file names and individual path components
+# Function to sanitize a single path component (e.g. a filename or folder name)
 function Sanitize-PathComponent {
     param (
         [string]$pathComponent
     )
-    # Replace illegal characters with underscores
+    # Replace illegal characters with underscores and remove control characters
     $sanitizedComponent = $pathComponent -replace '[<>:"/\\|?*]', '_'
-    # Remove hidden control characters
     $sanitizedComponent = $sanitizedComponent -replace '\p{C}', ''
     return $sanitizedComponent
 }
 
-# Function to parse the directory structure and file contents
+# Function to parse the markdown content and create files/folders accordingly
 function Parse-MarkdownContent {
     param (
         [string]$markdownContent
     )
 
-    $lines = $markdownContent -split "`n"
     Write-Log "Initial markdown content: $markdownContent"
+    $lines = $markdownContent -split "`n"
 
-    $currentDir = $baseDir
-    $fileContent = $null
+    # Initialize parser state
     $insideCodeBlock = $false
+    $fileContent = ""
+    $fileName = $null
+    $currentDir = $baseDir
 
     Write-Log "Starting parsing of markdown content."
 
-    foreach ($line in $lines) {
+    # Use an index-based loop to enable lookahead when needed
+    for ($i = 0; $i -lt $lines.Length; $i++) {
+        $line = $lines[$i].TrimEnd()
         Write-Log "Processing line: $line"
-        Write-Log "Current state - insideCodeBlock: $insideCodeBlock, currentDir: $currentDir"
+        Write-Log "State: insideCodeBlock=$insideCodeBlock, currentDir=$currentDir, fileName=$fileName"
 
-        if ($line -match '^```') {
-            $insideCodeBlock = -not $insideCodeBlock
-            Write-Log "Toggled code block state: $insideCodeBlock"
-            if (-not $insideCodeBlock -and $fileContent) {
-                # Ensure directory exists before writing
-                if (-not (Test-Path -Path $currentDir)) {
-                    Write-Log "Creating directory: $currentDir"
-                    try {
-                        New-Item -ItemType Directory -Path $currentDir -Force | Out-Null
-                        Write-Log "Successfully created directory: $currentDir"
-                    } catch {
-                        Write-Log "Error creating directory: $currentDir - Exception: $_"
+        # Detect triple-backticks (which may include a filename)
+        if ($line -match '^```\s*(\S*)\s*$') {
+            if (-not $insideCodeBlock) {
+                # Beginning of a code block
+                $insideCodeBlock = $true
+                if ($matches[1]) {
+                    # Filename provided on the same line as the opening backticks
+                    $fileName = Sanitize-PathComponent -pathComponent $matches[1]
+                    Write-Log "Detected filename on opening code block: $fileName"
+                }
+                else {
+                    # Look ahead: if the next line exists and it isn’t another triple backticks
+                    if ($i + 1 -lt $lines.Length) {
+                        $nextLine = $lines[$i+1].Trim()
+                        if ($nextLine -and -not ($nextLine -match '^```')) {
+                            $fileName = Sanitize-PathComponent -pathComponent $nextLine
+                            Write-Log "Detected filename on next line after opening backticks: $fileName"
+                            $i++  # Skip the line containing the filename
+                        }
                     }
                 }
-
-                # Construct sanitized file path
-                $filePath = Join-Path -Path $currentDir -ChildPath $fileName
-                Write-Log "Final sanitized file path: $filePath"
-                Write-Log "File content to write: $fileContent"
-
-                if ($filePath -and $fileContent) {
+            }
+            else {
+                # End of the code block
+                $insideCodeBlock = $false
+                if ($fileName -and $fileContent -ne "") {
+                    # Ensure the target directory exists
+                    if (-not (Test-Path -Path $currentDir)) {
+                        Write-Log "Creating directory: $currentDir"
+                        try {
+                            New-Item -ItemType Directory -Path $currentDir -Force | Out-Null
+                            Write-Log "Successfully created directory: $currentDir"
+                        }
+                        catch {
+                            Write-Log "Error creating directory: $currentDir - Exception: $_"
+                        }
+                    }
+                    $filePath = Join-Path -Path $currentDir -ChildPath $fileName
+                    Write-Log "Writing file: $filePath"
+                    Write-Log "File content: $fileContent"
                     try {
                         $fileContent | Out-File -FilePath $filePath -Encoding utf8
                         if (Test-Path -Path $filePath) {
-                            Write-Log "File confirmed as created: $filePath"
-                        } else {
-                            Write-Log "Error: File creation failed: $filePath"
+                            Write-Log "File created: $filePath"
                         }
-                    } catch {
+                    }
+                    catch {
                         Write-Log "Error writing file: $filePath - Exception: $_"
                     }
-                } else {
-                    Write-Log "Error: Invalid file path or empty content for file: $fileName"
                 }
-                $fileContent = $null
+                else {
+                    Write-Log "Code block ended without filename or content."
+                }
+                # Reset variables for next file block
+                $fileContent = ""
+                $fileName = $null
             }
             continue
         }
 
-        # Adjusted parsing logic to handle filenames with or without backticks
+        # If not inside a code block, check if the line is a header that specifies the file path
         if (-not $insideCodeBlock) {
-            if ($line -match '^###\s*`?(.+?)`?$') {
-                $filePathComponents = $matches[1].Split("/")
+            if ($line -match '^###\s*`?(.+?)`?\s*$') {
+                $fileFullPath = $matches[1].Trim()
+                $filePathComponents = $fileFullPath.Split("/")
                 $fileName = Sanitize-PathComponent -pathComponent $filePathComponents[-1]
-                $fileName = $fileName.Trim('`') # Ensure no trailing or leading backticks
-                $relativeDir = if ($filePathComponents.Length -gt 1) {
+                if ($filePathComponents.Length -gt 1) {
+                    # Build full directory path by combining the base directory with given components
                     $relativeDir = $baseDir
                     foreach ($component in $filePathComponents[0..($filePathComponents.Length - 2)]) {
                         $relativeDir = Join-Path -Path $relativeDir -ChildPath (Sanitize-PathComponent -pathComponent $component)
                     }
-                    $relativeDir
-                } else {
-                    $baseDir
+                    $currentDir = $relativeDir
                 }
-                $currentDir = $relativeDir
-                Write-Log "Detected sanitized file name: $fileName"
-                Write-Log "Detected sanitized relative directory: $relativeDir"
-                Write-Log "Updated current directory: $currentDir"
+                else {
+                    $currentDir = $baseDir
+                }
+                Write-Log "Detected header filename: $fileName, setting directory: $currentDir"
                 continue
             }
         }
 
+        # When inside a code block and a filename is already established, accumulate the file content.
         if ($insideCodeBlock -and $fileName) {
-            Write-Log "Appending content to file: $fileName"
-            Write-Log "Line being appended: $line"
+            Write-Log "Appending to file content for $fileName: $line"
             $fileContent += $line + "`n"
         }
     }
 
-    if ($fileContent) {
+    # If the markdown ended while a code block was still open, write the pending file
+    if ($insideCodeBlock -and $fileName -and $fileContent -ne "") {
+        Write-Log "Finalizing unclosed code block for file: $fileName"
         if (-not (Test-Path -Path $currentDir)) {
-            Write-Log "Creating directory for remaining file: $currentDir"
+            Write-Log "Creating directory for unclosed block: $currentDir"
             try {
                 New-Item -ItemType Directory -Path $currentDir -Force | Out-Null
-                Write-Log "Successfully created directory: $currentDir"
-            } catch {
+                Write-Log "Created directory: $currentDir"
+            }
+            catch {
                 Write-Log "Error creating directory: $currentDir - Exception: $_"
             }
         }
-
         $filePath = Join-Path -Path $currentDir -ChildPath $fileName
-        Write-Log "Final sanitized file path: $filePath"
-        Write-Log "File content to write (remaining): $fileContent"
-
-        if (-not [string]::IsNullOrWhiteSpace($fileContent)) {
-            try {
-                $fileContent | Out-File -FilePath $filePath -Encoding utf8
-                if (Test-Path -Path $filePath) {
-                    Write-Log "File confirmed as created: $filePath"
-                } else {
-                    Write-Log "Error: File creation failed: $filePath"
-                }
-            } catch {
-                Write-Log "Error writing remaining file: $filePath - Exception: $_"
+        Write-Log "Writing unclosed file: $filePath"
+        try {
+            $fileContent | Out-File -FilePath $filePath -Encoding utf8
+            if (Test-Path -Path $filePath) {
+                Write-Log "File created: $filePath"
             }
-        } else {
-            Write-Log "Error: Content is empty or invalid for remaining file: $fileName"
+        }
+        catch {
+            Write-Log "Error writing file: $filePath - Exception: $_"
         }
     }
 
     Write-Log "Parsing completed."
 }
 
-# Set up log file
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$baseDir = $scriptDir
-$logFilePath = Join-Path -Path $scriptDir -ChildPath 'script.log'
-
+# Log that the script is starting
 Write-Log "Script started."
 
-# Read the content from markdown.txt
+# Locate the markdown file (markdown.txt) in the script directory
 $markdownFilePath = Join-Path -Path $scriptDir -ChildPath 'markdown.txt'
-
 Write-Log "Markdown file path: $markdownFilePath"
+
 if (Test-Path -Path $markdownFilePath) {
     Write-Log "Found markdown file: $markdownFilePath"
     $markdownContent = Get-Content -Path $markdownFilePath -Raw
-    Write-Log "Read markdown content: $markdownContent"
-    # Call the function with the content of markdown.txt
+    Write-Log "Read markdown content."
     Parse-MarkdownContent -markdownContent $markdownContent
-} else {
+}
+else {
     Write-Log "Error: File 'markdown.txt' not found in the script directory."
     Write-Output "Error: File 'markdown.txt' not found in the script directory."
 }

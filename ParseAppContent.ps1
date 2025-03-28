@@ -1,6 +1,8 @@
-## ParseAppContent - https://github.com/dmsweetser/Toolkit
-# This script extracts all the app content in a directory except for specific exclusions and contents of .gitignore
-
+<#
+    ParseAppContent - https://github.com/dmsweetser/Toolkit
+    This script extracts all the app content in a directory (using the current working directory as the root)
+    except for files in a specified excluded list and those matching .gitignore rules.
+#>
 
 # Define the output file
 $outputFile = "output.txt"
@@ -10,24 +12,26 @@ $excludedFiles = @("package-lock.json", "ParseAppContent.ps1", "ParseMarkdownCon
 
 # Remove the output file if it exists
 if (Test-Path $outputFile) {
-    Remove-Item $outputFile
+    Remove-Item $outputFile -Force
 }
 
-# Function to parse .gitignore rules
+# Function to parse .gitignore rules from a directory
 function Parse-GitIgnore {
-    param ([string]$directory)
-
+    param (
+        [string]$directory
+    )
     $gitignorePath = Join-Path $directory ".gitignore"
     if (Test-Path $gitignorePath) {
-        Get-Content $gitignorePath | Where-Object { $_ -ne '' -and $_ -notmatch '^#' } | ForEach-Object {
-            $_.Trim()
-        }
-    } else {
+        Get-Content $gitignorePath |
+            Where-Object { $_ -and $_ -notmatch '^\s*#' } |
+            ForEach-Object { $_.Trim() }
+    }
+    else {
         @()
     }
 }
 
-# Function to check if a path matches `.gitignore` rules or excluded filenames
+# Function to decide if a file should be excluded (by matching .gitignore rules or explicit exclusions)
 function IsExcluded {
     param (
         [string]$path,
@@ -37,20 +41,21 @@ function IsExcluded {
 
     $fileName = Split-Path $path -Leaf
 
-    # Check against `.gitignore` rules
+    # Check .gitignore patterns
     foreach ($rule in $rules) {
+        # If the rule contains a slash, it is likely a directory pattern
         if ($rule -like '*/*') {
-            # Handle patterns like `**/node_modules`
-            $escapedRule = $rule.Replace('/', '\\')
+            $escapedRule = $rule.Replace('/', [IO.Path]::DirectorySeparatorChar)
             if ($path -like "*$escapedRule*") {
                 return $true
             }
-        } elseif ($path -like "*$rule*") {
+        }
+        elseif ($path -like "*$rule*") {
             return $true
         }
     }
 
-    # Check if the filename is in the excluded files list
+    # Check if filename is in the explicit exclusion list
     if ($excludedFiles -contains $fileName) {
         return $true
     }
@@ -58,28 +63,30 @@ function IsExcluded {
     return $false
 }
 
-# Recursive function to process files in directories
+# Recursive function to process directories and files
 function Process-Directory {
     param (
         [string]$directory,
         [array]$parentRules
     )
 
-    # Parse .gitignore rules for the current directory
+    # Combine parent's .gitignore rules with the current directory's rules
     $currentRules = Parse-GitIgnore -directory $directory
     $allRules = $parentRules + $currentRules
 
     # Process files in the current directory
     Get-ChildItem -Path $directory -File | ForEach-Object {
+        # Compute the relative path from the current working directory
         $relativePath = $_.FullName.Substring((Get-Location).Path.Length + 1)
-
         if (-not (IsExcluded -path $relativePath -rules $allRules -excludedFiles $excludedFiles)) {
             try {
                 $content = Get-Content $_.FullName -ErrorAction Stop
-                Add-Content -Path $outputFile -Value ("`n" + '```' + "$relativePath" + "`n")
+                # Write the file content to the output file with a markdown code fence header showing its relative path
+                Add-Content -Path $outputFile -Value "`n```$relativePath`n"
                 Add-Content -Path $outputFile -Value $content
-                Add-Content -Path $outputFile -Value '```'
-            } catch {
+                Add-Content -Path $outputFile -Value "```"
+            }
+            catch {
                 Write-Host "Skipped unreadable file: $relativePath"
             }
         }
@@ -91,7 +98,7 @@ function Process-Directory {
     }
 }
 
-# Start processing from the current directory
+# Start processing in the current directory
 Process-Directory -directory (Get-Location).Path -parentRules @()
 
 Write-Host "Processing completed. Check the output in $outputFile."
