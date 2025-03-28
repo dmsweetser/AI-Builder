@@ -1,11 +1,10 @@
 <#
-    ParseMarkdownContent.ps1 - 
-    This script extracts all the markdown content (that represents file structure and file content)
-    from an exported LLM response (markdown.txt) and re-creates the files and folders
-    in the current directory.
+    ParseMarkdownContent.ps1 - https://github.com/dmsweetser/Toolkit
+    This script extracts markdown content representing a file structure from an LLM response 
+    (read from markdown.txt) and re-creates the corresponding files and folders in the current directory.
 #>
 
-# Set up the script directory and base directory
+# Set up the script directory as the base directory
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $baseDir = $scriptDir
 $logFilePath = Join-Path -Path $scriptDir -ChildPath 'script.log'
@@ -20,7 +19,7 @@ function Write-Log {
     $logMessage | Out-File -Append -FilePath $logFilePath
 }
 
-# Function to sanitize a single path component (e.g. a filename or folder name)
+# Function to sanitize individual path components (filenames or folder names)
 function Sanitize-PathComponent {
     param (
         [string]$pathComponent
@@ -40,7 +39,7 @@ function Parse-MarkdownContent {
     Write-Log "Initial markdown content: $markdownContent"
     $lines = $markdownContent -split "`n"
 
-    # Initialize parser state
+    # Initialize state variables
     $insideCodeBlock = $false
     $fileContent = ""
     $fileName = $null
@@ -48,16 +47,16 @@ function Parse-MarkdownContent {
 
     Write-Log "Starting parsing of markdown content."
 
-    # Use an index-based loop to enable lookahead when needed
+    # Use an index-based loop for lookahead capability
     for ($i = 0; $i -lt $lines.Length; $i++) {
         $line = $lines[$i].TrimEnd()
         Write-Log "Processing line: $line"
         Write-Log "State: insideCodeBlock=$insideCodeBlock, currentDir=$currentDir, fileName=$fileName"
 
-        # Detect triple-backticks (which may include a filename)
+        # Detect code fences (triple backticks) which may specify the filename
         if ($line -match '^```\s*(\S*)\s*$') {
             if (-not $insideCodeBlock) {
-                # Beginning of a code block
+                # Start of a code block
                 $insideCodeBlock = $true
                 if ($matches[1]) {
                     # Filename provided on the same line as the opening backticks
@@ -65,13 +64,13 @@ function Parse-MarkdownContent {
                     Write-Log "Detected filename on opening code block: $fileName"
                 }
                 else {
-                    # Look ahead: if the next line exists and it isn’t another triple backticks
+                    # Look ahead: if the next line exists and isn’t a closing code fence, treat it as the filename
                     if ($i + 1 -lt $lines.Length) {
-                        $nextLine = $lines[$i+1].Trim()
+                        $nextLine = $lines[$i + 1].Trim()
                         if ($nextLine -and -not ($nextLine -match '^```')) {
                             $fileName = Sanitize-PathComponent -pathComponent $nextLine
                             Write-Log "Detected filename on next line after opening backticks: $fileName"
-                            $i++  # Skip the line containing the filename
+                            $i++  # Skip the line used for filename
                         }
                     }
                 }
@@ -80,7 +79,7 @@ function Parse-MarkdownContent {
                 # End of the code block
                 $insideCodeBlock = $false
                 if ($fileName -and $fileContent -ne "") {
-                    # Ensure the target directory exists
+                    # Ensure the target directory exists before writing the file
                     if (-not (Test-Path -Path $currentDir)) {
                         Write-Log "Creating directory: $currentDir"
                         try {
@@ -107,21 +106,22 @@ function Parse-MarkdownContent {
                 else {
                     Write-Log "Code block ended without filename or content."
                 }
-                # Reset variables for next file block
+                # Reset variables for the next file block
                 $fileContent = ""
                 $fileName = $null
             }
             continue
         }
 
-        # If not inside a code block, check if the line is a header that specifies the file path
+        # Outside any code block, check if the line is a header specifying the file path
         if (-not $insideCodeBlock) {
             if ($line -match '^###\s*`?(.+?)`?\s*$') {
                 $fileFullPath = $matches[1].Trim()
-                $filePathComponents = $fileFullPath.Split("/")
+                # Split on both forward slash and backslash so that Windows paths are handled correctly
+                $filePathComponents = $fileFullPath -split '[\\/]'
                 $fileName = Sanitize-PathComponent -pathComponent $filePathComponents[-1]
                 if ($filePathComponents.Length -gt 1) {
-                    # Build full directory path by combining the base directory with given components
+                    # Build the full directory path by combining the base directory with each component
                     $relativeDir = $baseDir
                     foreach ($component in $filePathComponents[0..($filePathComponents.Length - 2)]) {
                         $relativeDir = Join-Path -Path $relativeDir -ChildPath (Sanitize-PathComponent -pathComponent $component)
@@ -136,14 +136,14 @@ function Parse-MarkdownContent {
             }
         }
 
-        # When inside a code block and a filename is already established, accumulate the file content.
+        # If inside a code block, accumulate the content if a filename has been established
         if ($insideCodeBlock -and $fileName) {
-            Write-Log "Appending to file content for $fileName: $line"
+            Write-Log "Appending to file content for ${fileName}: ${line}"
             $fileContent += $line + "`n"
         }
     }
 
-    # If the markdown ended while a code block was still open, write the pending file
+    # If the markdown ended while still inside a code block, write the pending file content
     if ($insideCodeBlock -and $fileName -and $fileContent -ne "") {
         Write-Log "Finalizing unclosed code block for file: $fileName"
         if (-not (Test-Path -Path $currentDir)) {
@@ -172,7 +172,7 @@ function Parse-MarkdownContent {
     Write-Log "Parsing completed."
 }
 
-# Log that the script is starting
+# Log the script start
 Write-Log "Script started."
 
 # Locate the markdown file (markdown.txt) in the script directory

@@ -1,7 +1,7 @@
 <#
     ParseAppContent - https://github.com/dmsweetser/Toolkit
     This script extracts all the app content in a directory (using the current working directory as the root)
-    except for files in a specified excluded list and those matching .gitignore rules.
+    except for files in a specified exclusion list and those matching any .gitignore rules.
 #>
 
 # Define the output file
@@ -41,9 +41,9 @@ function IsExcluded {
 
     $fileName = Split-Path $path -Leaf
 
-    # Check .gitignore patterns
+    # Check against .gitignore patterns
     foreach ($rule in $rules) {
-        # If the rule contains a slash, it is likely a directory pattern
+        # If the rule contains a slash, treat it as a directory or nested pattern
         if ($rule -like '*/*') {
             $escapedRule = $rule.Replace('/', [IO.Path]::DirectorySeparatorChar)
             if ($path -like "*$escapedRule*") {
@@ -55,7 +55,7 @@ function IsExcluded {
         }
     }
 
-    # Check if filename is in the explicit exclusion list
+    # Check if the filename is in the explicit exclusion list
     if ($excludedFiles -contains $fileName) {
         return $true
     }
@@ -76,12 +76,12 @@ function Process-Directory {
 
     # Process files in the current directory
     Get-ChildItem -Path $directory -File | ForEach-Object {
-        # Compute the relative path from the current working directory
+        # Compute relative path based on the current working directory
         $relativePath = $_.FullName.Substring((Get-Location).Path.Length + 1)
         if (-not (IsExcluded -path $relativePath -rules $allRules -excludedFiles $excludedFiles)) {
             try {
                 $content = Get-Content $_.FullName -ErrorAction Stop
-                # Write the file content to the output file with a markdown code fence header showing its relative path
+                # Write file content to the output file with a markdown code fence header
                 Add-Content -Path $outputFile -Value "`n```$relativePath`n"
                 Add-Content -Path $outputFile -Value $content
                 Add-Content -Path $outputFile -Value "```"
