@@ -82,9 +82,9 @@ function Process-Directory {
             try {
                 $content = Get-Content $_.FullName -ErrorAction Stop
                 # Write file content to the output file with a markdown code fence header
-                Add-Content -Path $outputFile -Value "`n```$(${relativePath})`n"
+                Add-Content -Path $outputFile -Value "`n```````$(${relativePath})`n"
                 Add-Content -Path $outputFile -Value $content
-                Add-Content -Path $outputFile -Value "````"
+                Add-Content -Path $outputFile -Value "``````"
             }
             catch {
                 Write-Host "Skipped unreadable file: ${relativePath}"
