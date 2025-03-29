@@ -84,22 +84,30 @@ function Parse-MarkdownContent {
                 # Start of a code block.
                 $insideCodeBlock = $true
                 if ($matches[1]) {
-                    # Filename provided on the same line as the opening backticks.
-                    $resolved = Resolve-FilePath -FilePathString $matches[1]
-                    $fileName = $resolved.FileName
-                    $currentDir = $resolved.Directory
-                    Write-Log "Detected filename on opening code block: ${fileName}, directory set to: ${currentDir}"
+                    # Only treat the matched string as a filename if it contains a period.
+                    if ($matches[1] -match '\.') {
+                        $resolved = Resolve-FilePath -FilePathString $matches[1]
+                        $fileName = $resolved.FileName
+                        $currentDir = $resolved.Directory
+                        Write-Log "Detected filename on opening code block: ${fileName}, directory set to: ${currentDir}"
+                    }
+                    else {
+                        Write-Log "Ignoring identifier after backticks (likely a language specifier): $($matches[1])"
+                    }
                 }
                 else {
-                    # Look ahead: if the next line exists and isn’t a closing code fence, treat it as the filename.
+                    # Look ahead: if the next line exists and isn’t a closing code fence, treat it as the filename if it contains a period.
                     if ($i + 1 -lt $lines.Length) {
                         $nextLine = $lines[$i + 1].Trim()
-                        if ($nextLine -and -not ($nextLine -match '^```')) {
+                        if ($nextLine -and ($nextLine -match '\.')) {
                             $resolved = Resolve-FilePath -FilePathString $nextLine
                             $fileName = $resolved.FileName
                             $currentDir = $resolved.Directory
                             Write-Log "Detected filename on next line after opening backticks: ${fileName}, directory set to: ${currentDir}"
                             $i++  # Skip the line used for the filename.
+                        }
+                        else {
+                            Write-Log "Skipping line after opening backticks as filename because it does not contain a period."
                         }
                     }
                 }
