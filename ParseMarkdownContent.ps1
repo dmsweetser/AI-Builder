@@ -27,6 +27,7 @@ function Sanitize-PathComponent {
     # Replace illegal characters with underscores and remove control characters
     $sanitizedComponent = $pathComponent -replace '[<>:"/\\|?*]', '_'
     $sanitizedComponent = $sanitizedComponent -replace '\p{C}', ''
+    $sanitizedComponent = $sanitizedComponent -replace '^(# `)', ''
     return $sanitizedComponent
 }
 
