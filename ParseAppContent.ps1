@@ -81,8 +81,10 @@ function Process-Directory {
         if (-not (IsExcluded -path $relativePath -rules $allRules -excludedFiles $excludedFiles)) {
             try {
                 $content = Get-Content $_.FullName -ErrorAction Stop
-                # Write file content to the output file with a markdown code fence header
-                Add-Content -Path $outputFile -Value "`n```````$(${relativePath})`n"
+                # Write file name as a header with markdown formatting
+                Add-Content -Path $outputFile -Value "`n### $relativePath`n"
+                Add-Content -Path $outputFile -Value "``````"
+                # Write file content to the output file
                 Add-Content -Path $outputFile -Value $content
                 Add-Content -Path $outputFile -Value "``````"
             }
