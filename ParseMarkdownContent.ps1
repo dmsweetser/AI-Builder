@@ -1,8 +1,8 @@
 <#
-    ParseMarkdownContent.ps1 - Enhanced version with junk character protections
+    ParseMarkdownContent.ps1 - Enhanced version with BOM removal and junk character protections
     This script extracts markdown content representing a file structure from an LLM response 
     (read from markdown.txt) and re-creates the corresponding files and folders in the current directory,
-    while eliminating unwanted junk characters.
+    while eliminating unwanted junk characters and ensuring that files are saved without a BOM.
 #>
 
 # Set up the script directory as the base directory.
@@ -39,15 +39,18 @@ function Sanitize-FileContent {
     param (
         [string]$content
     )
-    # Remove problematic control characters (keep newline `\n` and carriage return `\r` intact).
+    # Remove a BOM if present. The BOM (Byte Order Mark) in UTF-8 is represented as 0xFEFF.
+    if ($content.StartsWith([char]0xFEFF)) {
+        $content = $content.Substring(1)
+    }
+    # Remove problematic control characters (while keeping newline and carriage return intact).
     $sanitizedContent = $content -replace '[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]', ''
     # Trim extra spaces and trailing newlines.
     $sanitizedContent = $sanitizedContent.TrimEnd()
     return $sanitizedContent
 }
 
-# Helper function that takes a file path string (which might include forward/backslashes)
-# and returns a hashtable with the resolved Directory (relative to $baseDir) and FileName.
+# Helper function that takes a file path string and returns a hashtable with resolved Directory and FileName.
 function Resolve-FilePath {
     param (
         [string]$FilePathString
@@ -152,7 +155,8 @@ function Parse-MarkdownContent {
                     Write-Log "Writing file: ${filePath}"
                     Write-Log "Sanitized file content: ${fileContent}"
                     try {
-                        $fileContent | Out-File -FilePath $filePath -Encoding utf8
+                        # Write without BOM using .NET's WriteAllText with UTF8Encoding with BOM disabled.
+                        [System.IO.File]::WriteAllText($filePath, $fileContent, (New-Object System.Text.UTF8Encoding -ArgumentList $False))
                         if (Test-Path -Path $filePath) {
                             Write-Log "File created: ${filePath}"
                         }
@@ -182,7 +186,7 @@ function Parse-MarkdownContent {
             }
         }
 
-        # If inside a code block, accumulate the sanitized content (even if the line is empty).
+        # If inside a code block, accumulate the sanitized content.
         if ($insideCodeBlock -and $fileName) {
             Write-Log "Appending to file content for ${fileName}: ${line}"
             $fileContent += $line + "`n"
@@ -206,7 +210,7 @@ function Parse-MarkdownContent {
         $fileContent = Sanitize-FileContent -content $fileContent
         Write-Log "Writing unclosed file: ${filePath}"
         try {
-            $fileContent | Out-File -FilePath $filePath -Encoding utf8
+            [System.IO.File]::WriteAllText($filePath, $fileContent, (New-Object System.Text.UTF8Encoding -ArgumentList $False))
             if (Test-Path -Path $filePath) {
                 Write-Log "File created: ${filePath}"
             }
@@ -229,7 +233,7 @@ Write-Log "Markdown file path: ${markdownFilePath}"
 if (Test-Path -Path $markdownFilePath) {
     Write-Log "Found markdown file: ${markdownFilePath}"
     try {
-        # Explicitly set encoding to UTF-8 and sanitize the content.
+        # Read the markdown file with explicit UTF-8 encoding and sanitize its content.
         $markdownContent = Get-Content -Path $markdownFilePath -Raw -Encoding utf8
         $markdownContent = Sanitize-FileContent -content $markdownContent
         Write-Log "Read and sanitized markdown content."
