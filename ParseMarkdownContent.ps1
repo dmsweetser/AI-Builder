@@ -1,34 +1,49 @@
 <#
-    ParseMarkdownContent.ps1 - https://github.com/dmsweetser/Toolkit
+    ParseMarkdownContent.ps1 - Enhanced version with junk character protections
     This script extracts markdown content representing a file structure from an LLM response 
-    (read from markdown.txt) and re-creates the corresponding files and folders in the current directory.
+    (read from markdown.txt) and re-creates the corresponding files and folders in the current directory,
+    while eliminating unwanted junk characters.
 #>
 
-# Set up the script directory as the base directory
+# Set up the script directory as the base directory.
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $baseDir = $scriptDir
 $logFilePath = Join-Path -Path $scriptDir -ChildPath 'script.log'
 
-# Function to log messages with a timestamp using ${} syntax for variable interpolation.
+# Function to log messages with a timestamp.
 function Write-Log {
     param (
         [string]$message
     )
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-    $logMessage = "[$timestamp] ${message}"
+    $logMessage = "[$timestamp] $message"
     $logMessage | Out-File -Append -FilePath $logFilePath
 }
 
-# Function to sanitize individual path components (filenames or folder names)
+# Function to sanitize individual path components (filenames or folder names).
 function Sanitize-PathComponent {
     param (
         [string]$pathComponent
     )
-    # Replace illegal characters with underscores and remove control characters
+    # Replace illegal filename characters with an underscore.
     $sanitizedComponent = $pathComponent -replace '[<>:"/\\|?*]', '_'
+    # Remove control characters (these include non-printable characters).
     $sanitizedComponent = $sanitizedComponent -replace '\p{C}', ''
-    $sanitizedComponent = $sanitizedComponent -replace '^(# `)', ''
+    # Trim leading and trailing whitespace.
+    $sanitizedComponent = $sanitizedComponent.Trim()
     return $sanitizedComponent
+}
+
+# Function to sanitize file content and input strings.
+function Sanitize-FileContent {
+    param (
+        [string]$content
+    )
+    # Remove problematic control characters (keep newline `\n` and carriage return `\r` intact).
+    $sanitizedContent = $content -replace '[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]', ''
+    # Trim extra spaces and trailing newlines.
+    $sanitizedContent = $sanitizedContent.TrimEnd()
+    return $sanitizedContent
 }
 
 # Helper function that takes a file path string (which might include forward/backslashes)
@@ -37,15 +52,17 @@ function Resolve-FilePath {
     param (
         [string]$FilePathString
     )
-    # Trim any wrapping backticks or quotes
+    # Remove any wrapping backticks or quotes and sanitize the string.
     $trimmed = $FilePathString.Trim("``""")
+    $trimmed = Sanitize-FileContent -content $trimmed
     if ($trimmed -match '[\\/]+') {
         $parts = $trimmed -split '[\\/]'
         $fileName = Sanitize-PathComponent -pathComponent $parts[-1]
         $dir = $baseDir
         if ($parts.Length -gt 1) {
             for ($i = 0; $i -lt $parts.Length - 1; $i++) {
-                $dir = Join-Path -Path $dir -ChildPath (Sanitize-PathComponent -pathComponent $parts[$i])
+                $child = Sanitize-PathComponent -pathComponent $parts[$i]
+                $dir = Join-Path -Path $dir -ChildPath $child
             }
         }
     }
@@ -62,10 +79,12 @@ function Parse-MarkdownContent {
         [string]$markdownContent
     )
 
-    Write-Log "Initial markdown content: ${markdownContent}"
+    # Sanitize the overall markdown content.
+    $markdownContent = Sanitize-FileContent -content $markdownContent
+    Write-Log "Initial markdown content sanitized."
     $lines = $markdownContent -split "`n"
 
-    # Initialize state variables
+    # Initialize state variables.
     $insideCodeBlock = $false
     $fileContent = ""
     $fileName = $null
@@ -73,19 +92,19 @@ function Parse-MarkdownContent {
 
     Write-Log "Starting parsing of markdown content."
 
-    # Use an index-based loop for lookahead capability.
+    # Use an index-based loop to allow lookahead.
     for ($i = 0; $i -lt $lines.Length; $i++) {
-        $line = $lines[$i].TrimEnd()
+        $line = Sanitize-FileContent -content $lines[$i]
         Write-Log "Processing line: ${line}"
         Write-Log "State: insideCodeBlock=${insideCodeBlock}, currentDir=${currentDir}, fileName=${fileName}"
 
-        # Detect code fences (triple backticks) which may specify the filename.
+        # Detect code fences (triple backticks) which may optionally specify the filename.
         if ($line -match '^```\s*(\S*)\s*$') {
             if (-not $insideCodeBlock) {
                 # Start of a code block.
                 $insideCodeBlock = $true
                 if ($matches[1]) {
-                    # Only treat the matched string as a filename if it contains a period.
+                    # Only treat the identifier as a filename if it contains a period.
                     if ($matches[1] -match '\.') {
                         $resolved = Resolve-FilePath -FilePathString $matches[1]
                         $fileName = $resolved.FileName
@@ -93,13 +112,13 @@ function Parse-MarkdownContent {
                         Write-Log "Detected filename on opening code block: ${fileName}, directory set to: ${currentDir}"
                     }
                     else {
-                        Write-Log "Ignoring identifier after backticks (likely a language specifier): $($matches[1])"
+                        Write-Log "Ignoring identifier after backticks (likely language specifier): $($matches[1])"
                     }
                 }
                 else {
-                    # Look ahead: if the next line exists and isn’t a closing code fence, treat it as the filename if it contains a period.
+                    # Look ahead: if the next line exists and contains a period, treat it as the filename.
                     if ($i + 1 -lt $lines.Length) {
-                        $nextLine = $lines[$i + 1].Trim()
+                        $nextLine = Sanitize-FileContent -content $lines[$i + 1]
                         if ($nextLine -and ($nextLine -match '\.')) {
                             $resolved = Resolve-FilePath -FilePathString $nextLine
                             $fileName = $resolved.FileName
@@ -108,7 +127,7 @@ function Parse-MarkdownContent {
                             $i++  # Skip the line used for the filename.
                         }
                         else {
-                            Write-Log "Skipping line after opening backticks as filename because it does not contain a period."
+                            Write-Log "Skipping next line as filename because it does not appear valid."
                         }
                     }
                 }
@@ -117,7 +136,7 @@ function Parse-MarkdownContent {
                 # End of the code block.
                 $insideCodeBlock = $false
                 if ($fileName -and $fileContent -ne "") {
-                    # Ensure the target directory exists before writing the file.
+                    # Ensure the target directory exists.
                     if (-not (Test-Path -Path $currentDir)) {
                         Write-Log "Creating directory: ${currentDir}"
                         try {
@@ -129,8 +148,9 @@ function Parse-MarkdownContent {
                         }
                     }
                     $filePath = Join-Path -Path $currentDir -ChildPath $fileName
+                    $fileContent = Sanitize-FileContent -content $fileContent
                     Write-Log "Writing file: ${filePath}"
-                    Write-Log "File content: ${fileContent}"
+                    Write-Log "Sanitized file content: ${fileContent}"
                     try {
                         $fileContent | Out-File -FilePath $filePath -Encoding utf8
                         if (Test-Path -Path $filePath) {
@@ -162,7 +182,7 @@ function Parse-MarkdownContent {
             }
         }
 
-        # If inside a code block, accumulate the content (even if the line is empty).
+        # If inside a code block, accumulate the sanitized content (even if the line is empty).
         if ($insideCodeBlock -and $fileName) {
             Write-Log "Appending to file content for ${fileName}: ${line}"
             $fileContent += $line + "`n"
@@ -183,6 +203,7 @@ function Parse-MarkdownContent {
             }
         }
         $filePath = Join-Path -Path $currentDir -ChildPath $fileName
+        $fileContent = Sanitize-FileContent -content $fileContent
         Write-Log "Writing unclosed file: ${filePath}"
         try {
             $fileContent | Out-File -FilePath $filePath -Encoding utf8
@@ -207,9 +228,16 @@ Write-Log "Markdown file path: ${markdownFilePath}"
 
 if (Test-Path -Path $markdownFilePath) {
     Write-Log "Found markdown file: ${markdownFilePath}"
-    $markdownContent = Get-Content -Path $markdownFilePath -Raw
-    Write-Log "Read markdown content."
-    Parse-MarkdownContent -markdownContent $markdownContent
+    try {
+        # Explicitly set encoding to UTF-8 and sanitize the content.
+        $markdownContent = Get-Content -Path $markdownFilePath -Raw -Encoding utf8
+        $markdownContent = Sanitize-FileContent -content $markdownContent
+        Write-Log "Read and sanitized markdown content."
+        Parse-MarkdownContent -markdownContent $markdownContent
+    }
+    catch {
+        Write-Log "Error reading markdown file: ${markdownFilePath} - Exception: ${_}"
+    }
 }
 else {
     Write-Log "Error: File 'markdown.txt' not found in the script directory."
