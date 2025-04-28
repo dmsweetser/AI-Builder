@@ -132,7 +132,9 @@ function Parse-MarkdownContent {
                     Write-Log "Writing file: ${filePath}"
                     Write-Log "File content: ${fileContent}"
                     try {
-                        $fileContent | Out-File -FilePath $filePath -Encoding utf8
+                        # Use .NET file writing to avoid BOM issues.
+                        $utf8NoBOM = New-Object System.Text.UTF8Encoding($false)
+                        [System.IO.File]::WriteAllText($filePath, $fileContent, $utf8NoBOM)
                         if (Test-Path -Path $filePath) {
                             Write-Log "File created: ${filePath}"
                         }
@@ -185,7 +187,9 @@ function Parse-MarkdownContent {
         $filePath = Join-Path -Path $currentDir -ChildPath $fileName
         Write-Log "Writing unclosed file: ${filePath}"
         try {
-            $fileContent | Out-File -FilePath $filePath -Encoding utf8
+            # Use .NET file writing to avoid BOM issues.
+            $utf8NoBOM = New-Object System.Text.UTF8Encoding($false)
+            [System.IO.File]::WriteAllText($filePath, $fileContent, $utf8NoBOM)
             if (Test-Path -Path $filePath) {
                 Write-Log "File created: ${filePath}"
             }
