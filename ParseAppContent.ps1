@@ -8,7 +8,13 @@
 $outputFile = "output.txt"
 
 # List of specific filenames to exclude
-$excludedFiles = @("package-lock.json", "ParseAppContent.ps1", "ParseMarkdownContent.ps1", "output.txt", "markdown.txt")
+$excludedFiles = @(
+    "package-lock.json", 
+    "ParseAppContent.ps1",
+    "ParseMarkdownContent.ps1",
+    "output.txt", 
+    "markdown.txt"
+)
 
 # Remove the output file if it exists
 if (Test-Path $outputFile) {
@@ -58,6 +64,13 @@ function IsExcluded {
     # Check if the filename is in the explicit exclusion list
     if ($excludedFiles -contains $fileName) {
         return $true
+    }
+
+    # Check if any of the excluded patterns are part of the filename
+    foreach ($pattern in $excludedFiles) {
+        if ($fileName -like "*$pattern*") {
+            return $true
+        }
     }
 
     return $false
