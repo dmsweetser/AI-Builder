@@ -54,6 +54,7 @@ try:
     )
 
     response = client.complete(
+        stream=True,
         messages=[
             SystemMessage(content="You are a helpful assistant."),
             UserMessage(content=f"""
@@ -63,12 +64,16 @@ RESPOND ONLY WITH a properly formatted git diff output that does the following:
 {instructions}
 """),
         ],
-        max_tokens=120000,
+        max_tokens=131072/2,
         model=model_name
     )
 
-    # Extract the response content
-    response_content = response.choices[0].message.content
+    response_content = ""
+
+    for update in response:
+        if update.choices:
+            response_content += update.choices[0].delta.content or ""
+
     logging.info("Successfully obtained response from client.")
 
     # Cut off the response prior to the text "</think>"
