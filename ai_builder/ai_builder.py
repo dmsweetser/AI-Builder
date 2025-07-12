@@ -78,7 +78,7 @@ RESPOND ONLY WITH a properly formatted git diff output that does the following:
 
     # Cut off the response prior to the text "</think>"
     if "</think>" in response_content:
-        response_content = response_content.split("</think>")[0]
+        response_content = response_content.split("</think>")[1]
 
     # Write the response content to a patch file
     patch_file_path = 'changes.patch'
