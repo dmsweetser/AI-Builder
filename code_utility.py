@@ -32,7 +32,7 @@ class CodeUtility:
         file_name = os.path.basename(path)
         for rule in rules:
             if rule in path:
-                return mode == "exclude"
+                return mode == "include"
         if file_name in patterns:
             return mode == "include"
         for pattern in patterns:
@@ -45,11 +45,10 @@ class CodeUtility:
         all_rules = parent_rules + current_rules
         for root, dirs, files in os.walk(directory):
             for file in files:
-                full_path = os.path.join(root, file)
-                relative_path = os.path.relpath(full_path, self.base_dir)
+                relative_path = os.path.relpath(os.path.join(root, file), self.base_dir)
                 if self.should_process_file(relative_path, all_rules, patterns, mode):
                     try:
-                        with open(full_path, 'r') as f:
+                        with open(os.path.join(root, file), 'r') as f:
                             content = f.read()
                         with open(self.output_file, 'a') as out_file:
                             out_file.write(f"\n### {relative_path}\n```\n{content}\n```\n")
@@ -148,7 +147,7 @@ class CodeUtility:
                         hunk_file = f"hunk_{(i // 2) + 1}.patch"
                         with open(hunk_file, 'w') as f:
                             f.write(hunk_content)
-                        result = subprocess.run(['git', 'apply', '--directory=' + self.base_dir, hunk_file], capture_output=True, text=True)
+                        result = subprocess.run(['git', 'apply', hunk_file], capture_output=True, text=True)
                         if result.returncode == 0:
                             logging.info(f"  ✓ Applied {hunk_file}")
                             os.remove(hunk_file)
@@ -159,7 +158,7 @@ class CodeUtility:
                     os.remove(patch_file)
                     logging.info(f"  All hunks applied successfully for {patch_file}")
             else:
-                result = subprocess.run(['git', 'apply', '--directory=' + self.base_dir, patch_file], capture_output=True, text=True)
+                result = subprocess.run(['git', 'apply', patch_file], capture_output=True, text=True)
                 if result.returncode == 0:
                     logging.info(f"  ✓ Applied {patch_file}")
                     os.remove(patch_file)

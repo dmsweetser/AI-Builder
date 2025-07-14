@@ -13,10 +13,10 @@ load_dotenv()
 class AIBuilder:
     def __init__(self):
         self.return_git_diff = True
-        self.utility = CodeUtility()
 
     def run(self):
         root_directory = os.getenv("ROOT_DIRECTORY")
+        self.utility = CodeUtility(root_directory)
         if root_directory:
             os.chdir(root_directory)
             logging.info(f"Changed working directory to: {root_directory}")
