@@ -1,4 +1,6 @@
 <#
+    DEPRECATED - use ai_builder.py instead, which has built-in utility functions for this purpose
+    
     ParseAppContent.ps1 - Modified version
     This script extracts all the app content in a directory (using the current working directory as the root)
     with options to either exclude or include specified patterns.
