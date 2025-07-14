@@ -38,11 +38,9 @@ class AIBuilder:
                 if os.path.exists(self.utility.output_file):
                     os.remove(self.utility.output_file)
                 self.utility.process_directory(root_directory, [], patterns, mode)
-
                 with open(self.utility.output_file, 'r', encoding='utf-8') as file:
                     current_code = file.read().strip()
                 logging.info("Successfully read output.txt")
-
                 with open('instructions.txt', 'r', encoding='utf-8') as file:
                     instructions = file.read().strip()
                 logging.info("Successfully read instructions.txt")
@@ -50,7 +48,6 @@ class AIBuilder:
                 endpoint = os.getenv("ENDPOINT")
                 model_name = os.getenv("MODEL_NAME")
                 api_key = os.getenv("API_KEY")
-
                 if not all([endpoint, model_name, api_key]):
                     logging.error("Missing one or more required environment variables: ENDPOINT, MODEL_NAME, API_KEY")
                     raise ValueError("Missing required environment variables.")
@@ -67,7 +64,6 @@ class AIBuilder:
                     output_instruction = "RESPOND WITH COMPLETE REVISIONS OF ALL IMPACTED FILES that addresses the following:"
 
                 user_instruction = f"I have the following code:\n{current_code}\n{output_instruction}\n{instructions}"
-
                 with open("full_request.txt", 'w', encoding='utf-8') as full_request_file:
                     full_request_file.write(user_instruction)
 
@@ -91,7 +87,6 @@ class AIBuilder:
                         logging.warning("Unexpected response format: choices list is empty or invalid.")
 
                 logging.info("Successfully obtained response from client.")
-
                 with open("full_response.txt", 'w', encoding='utf-8') as full_response_file:
                     full_response_file.write(response_content)
 

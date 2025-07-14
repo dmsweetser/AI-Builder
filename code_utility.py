@@ -30,30 +30,26 @@ class CodeUtility:
 
     def should_process_file(self, path: str, rules: List[str], patterns: List[str], mode: str) -> bool:
         file_name = os.path.basename(path)
-
         for rule in rules:
             if rule in path:
                 return mode == "exclude"
-
         if file_name in patterns:
             return mode == "include"
-
         for pattern in patterns:
             if pattern in file_name or pattern in path:
                 return mode == "include"
-
         return mode != "include"
 
     def process_directory(self, directory: str, parent_rules: List[str], patterns: List[str], mode: str):
         current_rules = self.parse_gitignore(directory)
         all_rules = parent_rules + current_rules
-
         for root, dirs, files in os.walk(directory):
             for file in files:
-                relative_path = os.path.relpath(os.path.join(root, file), self.base_dir)
+                full_path = os.path.join(root, file)
+                relative_path = os.path.relpath(full_path, self.base_dir)
                 if self.should_process_file(relative_path, all_rules, patterns, mode):
                     try:
-                        with open(os.path.join(root, file), 'r') as f:
+                        with open(full_path, 'r') as f:
                             content = f.read()
                         with open(self.output_file, 'a') as out_file:
                             out_file.write(f"\n### {relative_path}\n```\n{content}\n```\n")
@@ -70,10 +66,8 @@ class CodeUtility:
         parts = re.split(r'[\\/]+', trimmed)
         file_name = self.sanitize_path_component(parts[-1])
         directory = self.base_dir
-
         if len(parts) > 1:
             directory = os.path.join(directory, *map(self.sanitize_path_component, parts[:-1]))
-
         return {"Directory": directory, "FileName": file_name}
 
     def parse_markdown_content(self, markdown_content: str):
@@ -82,7 +76,6 @@ class CodeUtility:
         file_content = ""
         file_name = None
         current_dir = self.base_dir
-
         for i, line in enumerate(lines):
             line = line.rstrip()
             if line.startswith("```"):
@@ -120,7 +113,6 @@ class CodeUtility:
                 current_dir = resolved["Directory"]
             elif inside_code_block and file_name:
                 file_content += line + "\n"
-
         if inside_code_block and file_name and file_content:
             if not os.path.exists(current_dir):
                 os.makedirs(current_dir, exist_ok=True)
@@ -132,7 +124,6 @@ class CodeUtility:
     def split_patch_file(self, patch_file_path: str):
         with open(patch_file_path, 'r') as file:
             content = file.read()
-
         patches = content.split('diff --git')
         for i, patch in enumerate(patches):
             if i == 0:
@@ -142,44 +133,33 @@ class CodeUtility:
 
     def split_and_apply_patches(self, patch_file_path: str):
         self.split_patch_file(patch_file_path)
-
         patch_files = sorted([f for f in os.listdir('.') if f.startswith('patch_') and f.endswith('.patch')])
-
         for patch_file in patch_files:
             logging.info(f"Processing {patch_file}")
-
             with open(patch_file, 'r') as f:
                 content = f.read()
-
             hunks = re.split(r'(^@@.*?@@.*?$)', content, flags=re.MULTILINE)
-
             if len(hunks) > 1:
                 header = hunks[0]
                 success_count = 0
-
                 for i in range(len(hunks) - 1, 0, -2):
                     if i - 1 >= 0:
                         hunk_content = header + hunks[i - 1] + hunks[i]
                         hunk_file = f"hunk_{(i // 2) + 1}.patch"
-
                         with open(hunk_file, 'w') as f:
                             f.write(hunk_content)
-
-                        result = subprocess.run(['git', 'apply', hunk_file], capture_output=True, text=True)
-
+                        result = subprocess.run(['git', 'apply', '--directory=' + self.base_dir, hunk_file], capture_output=True, text=True)
                         if result.returncode == 0:
                             logging.info(f"  ✓ Applied {hunk_file}")
                             os.remove(hunk_file)
                             success_count += 1
                         else:
                             logging.error(f"  ✗ Failed {hunk_file}: {result.stderr.strip()}")
-
                 if success_count == (len(hunks) - 1) // 2:
                     os.remove(patch_file)
                     logging.info(f"  All hunks applied successfully for {patch_file}")
             else:
-                result = subprocess.run(['git', 'apply', patch_file], capture_output=True, text=True)
-
+                result = subprocess.run(['git', 'apply', '--directory=' + self.base_dir, patch_file], capture_output=True, text=True)
                 if result.returncode == 0:
                     logging.info(f"  ✓ Applied {patch_file}")
                     os.remove(patch_file)
