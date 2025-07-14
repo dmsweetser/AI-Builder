@@ -39,7 +39,7 @@ class CodeUtility:
             return mode == "include"
 
         for pattern in patterns:
-            if pattern in file_name:
+            if pattern in file_name or pattern in path:
                 return mode == "include"
 
         return mode != "include"

@@ -12,7 +12,7 @@ load_dotenv()
 
 class AIBuilder:
     def __init__(self):
-        self.return_git_diff = False
+        self.return_git_diff = True
         self.utility = CodeUtility()
 
     def run(self):
@@ -28,13 +28,18 @@ class AIBuilder:
                 patterns = [
                     "package-lock.json",
                     "output.txt",
+                    "full_request.txt",
+                    "full_response.txt",
+                    "instructions.txt",
+                    "changes.patch",
+                    ".git"
                 ]
                 mode = "exclude"
 
                 if os.path.exists(self.utility.output_file):
                     os.remove(self.utility.output_file)
 
-                self.utility.process_directory(self.utility.base_dir, [], patterns, mode)
+                self.utility.process_directory(root_directory, [], patterns, mode)
 
                 with open(self.utility.output_file, 'r') as file:
                     current_code = file.read().strip()
@@ -65,11 +70,16 @@ class AIBuilder:
                 else:
                     output_instruction = "RESPOND WITH COMPLETE REVISIONS OF ALL IMPACTED FILES that addresses the following:"
 
+                user_instruction = f"I have the following code:\n{current_code}\n{output_instruction}\n{instructions}"
+
+                with open("full_request.txt", 'w') as full_request_file:
+                    full_request_file.write(user_instruction)
+
                 response = client.complete(
                     stream=True,
                     messages=[
                         SystemMessage(content="You are a helpful assistant."),
-                        UserMessage(content=f"I have the following code:\n{current_code}\n{output_instruction}\n{instructions}")
+                        UserMessage(content=user_instruction)
                     ],
                     max_tokens=131072 // 2,
                     model=model_name
