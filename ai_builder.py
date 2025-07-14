@@ -39,11 +39,11 @@ class AIBuilder:
                     os.remove(self.utility.output_file)
                 self.utility.process_directory(root_directory, [], patterns, mode)
 
-                with open(self.utility.output_file, 'r') as file:
+                with open(self.utility.output_file, 'r', encoding='utf-8') as file:
                     current_code = file.read().strip()
                 logging.info("Successfully read output.txt")
 
-                with open('instructions.txt', 'r') as file:
+                with open('instructions.txt', 'r', encoding='utf-8') as file:
                     instructions = file.read().strip()
                 logging.info("Successfully read instructions.txt")
 
@@ -68,7 +68,7 @@ class AIBuilder:
 
                 user_instruction = f"I have the following code:\n{current_code}\n{output_instruction}\n{instructions}"
 
-                with open("full_request.txt", 'w') as full_request_file:
+                with open("full_request.txt", 'w', encoding='utf-8') as full_request_file:
                     full_request_file.write(user_instruction)
 
                 response = client.complete(
@@ -92,13 +92,13 @@ class AIBuilder:
 
                 logging.info("Successfully obtained response from client.")
 
-                with open("full_response.txt", 'w') as full_response_file:
+                with open("full_response.txt", 'w', encoding='utf-8') as full_response_file:
                     full_response_file.write(response_content)
 
                 if "</think>" in response_content:
                     response_content = response_content.split("</think>")[1]
 
-                with open('changes.patch', 'w') as patch_file:
+                with open('changes.patch', 'w', encoding='utf-8') as patch_file:
                     patch_file.write(response_content)
                 logging.info("Successfully wrote patch file to changes.patch")
 
