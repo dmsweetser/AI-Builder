@@ -35,20 +35,16 @@ class AIBuilder:
                     ".git"
                 ]
                 mode = "exclude"
-
                 if os.path.exists(self.utility.output_file):
                     os.remove(self.utility.output_file)
-
                 self.utility.process_directory(root_directory, [], patterns, mode)
 
                 with open(self.utility.output_file, 'r') as file:
                     current_code = file.read().strip()
-
                 logging.info("Successfully read output.txt")
 
                 with open('instructions.txt', 'r') as file:
                     instructions = file.read().strip()
-
                 logging.info("Successfully read instructions.txt")
 
                 endpoint = os.getenv("ENDPOINT")
@@ -85,7 +81,14 @@ class AIBuilder:
                     model=model_name
                 )
 
-                response_content = "".join(update.choices[0]["delta"].get("content", "") for update in response)
+                response_content = ""
+                for update in response:
+                    if update.choices and isinstance(update.choices, list) and len(update.choices) > 0:
+                        content = update.choices[0].get("delta", {}).get("content", "")
+                        if content is not None:
+                            response_content += content
+                    else:
+                        logging.warning("Unexpected response format: choices list is empty or invalid.")
 
                 logging.info("Successfully obtained response from client.")
 
@@ -97,7 +100,6 @@ class AIBuilder:
 
                 with open('changes.patch', 'w') as patch_file:
                     patch_file.write(response_content)
-
                 logging.info("Successfully wrote patch file to changes.patch")
 
             try:
