@@ -5,7 +5,6 @@ from azure.ai.inference import ChatCompletionsClient
 from azure.ai.inference.models import SystemMessage, UserMessage
 from azure.core.credentials import AzureKeyCredential
 from code_utility import CodeUtility
-import subprocess
 
 # Load environment variables from .env file
 load_dotenv()
@@ -101,7 +100,7 @@ class AIBuilder:
             try:
                 self.utility.split_and_apply_patches('changes.patch')
                 logging.info("Git diff applied successfully.")
-            except subprocess.CalledProcessError as e:
+            except Exception as e:
                 logging.error(f"Failed to apply git diff: {e.output}")
 
         except Exception as e:
