@@ -32,7 +32,8 @@ class AIBuilder:
                     "full_response.txt",
                     "instructions.txt",
                     "changes.patch",
-                    ".git"
+                    ".git",
+                    "utility.log"
                 ]
                 mode = "exclude"
                 if os.path.exists(self.utility.output_file):
