@@ -1,0 +1,19 @@
+{
+    "iterations": 1,
+    "mode": "exclude",
+    "patterns": [
+        "package-lock.json",
+        "output.txt",
+        "full_request.txt",
+        "full_response.txt",
+        "instructions.txt",
+        "changes.patch",
+        ".git",
+        "utility.log",
+        ".png",
+        ".exe",
+        ".ico",
+        ".webp",
+        ".gguf"
+    ]
+}

@@ -7,8 +7,8 @@ from typing import List, Dict, Optional
 class CodeUtility:
     def __init__(self, base_dir: str = os.getcwd()):
         self.base_dir = base_dir
-        self.output_file = os.path.join(base_dir, "output.txt")
-        self.log_file = os.path.join(base_dir, "utility.log")
+        self.output_file = os.path.join(base_dir, "ai_builder", "output.txt")
+        self.log_file = os.path.join(base_dir, "ai_builder", "utility.log")
         self.setup_logging()
 
     def setup_logging(self):
@@ -32,13 +32,11 @@ class CodeUtility:
         file_name = os.path.basename(path)
         for rule in rules:
             if rule in path:
-                return mode == "include"
-        if file_name in patterns:
-            return mode == "include"
+                return False
         for pattern in patterns:
             if pattern in file_name or pattern in path:
                 return mode == "include"
-        return mode != "include"
+        return mode != "exclude"
 
     def process_directory(self, directory: str, parent_rules: List[str], patterns: List[str], mode: str):
         current_rules = self.parse_gitignore(directory)
