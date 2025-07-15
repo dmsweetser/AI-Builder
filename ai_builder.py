@@ -8,6 +8,7 @@ from azure.ai.inference import ChatCompletionsClient
 from azure.ai.inference.models import SystemMessage, UserMessage
 from azure.core.credentials import AzureKeyCredential
 from code_utility import CodeUtility
+from file_mod_engine import apply_modifications
 
 # Load environment variables from .env file
 load_dotenv()
@@ -56,7 +57,12 @@ class AIBuilder:
                     "instructions.txt",
                     "changes.patch",
                     ".git",
-                    "utility.log"
+                    "utility.log",
+                    ".png",
+                    ".exe",
+                    ".ico",
+                    ".webp",
+                    ".gguf"
                 ]
             }
             with open(user_config_path, 'w') as config_file:
@@ -80,10 +86,9 @@ class AIBuilder:
             self.run_pre_post_scripts("pre.ps1")
 
             try:
-                if not os.path.exists(os.path.join(ai_builder_dir, 'changes.patch')):
+                if not os.path.exists(os.path.join(ai_builder_dir, 'modifications.json')):
                     if os.path.exists(self.utility.output_file):
                         os.remove(self.utility.output_file)
-
                     self.utility.process_directory(root_directory, [], patterns, mode)
 
                     # Ensure output.txt is created and not empty
@@ -113,21 +118,60 @@ class AIBuilder:
                         api_version="2024-05-01-preview"
                     )
 
-                    if self.return_git_diff:
-                        output_instruction = "RESPOND ONLY WITH a properly formatted git diff output that does the following:"
-                    else:
-                        output_instruction = "RESPOND WITH COMPLETE REVISIONS OF ALL IMPACTED FILES that addresses the following:"
+                    prompt = f"""
+                    Generate a JSON file that describes file modifications to apply using the following supported action types:
 
-                    user_instruction = f"I have the following code:\n{current_code}\n{output_instruction}\n{instructions}"
+                    1. `replace_between_markers`:
+                        - `start_marker`: String
+                        - `end_marker`: String
+                        - `new_content`: List of strings (lines of replacement code/text)
 
-                    with open(os.path.join(ai_builder_dir, "full_request.txt"), 'w', encoding='utf-8') as full_request_file:
-                        full_request_file.write(user_instruction)
+                    2. `append`:
+                        - `content`: List of strings to append to end of file
+
+                    3. `prepend`:
+                        - `content`: List of strings to add to top of file
+
+                    4. `regex_replace`:
+                        - `pattern`: Regex pattern
+                        - `replacement`: Replacement string
+
+                    5. `replace_line_containing`:
+                        - `match_substring`: Text to search for within lines
+                        - `replacement_line`: Full line to replace matched lines with
+
+                    Example output format:
+
+                    ```json
+                    {{
+                        "changes": [
+                            {{
+                                "file": "example.py",
+                                "actions": [
+                                    {{
+                                        "action": "append",
+                                        "content": ["# Automatically added comment."]
+                                    }}
+                                ]
+                            }}
+                        ]
+                    }}
+                    ```
+
+                    Ensure the JSON is strictly valid. Do not include comments in the JSON. Generate modifications logically based on the desired changes.
+
+                    Current code:
+                    {current_code}
+
+                    Instructions:
+                    {instructions}
+                    """
 
                     response = client.complete(
                         stream=True,
                         messages=[
                             SystemMessage(content="You are a helpful assistant."),
-                            UserMessage(content=user_instruction)
+                            UserMessage(content=prompt)
                         ],
                         max_tokens=131072 // 2,
                         model=model_name
@@ -144,21 +188,26 @@ class AIBuilder:
 
                     logging.info("Successfully obtained response from client.")
 
-                    with open(os.path.join(ai_builder_dir, "full_response.txt"), 'w', encoding='utf-8') as full_response_file:
-                        full_response_file.write(response_content)
+                    # Save the generated modifications.json file
+                    modifications_json_path = os.path.join(ai_builder_dir, "modifications.json")
+                    with open(modifications_json_path, 'w', encoding='utf-8') as modifications_file:
+                        modifications_file.write(response_content)
 
-                    if "</think>" in response_content:
-                        response_content = response_content.split("</think>")[1]
+                    logging.info(f"Successfully wrote modifications file to {modifications_json_path}")
 
-                    with open(os.path.join(ai_builder_dir, 'changes.patch'), 'w', encoding='utf-8') as patch_file:
-                        patch_file.write(response_content)
-                    logging.info("Successfully wrote patch file to changes.patch")
+                    # Validate the modifications.json file
+                    try:
+                        with open(modifications_json_path, 'r', encoding='utf-8') as modifications_file:
+                            modifications = json.load(modifications_file)
+                        if "changes" not in modifications:
+                            raise ValueError("Invalid modifications.json file: 'changes' key not found.")
+                        logging.info("Successfully validated modifications.json file.")
+                    except json.JSONDecodeError as e:
+                        logging.error(f"Failed to validate modifications.json file: {e}")
+                        raise ValueError("Invalid modifications.json file.")
 
-                try:
-                    self.utility.split_and_apply_patches(os.path.join(ai_builder_dir, 'changes.patch'))
-                    logging.info("Git diff applied successfully.")
-                except Exception as e:
-                    logging.error(f"Failed to apply git diff: {e}")
+                # Apply the modifications
+                apply_modifications(modifications_json_path)
 
             except Exception as e:
                 logging.error(f"An error occurred: {str(e)}", exc_info=True)
