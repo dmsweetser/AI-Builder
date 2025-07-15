@@ -1,9 +1,9 @@
 import os
 import re
-import json
 import logging
 import shutil
 import subprocess
+import xml.etree.ElementTree as ET
 from dotenv import load_dotenv
 from azure.ai.inference import ChatCompletionsClient
 from azure.ai.inference.models import SystemMessage, UserMessage
@@ -12,14 +12,13 @@ from azure.core.credentials import AzureKeyCredential
 # Load environment variables from .env file
 load_dotenv()
 
-def extract_json_content(text):
+def extract_xml_content(text):
     # Define the markers
-    start_marker = "```json"
+    start_marker = "```xml"
     end_marker = "```"
 
-    # Find the starting index of the ```json marker
+    # Find the starting index of the ```xml marker
     start_index = text.find(start_marker)
-
     if start_index == -1:
         return text  # Return the original text if the start marker is not found
 
@@ -28,46 +27,56 @@ def extract_json_content(text):
 
     # Find the end index of the ``` marker by searching from the end of the text
     end_index = text.rfind(end_marker)
-
     if end_index == -1 or end_index <= start_index:
         return text  # Return the original text if the end marker is not found or is before the start index
 
     # Extract the content between the start and end markers
-    json_content = text[start_index:end_index].strip()
-    return json_content
+    xml_content = text[start_index:end_index].strip()
+    return xml_content
 
-def load_instructions(json_path):
-    with open(json_path, 'r', encoding='utf-8') as f:
+def load_instructions(xml_path):
+    with open(xml_path, 'r', encoding='utf-8') as f:
         content = f.read()
-    json_content = extract_json_content(content)
-    with open("ai_builder\extracted.json", 'w', encoding='utf-8') as f:
-            f.write(json_content)
-    return json.loads(json_content)['changes']
+
+    if "</think>" in content:
+        content = content.split("</think>")[1]
+
+    xml_content = extract_xml_content(content)
+
+    with open("ai_builder/extracted.xml", 'w', encoding='utf-8') as f:
+        f.write(xml_content)
+
+    root = ET.fromstring(xml_content)
+    changes = []
+    for change in root.findall('change'):
+        file = change.get('file')
+        actions = []
+        for action in change.findall('action'):
+            action_type = action.get('type')
+            action_data = {k: v for k, v in action.attrib.items() if k != 'type'}
+            actions.append({'action': action_type, **action_data})
+        changes.append({'file': file, 'actions': actions})
+
+    return changes
 
 def replace_between_markers(lines, start_marker, end_marker, new_content):
     new_lines = []
     i = 0
     n = len(lines)
-
     while i < n:
         line = lines[i]
-
         if start_marker in line:
             # Add new content
             new_lines.extend(new_content)
-
             # Skip lines until end_marker is found
             while i < n and end_marker not in lines[i]:
                 i += 1
-
             # Add the end_marker line if found
             if i < n:
                 new_lines.append(lines[i])
         else:
             new_lines.append(line)
-
         i += 1
-
     return new_lines
 
 def regex_replace(lines, pattern, replacement):
@@ -84,8 +93,10 @@ def apply_modifications(instruction_file):
         if not os.path.isfile(filepath):
             with open(filepath, 'w', encoding='utf-8') as f:
                 f.write("")
+
         with open(filepath, 'r', encoding='utf-8') as f:
             lines = f.read().splitlines()
+
         for action in change['actions']:
             action_type = action['action']
             if action_type == 'replace_between_markers':
@@ -93,13 +104,13 @@ def apply_modifications(instruction_file):
                     lines,
                     action['start_marker'],
                     action['end_marker'],
-                    action['new_content']
+                    action['new_content'].split('\n')
                 )
             elif action_type == 'append':
-                new_lines = [line for line in action['content'] if line not in lines]
+                new_lines = [line for line in action['content'].split('\n') if line not in lines]
                 lines.extend(new_lines)
             elif action_type == 'prepend':
-                new_lines = [line for line in action['content'] if line not in lines]
+                new_lines = [line for line in action['content'].split('\n') if line not in lines]
                 lines = new_lines + lines
             elif action_type == 'regex_replace':
                 lines = regex_replace(
@@ -115,8 +126,10 @@ def apply_modifications(instruction_file):
                 )
             else:
                 print(f"[WARNING] Unknown action type: {action_type}")
+
         with open(filepath, 'w', encoding='utf-8') as f:
             f.write("\n".join(lines) + "\n")
+
         print(f"[INFO] Updated: {filepath}")
 
 class CodeUtility:
@@ -190,53 +203,57 @@ class AIBuilder:
         if not root_directory:
             logging.warning("ROOT_DIRECTORY environment variable not set, using current directory.")
             root_directory = os.getcwd()
+
         ai_builder_dir = os.path.join(root_directory, "ai_builder")
         os.makedirs(ai_builder_dir, exist_ok=True)
-        base_config_path = os.path.join("base_config.json")
-        user_config_path = os.path.join(ai_builder_dir, "user_config.json")
+
+        base_config_path = os.path.join("base_config.xml")
+        user_config_path = os.path.join(ai_builder_dir, "user_config.xml")
+
         if os.path.exists(base_config_path):
             shutil.copy(base_config_path, user_config_path)
-            logging.info("Copied base_config.json to user_config.json")
+            logging.info("Copied base_config.xml to user_config.xml")
         else:
-            default_config = {
-                "iterations": 1,
-                "mode": "exclude",
-                "patterns": [
-                    "package-lock.json",
-                    "output.txt",
-                    "full_request.txt",
-                    "full_response.txt",
-                    "instructions.txt",
-                    "changes.patch",
-                    ".git",
-                    "utility.log",
-                    ".png",
-                    ".exe",
-                    ".ico",
-                    ".webp",
-                    ".gguf"
-                ]
-            }
+            default_config = """<?xml version="1.0" encoding="UTF-8"?>
+<config>
+    <iterations>1</iterations>
+    <mode>exclude</mode>
+    <patterns>
+        <pattern>package-lock.json</pattern>
+        <pattern>output.txt</pattern>
+        <pattern>full_request.txt</pattern>
+        <pattern>full_response.txt</pattern>
+        <pattern>instructions.txt</pattern>
+        <pattern>changes.patch</pattern>
+        <pattern>.git</pattern>
+        <pattern>utility.log</pattern>
+        <pattern>.png</pattern>
+        <pattern>.exe</pattern>
+        <pattern>.ico</pattern>
+        <pattern>.webp</pattern>
+        <pattern>.gguf</pattern>
+    </patterns>
+</config>"""
             with open(user_config_path, 'w') as config_file:
-                json.dump(default_config, config_file)
-            logging.warning("base_config.json not found, created default user_config.json")
+                config_file.write(default_config)
+            logging.warning("base_config.xml not found, created default user_config.xml")
 
         os.chdir(root_directory)
         logging.info(f"Changed working directory to: {root_directory}")
 
         self.utility = CodeUtility(root_directory)
-        with open(user_config_path, 'r') as config_file:
-            config = json.load(config_file)
-            iterations = config.get("iterations", 1)
-            mode = config.get("mode", "exclude")
-            patterns = config.get("patterns", [])
+
+        config = ET.parse(user_config_path).getroot()
+        iterations = int(config.find('iterations').text)
+        mode = config.find('mode').text
+        patterns = [pattern.text for pattern in config.findall('patterns/pattern')]
 
         for iteration in range(iterations):
             logging.info(f"Starting iteration {iteration + 1}")
             self.run_pre_post_scripts("pre.ps1")
             try:
-                modifications_json_path = os.path.join(ai_builder_dir, "modifications.json")
-                if not os.path.exists(modifications_json_path):
+                modifications_xml_path = os.path.join(ai_builder_dir, "modifications.xml")
+                if not os.path.exists(modifications_xml_path):
                     if os.path.exists(self.utility.output_file):
                         os.remove(self.utility.output_file)
                     self.utility.process_directory(root_directory, [], patterns, mode)
@@ -264,7 +281,7 @@ class AIBuilder:
                     )
 
                     prompt = f"""
-                    Generate a JSON file that describes file modifications to apply using the following supported action types:
+                    Generate an XML file that describes file modifications to apply using the following supported action types:
                     1. `replace_between_markers`:
                         - `start_marker`: String
                         - `end_marker`: String
@@ -281,23 +298,18 @@ class AIBuilder:
                     5. `replace_line_containing`:
                         - `match_substring`: Text to search for within lines
                         - `replacement_line`: Full line to replace matched lines with
+
                     Example output format:
-                    ```json
-                    {{
-                        "changes": [
-                            {{
-                                "file": "example.py",
-                                "actions": [
-                                    {{
-                                        "action": "append",
-                                        "content": ["# Automatically added comment."]
-                                    }}
-                                ]
-                            }}
-                        ]
-                    }}
+                    ```xml
+                    <changes>
+                        <change file="example.py">
+                            <action type="append">
+                                <content># Automatically added comment.</content>
+                            </action>
+                        </change>
+                    </changes>
                     ```
-                    Ensure the JSON is strictly valid. Do not include comments in the JSON. Generate modifications logically based on the desired changes.
+                    Ensure the XML is strictly valid. Generate modifications logically based on the desired changes.
                     Current code:
                     {current_code}
                     Instructions:
@@ -325,13 +337,12 @@ class AIBuilder:
 
                     logging.info("Successfully obtained response from client.")
 
-                    with open(modifications_json_path, 'w', encoding='utf-8') as modifications_file:
+                    with open(modifications_xml_path, 'w', encoding='utf-8') as modifications_file:
                         modifications_file.write(response_content)
 
-                    logging.info(f"Successfully wrote modifications file to {modifications_json_path}")
+                    logging.info(f"Successfully wrote modifications file to {modifications_xml_path}")
 
-                apply_modifications(modifications_json_path)
-
+                apply_modifications(modifications_xml_path)
             except Exception as e:
                 logging.error(f"An error occurred: {str(e)}", exc_info=True)
 

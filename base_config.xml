@@ -1,0 +1,19 @@
+<config>
+    <iterations>1</iterations>
+    <mode>exclude</mode>
+    <patterns>
+        <pattern>package-lock.json</pattern>
+        <pattern>output.txt</pattern>
+        <pattern>full_request.txt</pattern>
+        <pattern>full_response.txt</pattern>
+        <pattern>instructions.txt</pattern>
+        <pattern>changes.patch</pattern>
+        <pattern>.git</pattern>
+        <pattern>utility.log</pattern>
+        <pattern>.png</pattern>
+        <pattern>.exe</pattern>
+        <pattern>.ico</pattern>
+        <pattern>.webp</pattern>
+        <pattern>.gguf</pattern>
+    </patterns>
+</config>
