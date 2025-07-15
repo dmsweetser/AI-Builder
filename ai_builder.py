@@ -32,14 +32,33 @@ class AIBuilder:
         ai_builder_dir = os.path.join(root_directory, "ai_builder")
         os.makedirs(ai_builder_dir, exist_ok=True)
 
-        # Copy base_config.json to user_config.json
-        base_config_path = os.path.join(root_directory, "base_config.json")
+        # Define paths for configuration files
+        base_config_path = os.path.join("base_config.json")
         user_config_path = os.path.join(ai_builder_dir, "user_config.json")
+
+        # Copy base_config.json to user_config.json or create a default configuration
         if os.path.exists(base_config_path):
             shutil.copy(base_config_path, user_config_path)
             logging.info("Copied base_config.json to user_config.json")
         else:
-            logging.warning("base_config.json not found, using default patterns")
+            # Create a default configuration
+            default_config = {
+                "iterations": 1,
+                "mode": "exclude",
+                "patterns": [
+                    "package-lock.json",
+                    "output.txt",
+                    "full_request.txt",
+                    "full_response.txt",
+                    "instructions.txt",
+                    "changes.patch",
+                    ".git",
+                    "utility.log"
+                ]
+            }
+            with open(user_config_path, 'w') as config_file:
+                json.dump(default_config, config_file)
+            logging.warning("base_config.json not found, created default user_config.json")
 
         if root_directory:
             os.chdir(root_directory)
@@ -67,6 +86,12 @@ class AIBuilder:
                         os.remove(self.utility.output_file)
 
                     self.utility.process_directory(root_directory, [], patterns, mode)
+
+                    # Ensure output.txt is created and not empty
+                    if not os.path.exists(self.utility.output_file):
+                        logging.warning("output.txt was not created by process_directory.")
+                        continue
+
                     with open(self.utility.output_file, 'r', encoding='utf-8') as file:
                         current_code = file.read().strip()
                     logging.info("Successfully read output.txt")
@@ -135,7 +160,7 @@ class AIBuilder:
                     self.utility.split_and_apply_patches(os.path.join(ai_builder_dir, 'changes.patch'))
                     logging.info("Git diff applied successfully.")
                 except Exception as e:
-                    logging.error(f"Failed to apply git diff: {e.output}")
+                    logging.error(f"Failed to apply git diff: {e}")
 
             except Exception as e:
                 logging.error(f"An error occurred: {str(e)}", exc_info=True)
