@@ -36,20 +36,25 @@ class CodeUtility:
         for pattern in patterns:
             if pattern in file_name or pattern in path:
                 return mode == "include"
-        return mode != "exclude"
+        return mode == "exclude"
 
     def process_directory(self, directory: str, parent_rules: List[str], patterns: List[str], mode: str):
         current_rules = self.parse_gitignore(directory)
         all_rules = parent_rules + current_rules
+        logging.info(f"Processing directory: {directory}")
+
         for root, dirs, files in os.walk(directory):
+            logging.info(f"Current root: {root}, dirs: {dirs}, files: {files}")
             for file in files:
                 relative_path = os.path.relpath(os.path.join(root, file), self.base_dir)
+                logging.info(f"Checking file: {relative_path}")
                 if self.should_process_file(relative_path, all_rules, patterns, mode):
                     try:
                         with open(os.path.join(root, file), 'r') as f:
                             content = f.read()
                         with open(self.output_file, 'a') as out_file:
                             out_file.write(f"\n### {relative_path}\n```\n{content}\n```\n")
+                        logging.info(f"Successfully wrote content from {relative_path} to {self.output_file}")
                     except Exception as e:
                         logging.error(f"Skipped unreadable file: {relative_path} - Error: {e}")
 
@@ -73,6 +78,7 @@ class CodeUtility:
         file_content = ""
         file_name = None
         current_dir = self.base_dir
+
         for i, line in enumerate(lines):
             line = line.rstrip()
             if line.startswith("```"):
@@ -110,6 +116,7 @@ class CodeUtility:
                 current_dir = resolved["Directory"]
             elif inside_code_block and file_name:
                 file_content += line + "\n"
+
         if inside_code_block and file_name and file_content:
             if not os.path.exists(current_dir):
                 os.makedirs(current_dir, exist_ok=True)
@@ -131,11 +138,13 @@ class CodeUtility:
     def split_and_apply_patches(self, patch_file_path: str):
         self.split_patch_file(patch_file_path)
         patch_files = sorted([f for f in os.listdir('.') if f.startswith('patch_') and f.endswith('.patch')])
+
         for patch_file in patch_files:
             logging.info(f"Processing {patch_file}")
             with open(patch_file, 'r') as f:
                 content = f.read()
             hunks = re.split(r'(^@@.*?@@.*?$)', content, flags=re.MULTILINE)
+
             if len(hunks) > 1:
                 header = hunks[0]
                 success_count = 0

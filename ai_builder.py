@@ -27,6 +27,9 @@ class AIBuilder:
 
     def run(self):
         root_directory = os.getenv("ROOT_DIRECTORY")
+        if not root_directory:
+            logging.warning("ROOT_DIRECTORY environment variable not set, using current directory.")
+            root_directory = os.getcwd()
 
         # Create ai_builder subdirectory
         ai_builder_dir = os.path.join(root_directory, "ai_builder")
@@ -60,11 +63,8 @@ class AIBuilder:
                 json.dump(default_config, config_file)
             logging.warning("base_config.json not found, created default user_config.json")
 
-        if root_directory:
-            os.chdir(root_directory)
-            logging.info(f"Changed working directory to: {root_directory}")
-        else:
-            logging.warning("ROOT_DIRECTORY environment variable not set, using current directory.")
+        os.chdir(root_directory)
+        logging.info(f"Changed working directory to: {root_directory}")
 
         # Initialize CodeUtility after ensuring the directory exists
         self.utility = CodeUtility(root_directory)
@@ -77,7 +77,6 @@ class AIBuilder:
 
         for iteration in range(iterations):
             logging.info(f"Starting iteration {iteration + 1}")
-
             self.run_pre_post_scripts("pre.ps1")
 
             try:
@@ -153,7 +152,6 @@ class AIBuilder:
 
                     with open(os.path.join(ai_builder_dir, 'changes.patch'), 'w', encoding='utf-8') as patch_file:
                         patch_file.write(response_content)
-
                     logging.info("Successfully wrote patch file to changes.patch")
 
                 try:
