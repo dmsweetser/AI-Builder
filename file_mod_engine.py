@@ -2,9 +2,24 @@ import json
 import os
 import re
 
+def extract_json_content(text):
+    # Regular expression to find content between ```json and ```
+    match = re.search(r'```json\s*(.*?)\s*```', text, re.DOTALL)
+    if match:
+        # Return the matched JSON content
+        return match.group(1).strip()
+    # If no match is found, return the original text
+    return text
+
 def load_instructions(json_path):
-    with open(json_path, 'r') as f:
-        return json.load(f)['changes']
+    with open(json_path, 'r', encoding='utf-8') as f:
+        content = f.read()
+
+    # Extract only the JSON content between ```json and ```
+    json_content = extract_json_content(content)
+
+    # Parse the JSON content
+    return json.loads(json_content)['changes']
 
 def apply_modifications(instruction_file):
     changes = load_instructions(instruction_file)
@@ -13,35 +28,29 @@ def apply_modifications(instruction_file):
         if not os.path.isfile(filepath):
             print(f"[WARNING] File not found: {filepath}")
             continue
+
         with open(filepath, 'r', encoding='utf-8') as f:
             lines = f.read().splitlines()
+
         for action in change['actions']:
             action_type = action['action']
             if action_type == 'replace_between_markers':
-                lines = replace_between_markers(
-                    lines,
-                    action['start_marker'],
-                    action['end_marker'],
-                    action['new_content']
-                )
+                lines = replace_between_markers(lines, action['start_marker'], action['end_marker'], action['new_content'])
             elif action_type == 'append':
-                lines.extend(action['content'])
+                # Check for existing lines before appending
+                new_lines = [line for line in action['content'] if line not in lines]
+                lines.extend(new_lines)
             elif action_type == 'prepend':
-                lines = action['content'] + lines
+                # Check for existing lines before prepending
+                new_lines = [line for line in action['content'] if line not in lines]
+                lines = new_lines + lines
             elif action_type == 'regex_replace':
-                lines = regex_replace(
-                    lines,
-                    action['pattern'],
-                    action['replacement']
-                )
+                lines = regex_replace(lines, action['pattern'], action['replacement'])
             elif action_type == 'replace_line_containing':
-                lines = replace_line_containing(
-                    lines,
-                    action['match_substring'],
-                    action['replacement_line']
-                )
+                lines = replace_line_containing(lines, action['match_substring'], action['replacement_line'])
             else:
                 print(f"[WARNING] Unknown action type: {action_type}")
+
         with open(filepath, 'w', encoding='utf-8') as f:
             f.write("\n".join(lines) + "\n")
         print(f"[INFO] Updated: {filepath}")
