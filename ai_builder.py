@@ -48,13 +48,37 @@ def load_instructions(xml_path):
 
     root = ET.fromstring(xml_content)
     changes = []
+
     for change in root.findall('change'):
         file = change.get('file')
         actions = []
+
         for action in change.findall('action'):
             action_type = action.get('type')
-            action_data = {k: v for k, v in action.attrib.items() if k != 'type'}
+            action_data = {}
+
+            # Handle nested elements for 'replace_between_markers' action
+            if action_type == 'replace_between_markers':
+                start_marker = action.find('start_marker').text
+                end_marker = action.find('end_marker').text
+                new_content = action.find('new_content').text.strip().split('\n')
+
+                action_data = {
+                    'start_marker': start_marker,
+                    'end_marker': end_marker,
+                    'new_content': new_content
+                }
+            elif action_type == 'replace_line_containing':
+                action_data = {
+                    'match_substring': action.get('match_substring'),
+                    'replacement_line': action.get('replacement_line')
+                }
+            else:
+                # Handle other action types if necessary
+                pass
+
             actions.append({'action': action_type, **action_data})
+
         changes.append({'file': file, 'actions': actions})
 
     return changes
@@ -104,7 +128,7 @@ def apply_modifications(instruction_file):
                     lines,
                     action['start_marker'],
                     action['end_marker'],
-                    action['new_content'].split('\n')
+                    action['new_content']  # Remove .split('\n') since new_content is already a list
                 )
             elif action_type == 'append':
                 new_lines = [line for line in action['content'].split('\n') if line not in lines]
