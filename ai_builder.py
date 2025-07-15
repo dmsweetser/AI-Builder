@@ -13,22 +13,24 @@ from azure.core.credentials import AzureKeyCredential
 load_dotenv()
 
 def extract_json_content(text):
-    # Find the starting index of the ```json marker
+    # Define the markers
     start_marker = "```json"
     end_marker = "```"
+
+    # Find the starting index of the ```json marker
     start_index = text.find(start_marker)
 
     if start_index == -1:
         return text  # Return the original text if the start marker is not found
 
-    # Adjust the start index to the end of the start marker
-    start_index += len(start_marker)
+    # Adjust the start index to the end of the start marker line
+    start_index = text.find('\n', start_index) + 1
 
-    # Find the next occurrence of triple backticks after the start marker
-    end_index = text.find(end_marker, start_index)
+    # Find the end index of the ``` marker by searching from the end of the text
+    end_index = text.rfind(end_marker)
 
-    if end_index == -1:
-        return text  # Return the original text if the end marker is not found
+    if end_index == -1 or end_index <= start_index:
+        return text  # Return the original text if the end marker is not found or is before the start index
 
     # Extract the content between the start and end markers
     json_content = text[start_index:end_index].strip()
@@ -43,22 +45,27 @@ def load_instructions(json_path):
     return json.loads(json_content)['changes']
 
 def replace_between_markers(lines, start_marker, end_marker, new_content):
-    inside_block = False
     new_lines = []
     i = 0
     n = len(lines)
 
     while i < n:
         line = lines[i]
-        if start_marker in line and not inside_block:
+
+        if start_marker in line:
+            # Add new content
             new_lines.extend(new_content)
-            inside_block = True
+
+            # Skip lines until end_marker is found
             while i < n and end_marker not in lines[i]:
                 i += 1
+
+            # Add the end_marker line if found
             if i < n:
                 new_lines.append(lines[i])
-        elif not inside_block:
+        else:
             new_lines.append(line)
+
         i += 1
 
     return new_lines
