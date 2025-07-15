@@ -270,6 +270,7 @@ class AIBuilder:
                         - `end_marker`: String
                         - `new_content`: List of strings (lines of replacement code/text)
                         Ensure that `new_content` includes the `start_marker` and `end_marker` lines if they should be part of the replacement.
+                        Also ensure that unmodified code between the markers is faithfully preserved.
                     2. `append`:
                         - `content`: List of strings to append to end of file
                     3. `prepend`:
