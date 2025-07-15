@@ -13,31 +13,54 @@ from azure.core.credentials import AzureKeyCredential
 load_dotenv()
 
 def extract_json_content(text):
-    # Regular expression to find content between ```json and ```
-    match = re.search(r'```json\s*(.*?)\s*```', text, re.DOTALL)
-    if match:
-        return match.group(1).strip()
-    return text
+    # Find the starting index of the ```json marker
+    start_marker = "```json"
+    end_marker = "```"
+    start_index = text.find(start_marker)
+
+    if start_index == -1:
+        return text  # Return the original text if the start marker is not found
+
+    # Adjust the start index to the end of the start marker
+    start_index += len(start_marker)
+
+    # Find the next occurrence of triple backticks after the start marker
+    end_index = text.find(end_marker, start_index)
+
+    if end_index == -1:
+        return text  # Return the original text if the end marker is not found
+
+    # Extract the content between the start and end markers
+    json_content = text[start_index:end_index].strip()
+    return json_content
 
 def load_instructions(json_path):
     with open(json_path, 'r', encoding='utf-8') as f:
         content = f.read()
     json_content = extract_json_content(content)
+    with open("ai_builder\extracted.json", 'w', encoding='utf-8') as f:
+            f.write(json_content)
     return json.loads(json_content)['changes']
 
 def replace_between_markers(lines, start_marker, end_marker, new_content):
     inside_block = False
     new_lines = []
-    for line in lines:
-        if start_marker in line:
-            new_lines.append(line)
+    i = 0
+    n = len(lines)
+
+    while i < n:
+        line = lines[i]
+        if start_marker in line and not inside_block:
             new_lines.extend(new_content)
             inside_block = True
-        elif end_marker in line and inside_block:
-            new_lines.append(line)
-            inside_block = False
+            while i < n and end_marker not in lines[i]:
+                i += 1
+            if i < n:
+                new_lines.append(lines[i])
         elif not inside_block:
             new_lines.append(line)
+        i += 1
+
     return new_lines
 
 def regex_replace(lines, pattern, replacement):
@@ -54,10 +77,8 @@ def apply_modifications(instruction_file):
         if not os.path.isfile(filepath):
             with open(filepath, 'w', encoding='utf-8') as f:
                 f.write("")
-
         with open(filepath, 'r', encoding='utf-8') as f:
             lines = f.read().splitlines()
-
         for action in change['actions']:
             action_type = action['action']
             if action_type == 'replace_between_markers':
@@ -87,7 +108,6 @@ def apply_modifications(instruction_file):
                 )
             else:
                 print(f"[WARNING] Unknown action type: {action_type}")
-
         with open(filepath, 'w', encoding='utf-8') as f:
             f.write("\n".join(lines) + "\n")
         print(f"[INFO] Updated: {filepath}")
@@ -163,13 +183,10 @@ class AIBuilder:
         if not root_directory:
             logging.warning("ROOT_DIRECTORY environment variable not set, using current directory.")
             root_directory = os.getcwd()
-
         ai_builder_dir = os.path.join(root_directory, "ai_builder")
         os.makedirs(ai_builder_dir, exist_ok=True)
-
         base_config_path = os.path.join("base_config.json")
         user_config_path = os.path.join(ai_builder_dir, "user_config.json")
-
         if os.path.exists(base_config_path):
             shutil.copy(base_config_path, user_config_path)
             logging.info("Copied base_config.json to user_config.json")
@@ -201,7 +218,6 @@ class AIBuilder:
         logging.info(f"Changed working directory to: {root_directory}")
 
         self.utility = CodeUtility(root_directory)
-
         with open(user_config_path, 'r') as config_file:
             config = json.load(config_file)
             iterations = config.get("iterations", 1)
@@ -226,23 +242,27 @@ class AIBuilder:
                     with open('instructions.txt', 'r', encoding='utf-8') as file:
                         instructions = file.read().strip()
                     logging.info("Successfully read instructions.txt")
+
                     endpoint = os.getenv("ENDPOINT")
                     model_name = os.getenv("MODEL_NAME")
                     api_key = os.getenv("API_KEY")
                     if not all([endpoint, model_name, api_key]):
                         logging.error("Missing one or more required environment variables: ENDPOINT, MODEL_NAME, API_KEY")
                         raise ValueError("Missing required environment variables.")
+
                     client = ChatCompletionsClient(
                         endpoint=endpoint,
                         credential=AzureKeyCredential(api_key),
                         api_version="2024-05-01-preview"
                     )
+
                     prompt = f"""
                     Generate a JSON file that describes file modifications to apply using the following supported action types:
                     1. `replace_between_markers`:
                         - `start_marker`: String
                         - `end_marker`: String
                         - `new_content`: List of strings (lines of replacement code/text)
+                        Ensure that `new_content` includes the `start_marker` and `end_marker` lines if they should be part of the replacement.
                     2. `append`:
                         - `content`: List of strings to append to end of file
                     3. `prepend`:
@@ -275,6 +295,7 @@ class AIBuilder:
                     Instructions:
                     {instructions}
                     """
+
                     response = client.complete(
                         stream=True,
                         messages=[
@@ -284,6 +305,7 @@ class AIBuilder:
                         max_tokens=131072/2,
                         model=model_name
                     )
+
                     response_content = ""
                     for update in response:
                         if update.choices and isinstance(update.choices, list) and len(update.choices) > 0:
@@ -292,15 +314,19 @@ class AIBuilder:
                                 response_content += content
                         else:
                             logging.warning("Unexpected response format: choices list is empty or invalid.")
+
                     logging.info("Successfully obtained response from client.")
+
                     with open(modifications_json_path, 'w', encoding='utf-8') as modifications_file:
                         modifications_file.write(response_content)
+
                     logging.info(f"Successfully wrote modifications file to {modifications_json_path}")
 
-
                 apply_modifications(modifications_json_path)
+
             except Exception as e:
                 logging.error(f"An error occurred: {str(e)}", exc_info=True)
+
             self.run_pre_post_scripts("post.ps1")
 
 if __name__ == "__main__":
