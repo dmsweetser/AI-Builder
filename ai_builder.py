@@ -328,7 +328,7 @@ class AIBuilder:
                                 if content is not None:
                                     response_content += content
                             else:
-                                logging.warning(f"Unexpected response format: {update}")
+                                break
                     finally:
                         response.close()
                     logging.info("Successfully obtained response from client.")
