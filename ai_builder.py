@@ -57,14 +57,18 @@ def parse_custom_xml(xml_content):
     return changes
 
 def load_instructions(xml_path):
-    with open(xml_path, 'r', encoding='utf-8') as f:
-        content = f.read()
-    if "</think>" in content:
-        content = content.split("</think>")[1]
-    xml_content = extract_xml_content(content)
-    with open("ai_builder/extracted.xml", 'w', encoding='utf-8') as f:
-        f.write(xml_content)
-    return parse_custom_xml(xml_content)
+    try:
+        with open(xml_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        if "</think>" in content:
+            content = content.split("</think>")[1]
+        xml_content = extract_xml_content(content)
+        with open("ai_builder/extracted.xml", 'w', encoding='utf-8') as f:
+            f.write(xml_content)
+        return parse_custom_xml(xml_content)
+    except Exception as e:
+        logging.error(f"Error loading instructions: {e}")
+        return []
 
 def replace_between_markers(lines, start_marker, end_marker, new_content):
     text = "\n".join(lines)
@@ -73,7 +77,7 @@ def replace_between_markers(lines, start_marker, end_marker, new_content):
         end_of_start_marker = start_index + len(start_marker)
         end_index = text.find(end_marker, end_of_start_marker)
         if end_index != -1:
-            text = text[:start_index] + "\n".join(new_content) + "\n" + text[end_index + len(end_marker):]
+            text = text[:start_index] + "\n".join(new_content) + "\n" + text[end_index:]
     return text.split("\n")
 
 def apply_modifications(instruction_file):
@@ -82,33 +86,36 @@ def apply_modifications(instruction_file):
         filepath = change['file']
         for action in change['actions']:
             action_type = action['action']
-            if action_type == 'replace_between_markers':
-                if not os.path.isfile(filepath):
+            try:
+                if action_type == 'replace_between_markers':
+                    if not os.path.isfile(filepath):
+                        with open(filepath, 'w', encoding='utf-8') as f:
+                            f.write("")
+                    with open(filepath, 'r', encoding='utf-8') as f:
+                        lines = f.read().splitlines()
+                    lines = replace_between_markers(
+                        lines,
+                        action['start_marker'],
+                        action['end_marker'],
+                        action['new_content']
+                    )
                     with open(filepath, 'w', encoding='utf-8') as f:
-                        f.write("")
-                with open(filepath, 'r', encoding='utf-8') as f:
-                    lines = f.read().splitlines()
-                lines = replace_between_markers(
-                    lines,
-                    action['start_marker'],
-                    action['end_marker'],
-                    action['new_content']
-                )
-                with open(filepath, 'w', encoding='utf-8') as f:
-                    f.write("\n".join(lines) + "\n")
-                logging.info(f"Updated: {filepath}")
-            elif action_type == 'create_file':
-                with open(filepath, 'w', encoding='utf-8') as f:
-                    f.write("\n".join(action['file_content']) + "\n")
-                logging.info(f"Created: {filepath}")
-            elif action_type == 'remove_file':
-                if os.path.isfile(filepath):
-                    os.remove(filepath)
-                    logging.info(f"Removed: {filepath}")
+                        f.write("\n".join(lines) + "\n")
+                    logging.info(f"Updated: {filepath}")
+                elif action_type == 'create_file':
+                    with open(filepath, 'w', encoding='utf-8') as f:
+                        f.write("\n".join(action['file_content']) + "\n")
+                    logging.info(f"Created: {filepath}")
+                elif action_type == 'remove_file':
+                    if os.path.isfile(filepath):
+                        os.remove(filepath)
+                        logging.info(f"Removed: {filepath}")
+                    else:
+                        logging.warning(f"File not found: {filepath}")
                 else:
-                    logging.warning(f"File not found: {filepath}")
-            else:
-                logging.warning(f"Unknown action type: {action_type}")
+                    logging.warning(f"Unknown action type: {action_type}")
+            except Exception as e:
+                logging.error(f"Error applying modifications to {filepath}: {e}")
 
 class CodeUtility:
     def __init__(self, base_dir: str = os.getcwd()):
@@ -130,7 +137,7 @@ class CodeUtility:
     def parse_gitignore(self, directory: str):
         gitignore_path = os.path.join(directory, ".gitignore")
         if os.path.exists(gitignore_path):
-            with open(gitignore_path, 'r') as file:
+            with open(gitignore_path, 'r', encoding='utf-8') as file:
                 return [line.strip() for line in file if line.strip() and not line.strip().startswith('#')]
         return []
 
@@ -149,7 +156,6 @@ class CodeUtility:
         all_rules = parent_rules + current_rules
         logging.info(f"Processing directory: {directory}")
         for root, dirs, files in os.walk(directory):
-            logging.info(f"Current root: {root}, dirs: {dirs}, files: {files}")
             for file in files:
                 relative_path = os.path.relpath(os.path.join(root, file), self.base_dir)
                 logging.info(f"Checking file: {relative_path}")
@@ -162,7 +168,7 @@ class CodeUtility:
                             out_file.write(f"\n### {relative_path}\n```\n{content}\n```\n")
                         logging.info(f"Successfully wrote content from {relative_path} to {self.output_file}")
                     except Exception as e:
-                        logging.error(f"Skipped unreadable file: {relative_path} - Error: {e}")
+                        logging.warning(f"Skipped unreadable file: {relative_path} - Error: {e}")
 
 class AIBuilder:
     def __init__(self):
@@ -210,7 +216,7 @@ class AIBuilder:
         <pattern>.gguf</pattern>
     </patterns>
 </config>"""
-            with open(user_config_path, 'w') as config_file:
+            with open(user_config_path, 'w', encoding='utf-8') as config_file:
                 config_file.write(default_config)
             logging.warning("base_config.xml not found, created default user_config.xml")
         os.chdir(root_directory)
@@ -256,7 +262,7 @@ class AIBuilder:
                         - `start_marker`: String
                         - `end_marker`: String
                         - `new_content`: List of strings (lines of replacement code/text)
-                        Ensure that `new_content` includes the `start_marker` and `end_marker` lines if they should be part of the replacement.
+                        Ensure that `new_content` includes the `start_marker` and `end_marker` lines, so they can be included as part of your changes. This is to avoid code loss.
                         Also ensure that unmodified code between the markers is faithfully preserved.
                         Include at least three lines of context before and after the new content to be included.
                     2. `create_file`:
