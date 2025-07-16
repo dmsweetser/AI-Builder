@@ -3,6 +3,7 @@ import re
 import logging
 import shutil
 import subprocess
+import html
 import xml.etree.ElementTree as ET
 from dotenv import load_dotenv
 from azure.ai.inference import ChatCompletionsClient
@@ -11,6 +12,12 @@ from azure.core.credentials import AzureKeyCredential
 
 # Load environment variables from .env file
 load_dotenv()
+
+def translate_xml_entities(text):
+    # Detect and translate XML entities if present
+    if re.search(r'&(?:[a-z]+|#\d+|#x[a-fA-F0-9]+);', text):
+        return html.unescape(text)
+    return text
 
 def extract_xml_content(text):
     start_marker = "```xml"
@@ -35,20 +42,22 @@ def parse_custom_xml(xml_content):
             if action_type == 'replace_between_markers':
                 start_marker = re.search(r'<aibuilder_start_marker>(.*?)</aibuilder_start_marker>', action_data).group(1)
                 end_marker = re.search(r'<aibuilder_end_marker>(.*?)</aibuilder_end_marker>', action_data).group(1)
-                new_content = re.search(r'<aibuilder_new_content>(.*?)</aibuilder_new_content>', action_data, re.DOTALL).group(1).strip().split('\n')
-                action_list.append({'action': action_type, 'start_marker': start_marker, 'end_marker': end_marker, 'new_content': new_content})
+                new_content = re.search(r'<aibuilder_new_content>(.*?)</aibuilder_new_content>', action_data, re.DOTALL).group(1).strip()
+                new_content = translate_xml_entities(new_content).split('\n')
+                action_list.append({'action': action_type, 'start_marker': translate_xml_entities(start_marker), 'end_marker': translate_xml_entities(end_marker), 'new_content': new_content})
             elif action_type == 'replace_line_containing':
                 match_substring = re.search(r'aibuilder_match_substring="([^"]+)"', action_data).group(1)
                 replacement_line = re.search(r'aibuilder_replacement_line="([^"]+)"', action_data).group(1)
-                action_list.append({'action': action_type, 'match_substring': match_substring, 'replacement_line': replacement_line})
+                action_list.append({'action': action_type, 'match_substring': translate_xml_entities(match_substring), 'replacement_line': translate_xml_entities(replacement_line)})
             elif action_type in ['append', 'prepend']:
-                content = re.search(r'<aibuilder_content>(.*?)</aibuilder_content>', action_data, re.DOTALL).group(1).strip().split('\n')
+                content = re.search(r'<aibuilder_content>(.*?)</aibuilder_content>', action_data, re.DOTALL).group(1).strip()
+                content = translate_xml_entities(content).split('\n')
                 action_list.append({'action': action_type, 'content': content})
             elif action_type == 'regex_replace':
                 pattern = re.search(r'aibuilder_pattern="([^"]+)"', action_data).group(1)
                 replacement = re.search(r'aibuilder_replacement="([^"]+)"', action_data).group(1)
-                action_list.append({'action': action_type, 'pattern': pattern, 'replacement': replacement})
-        changes.append({'file': file, 'actions': action_list})
+                action_list.append({'action': action_type, 'pattern': translate_xml_entities(pattern), 'replacement': translate_xml_entities(replacement)})
+        changes.append({'file': translate_xml_entities(file), 'actions': action_list})
     return changes
 
 def load_instructions(xml_path):
@@ -266,7 +275,8 @@ class AIBuilder:
                         api_version="2024-05-01-preview"
                     )
                     prompt = f"""
-                    Generate an XML file that describes file modifications to apply using the following supported action types:
+                    Generate an XML file that describes file modifications to apply using the following supported action types.
+                    Ensure all content is provided using XML-compatible entities.
                     1. `replace_between_markers`:
                         - `start_marker`: String
                         - `end_marker`: String
