@@ -37,13 +37,22 @@ def parse_custom_xml(xml_content):
     change_blocks = re.findall(r'<aibuilder_change file="([^"]+)">(.*?)</aibuilder_change>', xml_content, re.DOTALL)
     for file, actions in change_blocks:
         action_list = []
-        action_blocks = re.findall(r'<aibuilder_action type="replace_between_markers">(.*?)</aibuilder_action>', actions, re.DOTALL)
-        for action_data in action_blocks:
-            start_marker = re.search(r'<aibuilder_start_marker>(.*?)</aibuilder_start_marker>', action_data, re.DOTALL).group(1).strip()
-            end_marker = re.search(r'<aibuilder_end_marker>(.*?)</aibuilder_end_marker>', action_data, re.DOTALL).group(1).strip()
-            new_content = re.search(r'<aibuilder_new_content>(.*?)</aibuilder_new_content>', action_data, re.DOTALL).group(1).strip()
-            new_content = translate_xml_entities(new_content).split('\n')
-            action_list.append({'action': 'replace_between_markers', 'start_marker': translate_xml_entities(start_marker), 'end_marker': translate_xml_entities(end_marker), 'new_content': new_content})
+        action_blocks = re.findall(r'<aibuilder_action type="(replace_between_markers|create_file|remove_file)">(.*?)</aibuilder_action>', actions, re.DOTALL)
+        for action_type, action_data in action_blocks:
+            if action_type == 'replace_between_markers':
+                start_marker = re.search(r'<aibuilder_start_marker>(.*?)</aibuilder_start_marker>', action_data, re.DOTALL).group(1).strip()
+                end_marker = re.search(r'<aibuilder_end_marker>(.*?)</aibuilder_end_marker>', action_data, re.DOTALL).group(1).strip()
+                new_content = re.search(r'<aibuilder_new_content>(.*?)</aibuilder_new_content>', action_data, re.DOTALL).group(1).strip()
+                new_content = translate_xml_entities(new_content).split('\n')
+                action_list.append({'action': 'replace_between_markers', 'start_marker': translate_xml_entities(start_marker), 'end_marker': translate_xml_entities(end_marker), 'new_content': new_content})
+            elif action_type == 'create_file':
+                file_content = re.search(r'<aibuilder_file_content>(.*?)</aibuilder_file_content>', action_data, re.DOTALL).group(1).strip()
+                file_content = translate_xml_entities(file_content).split('\n')
+                action_list.append({'action': 'create_file', 'file_content': file_content})
+            elif action_type == 'remove_file':
+                action_list.append({'action': 'remove_file'})
+            else:
+                print(f"[WARNING] Unknown action type: {action_type}")
         changes.append({'file': translate_xml_entities(file), 'actions': action_list})
     return changes
 
@@ -58,46 +67,48 @@ def load_instructions(xml_path):
     return parse_custom_xml(xml_content)
 
 def replace_between_markers(lines, start_marker, end_marker, new_content):
-    # Join the lines into a single string for easier manipulation
     text = "\n".join(lines)
     start_index = text.find(start_marker)
-
     if start_index != -1:
-        # Find the end of the start marker
         end_of_start_marker = start_index + len(start_marker)
-        # Find the end marker starting from the end of the start marker
         end_index = text.find(end_marker, end_of_start_marker)
-
         if end_index != -1:
-            # Replace the section between the markers with the new content
-            text = text[:start_index] + "\n".join(new_content) + "\n" + text[end_index:]
-
-    # Return the modified lines
+            text = text[:start_index] + "\n".join(new_content) + "\n" + text[end_index + len(end_marker):]
     return text.split("\n")
 
 def apply_modifications(instruction_file):
     changes = load_instructions(instruction_file)
     for change in changes:
         filepath = change['file']
-        if not os.path.isfile(filepath):
-            with open(filepath, 'w', encoding='utf-8') as f:
-                f.write("")
-        with open(filepath, 'r', encoding='utf-8') as f:
-            lines = f.read().splitlines()
         for action in change['actions']:
             action_type = action['action']
             if action_type == 'replace_between_markers':
+                if not os.path.isfile(filepath):
+                    with open(filepath, 'w', encoding='utf-8') as f:
+                        f.write("")
+                with open(filepath, 'r', encoding='utf-8') as f:
+                    lines = f.read().splitlines()
                 lines = replace_between_markers(
                     lines,
                     action['start_marker'],
                     action['end_marker'],
                     action['new_content']
                 )
+                with open(filepath, 'w', encoding='utf-8') as f:
+                    f.write("\n".join(lines) + "\n")
+                print(f"[INFO] Updated: {filepath}")
+            elif action_type == 'create_file':
+                with open(filepath, 'w', encoding='utf-8') as f:
+                    f.write("\n".join(action['file_content']) + "\n")
+                print(f"[INFO] Created: {filepath}")
+            elif action_type == 'remove_file':
+                if os.path.isfile(filepath):
+                    os.remove(filepath)
+                    print(f"[INFO] Removed: {filepath}")
+                else:
+                    print(f"[WARNING] File not found: {filepath}")
             else:
                 print(f"[WARNING] Unknown action type: {action_type}")
-        with open(filepath, 'w', encoding='utf-8') as f:
-            f.write("\n".join(lines) + "\n")
-        print(f"[INFO] Updated: {filepath}")
 
 class CodeUtility:
     def __init__(self, base_dir: str = os.getcwd()):
@@ -170,13 +181,10 @@ class AIBuilder:
         if not root_directory:
             logging.warning("ROOT_DIRECTORY environment variable not set, using current directory.")
             root_directory = os.getcwd()
-
         ai_builder_dir = os.path.join(root_directory, "ai_builder")
         os.makedirs(ai_builder_dir, exist_ok=True)
-
         base_config_path = os.path.join("base_config.xml")
         user_config_path = os.path.join(ai_builder_dir, "user_config.xml")
-
         if os.path.exists(base_config_path):
             shutil.copy(base_config_path, user_config_path)
             logging.info("Copied base_config.xml to user_config.xml")
@@ -204,16 +212,13 @@ class AIBuilder:
             with open(user_config_path, 'w') as config_file:
                 config_file.write(default_config)
             logging.warning("base_config.xml not found, created default user_config.xml")
-
         os.chdir(root_directory)
         logging.info(f"Changed working directory to: {root_directory}")
-
         self.utility = CodeUtility(root_directory)
         config = ET.parse(user_config_path).getroot()
         iterations = int(config.find('iterations').text)
         mode = config.find('mode').text
         patterns = [pattern.text for pattern in config.findall('patterns/pattern')]
-
         for iteration in range(iterations):
             logging.info(f"Starting iteration {iteration + 1}")
             self.run_pre_post_scripts("pre.ps1")
@@ -226,31 +231,25 @@ class AIBuilder:
                     if not os.path.exists(self.utility.output_file):
                         logging.warning("output.txt was not created by process_directory.")
                         continue
-
                     with open(self.utility.output_file, 'r', encoding='utf-8') as file:
                         current_code = file.read().strip()
                     logging.info("Successfully read output.txt")
-
                     with open('instructions.txt', 'r', encoding='utf-8') as file:
                         instructions = file.read().strip()
                     logging.info("Successfully read instructions.txt")
-
                     endpoint = os.getenv("ENDPOINT")
                     model_name = os.getenv("MODEL_NAME")
                     api_key = os.getenv("API_KEY")
-
                     if not all([endpoint, model_name, api_key]):
                         logging.error("Missing one or more required environment variables: ENDPOINT, MODEL_NAME, API_KEY")
                         raise ValueError("Missing required environment variables.")
-
                     client = ChatCompletionsClient(
                         endpoint=endpoint,
                         credential=AzureKeyCredential(api_key),
                         api_version="2024-05-01-preview"
                     )
-
                     prompt = f"""
-                    Generate an XML file that describes file modifications to apply using the `replace_between_markers` action type.
+                    Generate an XML file that describes file modifications to apply using the `replace_between_markers`, `create_file`, and `remove_file` action types.
                     Ensure all content is provided using XML-compatible entities.
                     1. `replace_between_markers`:
                         - `start_marker`: String
@@ -259,7 +258,10 @@ class AIBuilder:
                         Ensure that `new_content` includes the `start_marker` and `end_marker` lines if they should be part of the replacement.
                         Also ensure that unmodified code between the markers is faithfully preserved.
                         Include at least three lines of context before and after the new content to be included.
-
+                    2. `create_file`:
+                        - `file_content`: List of strings (lines of the file content)
+                    3. `remove_file`:
+                        - No additional parameters needed.
                     Example output format:
                     ```xml
                     <aibuilder_changes>
@@ -287,16 +289,27 @@ class AIBuilder:
                                 </aibuilder_new_content>
                             </aibuilder_action>
                         </aibuilder_change>
+                        <aibuilder_change file="new_file.py">
+                            <aibuilder_action type="create_file">
+                                <aibuilder_file_content>
+# Content line 1
+# Content line 2
+# Content line 3
+                                </aibuilder_file_content>
+                            </aibuilder_action>
+                        </aibuilder_change>
+                        <aibuilder_change file="old_file.py">
+                            <aibuilder_action type="remove_file">
+                            </aibuilder_action>
+                        </aibuilder_change>
                     </aibuilder_changes>
                     ```
-
                     Generate modifications logically based on the desired changes.
                     Current code:
                     {current_code}
                     Instructions:
                     {instructions}
                     """
-
                     response = client.complete(
                         stream=True,
                         messages=[
@@ -306,7 +319,6 @@ class AIBuilder:
                         max_tokens=131072/2,
                         model=model_name
                     )
-
                     response_content = ""
                     for update in response:
                         if update.choices and isinstance(update.choices, list) and len(update.choices) > 0:
@@ -315,19 +327,13 @@ class AIBuilder:
                                 response_content += content
                         else:
                             logging.warning("Unexpected response format: choices list is empty or invalid.")
-
                     logging.info("Successfully obtained response from client.")
-
                     with open(modifications_xml_path, 'w', encoding='utf-8') as modifications_file:
                         modifications_file.write(response_content)
-
                     logging.info(f"Successfully wrote modifications file to {modifications_xml_path}")
-
                 apply_modifications(modifications_xml_path)
-
             except Exception as e:
                 logging.error(f"An error occurred: {str(e)}", exc_info=True)
-
             self.run_pre_post_scripts("post.ps1")
 
 if __name__ == "__main__":
