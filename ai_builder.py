@@ -58,22 +58,22 @@ def load_instructions(xml_path):
     return parse_custom_xml(xml_content)
 
 def replace_between_markers(lines, start_marker, end_marker, new_content):
-    new_lines = []
-    i = 0
-    n = len(lines)
-    while i < n:
-        line = lines[i]
-        if line.strip() == start_marker.strip():
-            new_lines.extend(new_content)
-            while i < n and line.strip() != end_marker.strip():
-                i += 1
-                line = lines[i] if i < n else ""
-            if i < n:
-                new_lines.append(line)
-        else:
-            new_lines.append(line)
-        i += 1
-    return new_lines
+    # Join the lines into a single string for easier manipulation
+    text = "\n".join(lines)
+    start_index = text.find(start_marker)
+
+    if start_index != -1:
+        # Find the end of the start marker
+        end_of_start_marker = start_index + len(start_marker)
+        # Find the end marker starting from the end of the start marker
+        end_index = text.find(end_marker, end_of_start_marker)
+
+        if end_index != -1:
+            # Replace the section between the markers with the new content
+            text = text[:start_index] + "\n".join(new_content) + "\n" + text[end_index:]
+
+    # Return the modified lines
+    return text.split("\n")
 
 def apply_modifications(instruction_file):
     changes = load_instructions(instruction_file)
