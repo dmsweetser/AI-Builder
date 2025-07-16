@@ -13,75 +13,53 @@ from azure.core.credentials import AzureKeyCredential
 load_dotenv()
 
 def extract_xml_content(text):
-    # Define the markers
     start_marker = "```xml"
     end_marker = "```"
-
-    # Find the starting index of the ```xml marker
     start_index = text.find(start_marker)
     if start_index == -1:
-        return text  # Return the original text if the start marker is not found
-
-    # Adjust the start index to the end of the start marker line
+        return text
     start_index = text.find('\n', start_index) + 1
-
-    # Find the end index of the ``` marker by searching from the end of the text
     end_index = text.rfind(end_marker)
     if end_index == -1 or end_index <= start_index:
-        return text  # Return the original text if the end marker is not found or is before the start index
-
-    # Extract the content between the start and end markers
+        return text
     xml_content = text[start_index:end_index].strip()
     return xml_content
+
+def parse_custom_xml(xml_content):
+    changes = []
+    change_blocks = re.findall(r'<aibuilder_change file="([^"]+)">(.*?)</aibuilder_change>', xml_content, re.DOTALL)
+    for file, actions in change_blocks:
+        action_list = []
+        action_blocks = re.findall(r'<aibuilder_action type="([^"]+)">(.*?)</aibuilder_action>', actions, re.DOTALL)
+        for action_type, action_data in action_blocks:
+            if action_type == 'replace_between_markers':
+                start_marker = re.search(r'<aibuilder_start_marker>(.*?)</aibuilder_start_marker>', action_data).group(1)
+                end_marker = re.search(r'<aibuilder_end_marker>(.*?)</aibuilder_end_marker>', action_data).group(1)
+                new_content = re.search(r'<aibuilder_new_content>(.*?)</aibuilder_new_content>', action_data, re.DOTALL).group(1).strip().split('\n')
+                action_list.append({'action': action_type, 'start_marker': start_marker, 'end_marker': end_marker, 'new_content': new_content})
+            elif action_type == 'replace_line_containing':
+                match_substring = re.search(r'aibuilder_match_substring="([^"]+)"', action_data).group(1)
+                replacement_line = re.search(r'aibuilder_replacement_line="([^"]+)"', action_data).group(1)
+                action_list.append({'action': action_type, 'match_substring': match_substring, 'replacement_line': replacement_line})
+            elif action_type in ['append', 'prepend']:
+                content = re.search(r'<aibuilder_content>(.*?)</aibuilder_content>', action_data, re.DOTALL).group(1).strip().split('\n')
+                action_list.append({'action': action_type, 'content': content})
+            elif action_type == 'regex_replace':
+                pattern = re.search(r'aibuilder_pattern="([^"]+)"', action_data).group(1)
+                replacement = re.search(r'aibuilder_replacement="([^"]+)"', action_data).group(1)
+                action_list.append({'action': action_type, 'pattern': pattern, 'replacement': replacement})
+        changes.append({'file': file, 'actions': action_list})
+    return changes
 
 def load_instructions(xml_path):
     with open(xml_path, 'r', encoding='utf-8') as f:
         content = f.read()
-
     if "</think>" in content:
         content = content.split("</think>")[1]
-
     xml_content = extract_xml_content(content)
-
     with open("ai_builder/extracted.xml", 'w', encoding='utf-8') as f:
         f.write(xml_content)
-
-    root = ET.fromstring(xml_content)
-    changes = []
-
-    for change in root.findall('change'):
-        file = change.get('file')
-        actions = []
-
-        for action in change.findall('action'):
-            action_type = action.get('type')
-            action_data = {}
-
-            # Handle nested elements for 'replace_between_markers' action
-            if action_type == 'replace_between_markers':
-                start_marker = action.find('start_marker').text
-                end_marker = action.find('end_marker').text
-                new_content = action.find('new_content').text.strip().split('\n')
-
-                action_data = {
-                    'start_marker': start_marker,
-                    'end_marker': end_marker,
-                    'new_content': new_content
-                }
-            elif action_type == 'replace_line_containing':
-                action_data = {
-                    'match_substring': action.get('match_substring'),
-                    'replacement_line': action.get('replacement_line')
-                }
-            else:
-                # Handle other action types if necessary
-                pass
-
-            actions.append({'action': action_type, **action_data})
-
-        changes.append({'file': file, 'actions': actions})
-
-    return changes
+    return parse_custom_xml(xml_content)
 
 def replace_between_markers(lines, start_marker, end_marker, new_content):
     new_lines = []
@@ -90,12 +68,9 @@ def replace_between_markers(lines, start_marker, end_marker, new_content):
     while i < n:
         line = lines[i]
         if start_marker in line:
-            # Add new content
             new_lines.extend(new_content)
-            # Skip lines until end_marker is found
             while i < n and end_marker not in lines[i]:
                 i += 1
-            # Add the end_marker line if found
             if i < n:
                 new_lines.append(lines[i])
         else:
@@ -117,10 +92,8 @@ def apply_modifications(instruction_file):
         if not os.path.isfile(filepath):
             with open(filepath, 'w', encoding='utf-8') as f:
                 f.write("")
-
         with open(filepath, 'r', encoding='utf-8') as f:
             lines = f.read().splitlines()
-
         for action in change['actions']:
             action_type = action['action']
             if action_type == 'replace_between_markers':
@@ -128,13 +101,13 @@ def apply_modifications(instruction_file):
                     lines,
                     action['start_marker'],
                     action['end_marker'],
-                    action['new_content']  # Remove .split('\n') since new_content is already a list
+                    action['new_content']
                 )
             elif action_type == 'append':
-                new_lines = [line for line in action['content'].split('\n') if line not in lines]
+                new_lines = [line for line in action['content'] if line not in lines]
                 lines.extend(new_lines)
             elif action_type == 'prepend':
-                new_lines = [line for line in action['content'].split('\n') if line not in lines]
+                new_lines = [line for line in action['content'] if line not in lines]
                 lines = new_lines + lines
             elif action_type == 'regex_replace':
                 lines = regex_replace(
@@ -150,10 +123,8 @@ def apply_modifications(instruction_file):
                 )
             else:
                 print(f"[WARNING] Unknown action type: {action_type}")
-
         with open(filepath, 'w', encoding='utf-8') as f:
             f.write("\n".join(lines) + "\n")
-
         print(f"[INFO] Updated: {filepath}")
 
 class CodeUtility:
@@ -227,13 +198,10 @@ class AIBuilder:
         if not root_directory:
             logging.warning("ROOT_DIRECTORY environment variable not set, using current directory.")
             root_directory = os.getcwd()
-
         ai_builder_dir = os.path.join(root_directory, "ai_builder")
         os.makedirs(ai_builder_dir, exist_ok=True)
-
         base_config_path = os.path.join("base_config.xml")
         user_config_path = os.path.join(ai_builder_dir, "user_config.xml")
-
         if os.path.exists(base_config_path):
             shutil.copy(base_config_path, user_config_path)
             logging.info("Copied base_config.xml to user_config.xml")
@@ -261,17 +229,13 @@ class AIBuilder:
             with open(user_config_path, 'w') as config_file:
                 config_file.write(default_config)
             logging.warning("base_config.xml not found, created default user_config.xml")
-
         os.chdir(root_directory)
         logging.info(f"Changed working directory to: {root_directory}")
-
         self.utility = CodeUtility(root_directory)
-
         config = ET.parse(user_config_path).getroot()
         iterations = int(config.find('iterations').text)
         mode = config.find('mode').text
         patterns = [pattern.text for pattern in config.findall('patterns/pattern')]
-
         for iteration in range(iterations):
             logging.info(f"Starting iteration {iteration + 1}")
             self.run_pre_post_scripts("pre.ps1")
@@ -290,20 +254,17 @@ class AIBuilder:
                     with open('instructions.txt', 'r', encoding='utf-8') as file:
                         instructions = file.read().strip()
                     logging.info("Successfully read instructions.txt")
-
                     endpoint = os.getenv("ENDPOINT")
                     model_name = os.getenv("MODEL_NAME")
                     api_key = os.getenv("API_KEY")
                     if not all([endpoint, model_name, api_key]):
                         logging.error("Missing one or more required environment variables: ENDPOINT, MODEL_NAME, API_KEY")
                         raise ValueError("Missing required environment variables.")
-
                     client = ChatCompletionsClient(
                         endpoint=endpoint,
                         credential=AzureKeyCredential(api_key),
                         api_version="2024-05-01-preview"
                     )
-
                     prompt = f"""
                     Generate an XML file that describes file modifications to apply using the following supported action types:
                     1. `replace_between_markers`:
@@ -322,16 +283,15 @@ class AIBuilder:
                     5. `replace_line_containing`:
                         - `match_substring`: Text to search for within lines
                         - `replacement_line`: Full line to replace matched lines with
-
                     Example output format:
                     ```xml
-                    <changes>
-                        <change file="example.py">
-                            <action type="append">
-                                <content># Automatically added comment.</content>
-                            </action>
-                        </change>
-                    </changes>
+                    <aibuilder_changes>
+                        <aibuilder_change file="example.py">
+                            <aibuilder_action type="append">
+                                <aibuilder_content># Automatically added comment.</aibuilder_content>
+                            </aibuilder_action>
+                        </aibuilder_change>
+                    </aibuilder_changes>
                     ```
                     Ensure the XML is strictly valid. Generate modifications logically based on the desired changes.
                     Current code:
@@ -339,7 +299,6 @@ class AIBuilder:
                     Instructions:
                     {instructions}
                     """
-
                     response = client.complete(
                         stream=True,
                         messages=[
@@ -349,7 +308,6 @@ class AIBuilder:
                         max_tokens=131072/2,
                         model=model_name
                     )
-
                     response_content = ""
                     for update in response:
                         if update.choices and isinstance(update.choices, list) and len(update.choices) > 0:
@@ -358,18 +316,13 @@ class AIBuilder:
                                 response_content += content
                         else:
                             logging.warning("Unexpected response format: choices list is empty or invalid.")
-
                     logging.info("Successfully obtained response from client.")
-
                     with open(modifications_xml_path, 'w', encoding='utf-8') as modifications_file:
                         modifications_file.write(response_content)
-
                     logging.info(f"Successfully wrote modifications file to {modifications_xml_path}")
-
                 apply_modifications(modifications_xml_path)
             except Exception as e:
                 logging.error(f"An error occurred: {str(e)}", exc_info=True)
-
             self.run_pre_post_scripts("post.ps1")
 
 if __name__ == "__main__":
