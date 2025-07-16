@@ -52,7 +52,7 @@ def parse_custom_xml(xml_content):
             elif action_type == 'remove_file':
                 action_list.append({'action': 'remove_file'})
             else:
-                print(f"[WARNING] Unknown action type: {action_type}")
+                logging.warning(f"Unknown action type: {action_type}")
         changes.append({'file': translate_xml_entities(file), 'actions': action_list})
     return changes
 
@@ -96,19 +96,19 @@ def apply_modifications(instruction_file):
                 )
                 with open(filepath, 'w', encoding='utf-8') as f:
                     f.write("\n".join(lines) + "\n")
-                print(f"[INFO] Updated: {filepath}")
+                logging.info(f"Updated: {filepath}")
             elif action_type == 'create_file':
                 with open(filepath, 'w', encoding='utf-8') as f:
                     f.write("\n".join(action['file_content']) + "\n")
-                print(f"[INFO] Created: {filepath}")
+                logging.info(f"Created: {filepath}")
             elif action_type == 'remove_file':
                 if os.path.isfile(filepath):
                     os.remove(filepath)
-                    print(f"[INFO] Removed: {filepath}")
+                    logging.info(f"Removed: {filepath}")
                 else:
-                    print(f"[WARNING] File not found: {filepath}")
+                    logging.warning(f"File not found: {filepath}")
             else:
-                print(f"[WARNING] Unknown action type: {action_type}")
+                logging.warning(f"Unknown action type: {action_type}")
 
 class CodeUtility:
     def __init__(self, base_dir: str = os.getcwd()):
@@ -155,9 +155,10 @@ class CodeUtility:
                 logging.info(f"Checking file: {relative_path}")
                 if self.should_process_file(relative_path, all_rules, patterns, mode):
                     try:
-                        with open(os.path.join(root, file), 'r') as f:
+                        file_path = os.path.join(root, file)
+                        with open(file_path, 'r', encoding='utf-8') as f:
                             content = f.read()
-                        with open(self.output_file, 'a') as out_file:
+                        with open(self.output_file, 'a', encoding='utf-8') as out_file:
                             out_file.write(f"\n### {relative_path}\n```\n{content}\n```\n")
                         logging.info(f"Successfully wrote content from {relative_path} to {self.output_file}")
                     except Exception as e:
@@ -320,13 +321,16 @@ class AIBuilder:
                         model=model_name
                     )
                     response_content = ""
-                    for update in response:
-                        if update.choices and isinstance(update.choices, list) and len(update.choices) > 0:
-                            content = update.choices[0].get("delta", {}).get("content", "")
-                            if content is not None:
-                                response_content += content
-                        else:
-                            logging.warning("Unexpected response format: choices list is empty or invalid.")
+                    try:
+                        for update in response:
+                            if update.choices and isinstance(update.choices, list) and len(update.choices) > 0:
+                                content = update.choices[0].get("delta", {}).get("content", "")
+                                if content is not None:
+                                    response_content += content
+                            else:
+                                logging.warning(f"Unexpected response format: {update}")
+                    finally:
+                        response.close()
                     logging.info("Successfully obtained response from client.")
                     with open(modifications_xml_path, 'w', encoding='utf-8') as modifications_file:
                         modifications_file.write(response_content)
