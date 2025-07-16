@@ -9,12 +9,13 @@ from dotenv import load_dotenv
 from azure.ai.inference import ChatCompletionsClient
 from azure.ai.inference.models import SystemMessage, UserMessage
 from azure.core.credentials import AzureKeyCredential
+from typing import Optional
+from datetime import datetime, timedelta
 
 # Load environment variables from .env file
 load_dotenv()
 
 def translate_xml_entities(text):
-    # Detect and translate XML entities if present
     if re.search(r'&(?:[a-z]+|#\d+|#x[a-fA-F0-9]+);', text):
         return html.unescape(text)
     return text
@@ -84,15 +85,18 @@ def apply_modifications(instruction_file):
     changes = load_instructions(instruction_file)
     for change in changes:
         filepath = change['file']
+        logging.info(f"Processing file: {filepath}")
+        if not os.path.isfile(filepath):
+            logging.warning(f"File not found, creating: {filepath}")
+            with open(filepath, 'w', encoding='utf-8') as f:
+                f.write("")
         for action in change['actions']:
             action_type = action['action']
             try:
                 if action_type == 'replace_between_markers':
-                    if not os.path.isfile(filepath):
-                        with open(filepath, 'w', encoding='utf-8') as f:
-                            f.write("")
                     with open(filepath, 'r', encoding='utf-8') as f:
                         lines = f.read().splitlines()
+                    logging.info(f"Original content:\n{lines}")
                     lines = replace_between_markers(
                         lines,
                         action['start_marker'],
@@ -101,6 +105,7 @@ def apply_modifications(instruction_file):
                     )
                     with open(filepath, 'w', encoding='utf-8') as f:
                         f.write("\n".join(lines) + "\n")
+                    logging.info(f"Updated content:\n{lines}")
                     logging.info(f"Updated: {filepath}")
                 elif action_type == 'create_file':
                     with open(filepath, 'w', encoding='utf-8') as f:
@@ -262,7 +267,7 @@ class AIBuilder:
                         - `start_marker`: String
                         - `end_marker`: String
                         - `new_content`: List of strings (lines of replacement code/text)
-                        Ensure that `new_content` includes the `start_marker` and `end_marker` lines, so they can be included as part of your changes. This is to avoid code loss.
+                        Ensure that `new_content` includes the `start_marker` and `end_marker` lines if they should be part of the replacement.
                         Also ensure that unmodified code between the markers is faithfully preserved.
                         Include at least three lines of context before and after the new content to be included.
                     2. `create_file`:
