@@ -95,12 +95,21 @@ def replace_between_markers(lines, start_marker, end_marker, new_content):
         end_index = text.find(end_marker, end_of_start_marker)
         if end_index != -1:
             new_content_text = "\n".join(new_content)
-            if start_marker in new_content_text:
+
+            # Check if start_marker or end_marker is in the new content
+            start_marker_in_new_content = start_marker.strip() in [line.strip() for line in new_content]
+            end_marker_in_new_content = end_marker.strip() in [line.strip() for line in new_content]
+
+            if start_marker_in_new_content:
                 start_index = end_of_start_marker
-            if end_marker in new_content_text:
+
+            if end_marker_in_new_content:
+                # If end_marker is in new_content, we need to adjust the end_index to avoid duplication
                 text = text[:start_index] + new_content_text + text[end_index + len(end_marker):]
             else:
+                # If end_marker is not in new_content, we insert new_content followed by a newline and the rest of the text
                 text = text[:start_index] + new_content_text + "\n" + text[end_index:]
+
     return text.split("\n")
 
 def apply_modifications(instruction_file):
@@ -345,8 +354,15 @@ class AIBuilder:
                         if not model_path:
                             logging.error("MODEL_PATH environment variable not set for local model.")
                             raise ValueError("MODEL_PATH environment variable not set.")
-                        llm = Llama(model_path=model_path)
-                        response_content = llm(prompt, max_tokens=131072/2)
+                        llm = Llama(model_path=model_path, n_ctx=int(os.getenv("MODEL_CONTEXT", 0)))
+                        response_content = ""
+                        for response in self.llm.create_completion(
+                            prompt,
+                            max_tokens=int(os.getenv("MODEL_CONTEXT", 0))/2,
+                            stream=True
+                        ):
+                            token = response['choices'][0]['text']
+                            response_content += token                            
                     else:
                         endpoint = os.getenv("ENDPOINT")
                         model_name = os.getenv("MODEL_NAME")

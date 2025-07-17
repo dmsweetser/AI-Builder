@@ -15,5 +15,6 @@
         <pattern>.ico</pattern>
         <pattern>.webp</pattern>
         <pattern>.gguf</pattern>
+        <pattern>build/</pattern>
     </patterns>
 </config>

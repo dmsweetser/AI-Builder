@@ -32,6 +32,7 @@ USE_LOCAL_MODEL=true
 MODEL_PATH=path/to/your/local/model
 ENDPOINT=your_azure_endpoint
 MODEL_NAME=your_model_name
+MODEL_CONTEXT=max model context
 API_KEY=your_api_key
 GENERATE_BUT_DO_NOT_APPLY=Whether to only produce the changes and not apply them
 ```
@@ -53,6 +54,7 @@ USE_LOCAL_MODEL: Set to true to use a local language model. Defaults to false.
 MODEL_PATH: The path to the local language model.
 ENDPOINT: The Azure endpoint for the language model.
 MODEL_NAME: The name of the Azure language model.
+MODEL_CONTEXT: The context size for your local LLM.
 API_KEY: The API key for the Azure language model.
 GENERATE_BUT_DO_NOT_APPLY: Whether to only produce the changes and not apply them
 
