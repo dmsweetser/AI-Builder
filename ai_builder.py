@@ -62,13 +62,37 @@ def load_instructions(format_path):
     try:
         with open(format_path, 'r', encoding='utf-8') as f:
             content = f.read()
-        if "[aibuilder_changes]" in content:
-            content = "[aibuilder_changes]" + content.split("[aibuilder_changes]")[1]
-        if "[/aibuilder_changes]" in content:
-            content = content.split("[/aibuilder_changes]")[0] + "[/aibuilder_changes]"
-        with open("ai_builder\\extracted.txt", 'w', encoding='utf-8') as f:
-            f.write(content)
-        return parse_custom_format(content)
+
+        # Reverse the content to start searching from the end
+        reversed_content = content[::-1]
+
+        # Find the closing tag first
+        end_tag = "[/aibuilder_changes]"
+        reversed_end_tag = end_tag[::-1]
+        end_index = reversed_content.find(reversed_end_tag)
+
+        if end_index != -1:
+            # Find the starting tag after the closing tag
+            start_tag = "[aibuilder_changes]"
+            reversed_start_tag = start_tag[::-1]
+            start_index = reversed_content.find(reversed_start_tag, end_index)
+
+            if start_index != -1:
+                # Extract the content between the tags in reverse
+                reversed_extracted_content = reversed_content[end_index + len(reversed_end_tag):start_index]
+                extracted_content = reversed_extracted_content[::-1]
+
+                # Write the extracted content to a file
+                with open("ai_builder/extracted.txt", 'w', encoding='utf-8') as f:
+                    f.write(start_tag + extracted_content + end_tag)
+
+                return parse_custom_format(start_tag + extracted_content + end_tag)
+            else:
+                logging.error("Starting tag not found.")
+                return []
+        else:
+            logging.error("Closing tag not found.")
+            return []
     except Exception as e:
         logging.error(f"Error loading instructions: {e}")
         return []
@@ -290,7 +314,7 @@ class AIBuilder:
                         - `end_marker`: String
                         - `new_content`: List of strings (lines of replacement code/text)
                         Ensure that `new_content` includes the `start_marker` and `end_marker` lines if they should be part of the replacement.
-                        Also ensure that unmodified code between the markers is faithfully preserved.
+                        Ensure that `new_content` includes ALL necessary code that should be present between the `start_marker` and `end_marker` lines
                         Include ONLY three lines of context before and after the new content to be included.
                     2. `create_file`:
                         - `file_content`: List of strings (lines of the file content)
