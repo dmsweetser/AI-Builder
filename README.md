@@ -33,6 +33,7 @@ MODEL_PATH=path/to/your/local/model
 ENDPOINT=your_azure_endpoint
 MODEL_NAME=your_model_name
 API_KEY=your_api_key
+GENERATE_BUT_DO_NOT_APPLY=Whether to only produce the changes and not apply them
 ```
 
 ## Usage
@@ -53,6 +54,7 @@ MODEL_PATH: The path to the local language model.
 ENDPOINT: The Azure endpoint for the language model.
 MODEL_NAME: The name of the Azure language model.
 API_KEY: The API key for the Azure language model.
+GENERATE_BUT_DO_NOT_APPLY: Whether to only produce the changes and not apply them
 
 ## Configuration
 

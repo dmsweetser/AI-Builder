@@ -387,7 +387,8 @@ class AIBuilder:
                     with open(modifications_format_path, 'w', encoding='utf-8') as modifications_file:
                         modifications_file.write(response_content)
                     logging.info(f"Successfully wrote modifications file to {modifications_format_path}")
-                apply_modifications(modifications_format_path)
+                if os.getenv("GENERATE_BUT_DO_NOT_APPLY", "false").lower() == "false":
+                    apply_modifications(modifications_format_path)
             except Exception as e:
                 logging.error(f"An error occurred: {str(e)}", exc_info=True)
             self.run_pre_post_scripts("post.ps1")
