@@ -3,7 +3,6 @@ import re
 import logging
 import shutil
 import subprocess
-import html
 import xml.etree.ElementTree as ET
 from dotenv import load_dotenv
 from azure.ai.inference import ChatCompletionsClient
@@ -15,58 +14,61 @@ from datetime import datetime, timedelta
 # Load environment variables from .env file
 load_dotenv()
 
-def translate_xml_entities(text):
-    if re.search(r'&(?:[a-z]+|#\d+|#x[a-fA-F0-9]+);', text):
-        return html.unescape(text)
-    return text
-
-def extract_xml_content(text):
-    start_marker = "```xml"
-    end_marker = "```"
-    start_index = text.find(start_marker)
-    if start_index == -1:
-        return text
-    start_index = text.find('\n', start_index) + 1
-    end_index = text.rfind(end_marker)
-    if end_index == -1 or end_index <= start_index:
-        return text
-    xml_content = text[start_index:end_index].strip()
-    return xml_content
-
-def parse_custom_xml(xml_content):
+def parse_custom_format(content):
     changes = []
-    change_blocks = re.findall(r'<aibuilder_change file="([^"]+)">(.*?)</aibuilder_change>', xml_content, re.DOTALL)
-    for file, actions in change_blocks:
+    change_blocks = re.split(r'\[/aibuilder_change\]', content)
+    for block in change_blocks:
+        if not block.strip():
+            continue
+        file_match = re.search(r'\[aibuilder_change file="([^"]+)"\]', block)
+        if not file_match:
+            continue
+        file = file_match.group(1)
         action_list = []
-        action_blocks = re.findall(r'<aibuilder_action type="(replace_between_markers|create_file|remove_file)">(.*?)</aibuilder_action>', actions, re.DOTALL)
-        for action_type, action_data in action_blocks:
+        action_blocks = re.split(r'\[/aibuilder_action\]', block)
+        for action_block in action_blocks:
+            action_type_match = re.search(r'\[aibuilder_action type="([^"]+)"\]', action_block)
+            if not action_type_match:
+                continue
+            action_type = action_type_match.group(1)
             if action_type == 'replace_between_markers':
-                start_marker = re.search(r'<aibuilder_start_marker>(.*?)</aibuilder_start_marker>', action_data, re.DOTALL).group(1).strip()
-                end_marker = re.search(r'<aibuilder_end_marker>(.*?)</aibuilder_end_marker>', action_data, re.DOTALL).group(1).strip()
-                new_content = re.search(r'<aibuilder_new_content>(.*?)</aibuilder_new_content>', action_data, re.DOTALL).group(1).strip()
-                new_content = translate_xml_entities(new_content).split('\n')
-                action_list.append({'action': 'replace_between_markers', 'start_marker': translate_xml_entities(start_marker), 'end_marker': translate_xml_entities(end_marker), 'new_content': new_content})
+                start_marker_match = re.search(r'\[aibuilder_start_marker\](.*?)\[/aibuilder_start_marker\]', action_block, re.DOTALL)
+                end_marker_match = re.search(r'\[aibuilder_end_marker\](.*?)\[/aibuilder_end_marker\]', action_block, re.DOTALL)
+                new_content_match = re.search(r'\[aibuilder_new_content\](.*?)\[/aibuilder_new_content\]', action_block, re.DOTALL)
+                if start_marker_match and end_marker_match and new_content_match:
+                    start_marker = start_marker_match.group(1).strip()
+                    end_marker = end_marker_match.group(1).strip()
+                    new_content = new_content_match.group(1).strip()
+                    action_list.append({
+                        'action': 'replace_between_markers',
+                        'start_marker': start_marker,
+                        'end_marker': end_marker,
+                        'new_content': new_content.split('\n')
+                    })
             elif action_type == 'create_file':
-                file_content = re.search(r'<aibuilder_file_content>(.*?)</aibuilder_file_content>', action_data, re.DOTALL).group(1).strip()
-                file_content = translate_xml_entities(file_content).split('\n')
-                action_list.append({'action': 'create_file', 'file_content': file_content})
+                file_content_match = re.search(r'\[aibuilder_file_content\](.*?)\[/aibuilder_file_content\]', action_block, re.DOTALL)
+                if file_content_match:
+                    file_content = file_content_match.group(1).strip()
+                    action_list.append({
+                        'action': 'create_file',
+                        'file_content': file_content.split('\n')
+                    })
             elif action_type == 'remove_file':
                 action_list.append({'action': 'remove_file'})
-            else:
-                logging.warning(f"Unknown action type: {action_type}")
-        changes.append({'file': translate_xml_entities(file), 'actions': action_list})
+        changes.append({'file': file, 'actions': action_list})
     return changes
 
-def load_instructions(xml_path):
+def load_instructions(format_path):
     try:
-        with open(xml_path, 'r', encoding='utf-8') as f:
+        with open(format_path, 'r', encoding='utf-8') as f:
             content = f.read()
-        if "</think>" in content:
-            content = content.split("</think>")[1]
-        xml_content = extract_xml_content(content)
-        with open("ai_builder/extracted.xml", 'w', encoding='utf-8') as f:
-            f.write(xml_content)
-        return parse_custom_xml(xml_content)
+        if "[aibuilder_changes]" in content:
+            content = "[aibuilder_changes]" + content.split("[aibuilder_changes]")[1]
+        if "[/aibuilder_changes]" in content:
+            content = content.split("[/aibuilder_changes]")[0] + "[/aibuilder_changes]"
+        with open("ai_builder\\extracted.txt", 'w', encoding='utf-8') as f:
+            f.write(content)
+        return parse_custom_format(content)
     except Exception as e:
         logging.error(f"Error loading instructions: {e}")
         return []
@@ -117,8 +119,6 @@ def apply_modifications(instruction_file):
                         logging.info(f"Removed: {filepath}")
                     else:
                         logging.warning(f"File not found: {filepath}")
-                else:
-                    logging.warning(f"Unknown action type: {action_type}")
             except Exception as e:
                 logging.error(f"Error applying modifications to {filepath}: {e}")
 
@@ -193,10 +193,13 @@ class AIBuilder:
         if not root_directory:
             logging.warning("ROOT_DIRECTORY environment variable not set, using current directory.")
             root_directory = os.getcwd()
+
         ai_builder_dir = os.path.join(root_directory, "ai_builder")
         os.makedirs(ai_builder_dir, exist_ok=True)
+
         base_config_path = os.path.join("base_config.xml")
         user_config_path = os.path.join(ai_builder_dir, "user_config.xml")
+
         if os.path.exists(base_config_path):
             shutil.copy(base_config_path, user_config_path)
             logging.info("Copied base_config.xml to user_config.xml")
@@ -226,17 +229,20 @@ class AIBuilder:
             logging.warning("base_config.xml not found, created default user_config.xml")
         os.chdir(root_directory)
         logging.info(f"Changed working directory to: {root_directory}")
+
         self.utility = CodeUtility(root_directory)
         config = ET.parse(user_config_path).getroot()
         iterations = int(config.find('iterations').text)
         mode = config.find('mode').text
         patterns = [pattern.text for pattern in config.findall('patterns/pattern')]
+        
+
         for iteration in range(iterations):
             logging.info(f"Starting iteration {iteration + 1}")
             self.run_pre_post_scripts("pre.ps1")
             try:
-                modifications_xml_path = os.path.join(ai_builder_dir, "modifications.xml")
-                if not os.path.exists(modifications_xml_path):
+                modifications_format_path = os.path.join(ai_builder_dir, "modifications.txt")
+                if not os.path.exists(modifications_format_path):
                     if os.path.exists(self.utility.output_file):
                         os.remove(self.utility.output_file)
                     self.utility.process_directory(root_directory, [], patterns, mode)
@@ -249,72 +255,75 @@ class AIBuilder:
                     with open('instructions.txt', 'r', encoding='utf-8') as file:
                         instructions = file.read().strip()
                     logging.info("Successfully read instructions.txt")
+
                     endpoint = os.getenv("ENDPOINT")
                     model_name = os.getenv("MODEL_NAME")
                     api_key = os.getenv("API_KEY")
                     if not all([endpoint, model_name, api_key]):
                         logging.error("Missing one or more required environment variables: ENDPOINT, MODEL_NAME, API_KEY")
                         raise ValueError("Missing required environment variables.")
+
                     client = ChatCompletionsClient(
                         endpoint=endpoint,
                         credential=AzureKeyCredential(api_key),
                         api_version="2024-05-01-preview"
                     )
+
                     prompt = f"""
-                    Generate an XML file that describes file modifications to apply using the `replace_between_markers`, `create_file`, and `remove_file` action types.
-                    Ensure all content is provided using XML-compatible entities.
+                    Generate a line-delimited format file that describes file modifications to apply using the `replace_between_markers`, `create_file`, and `remove_file` action types.
+                    Ensure all content is provided using line-delimited format-compatible entities.
                     1. `replace_between_markers`:
                         - `start_marker`: String
                         - `end_marker`: String
                         - `new_content`: List of strings (lines of replacement code/text)
                         Ensure that `new_content` includes the `start_marker` and `end_marker` lines if they should be part of the replacement.
                         Also ensure that unmodified code between the markers is faithfully preserved.
-                        Include at least three lines of context before and after the new content to be included.
+                        Include ONLY three lines of context before and after the new content to be included.
                     2. `create_file`:
                         - `file_content`: List of strings (lines of the file content)
                     3. `remove_file`:
                         - No additional parameters needed.
                     Example output format:
-                    ```xml
-                    <aibuilder_changes>
-                        <aibuilder_change file="example.py">
-                            <aibuilder_action type="replace_between_markers">
-                                <aibuilder_start_marker>
-# Context line 1 before the change
-# Context line 2 before the change
-# Context line 3 before the change
-                                </aibuilder_start_marker>
-                                <aibuilder_end_marker>
-# Context line 1 after the change
-# Context line 2 after the change
-# Context line 3 after the change
-                                </aibuilder_end_marker>
-                                <aibuilder_new_content>
-# Context line 1 before the change
-# Context line 2 before the change
-# Context line 3 before the change
-# Modified line 1
-# Modified line 2
-# Context line 1 after the change
-# Context line 2 after the change
-# Context line 3 after the change
-                                </aibuilder_new_content>
-                            </aibuilder_action>
-                        </aibuilder_change>
-                        <aibuilder_change file="new_file.py">
-                            <aibuilder_action type="create_file">
-                                <aibuilder_file_content>
-# Content line 1
-# Content line 2
-# Content line 3
-                                </aibuilder_file_content>
-                            </aibuilder_action>
-                        </aibuilder_change>
-                        <aibuilder_change file="old_file.py">
-                            <aibuilder_action type="remove_file">
-                            </aibuilder_action>
-                        </aibuilder_change>
-                    </aibuilder_changes>
+                    ```
+                    [aibuilder_changes]
+                    [aibuilder_change file="example.py"]
+                    [aibuilder_action type="replace_between_markers"]
+                    [aibuilder_start_marker]
+                    # Context line 1 before the change with whitespace preserved
+                    \t# Context line 2 before the change with whitespace preserved
+                    \t# Context line 3 before the change with whitespace preserved
+                    [/aibuilder_start_marker]
+                    [aibuilder_end_marker]
+                    # Context line 1 after the change with whitespace preserved
+                    \t# Context line 2 after the change with whitespace preserved
+                    \t# Context line 3 after the change with whitespace preserved
+                    [/aibuilder_end_marker]
+                    [aibuilder_new_content]
+                    # Context line 1 before the change with whitespace preserved
+                    \t# Context line 2 before the change with whitespace preserved
+                    \t# Context line 3 before the change with whitespace preserved
+                    # Modified line 1 with whitespace preserved
+                    \t# Modified line 2 with whitespace preserved
+                    # Context line 1 after the change with whitespace preserved
+                    \t# Context line 2 after the change with whitespace preserved
+                    \t# Context line 3 after the change with whitespace preserved
+                    [/aibuilder_new_content]
+                    [/aibuilder_action]
+                    [/aibuilder_change]
+                    [aibuilder_change file="new_file.py"]
+                    [aibuilder_action type="create_file"]
+                    [aibuilder_file_content]
+                    # Content line 1 with whitespace preserved
+                    \t# Content line 2 with whitespace preserved
+                    \t# Content line 3 with whitespace preserved
+                    [/aibuilder_file_content]
+                    [/aibuilder_action]
+                    [/aibuilder_change]
+                    [aibuilder_change file="old_file.py"]
+                    [aibuilder_action type="remove_file"]
+                    [/aibuilder_action]
+                    [/aibuilder_change]
+                    [/aibuilder_changes]
                     ```
                     Generate modifications logically based on the desired changes.
                     Current code:
@@ -322,6 +331,7 @@ class AIBuilder:
                     Instructions:
                     {instructions}
                     """
+
                     response = client.complete(
                         stream=True,
                         messages=[
@@ -331,6 +341,7 @@ class AIBuilder:
                         max_tokens=131072/2,
                         model=model_name
                     )
+
                     response_content = ""
                     try:
                         for update in response:
@@ -342,13 +353,16 @@ class AIBuilder:
                                 break
                     finally:
                         response.close()
+
                     logging.info("Successfully obtained response from client.")
-                    with open(modifications_xml_path, 'w', encoding='utf-8') as modifications_file:
+                    with open(modifications_format_path, 'w', encoding='utf-8') as modifications_file:
                         modifications_file.write(response_content)
-                    logging.info(f"Successfully wrote modifications file to {modifications_xml_path}")
-                apply_modifications(modifications_xml_path)
+                    logging.info(f"Successfully wrote modifications file to {modifications_format_path}")
+
+                apply_modifications(modifications_format_path)
             except Exception as e:
                 logging.error(f"An error occurred: {str(e)}", exc_info=True)
+
             self.run_pre_post_scripts("post.ps1")
 
 if __name__ == "__main__":
