@@ -10,6 +10,7 @@ from azure.ai.inference.models import SystemMessage, UserMessage
 from azure.core.credentials import AzureKeyCredential
 from typing import Optional
 from datetime import datetime, timedelta
+from llama_cpp import Llama
 
 # Load environment variables from .env file
 load_dotenv()
@@ -62,30 +63,19 @@ def load_instructions(format_path):
     try:
         with open(format_path, 'r', encoding='utf-8') as f:
             content = f.read()
-
-        # Reverse the content to start searching from the end
         reversed_content = content[::-1]
-
-        # Find the closing tag first
         end_tag = "[/aibuilder_changes]"
         reversed_end_tag = end_tag[::-1]
         end_index = reversed_content.find(reversed_end_tag)
-
         if end_index != -1:
-            # Find the starting tag after the closing tag
             start_tag = "[aibuilder_changes]"
             reversed_start_tag = start_tag[::-1]
             start_index = reversed_content.find(reversed_start_tag, end_index)
-
             if start_index != -1:
-                # Extract the content between the tags in reverse
                 reversed_extracted_content = reversed_content[end_index + len(reversed_end_tag):start_index]
                 extracted_content = reversed_extracted_content[::-1]
-
-                # Write the extracted content to a file
                 with open("ai_builder/extracted.txt", 'w', encoding='utf-8') as f:
                     f.write(start_tag + extracted_content + end_tag)
-
                 return parse_custom_format(start_tag + extracted_content + end_tag)
             else:
                 logging.error("Starting tag not found.")
@@ -105,19 +95,12 @@ def replace_between_markers(lines, start_marker, end_marker, new_content):
         end_index = text.find(end_marker, end_of_start_marker)
         if end_index != -1:
             new_content_text = "\n".join(new_content)
-            # Check if the start marker is included in the new content
             if start_marker in new_content_text:
-                # If the start marker is included, replace from the end of the start marker
                 start_index = end_of_start_marker
-
-            # Check if the end marker is included in the new content
             if end_marker in new_content_text:
-                # If the end marker is included, replace up to the end marker
                 text = text[:start_index] + new_content_text + text[end_index + len(end_marker):]
             else:
-                # If the end marker is not included, replace up to the end marker and include it
                 text = text[:start_index] + new_content_text + "\n" + text[end_index:]
-
     return text.split("\n")
 
 def apply_modifications(instruction_file):
@@ -264,6 +247,7 @@ class AIBuilder:
             with open(user_config_path, 'w', encoding='utf-8') as config_file:
                 config_file.write(default_config)
             logging.warning("base_config.xml not found, created default user_config.xml")
+
         os.chdir(root_directory)
         logging.info(f"Changed working directory to: {root_directory}")
 
@@ -272,7 +256,6 @@ class AIBuilder:
         iterations = int(config.find('iterations').text)
         mode = config.find('mode').text
         patterns = [pattern.text for pattern in config.findall('patterns/pattern')]
-        
 
         for iteration in range(iterations):
             logging.info(f"Starting iteration {iteration + 1}")
@@ -293,113 +276,120 @@ class AIBuilder:
                         instructions = file.read().strip()
                     logging.info("Successfully read instructions.txt")
 
-                    endpoint = os.getenv("ENDPOINT")
-                    model_name = os.getenv("MODEL_NAME")
-                    api_key = os.getenv("API_KEY")
-                    if not all([endpoint, model_name, api_key]):
-                        logging.error("Missing one or more required environment variables: ENDPOINT, MODEL_NAME, API_KEY")
-                        raise ValueError("Missing required environment variables.")
-
-                    client = ChatCompletionsClient(
-                        endpoint=endpoint,
-                        credential=AzureKeyCredential(api_key),
-                        api_version="2024-05-01-preview"
-                    )
-
                     prompt = f"""
-                    Generate a line-delimited format file that describes file modifications to apply using the `replace_between_markers`, `create_file`, and `remove_file` action types.
-                    Ensure all content is provided using line-delimited format-compatible entities.
-                    1. `replace_between_markers`:
-                        - `start_marker`: String
-                        - `end_marker`: String
-                        - `new_content`: List of strings (lines of replacement code/text)
-                        Ensure that `new_content` includes the `start_marker` and `end_marker` lines if they should be part of the replacement.
-                        Ensure that `new_content` includes ALL necessary code that should be present between the `start_marker` and `end_marker` lines
-                        Include ONLY three lines of context before and after the new content to be included.
-                    2. `create_file`:
-                        - `file_content`: List of strings (lines of the file content)
-                    3. `remove_file`:
-                        - No additional parameters needed.
-                    Example output format:
-                    ```
-                    [aibuilder_changes]
-                    [aibuilder_change file="example.py"]
-                    [aibuilder_action type="replace_between_markers"]
-                    [aibuilder_start_marker]
-                    # Context line 1 before the change with whitespace preserved
-                    \t# Context line 2 before the change with whitespace preserved
-                    \t# Context line 3 before the change with whitespace preserved
-                    [/aibuilder_start_marker]
-                    [aibuilder_end_marker]
-                    # Context line 1 after the change with whitespace preserved
-                    \t# Context line 2 after the change with whitespace preserved
-                    \t# Context line 3 after the change with whitespace preserved
-                    [/aibuilder_end_marker]
-                    [aibuilder_new_content]
-                    # Context line 1 before the change with whitespace preserved
-                    \t# Context line 2 before the change with whitespace preserved
-                    \t# Context line 3 before the change with whitespace preserved
-                    # Modified line 1 with whitespace preserved
-                    \t# Modified line 2 with whitespace preserved
-                    # Context line 1 after the change with whitespace preserved
-                    \t# Context line 2 after the change with whitespace preserved
-                    \t# Context line 3 after the change with whitespace preserved
-                    [/aibuilder_new_content]
-                    [/aibuilder_action]
-                    [/aibuilder_change]
-                    [aibuilder_change file="new_file.py"]
-                    [aibuilder_action type="create_file"]
-                    [aibuilder_file_content]
-                    # Content line 1 with whitespace preserved
-                    \t# Content line 2 with whitespace preserved
-                    \t# Content line 3 with whitespace preserved
-                    [/aibuilder_file_content]
-                    [/aibuilder_action]
-                    [/aibuilder_change]
-                    [aibuilder_change file="old_file.py"]
-                    [aibuilder_action type="remove_file"]
-                    [/aibuilder_action]
-                    [/aibuilder_change]
-                    [/aibuilder_changes]
-                    ```
-                    Generate modifications logically based on the desired changes.
-                    Current code:
-                    {current_code}
-                    Instructions:
-                    {instructions}
-                    """
+                        Generate a line-delimited format file that describes file modifications to apply using the `replace_between_markers`, `create_file`, and `remove_file` action types.
+                        Ensure all content is provided using line-delimited format-compatible entities.
+                        1. `replace_between_markers`:
+                            - `start_marker`: String
+                            - `end_marker`: String
+                            - `new_content`: List of strings (lines of replacement code/text)
+                            Ensure that `new_content` includes the `start_marker` and `end_marker` lines if they should be part of the replacement.
+                            Ensure that `new_content` includes ALL necessary code that should be present between the `start_marker` and `end_marker` lines
+                            Include ONLY three lines of context before and after the new content to be included.
+                        2. `create_file`:
+                            - `file_content`: List of strings (lines of the file content)
+                        3. `remove_file`:
+                            - No additional parameters needed.
+                        Example output format:
+                        ```
+                        [aibuilder_changes]
+                        [aibuilder_change file="example.py"]
+                        [aibuilder_action type="replace_between_markers"]
+                        [aibuilder_start_marker]
+                        # Context line 1 before the change with whitespace preserved
+                        \t# Context line 2 before the change with whitespace preserved
+                        \t# Context line 3 before the change with whitespace preserved
+                        [/aibuilder_start_marker]
+                        [aibuilder_end_marker]
+                        # Context line 1 after the change with whitespace preserved
+                        \t# Context line 2 after the change with whitespace preserved
+                        \t# Context line 3 after the change with whitespace preserved
+                        [/aibuilder_end_marker]
+                        [aibuilder_new_content]
+                        # Context line 1 before the change with whitespace preserved
+                        \t# Context line 2 before the change with whitespace preserved
+                        \t# Context line 3 before the change with whitespace preserved
+                        # Modified line 1 with whitespace preserved
+                        \t# Modified line 2 with whitespace preserved
+                        # Context line 1 after the change with whitespace preserved
+                        \t# Context line 2 after the change with whitespace preserved
+                        \t# Context line 3 after the change with whitespace preserved
+                        [/aibuilder_new_content]
+                        [/aibuilder_action]
+                        [/aibuilder_change]
+                        [aibuilder_change file="new_file.py"]
+                        [aibuilder_action type="create_file"]
+                        [aibuilder_file_content]
+                        # Content line 1 with whitespace preserved
+                        \t# Content line 2 with whitespace preserved
+                        \t# Content line 3 with whitespace preserved
+                        [/aibuilder_file_content]
+                        [/aibuilder_action]
+                        [/aibuilder_change]
+                        [aibuilder_change file="old_file.py"]
+                        [aibuilder_action type="remove_file"]
+                        [/aibuilder_action]
+                        [/aibuilder_change]
+                        [/aibuilder_changes]
+                        ```
+                        Generate modifications logically based on the desired changes.
+                        Current code:
+                        {current_code}
+                        Instructions:
+                        {instructions}
+                        """
 
-                    response = client.complete(
-                        stream=True,
-                        messages=[
-                            SystemMessage(content="You are a helpful assistant."),
-                            UserMessage(content=prompt)
-                        ],
-                        max_tokens=131072/2,
-                        model=model_name
-                    )
+                    use_local_model = os.getenv("USE_LOCAL_MODEL", "false").lower() == "true"
+                    if use_local_model:
+                        model_path = os.getenv("MODEL_PATH")
+                        if not model_path:
+                            logging.error("MODEL_PATH environment variable not set for local model.")
+                            raise ValueError("MODEL_PATH environment variable not set.")
+                        llm = Llama(model_path=model_path)
+                        response_content = llm(prompt, max_tokens=131072//2)
+                    else:
+                        endpoint = os.getenv("ENDPOINT")
+                        model_name = os.getenv("MODEL_NAME")
+                        api_key = os.getenv("API_KEY")
+                        if not all([endpoint, model_name, api_key]):
+                            logging.error("Missing one or more required environment variables: ENDPOINT, MODEL_NAME, API_KEY")
+                            raise ValueError("Missing required environment variables.")
 
-                    response_content = ""
-                    try:
-                        for update in response:
-                            if update.choices and isinstance(update.choices, list) and len(update.choices) > 0:
-                                content = update.choices[0].get("delta", {}).get("content", "")
-                                if content is not None:
-                                    response_content += content
-                            else:
-                                break
-                    finally:
-                        response.close()
+                        client = ChatCompletionsClient(
+                            endpoint=endpoint,
+                            credential=AzureKeyCredential(api_key),
+                            api_version="2024-05-01-preview"
+                        )
+
+                        response = client.complete(
+                            stream=True,
+                            messages=[
+                                SystemMessage(content="You are a helpful assistant."),
+                                UserMessage(content=prompt)
+                            ],
+                            max_tokens=131072//2,
+                            model=model_name
+                        )
+                        
+                        response_content = ""
+                        try:
+                            for update in response:
+                                if update.choices and isinstance(update.choices, list) and len(update.choices) > 0:
+                                    content = update.choices[0].get("delta", {}).get("content", "")
+                                    if content is not None:
+                                        response_content += content
+                                else:
+                                    break
+                        finally:
+                            response.close()
 
                     logging.info("Successfully obtained response from client.")
                     with open(modifications_format_path, 'w', encoding='utf-8') as modifications_file:
                         modifications_file.write(response_content)
                     logging.info(f"Successfully wrote modifications file to {modifications_format_path}")
-
                 apply_modifications(modifications_format_path)
             except Exception as e:
                 logging.error(f"An error occurred: {str(e)}", exc_info=True)
-
             self.run_pre_post_scripts("post.ps1")
 
 if __name__ == "__main__":

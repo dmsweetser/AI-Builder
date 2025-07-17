@@ -10,14 +10,18 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 
-REM Create a virtual environment
-py -m venv venv
-if %errorlevel% neq 0 (
-    echo Error: Unable to create virtual environment.
-    exit /b 1
+REM Check if virtual environment directory already exists
+if not exist venv (
+    REM Create a virtual environment
+    py -m venv venv
+    if %errorlevel% neq 0 (
+        echo Error: Unable to create virtual environment.
+        exit /b 1
+    )
+    echo Virtual environment created successfully.
+) else (
+    echo Virtual environment already exists.
 )
-
-echo Virtual environment created successfully.
 
 REM Activate the virtual environment
 call venv\Scripts\Activate.bat
