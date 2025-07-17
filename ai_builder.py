@@ -8,86 +8,69 @@ from dotenv import load_dotenv
 from azure.ai.inference import ChatCompletionsClient
 from azure.ai.inference.models import SystemMessage, UserMessage
 from azure.core.credentials import AzureKeyCredential
-from typing import Optional
+from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta
 from llama_cpp import Llama
 
 # Load environment variables from .env file
 load_dotenv()
 
-def parse_custom_format(content):
+def parse_custom_format(content: str) -> List[Dict[str, Any]]:
     changes = []
-    change_blocks = re.split(r'\[/aibuilder_change\]', content)
+    change_blocks = re.finditer(r'\[aibuilder_change file="([^"]+)"\](.*?)\[/aibuilder_change\]', content, re.DOTALL)
+
     for block in change_blocks:
-        if not block.strip():
-            continue
-        file_match = re.search(r'\[aibuilder_change file="([^"]+)"\]', block)
-        if not file_match:
-            continue
-        file = file_match.group(1)
-        action_list = []
-        action_blocks = re.split(r'\[/aibuilder_action\]', block)
+        file = block.group(1)
+        actions = []
+        action_blocks = re.finditer(r'\[aibuilder_action type="([^"]+)"\](.*?)\[/aibuilder_action\]', block.group(2), re.DOTALL)
+
         for action_block in action_blocks:
-            action_type_match = re.search(r'\[aibuilder_action type="([^"]+)"\]', action_block)
-            if not action_type_match:
-                continue
-            action_type = action_type_match.group(1)
+            action_type = action_block.group(1)
             if action_type == 'replace_between_markers':
-                start_marker_match = re.search(r'\[aibuilder_start_marker\](.*?)\[/aibuilder_start_marker\]', action_block, re.DOTALL)
-                end_marker_match = re.search(r'\[aibuilder_end_marker\](.*?)\[/aibuilder_end_marker\]', action_block, re.DOTALL)
-                new_content_match = re.search(r'\[aibuilder_new_content\](.*?)\[/aibuilder_new_content\]', action_block, re.DOTALL)
+                start_marker_match = re.search(r'\[aibuilder_start_marker\](.*?)\[/aibuilder_start_marker\]', action_block.group(2), re.DOTALL)
+                end_marker_match = re.search(r'\[aibuilder_end_marker\](.*?)\[/aibuilder_end_marker\]', action_block.group(2), re.DOTALL)
+                new_content_match = re.search(r'\[aibuilder_new_content\](.*?)\[/aibuilder_new_content\]', action_block.group(2), re.DOTALL)
+
                 if start_marker_match and end_marker_match and new_content_match:
                     start_marker = start_marker_match.group(1).strip()
                     end_marker = end_marker_match.group(1).strip()
                     new_content = new_content_match.group(1).strip()
-                    action_list.append({
+                    actions.append({
                         'action': 'replace_between_markers',
                         'start_marker': start_marker,
                         'end_marker': end_marker,
                         'new_content': new_content.split('\n')
                     })
+
             elif action_type == 'create_file':
-                file_content_match = re.search(r'\[aibuilder_file_content\](.*?)\[/aibuilder_file_content\]', action_block, re.DOTALL)
+                file_content_match = re.search(r'\[aibuilder_file_content\](.*?)\[/aibuilder_file_content\]', action_block.group(2), re.DOTALL)
                 if file_content_match:
                     file_content = file_content_match.group(1).strip()
-                    action_list.append({
+                    actions.append({
                         'action': 'create_file',
                         'file_content': file_content.split('\n')
                     })
+
             elif action_type == 'remove_file':
-                action_list.append({'action': 'remove_file'})
-        changes.append({'file': file, 'actions': action_list})
+                actions.append({'action': 'remove_file'})
+
+        changes.append({'file': file, 'actions': actions})
+
     return changes
 
-def load_instructions(format_path):
+def load_instructions(format_path: str) -> List[Dict[str, Any]]:
     try:
         with open(format_path, 'r', encoding='utf-8') as f:
             content = f.read()
-        reversed_content = content[::-1]
-        end_tag = "[/aibuilder_changes]"
-        reversed_end_tag = end_tag[::-1]
-        end_index = reversed_content.find(reversed_end_tag)
-        if end_index != -1:
-            start_tag = "[aibuilder_changes]"
-            reversed_start_tag = start_tag[::-1]
-            start_index = reversed_content.find(reversed_start_tag, end_index)
-            if start_index != -1:
-                reversed_extracted_content = reversed_content[end_index + len(reversed_end_tag):start_index]
-                extracted_content = reversed_extracted_content[::-1]
-                with open("ai_builder/extracted.txt", 'w', encoding='utf-8') as f:
-                    f.write(start_tag + extracted_content + end_tag)
-                return parse_custom_format(start_tag + extracted_content + end_tag)
-            else:
-                logging.error("Starting tag not found.")
-                return []
-        else:
-            logging.error("Closing tag not found.")
-            return []
+        if "</think>" in content:
+            content = content.split('</think>')[1]
+        return parse_custom_format(content)
+
     except Exception as e:
         logging.error(f"Error loading instructions: {e}")
         return []
 
-def replace_between_markers(lines, start_marker, end_marker, new_content):
+def replace_between_markers(lines: List[str], start_marker: str, end_marker: str, new_content: List[str]) -> List[str]:
     text = "\n".join(lines)
     start_index = text.find(start_marker)
     if start_index != -1:
@@ -95,8 +78,6 @@ def replace_between_markers(lines, start_marker, end_marker, new_content):
         end_index = text.find(end_marker, end_of_start_marker)
         if end_index != -1:
             new_content_text = "\n".join(new_content)
-
-            # Check if start_marker or end_marker is in the new content
             start_marker_in_new_content = start_marker.strip() in [line.strip() for line in new_content]
             end_marker_in_new_content = end_marker.strip() in [line.strip() for line in new_content]
 
@@ -104,23 +85,23 @@ def replace_between_markers(lines, start_marker, end_marker, new_content):
                 start_index = end_of_start_marker
 
             if end_marker_in_new_content:
-                # If end_marker is in new_content, we need to adjust the end_index to avoid duplication
                 text = text[:start_index] + new_content_text + text[end_index + len(end_marker):]
             else:
-                # If end_marker is not in new_content, we insert new_content followed by a newline and the rest of the text
                 text = text[:start_index] + new_content_text + "\n" + text[end_index:]
 
     return text.split("\n")
 
-def apply_modifications(instruction_file):
+def apply_modifications(instruction_file: str) -> None:
     changes = load_instructions(instruction_file)
     for change in changes:
         filepath = change['file']
         logging.info(f"Processing file: {filepath}")
+
         if not os.path.isfile(filepath):
             logging.warning(f"File not found, creating: {filepath}")
             with open(filepath, 'w', encoding='utf-8') as f:
                 f.write("")
+
         for action in change['actions']:
             action_type = action['action']
             try:
@@ -138,16 +119,19 @@ def apply_modifications(instruction_file):
                         f.write("\n".join(lines) + "\n")
                     logging.info(f"Updated content:\n{lines}")
                     logging.info(f"Updated: {filepath}")
+
                 elif action_type == 'create_file':
                     with open(filepath, 'w', encoding='utf-8') as f:
                         f.write("\n".join(action['file_content']) + "\n")
                     logging.info(f"Created: {filepath}")
+
                 elif action_type == 'remove_file':
                     if os.path.isfile(filepath):
                         os.remove(filepath)
                         logging.info(f"Removed: {filepath}")
                     else:
                         logging.warning(f"File not found: {filepath}")
+
             except Exception as e:
                 logging.error(f"Error applying modifications to {filepath}: {e}")
 
@@ -168,14 +152,14 @@ class CodeUtility:
             ]
         )
 
-    def parse_gitignore(self, directory: str):
+    def parse_gitignore(self, directory: str) -> List[str]:
         gitignore_path = os.path.join(directory, ".gitignore")
         if os.path.exists(gitignore_path):
             with open(gitignore_path, 'r', encoding='utf-8') as file:
                 return [line.strip() for line in file if line.strip() and not line.strip().startswith('#')]
         return []
 
-    def should_process_file(self, path: str, rules: list, patterns: list, mode: str):
+    def should_process_file(self, path: str, rules: List[str], patterns: List[str], mode: str) -> bool:
         file_name = os.path.basename(path)
         for rule in rules:
             if rule in path:
@@ -185,7 +169,7 @@ class CodeUtility:
                 return mode == "include"
         return mode == "exclude"
 
-    def process_directory(self, directory: str, parent_rules: list, patterns: list, mode: str):
+    def process_directory(self, directory: str, parent_rules: List[str], patterns: List[str], mode: str) -> None:
         current_rules = self.parse_gitignore(directory)
         all_rules = parent_rules + current_rules
         logging.info(f"Processing directory: {directory}")
@@ -208,7 +192,7 @@ class AIBuilder:
     def __init__(self):
         self.return_git_diff = True
 
-    def run_pre_post_scripts(self, script_name):
+    def run_pre_post_scripts(self, script_name: str) -> None:
         script_path = os.path.join(os.getcwd(), script_name)
         if os.path.exists(script_path):
             try:
@@ -217,7 +201,7 @@ class AIBuilder:
             except subprocess.CalledProcessError as e:
                 logging.error(f"Failed to execute {script_name}: {e}")
 
-    def run(self):
+    def run(self) -> None:
         root_directory = os.getenv("ROOT_DIRECTORY")
         if not root_directory:
             logging.warning("ROOT_DIRECTORY environment variable not set, using current directory.")
@@ -278,9 +262,11 @@ class AIBuilder:
                     if not os.path.exists(self.utility.output_file):
                         logging.warning("output.txt was not created by process_directory.")
                         continue
+
                     with open(self.utility.output_file, 'r', encoding='utf-8') as file:
                         current_code = file.read().strip()
                     logging.info("Successfully read output.txt")
+
                     with open('instructions.txt', 'r', encoding='utf-8') as file:
                         instructions = file.read().strip()
                     logging.info("Successfully read instructions.txt")
@@ -301,7 +287,6 @@ class AIBuilder:
                             - No additional parameters needed.
                         Example output format:
                         ```
-                        [aibuilder_changes]
                         [aibuilder_change file="example.py"]
                         [aibuilder_action type="replace_between_markers"]
                         [aibuilder_start_marker]
@@ -339,7 +324,6 @@ class AIBuilder:
                         [aibuilder_action type="remove_file"]
                         [/aibuilder_action]
                         [/aibuilder_change]
-                        [/aibuilder_changes]
                         ```
                         Generate modifications logically based on the desired changes.
                         Current code:
@@ -403,10 +387,13 @@ class AIBuilder:
                     with open(modifications_format_path, 'w', encoding='utf-8') as modifications_file:
                         modifications_file.write(response_content)
                     logging.info(f"Successfully wrote modifications file to {modifications_format_path}")
+
                 if os.getenv("GENERATE_BUT_DO_NOT_APPLY", "false").lower() == "false":
                     apply_modifications(modifications_format_path)
+
             except Exception as e:
                 logging.error(f"An error occurred: {str(e)}", exc_info=True)
+
             self.run_pre_post_scripts("post.ps1")
 
 if __name__ == "__main__":
