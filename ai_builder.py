@@ -346,7 +346,7 @@ class AIBuilder:
                             logging.error("MODEL_PATH environment variable not set for local model.")
                             raise ValueError("MODEL_PATH environment variable not set.")
                         llm = Llama(model_path=model_path)
-                        response_content = llm(prompt, max_tokens=131072//2)
+                        response_content = llm(prompt, max_tokens=131072/2)
                     else:
                         endpoint = os.getenv("ENDPOINT")
                         model_name = os.getenv("MODEL_NAME")
@@ -367,10 +367,10 @@ class AIBuilder:
                                 SystemMessage(content="You are a helpful assistant."),
                                 UserMessage(content=prompt)
                             ],
-                            max_tokens=131072//2,
+                            max_tokens=131072/2,
                             model=model_name
                         )
-                        
+
                         response_content = ""
                         try:
                             for update in response:
