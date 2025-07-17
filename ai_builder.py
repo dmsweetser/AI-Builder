@@ -80,7 +80,20 @@ def replace_between_markers(lines, start_marker, end_marker, new_content):
         end_of_start_marker = start_index + len(start_marker)
         end_index = text.find(end_marker, end_of_start_marker)
         if end_index != -1:
-            text = text[:start_index] + "\n".join(new_content) + "\n" + text[end_index:]
+            new_content_text = "\n".join(new_content)
+            # Check if the start marker is included in the new content
+            if start_marker in new_content_text:
+                # If the start marker is included, replace from the end of the start marker
+                start_index = end_of_start_marker
+
+            # Check if the end marker is included in the new content
+            if end_marker in new_content_text:
+                # If the end marker is included, replace up to the end marker
+                text = text[:start_index] + new_content_text + text[end_index + len(end_marker):]
+            else:
+                # If the end marker is not included, replace up to the end marker and include it
+                text = text[:start_index] + new_content_text + "\n" + text[end_index:]
+
     return text.split("\n")
 
 def apply_modifications(instruction_file):
