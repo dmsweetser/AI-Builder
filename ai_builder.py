@@ -356,7 +356,7 @@ class AIBuilder:
                             raise ValueError("MODEL_PATH environment variable not set.")
                         llm = Llama(model_path=model_path, n_ctx=int(os.getenv("MODEL_CONTEXT", 0)))
                         response_content = ""
-                        for response in self.llm.create_completion(
+                        for response in llm.create_completion(
                             prompt,
                             max_tokens=int(os.getenv("MODEL_CONTEXT", 0))/2,
                             stream=True
