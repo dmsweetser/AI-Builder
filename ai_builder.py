@@ -257,10 +257,12 @@ class AIBuilder:
                         Ensure all content is provided using line-delimited format-compatible entities.
                         1. `create_file`:
                             - `file_content`: List of strings (lines of the file content)
+                            - ALL CONTENTS OF THE NEW FILE MUST BE PROVIDED
                         2. `remove_file`:
                             - No additional parameters needed.
                         3. `replace_file`:
                             - `file_content`: List of strings (lines of the new file content)
+                            - ALL CONTENTS OF THE REPLACEMENT FILE MUST BE PROVIDED
                         Example output format:
                         ```
                         [aibuilder_change file="new_file.py"]
