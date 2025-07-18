@@ -8,8 +8,7 @@ from dotenv import load_dotenv
 from azure.ai.inference import ChatCompletionsClient
 from azure.ai.inference.models import SystemMessage, UserMessage
 from azure.core.credentials import AzureKeyCredential
-from typing import Optional, List, Dict, Any
-from datetime import datetime, timedelta
+from typing import List, Dict, Any
 from llama_cpp import Llama
 
 # Load environment variables from .env file
@@ -271,8 +270,8 @@ class AIBuilder:
                             - `start_marker`: String
                             - `end_marker`: String
                             - `new_content`: List of strings (lines of replacement code/text)
-                            Ensure that `new_content` includes the `start_marker` and `end_marker` lines if they should be part of the replacement.
-                            Ensure that `new_content` includes ALL necessary code that should be present between the `start_marker` and `end_marker` lines
+                            Ensure that `new_content` DOES NOT include the `start_marker` and `end_marker` lines.
+                            Ensure that `new_content` includes ALL necessary code that should be present between the `start_marker` and `end_marker` lines.
                             Include ONLY three lines of context before and after the new content to be included.
                         2. `create_file`:
                             - `file_content`: List of strings (lines of the file content)
