@@ -13,7 +13,6 @@ from llama_cpp import Llama
 
 # Load environment variables from .env file
 load_dotenv()
-
 root_directory = os.getenv("ROOT_DIRECTORY", os.getcwd())
 ai_builder_dir = os.path.join(root_directory, "ai_builder")
 os.makedirs(ai_builder_dir, exist_ok=True)
@@ -37,12 +36,10 @@ class FileParser:
             content,
             re.DOTALL
         )
-
         for block in change_blocks:
             file = block.group(1)
             actions = FileParser._parse_actions(block.group(2))
             changes.append({'file': file, 'actions': actions})
-
         return changes
 
     @staticmethod
@@ -53,21 +50,19 @@ class FileParser:
             content,
             re.DOTALL
         )
-
         for action_block in action_blocks:
             action_type = action_block.group(1)
             action_content = action_block.group(2)
-
             if action_type == 'replace_between_markers_exclusive':
                 action = FileParser._parse_replace_action(action_content)
             elif action_type == 'create_file':
                 action = FileParser._parse_create_action(action_content)
             elif action_type == 'remove_file':
                 action = {'action': 'remove_file'}
-
+            elif action_type == 'replace_file':
+                action = FileParser._parse_replace_file_action(action_content)
             if action:
                 actions.append(action)
-
         return actions
 
     @staticmethod
@@ -87,7 +82,6 @@ class FileParser:
             content,
             re.DOTALL
         )
-
         if start_marker_match and end_marker_match and new_content_match:
             return {
                 'action': 'replace_between_markers_exclusive',
@@ -104,10 +98,23 @@ class FileParser:
             content,
             re.DOTALL
         )
-
         if file_content_match:
             return {
                 'action': 'create_file',
+                'file_content': file_content_match.group(1).strip().split('\n')
+            }
+        return None
+
+    @staticmethod
+    def _parse_replace_file_action(content: str) -> Optional[Dict[str, Any]]:
+        file_content_match = re.search(
+            r'\[aibuilder_file_content\](.*?)\[/aibuilder_file_content\]',
+            content,
+            re.DOTALL
+        )
+        if file_content_match:
+            return {
+                'action': 'replace_file',
                 'file_content': file_content_match.group(1).strip().split('\n')
             }
         return None
@@ -122,25 +129,20 @@ class FileModifier:
     ) -> List[str]:
         text = "\n".join(lines)
         start_index = text.find(start_marker)
-
         if start_index == -1:
             logging.error(f"Start marker '{start_marker}' not found.")
             return lines
-
         end_of_start_marker = start_index + len(start_marker)
         end_index = text.find(end_marker, end_of_start_marker)
-
         if end_index == -1:
             logging.error(f"End marker '{end_marker}' not found.")
             return lines
-
         new_content_text = "\n".join(new_content)
         text = (
             text[:start_index]
             + new_content_text
             + text[end_index:]
         )
-
         return text.split("\n")
 
     @staticmethod
@@ -148,16 +150,13 @@ class FileModifier:
         changes = FileParser.parse_custom_format(
             FileLoader.load_instructions(instruction_file)
         )
-
         for change in changes:
             filepath = change['file']
             logging.info(f"Processing file: {filepath}")
-
             if not os.path.isfile(filepath):
                 logging.warning(f"File not found, creating: {filepath}")
                 with open(filepath, 'w', encoding='utf-8') as f:
                     f.write("")
-
             for action in change['actions']:
                 try:
                     FileModifier._apply_action(filepath, action)
@@ -167,35 +166,32 @@ class FileModifier:
     @staticmethod
     def _apply_action(filepath: str, action: Dict[str, Any]) -> None:
         action_type = action['action']
-
         if action_type == 'replace_between_markers_exclusive':
             with open(filepath, 'r', encoding='utf-8') as f:
                 lines = f.read().splitlines()
-
             lines = FileModifier.replace_between_markers_exclusive(
                 lines,
                 action['start_marker'],
                 action['end_marker'],
                 action['new_content']
             )
-
             with open(filepath, 'w', encoding='utf-8') as f:
                 f.write("\n".join(lines) + "\n")
-
             logging.info(f"Updated: {filepath}")
-
         elif action_type == 'create_file':
             with open(filepath, 'w', encoding='utf-8') as f:
                 f.write("\n".join(action['file_content']) + "\n")
-
             logging.info(f"Created: {filepath}")
-
         elif action_type == 'remove_file':
             if os.path.isfile(filepath):
                 os.remove(filepath)
                 logging.info(f"Removed: {filepath}")
             else:
                 logging.warning(f"File not found: {filepath}")
+        elif action_type == 'replace_file':
+            with open(filepath, 'w', encoding='utf-8') as f:
+                f.write("\n".join(action['file_content']) + "\n")
+            logging.info(f"Replaced entire content of: {filepath}")
 
 class FileLoader:
     @staticmethod
@@ -203,13 +199,10 @@ class FileLoader:
         try:
             with open(format_path, 'r', encoding='utf-8') as f:
                 content = f.read()
-
             if "</think>" in content:
                 content = content.split('</think>')[1]
-
             with open("ai_builder/extracted.txt", 'w', encoding='utf-8') as f:
                 f.write(content)
-
             return content
         except Exception as e:
             logging.error(f"Error loading instructions: {e}")
@@ -242,21 +235,17 @@ class CodeUtility:
         current_rules = self.parse_gitignore(directory)
         all_rules = parent_rules + current_rules
         logging.info(f"Processing directory: {directory}")
-
         for root, _, files in os.walk(directory):
             for file in files:
                 relative_path = os.path.relpath(os.path.join(root, file), self.base_dir)
                 logging.info(f"Checking file: {relative_path}")
-
                 if self.should_process_file(relative_path, all_rules, patterns, mode):
                     try:
                         file_path = os.path.join(root, file)
                         with open(file_path, 'r', encoding='utf-8') as f:
                             content = f.read()
-
                         with open(self.output_file, 'a', encoding='utf-8') as out_file:
                             out_file.write(f"\n### {relative_path}\n```\n{content}\n```\n")
-
                         logging.info(f"Successfully wrote content from {relative_path} to {self.output_file}")
                     except Exception as e:
                         logging.warning(f"Skipped unreadable file: {relative_path} - Error: {e}")
@@ -277,7 +266,6 @@ class AIBuilder:
     def run(self) -> None:
         base_config_path = os.path.join("base_config.xml")
         user_config_path = os.path.join(ai_builder_dir, "user_config.xml")
-
         if os.path.exists(base_config_path):
             shutil.copy(base_config_path, user_config_path)
             logging.info("Copied base_config.xml to user_config.xml")
@@ -308,7 +296,6 @@ class AIBuilder:
 
         os.chdir(root_directory)
         logging.info(f"Changed working directory to: {root_directory}")
-
         self.utility = CodeUtility(root_directory)
         config = ET.parse(user_config_path).getroot()
         iterations = int(config.find('iterations').text)
@@ -318,31 +305,24 @@ class AIBuilder:
         for iteration in range(iterations):
             logging.info(f"Starting iteration {iteration + 1}")
             self.run_pre_post_scripts("pre.ps1")
-
             try:
                 modifications_format_path = os.path.join(ai_builder_dir, "modifications.txt")
                 if not os.path.exists(modifications_format_path):
                     if os.path.exists(self.utility.output_file):
                         os.remove(self.utility.output_file)
-
                     self.utility.process_directory(root_directory, [], patterns, mode)
-
                     if not os.path.exists(self.utility.output_file):
                         logging.warning("output.txt was not created by process_directory.")
                         continue
-
                     with open(self.utility.output_file, 'r', encoding='utf-8') as file:
                         current_code = file.read().strip()
-
                     logging.info("Successfully read output.txt")
-
                     with open('instructions.txt', 'r', encoding='utf-8') as file:
                         instructions = file.read().strip()
-
                     logging.info("Successfully read instructions.txt")
-                    
+
                     prompt = f"""
-                        Generate a line-delimited format file that describes file modifications to apply using the `replace_between_markers_exclusive`, `create_file`, and `remove_file` action types.
+                        Generate a line-delimited format file that describes file modifications to apply using the `replace_between_markers_exclusive`, `create_file`, `remove_file`, and `replace_file` action types.
                         Ensure all content is provided using line-delimited format-compatible entities.
                         1. `replace_between_markers_exclusive`:
                             - `start_marker`: String
@@ -351,10 +331,13 @@ class AIBuilder:
                             Ensure that `new_content` DOES NOT include the `start_marker` and `end_marker` lines.
                             Ensure that `new_content` includes ALL necessary code that should be present between the `start_marker` and `end_marker` lines.
                             Include ONLY three lines of context before and after the new content to be included.
+                            Ensure that each change is granular, representing no more than 20 lines of code
                         2. `create_file`:
                             - `file_content`: List of strings (lines of the file content)
                         3. `remove_file`:
                             - No additional parameters needed.
+                        4. `replace_file`:
+                            - `file_content`: List of strings (lines of the new file content)
                         Example output format:
                         ```
                         [aibuilder_change file="example.py"]
@@ -394,6 +377,15 @@ class AIBuilder:
                         [aibuilder_action type="remove_file"]
                         [/aibuilder_action]
                         [/aibuilder_change]
+                        [aibuilder_change file="file_to_replace.py"]
+                        [aibuilder_action type="replace_file"]
+                        [aibuilder_file_content]
+                        # New content line 1 with whitespace preserved
+                        \t# New content line 2 with whitespace preserved
+                        \t# New content line 3 with whitespace preserved
+                        [/aibuilder_file_content]
+                        [/aibuilder_action]
+                        [/aibuilder_change]
                         ```
                         Generate modifications logically based on the desired changes.
                         Current code:
@@ -401,7 +393,6 @@ class AIBuilder:
                         Instructions:
                         {instructions}
                         """
-
                     use_local_model = os.getenv("USE_LOCAL_MODEL", "false").lower() == "true"
                     if use_local_model:
                         model_path = os.getenv("MODEL_PATH")
@@ -449,19 +440,14 @@ class AIBuilder:
                                     break
                         finally:
                             response.close()
-
                     logging.info("Successfully obtained response from client.")
                     with open(modifications_format_path, 'w', encoding='utf-8') as modifications_file:
                         modifications_file.write(response_content)
-
                     logging.info(f"Successfully wrote modifications file to {modifications_format_path}")
-
                 if os.getenv("GENERATE_BUT_DO_NOT_APPLY", "false").lower() == "false":
                     FileModifier.apply_modifications(modifications_format_path)
-
             except Exception as e:
                 logging.error(f"An error occurred: {str(e)}", exc_info=True)
-
             self.run_pre_post_scripts("post.ps1")
 
 if __name__ == "__main__":
