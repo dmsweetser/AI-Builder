@@ -13,6 +13,7 @@ from llama_cpp import Llama
 
 # Load environment variables from .env file
 load_dotenv()
+
 root_directory = os.getenv("ROOT_DIRECTORY", os.getcwd())
 ai_builder_dir = os.path.join(root_directory, "ai_builder")
 os.makedirs(ai_builder_dir, exist_ok=True)
@@ -22,7 +23,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler(ai_builder_dir + '/utility.log'),
+        logging.FileHandler(os.path.join(ai_builder_dir, 'utility.log')),
         logging.StreamHandler()
     ]
 )
@@ -53,9 +54,7 @@ class FileParser:
         for action_block in action_blocks:
             action_type = action_block.group(1)
             action_content = action_block.group(2)
-            if action_type == 'replace_between_markers_exclusive':
-                action = FileParser._parse_replace_action(action_content)
-            elif action_type == 'create_file':
+            if action_type == 'create_file':
                 action = FileParser._parse_create_action(action_content)
             elif action_type == 'remove_file':
                 action = {'action': 'remove_file'}
@@ -64,32 +63,6 @@ class FileParser:
             if action:
                 actions.append(action)
         return actions
-
-    @staticmethod
-    def _parse_replace_action(content: str) -> Optional[Dict[str, Any]]:
-        start_marker_match = re.search(
-            r'\[aibuilder_start_marker\](.*?)\[/aibuilder_start_marker\]',
-            content,
-            re.DOTALL
-        )
-        end_marker_match = re.search(
-            r'\[aibuilder_end_marker\](.*?)\[/aibuilder_end_marker\]',
-            content,
-            re.DOTALL
-        )
-        new_content_match = re.search(
-            r'\[aibuilder_new_content_exclusive\](.*?)\[/aibuilder_new_content_exclusive\]',
-            content,
-            re.DOTALL
-        )
-        if start_marker_match and end_marker_match and new_content_match:
-            return {
-                'action': 'replace_between_markers_exclusive',
-                'start_marker': start_marker_match.group(1).strip(),
-                'end_marker': end_marker_match.group(1).strip(),
-                'new_content': new_content_match.group(1).strip().split('\n')
-            }
-        return None
 
     @staticmethod
     def _parse_create_action(content: str) -> Optional[Dict[str, Any]]:
@@ -121,31 +94,6 @@ class FileParser:
 
 class FileModifier:
     @staticmethod
-    def replace_between_markers_exclusive(
-        lines: List[str],
-        start_marker: str,
-        end_marker: str,
-        new_content: List[str]
-    ) -> List[str]:
-        text = "\n".join(lines)
-        start_index = text.find(start_marker)
-        if start_index == -1:
-            logging.error(f"Start marker '{start_marker}' not found.")
-            return lines
-        end_of_start_marker = start_index + len(start_marker)
-        end_index = text.find(end_marker, end_of_start_marker)
-        if end_index == -1:
-            logging.error(f"End marker '{end_marker}' not found.")
-            return lines
-        new_content_text = "\n".join(new_content)
-        text = (
-            text[:start_index]
-            + new_content_text
-            + text[end_index:]
-        )
-        return text.split("\n")
-
-    @staticmethod
     def apply_modifications(instruction_file: str) -> None:
         changes = FileParser.parse_custom_format(
             FileLoader.load_instructions(instruction_file)
@@ -153,10 +101,6 @@ class FileModifier:
         for change in changes:
             filepath = change['file']
             logging.info(f"Processing file: {filepath}")
-            if not os.path.isfile(filepath):
-                logging.warning(f"File not found, creating: {filepath}")
-                with open(filepath, 'w', encoding='utf-8') as f:
-                    f.write("")
             for action in change['actions']:
                 try:
                     FileModifier._apply_action(filepath, action)
@@ -166,19 +110,7 @@ class FileModifier:
     @staticmethod
     def _apply_action(filepath: str, action: Dict[str, Any]) -> None:
         action_type = action['action']
-        if action_type == 'replace_between_markers_exclusive':
-            with open(filepath, 'r', encoding='utf-8') as f:
-                lines = f.read().splitlines()
-            lines = FileModifier.replace_between_markers_exclusive(
-                lines,
-                action['start_marker'],
-                action['end_marker'],
-                action['new_content']
-            )
-            with open(filepath, 'w', encoding='utf-8') as f:
-                f.write("\n".join(lines) + "\n")
-            logging.info(f"Updated: {filepath}")
-        elif action_type == 'create_file':
+        if action_type == 'create_file':
             with open(filepath, 'w', encoding='utf-8') as f:
                 f.write("\n".join(action['file_content']) + "\n")
             logging.info(f"Created: {filepath}")
@@ -201,7 +133,7 @@ class FileLoader:
                 content = f.read()
             if "</think>" in content:
                 content = content.split('</think>')[1]
-            with open("ai_builder/extracted.txt", 'w', encoding='utf-8') as f:
+            with open(os.path.join(ai_builder_dir, "extracted.txt"), 'w', encoding='utf-8') as f:
                 f.write(content)
             return content
         except Exception as e:
@@ -320,50 +252,17 @@ class AIBuilder:
                     with open('instructions.txt', 'r', encoding='utf-8') as file:
                         instructions = file.read().strip()
                     logging.info("Successfully read instructions.txt")
-
                     prompt = f"""
-                        Generate a line-delimited format file that describes file modifications to apply using the `replace_between_markers_exclusive`, `create_file`, `remove_file`, and `replace_file` action types.
+                        Generate a line-delimited format file that describes file modifications to apply using the `create_file`, `remove_file`, and `replace_file` action types.
                         Ensure all content is provided using line-delimited format-compatible entities.
-                        1. `replace_between_markers_exclusive`:
-                            - `start_marker`: String
-                            - `end_marker`: String
-                            - `new_content`: List of strings (lines of replacement code/text)
-                            Ensure that `new_content` DOES NOT include the `start_marker` and `end_marker` lines.
-                            Ensure that `new_content` includes ALL necessary code that should be present between the `start_marker` and `end_marker` lines.
-                            Include ONLY three lines of context before and after the new content to be included.
-                            Ensure that each change is granular, representing no more than 20 lines of code
-                        2. `create_file`:
+                        1. `create_file`:
                             - `file_content`: List of strings (lines of the file content)
-                        3. `remove_file`:
+                        2. `remove_file`:
                             - No additional parameters needed.
-                        4. `replace_file`:
+                        3. `replace_file`:
                             - `file_content`: List of strings (lines of the new file content)
                         Example output format:
                         ```
-                        [aibuilder_change file="example.py"]
-                        [aibuilder_action type="replace_between_markers_exclusive"]
-                        [aibuilder_start_marker]
-                        # Context line 1 before the change with whitespace preserved
-                        \t# Context line 2 before the change with whitespace preserved
-                        \t# Context line 3 before the change with whitespace preserved
-                        [/aibuilder_start_marker]
-                        [aibuilder_end_marker]
-                        # Context line 1 after the change with whitespace preserved
-                        \t# Context line 2 after the change with whitespace preserved
-                        \t# Context line 3 after the change with whitespace preserved
-                        [/aibuilder_end_marker]
-                        [aibuilder_new_content_exclusive]
-                        # Context line 1 before the change with whitespace preserved
-                        \t# Context line 2 before the change with whitespace preserved
-                        \t# Context line 3 before the change with whitespace preserved
-                        # Modified line 1 with whitespace preserved
-                        \t# Modified line 2 with whitespace preserved
-                        # Context line 1 after the change with whitespace preserved
-                        \t# Context line 2 after the change with whitespace preserved
-                        \t# Context line 3 after the change with whitespace preserved
-                        [/aibuilder_new_content_exclusive]
-                        [/aibuilder_action]
-                        [/aibuilder_change]
                         [aibuilder_change file="new_file.py"]
                         [aibuilder_action type="create_file"]
                         [aibuilder_file_content]
