@@ -452,7 +452,7 @@ class AIBuilder:
 
                     logging.info("Successfully obtained response from client.")
                     with open(modifications_format_path, 'w', encoding='utf-8') as modifications_file:
-                        modifications_file.write("Generated modifications content")
+                        modifications_file.write(response)
 
                     logging.info(f"Successfully wrote modifications file to {modifications_format_path}")
 
