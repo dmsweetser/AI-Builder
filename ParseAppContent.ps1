@@ -13,7 +13,9 @@ $excludedFiles = @(
     "ParseAppContent.ps1",
     "ParseMarkdownContent.ps1",
     "output.txt", 
-    "markdown.txt")
+    "markdown.txt",
+    ".ico",
+    ".png")
 
 # Remove the output file if it exists
 if (Test-Path $outputFile) {
