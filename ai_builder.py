@@ -58,7 +58,7 @@ class FileParser:
             action_type = action_block.group(1)
             action_content = action_block.group(2)
 
-            if action_type == 'replace_between_markers':
+            if action_type == 'replace_between_markers_exclusive':
                 action = FileParser._parse_replace_action(action_content)
             elif action_type == 'create_file':
                 action = FileParser._parse_create_action(action_content)
@@ -83,14 +83,14 @@ class FileParser:
             re.DOTALL
         )
         new_content_match = re.search(
-            r'\[aibuilder_new_content\](.*?)\[/aibuilder_new_content\]',
+            r'\[aibuilder_new_content_exclusive\](.*?)\[/aibuilder_new_content_exclusive\]',
             content,
             re.DOTALL
         )
 
         if start_marker_match and end_marker_match and new_content_match:
             return {
-                'action': 'replace_between_markers',
+                'action': 'replace_between_markers_exclusive',
                 'start_marker': start_marker_match.group(1).strip(),
                 'end_marker': end_marker_match.group(1).strip(),
                 'new_content': new_content_match.group(1).strip().split('\n')
@@ -114,7 +114,7 @@ class FileParser:
 
 class FileModifier:
     @staticmethod
-    def replace_between_markers(
+    def replace_between_markers_exclusive(
         lines: List[str],
         start_marker: str,
         end_marker: str,
@@ -168,11 +168,11 @@ class FileModifier:
     def _apply_action(filepath: str, action: Dict[str, Any]) -> None:
         action_type = action['action']
 
-        if action_type == 'replace_between_markers':
+        if action_type == 'replace_between_markers_exclusive':
             with open(filepath, 'r', encoding='utf-8') as f:
                 lines = f.read().splitlines()
 
-            lines = FileModifier.replace_between_markers(
+            lines = FileModifier.replace_between_markers_exclusive(
                 lines,
                 action['start_marker'],
                 action['end_marker'],
@@ -342,9 +342,9 @@ class AIBuilder:
                     logging.info("Successfully read instructions.txt")
                     
                     prompt = f"""
-                        Generate a line-delimited format file that describes file modifications to apply using the `replace_between_markers`, `create_file`, and `remove_file` action types.
+                        Generate a line-delimited format file that describes file modifications to apply using the `replace_between_markers_exclusive`, `create_file`, and `remove_file` action types.
                         Ensure all content is provided using line-delimited format-compatible entities.
-                        1. `replace_between_markers`:
+                        1. `replace_between_markers_exclusive`:
                             - `start_marker`: String
                             - `end_marker`: String
                             - `new_content`: List of strings (lines of replacement code/text)
@@ -358,7 +358,7 @@ class AIBuilder:
                         Example output format:
                         ```
                         [aibuilder_change file="example.py"]
-                        [aibuilder_action type="replace_between_markers"]
+                        [aibuilder_action type="replace_between_markers_exclusive"]
                         [aibuilder_start_marker]
                         # Context line 1 before the change with whitespace preserved
                         \t# Context line 2 before the change with whitespace preserved
@@ -369,7 +369,7 @@ class AIBuilder:
                         \t# Context line 2 after the change with whitespace preserved
                         \t# Context line 3 after the change with whitespace preserved
                         [/aibuilder_end_marker]
-                        [aibuilder_new_content]
+                        [aibuilder_new_content_exclusive]
                         # Context line 1 before the change with whitespace preserved
                         \t# Context line 2 before the change with whitespace preserved
                         \t# Context line 3 before the change with whitespace preserved
@@ -378,7 +378,7 @@ class AIBuilder:
                         # Context line 1 after the change with whitespace preserved
                         \t# Context line 2 after the change with whitespace preserved
                         \t# Context line 3 after the change with whitespace preserved
-                        [/aibuilder_new_content]
+                        [/aibuilder_new_content_exclusive]
                         [/aibuilder_action]
                         [/aibuilder_change]
                         [aibuilder_change file="new_file.py"]
