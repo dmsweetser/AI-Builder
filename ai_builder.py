@@ -18,19 +18,16 @@ load_dotenv()
 def parse_custom_format(content: str) -> List[Dict[str, Any]]:
     changes = []
     change_blocks = re.finditer(r'\[aibuilder_change file="([^"]+)"\](.*?)\[/aibuilder_change\]', content, re.DOTALL)
-
     for block in change_blocks:
         file = block.group(1)
         actions = []
         action_blocks = re.finditer(r'\[aibuilder_action type="([^"]+)"\](.*?)\[/aibuilder_action\]', block.group(2), re.DOTALL)
-
         for action_block in action_blocks:
             action_type = action_block.group(1)
             if action_type == 'replace_between_markers':
                 start_marker_match = re.search(r'\[aibuilder_start_marker\](.*?)\[/aibuilder_start_marker\]', action_block.group(2), re.DOTALL)
                 end_marker_match = re.search(r'\[aibuilder_end_marker\](.*?)\[/aibuilder_end_marker\]', action_block.group(2), re.DOTALL)
                 new_content_match = re.search(r'\[aibuilder_new_content\](.*?)\[/aibuilder_new_content\]', action_block.group(2), re.DOTALL)
-
                 if start_marker_match and end_marker_match and new_content_match:
                     start_marker = start_marker_match.group(1).strip()
                     end_marker = end_marker_match.group(1).strip()
@@ -41,7 +38,6 @@ def parse_custom_format(content: str) -> List[Dict[str, Any]]:
                         'end_marker': end_marker,
                         'new_content': new_content.split('\n')
                     })
-
             elif action_type == 'create_file':
                 file_content_match = re.search(r'\[aibuilder_file_content\](.*?)\[/aibuilder_file_content\]', action_block.group(2), re.DOTALL)
                 if file_content_match:
@@ -50,12 +46,9 @@ def parse_custom_format(content: str) -> List[Dict[str, Any]]:
                         'action': 'create_file',
                         'file_content': file_content.split('\n')
                     })
-
             elif action_type == 'remove_file':
                 actions.append({'action': 'remove_file'})
-
         changes.append({'file': file, 'actions': actions})
-
     return changes
 
 def load_instructions(format_path: str) -> List[Dict[str, Any]]:
@@ -65,7 +58,6 @@ def load_instructions(format_path: str) -> List[Dict[str, Any]]:
         if "</think>" in content:
             content = content.split('</think>')[1]
         return parse_custom_format(content)
-
     except Exception as e:
         logging.error(f"Error loading instructions: {e}")
         return []
@@ -73,21 +65,30 @@ def load_instructions(format_path: str) -> List[Dict[str, Any]]:
 def replace_between_markers(lines: List[str], start_marker: str, end_marker: str, new_content: List[str]) -> List[str]:
     text = "\n".join(lines)
     start_index = text.find(start_marker)
-    if start_index != -1:
-        end_of_start_marker = start_index + len(start_marker)
-        end_index = text.find(end_marker, end_of_start_marker)
-        if end_index != -1:
-            new_content_text = "\n".join(new_content)
-            start_marker_in_new_content = start_marker.strip() in [line.strip() for line in new_content]
-            end_marker_in_new_content = end_marker.strip() in [line.strip() for line in new_content]
+    if start_index == -1:
+        logging.error(f"Start marker '{start_marker}' not found.")
+        return lines
 
-            if start_marker_in_new_content:
-                start_index = end_of_start_marker
+    end_of_start_marker = start_index + len(start_marker)
+    end_index = text.find(end_marker, end_of_start_marker)
+    if end_index == -1:
+        logging.error(f"End marker '{end_marker}' not found.")
+        return lines
 
-            if end_marker_in_new_content:
-                text = text[:start_index] + new_content_text + text[end_index + len(end_marker):]
-            else:
-                text = text[:start_index] + new_content_text + "\n" + text[end_index:]
+    if text.count(start_marker) > 1 or text.count(end_marker) > 1:
+        logging.warning(f"Non-unique markers found. Start marker count: {text.count(start_marker)}, End marker count: {text.count(end_marker)}")
+
+    new_content_text = "\n".join(new_content)
+    start_marker_in_new_content = any(marker.strip() in [line.strip() for line in new_content] for marker in [start_marker])
+    end_marker_in_new_content = any(marker.strip() in [line.strip() for line in new_content] for marker in [end_marker])
+
+    if start_marker_in_new_content:
+        start_index = end_of_start_marker
+
+    if end_marker_in_new_content:
+        text = text[:start_index] + new_content_text + text[end_index + len(end_marker):]
+    else:
+        text = text[:start_index] + new_content_text + "\n" + text[end_index:]
 
     return text.split("\n")
 
@@ -96,12 +97,10 @@ def apply_modifications(instruction_file: str) -> None:
     for change in changes:
         filepath = change['file']
         logging.info(f"Processing file: {filepath}")
-
         if not os.path.isfile(filepath):
             logging.warning(f"File not found, creating: {filepath}")
             with open(filepath, 'w', encoding='utf-8') as f:
                 f.write("")
-
         for action in change['actions']:
             action_type = action['action']
             try:
@@ -119,19 +118,16 @@ def apply_modifications(instruction_file: str) -> None:
                         f.write("\n".join(lines) + "\n")
                     logging.info(f"Updated content:\n{lines}")
                     logging.info(f"Updated: {filepath}")
-
                 elif action_type == 'create_file':
                     with open(filepath, 'w', encoding='utf-8') as f:
                         f.write("\n".join(action['file_content']) + "\n")
                     logging.info(f"Created: {filepath}")
-
                 elif action_type == 'remove_file':
                     if os.path.isfile(filepath):
                         os.remove(filepath)
                         logging.info(f"Removed: {filepath}")
                     else:
                         logging.warning(f"File not found: {filepath}")
-
             except Exception as e:
                 logging.error(f"Error applying modifications to {filepath}: {e}")
 
@@ -212,7 +208,6 @@ class AIBuilder:
 
         base_config_path = os.path.join("base_config.xml")
         user_config_path = os.path.join(ai_builder_dir, "user_config.xml")
-
         if os.path.exists(base_config_path):
             shutil.copy(base_config_path, user_config_path)
             logging.info("Copied base_config.xml to user_config.xml")
@@ -262,11 +257,9 @@ class AIBuilder:
                     if not os.path.exists(self.utility.output_file):
                         logging.warning("output.txt was not created by process_directory.")
                         continue
-
                     with open(self.utility.output_file, 'r', encoding='utf-8') as file:
                         current_code = file.read().strip()
                     logging.info("Successfully read output.txt")
-
                     with open('instructions.txt', 'r', encoding='utf-8') as file:
                         instructions = file.read().strip()
                     logging.info("Successfully read instructions.txt")
@@ -346,7 +339,7 @@ class AIBuilder:
                             stream=True
                         ):
                             token = response['choices'][0]['text']
-                            response_content += token                            
+                            response_content += token
                     else:
                         endpoint = os.getenv("ENDPOINT")
                         model_name = os.getenv("MODEL_NAME")
@@ -354,13 +347,11 @@ class AIBuilder:
                         if not all([endpoint, model_name, api_key]):
                             logging.error("Missing one or more required environment variables: ENDPOINT, MODEL_NAME, API_KEY")
                             raise ValueError("Missing required environment variables.")
-
                         client = ChatCompletionsClient(
                             endpoint=endpoint,
                             credential=AzureKeyCredential(api_key),
                             api_version="2024-05-01-preview"
                         )
-
                         response = client.complete(
                             stream=True,
                             messages=[
@@ -370,7 +361,6 @@ class AIBuilder:
                             max_tokens=131072/2,
                             model=model_name
                         )
-
                         response_content = ""
                         try:
                             for update in response:
@@ -390,10 +380,8 @@ class AIBuilder:
 
                 if os.getenv("GENERATE_BUT_DO_NOT_APPLY", "false").lower() == "false":
                     apply_modifications(modifications_format_path)
-
             except Exception as e:
                 logging.error(f"An error occurred: {str(e)}", exc_info=True)
-
             self.run_pre_post_scripts("post.ps1")
 
 if __name__ == "__main__":
