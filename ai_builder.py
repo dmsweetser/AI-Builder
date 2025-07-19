@@ -4,7 +4,7 @@ import logging
 import shutil
 import subprocess
 import xml.etree.ElementTree as ET
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 from dotenv import load_dotenv
 from azure.ai.inference import ChatCompletionsClient
 from azure.ai.inference.models import SystemMessage, UserMessage
@@ -60,6 +60,12 @@ class FileParser:
                 action = {'action': 'remove_file'}
             elif action_type == 'replace_file':
                 action = FileParser._parse_replace_file_action(action_content)
+            elif action_type == 'replace_section':
+                action = FileParser._parse_replace_section_action(action_content)
+            else:
+                logging.warning(f"Unknown action type: {action_type}")
+                continue
+
             if action:
                 actions.append(action)
         return actions
@@ -88,6 +94,33 @@ class FileParser:
         if file_content_match:
             return {
                 'action': 'replace_file',
+                'file_content': file_content_match.group(1).strip().split('\n')
+            }
+        return None
+
+    @staticmethod
+    def _parse_replace_section_action(content: str) -> Optional[Dict[str, Any]]:
+        start_marker_match = re.search(
+            r'\[aibuilder_start_marker\](.*?)\[/aibuilder_start_marker\]',
+            content,
+            re.DOTALL
+        )
+        end_marker_match = re.search(
+            r'\[aibuilder_end_marker\](.*?)\[/aibuilder_end_marker\]',
+            content,
+            re.DOTALL
+        )
+        file_content_match = re.search(
+            r'\[aibuilder_file_content\](.*?)\[/aibuilder_file_content\]',
+            content,
+            re.DOTALL
+        )
+
+        if start_marker_match and end_marker_match and file_content_match:
+            return {
+                'action': 'replace_section',
+                'start_marker': start_marker_match.group(1).strip(),
+                'end_marker': end_marker_match.group(1).strip(),
                 'file_content': file_content_match.group(1).strip().split('\n')
             }
         return None
@@ -124,6 +157,49 @@ class FileModifier:
             with open(filepath, 'w', encoding='utf-8') as f:
                 f.write("\n".join(action['file_content']) + "\n")
             logging.info(f"Replaced entire content of: {filepath}")
+        elif action_type == 'replace_section':
+            FileModifier._replace_section(filepath, action['start_marker'], action['end_marker'], action['file_content'])
+
+    @staticmethod
+    def _replace_section(filepath: str, start_marker: str, end_marker: str, new_content: List[str]) -> None:
+        with open(filepath, 'r', encoding='utf-8') as f:
+            content = f.read()
+
+        start_marker_stripped = start_marker.strip()
+        end_marker_stripped = end_marker.strip()
+
+        # Strip whitespace from each line in the content
+        stripped_lines = [line.strip() for line in content.split('\n')]
+        stripped_content = '\n'.join(stripped_lines)
+
+        # Find the start and end markers in the stripped content
+        start_index = stripped_content.find(start_marker_stripped)
+        end_index = stripped_content.find(end_marker_stripped)
+
+        if start_index == -1 or end_index == -1:
+            logging.error(f"Markers not found in file: {filepath}")
+            return
+
+        # Calculate the start and end indices in the original content
+        original_start_index = content.rfind(start_marker, 0, start_index + len(start_marker))
+        original_end_index = content.find(end_marker, end_index)
+
+        if original_start_index == -1 or original_end_index == -1:
+            logging.error(f"Markers not found in original content: {filepath}")
+            return
+
+        # Replace the section between the markers with the new content
+        new_content_str = '\n'.join(new_content)
+        modified_content = (
+            content[:original_start_index + len(start_marker)]
+            + '\n' + new_content_str + '\n'
+            + content[original_end_index:]
+        )
+
+        with open(filepath, 'w', encoding='utf-8') as f:
+            f.write(modified_content)
+
+        logging.info(f"Replaced section in: {filepath}")
 
 class FileLoader:
     @staticmethod
@@ -228,6 +304,7 @@ class AIBuilder:
 
         os.chdir(root_directory)
         logging.info(f"Changed working directory to: {root_directory}")
+
         self.utility = CodeUtility(root_directory)
         config = ET.parse(user_config_path).getroot()
         iterations = int(config.find('iterations').text)
@@ -252,8 +329,9 @@ class AIBuilder:
                     with open('instructions.txt', 'r', encoding='utf-8') as file:
                         instructions = file.read().strip()
                     logging.info("Successfully read instructions.txt")
+
                     prompt = f"""
-                        Generate a line-delimited format file that describes file modifications to apply using the `create_file`, `remove_file`, and `replace_file` action types.
+                        Generate a line-delimited format file that describes file modifications to apply using the `create_file`, `remove_file`, `replace_file`, and `replace_section` action types.
                         Ensure all content is provided using line-delimited format-compatible entities.
                         1. `create_file`:
                             - `file_content`: List of strings (lines of the file content)
@@ -263,6 +341,10 @@ class AIBuilder:
                         3. `replace_file`:
                             - `file_content`: List of strings (lines of the new file content)
                             - ALL CONTENTS OF THE REPLACEMENT FILE MUST BE PROVIDED
+                        4. `replace_section`:
+                            - `start_marker`: The starting marker in the file (with 4 lines of context)
+                            - `end_marker`: The ending marker in the file (with 4 lines of context)
+                            - `file_content`: List of strings (lines of the new file content to be inserted between the markers)
                         Example output format:
                         ```
                         [aibuilder_change file="new_file.py"]
@@ -287,6 +369,29 @@ class AIBuilder:
                         [/aibuilder_file_content]
                         [/aibuilder_action]
                         [/aibuilder_change]
+                        [aibuilder_change file="file_to_modify.py"]
+                        [aibuilder_action type="replace_section"]
+                        [aibuilder_start_marker]
+                        # Starting marker line 1
+                        # Starting marker line 2
+                        # Starting marker line 3
+                        # Starting marker line 4
+                        # Actual starting marker
+                        [/aibuilder_start_marker]
+                        [aibuilder_end_marker]
+                        # Actual ending marker
+                        # Ending marker line 1
+                        # Ending marker line 2
+                        # Ending marker line 3
+                        # Ending marker line 4
+                        [/aibuilder_end_marker]
+                        [aibuilder_file_content]
+                        # New content line 1 with whitespace preserved
+                        \t# New content line 2 with whitespace preserved
+                        \t# New content line 3 with whitespace preserved
+                        [/aibuilder_file_content]
+                        [/aibuilder_action]
+                        [/aibuilder_change]
                         ```
                         Generate modifications logically based on the desired changes.
                         Current code:
@@ -294,6 +399,7 @@ class AIBuilder:
                         Instructions:
                         {instructions}
                         """
+
                     use_local_model = os.getenv("USE_LOCAL_MODEL", "false").lower() == "true"
                     if use_local_model:
                         model_path = os.getenv("MODEL_PATH")
@@ -341,10 +447,12 @@ class AIBuilder:
                                     break
                         finally:
                             response.close()
+
                     logging.info("Successfully obtained response from client.")
                     with open(modifications_format_path, 'w', encoding='utf-8') as modifications_file:
                         modifications_file.write(response_content)
                     logging.info(f"Successfully wrote modifications file to {modifications_format_path}")
+
                 if os.getenv("GENERATE_BUT_DO_NOT_APPLY", "false").lower() == "false":
                     FileModifier.apply_modifications(modifications_format_path)
             except Exception as e:
