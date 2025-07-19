@@ -165,33 +165,39 @@ class FileModifier:
         with open(filepath, 'r', encoding='utf-8') as f:
             content = f.read()
 
-        start_marker_stripped = start_marker.strip()
-        end_marker_stripped = end_marker.strip()
+        # Normalize markers by removing all whitespace for matching
+        normalized_start_marker = re.sub(r'\s+', '', start_marker.strip())
+        normalized_end_marker = re.sub(r'\s+', '', end_marker.strip())
 
-        # Strip whitespace from each line in the content
-        stripped_lines = [line.strip() for line in content.split('\n')]
-        stripped_content = '\n'.join(stripped_lines)
+        # Normalize the content by removing all whitespace for matching
+        normalized_content = re.sub(r'\s+', '', content)
 
-        # Find the start and end markers in the stripped content
-        start_index = stripped_content.find(start_marker_stripped)
-        end_index = stripped_content.find(end_marker_stripped)
+        # Find the start and end markers in the normalized content
+        start_index = normalized_content.find(normalized_start_marker)
+        end_index = normalized_content.find(normalized_end_marker)
 
         if start_index == -1 or end_index == -1:
             logging.error(f"Markers not found in file: {filepath}")
             return
 
-        # Calculate the start and end indices in the original content
-        original_start_index = content.rfind(start_marker, 0, start_index + len(start_marker))
-        original_end_index = content.find(end_marker, end_index)
+        # Use regular expressions to find the start and end markers in the original content
+        start_pattern = re.escape(start_marker.strip()).replace(r'\s+', r'\\s+')
+        end_pattern = re.escape(end_marker.strip()).replace(r'\s+', r'\\s+')
 
-        if original_start_index == -1 or original_end_index == -1:
+        start_match = re.search(start_pattern, content)
+        end_match = re.search(end_pattern, content)
+
+        if not start_match or not end_match:
             logging.error(f"Markers not found in original content: {filepath}")
             return
+
+        original_start_index = start_match.end()
+        original_end_index = end_match.start()
 
         # Replace the section between the markers with the new content
         new_content_str = '\n'.join(new_content)
         modified_content = (
-            content[:original_start_index + len(start_marker)]
+            content[:original_start_index]
             + '\n' + new_content_str + '\n'
             + content[original_end_index:]
         )
