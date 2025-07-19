@@ -4,7 +4,7 @@ import logging
 import shutil
 import subprocess
 import xml.etree.ElementTree as ET
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional
 from dotenv import load_dotenv
 from azure.ai.inference import ChatCompletionsClient
 from azure.ai.inference.models import SystemMessage, UserMessage
@@ -333,6 +333,8 @@ class AIBuilder:
                     prompt = f"""
                         Generate a line-delimited format file that describes file modifications to apply using the `create_file`, `remove_file`, `replace_file`, and `replace_section` action types.
                         Ensure all content is provided using line-delimited format-compatible entities.
+                        Focus on small, specific sections of code rather than large blocks.
+                        Ensure you do not omit any existing code and only modify the sections specified.
                         1. `create_file`:
                             - `file_content`: List of strings (lines of the file content)
                             - ALL CONTENTS OF THE NEW FILE MUST BE PROVIDED
@@ -398,6 +400,8 @@ class AIBuilder:
                         {current_code}
                         Instructions:
                         {instructions}
+
+                        Reply ONLY in the specified format. THAT'S AN ORDER, SOLDIER!
                         """
 
                     use_local_model = os.getenv("USE_LOCAL_MODEL", "false").lower() == "true"
