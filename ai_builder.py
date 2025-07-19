@@ -51,7 +51,6 @@ class FileParser:
             else:
                 logging.warning(f"Unknown action type: {action_type}")
                 continue
-
             if action:
                 actions.append(action)
         return actions
@@ -101,7 +100,6 @@ class FileParser:
             content,
             re.DOTALL
         )
-
         if start_marker_match and end_marker_match and file_content_match:
             return {
                 'action': 'replace_section',
@@ -118,11 +116,9 @@ class FileModifier:
             filepath = change['file']
             backup_filepath = f"{filepath}.bak"
             logging.info(f"Processing file: {filepath}")
-
             if not dry_run:
                 shutil.copy2(filepath, backup_filepath)
                 logging.info(f"Created backup: {backup_filepath}")
-
             for action in change['actions']:
                 try:
                     if dry_run:
@@ -167,7 +163,11 @@ class FileModifier:
             logging.error(f"Markers not found in file: {filepath}")
             return
 
+        # Strip out the start and end markers from the new content
         new_content_str = '\n'.join(new_content)
+        new_content_str = re.sub(re.escape(start_marker.strip()), '', new_content_str)
+        new_content_str = re.sub(re.escape(end_marker.strip()), '', new_content_str)
+
         modified_content = (
             content[:start_index]
             + '\n' + new_content_str + '\n'
@@ -184,16 +184,12 @@ class FileModifier:
         normalized_marker = re.sub(r'\s+', '', marker.strip())
         normalized_content = re.sub(r'\s+', '', content)
         start_index = normalized_content.find(normalized_marker)
-
         if start_index == -1:
             return None
-
         marker_pattern = re.escape(marker.strip()).replace(r'\s+', r'\\s+')
         match = re.search(marker_pattern, content)
-
         if not match:
             return None
-
         return match.end()
 
 class FileLoader:
@@ -277,10 +273,20 @@ class AIBuilder:
             except subprocess.CalledProcessError as e:
                 logging.error(f"Failed to execute {script_name}: {e}")
 
+    def cleanup_bak_files(self) -> None:
+        for root, _, files in os.walk(self.root_directory):
+            for file in files:
+                if file.endswith('.bak'):
+                    file_path = os.path.join(root, file)
+                    try:
+                        os.remove(file_path)
+                        logging.info(f"Removed backup file: {file_path}")
+                    except Exception as e:
+                        logging.error(f"Error removing backup file {file_path}: {e}")
+
     def run(self) -> None:
         base_config_path = os.path.join("base_config.xml")
         user_config_path = os.path.join(self.ai_builder_dir, "user_config.xml")
-
         if os.path.exists(base_config_path):
             shutil.copy(base_config_path, user_config_path)
             logging.info("Copied base_config.xml to user_config.xml")
@@ -330,24 +336,18 @@ class AIBuilder:
                     if not os.path.exists(self.utility.output_file):
                         logging.warning("output.txt was not created by process_directory.")
                         continue
-
                     with open(self.utility.output_file, 'r', encoding='utf-8') as file:
                         current_code = file.read().strip()
                     logging.info("Successfully read output.txt")
-
                     with open('instructions.txt', 'r', encoding='utf-8') as file:
                         instructions = file.read().strip()
                     logging.info("Successfully read instructions.txt")
-
                     prompt = f"""
 Generate a line-delimited format file that describes file modifications to apply using the `create_file`, `remove_file`, `replace_file`, and `replace_section` action types.
-
 Ensure all content is provided using line-delimited format-compatible entities.
 Focus on small, specific sections of code rather than large blocks.
 Ensure you do not omit any existing code and only modify the sections specified.
-
 Available operations:
-
 1. `create_file`:
     - `file_content`: List of strings (lines of the file content)
 2. `remove_file`:
@@ -358,9 +358,7 @@ Available operations:
     - `start_marker`: The starting marker in the file (with 4 lines of context)
     - `end_marker`: The ending marker in the file (with 4 lines of context)
     - `file_content`: List of strings (lines of the new file content to be inserted between the markers)
-
 Example output format:
-
 [aibuilder_change file="new_file.py"]
 [aibuilder_action type="create_file"]
 [aibuilder_file_content]
@@ -405,18 +403,13 @@ Example output format:
 [/aibuilder_file_content]
 [/aibuilder_action]
 [/aibuilder_change]
-
 Generate modifications logically based on the desired changes.
-
 Current code:
 {current_code}
-
 Instructions:
 {instructions}
-
 Reply ONLY in the specified format. THAT'S AN ORDER, SOLDIER!
                         """
-
                     use_local_model = os.getenv("USE_LOCAL_MODEL", "false").lower() == "true"
                     if use_local_model:
                         model_path = os.getenv("MODEL_PATH")
@@ -464,20 +457,17 @@ Reply ONLY in the specified format. THAT'S AN ORDER, SOLDIER!
                                     break
                         finally:
                             response.close()
-
                     logging.info("Successfully obtained response from client.")
                     with open(modifications_format_path, 'w', encoding='utf-8') as modifications_file:
                         modifications_file.write(response_content)
                     logging.info(f"Successfully wrote modifications file to {modifications_format_path}")
-
                 if os.getenv("GENERATE_BUT_DO_NOT_APPLY", "false").lower() == "false":
                     changes = FileParser.parse_custom_format(response_content)
                     FileModifier.apply_modifications(changes, dry_run=False)
-
             except Exception as e:
                 logging.error(f"An error occurred: {str(e)}", exc_info=True)
-
             self.run_pre_post_scripts("post.ps1")
+            self.cleanup_bak_files()
 
 if __name__ == "__main__":
     ai_builder = AIBuilder()
