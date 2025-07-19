@@ -14,20 +14,6 @@ from llama_cpp import Llama
 # Load environment variables from .env file
 load_dotenv()
 
-root_directory = os.getenv("ROOT_DIRECTORY", os.getcwd())
-ai_builder_dir = os.path.join(root_directory, "ai_builder")
-os.makedirs(ai_builder_dir, exist_ok=True)
-
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler(os.path.join(ai_builder_dir, 'utility.log')),
-        logging.StreamHandler()
-    ]
-)
-
 class FileParser:
     @staticmethod
     def parse_custom_format(content: str) -> List[Dict[str, Any]]:
@@ -127,18 +113,27 @@ class FileParser:
 
 class FileModifier:
     @staticmethod
-    def apply_modifications(instruction_file: str) -> None:
-        changes = FileParser.parse_custom_format(
-            FileLoader.load_instructions(instruction_file)
-        )
+    def apply_modifications(changes: List[Dict[str, Any]], dry_run: bool = False) -> None:
         for change in changes:
             filepath = change['file']
+            backup_filepath = f"{filepath}.bak"
             logging.info(f"Processing file: {filepath}")
+
+            if not dry_run:
+                shutil.copy2(filepath, backup_filepath)
+                logging.info(f"Created backup: {backup_filepath}")
+
             for action in change['actions']:
                 try:
-                    FileModifier._apply_action(filepath, action)
+                    if dry_run:
+                        logging.info(f"Dry run: Would apply action {action['action']} to {filepath}")
+                    else:
+                        FileModifier._apply_action(filepath, action)
                 except Exception as e:
                     logging.error(f"Error applying modifications to {filepath}: {e}")
+                    if not dry_run and os.path.exists(backup_filepath):
+                        shutil.copy2(backup_filepath, filepath)
+                        logging.info(f"Restored backup for {filepath}")
 
     @staticmethod
     def _apply_action(filepath: str, action: Dict[str, Any]) -> None:
@@ -165,47 +160,41 @@ class FileModifier:
         with open(filepath, 'r', encoding='utf-8') as f:
             content = f.read()
 
-        # Normalize markers by removing all whitespace for matching
-        normalized_start_marker = re.sub(r'\s+', '', start_marker.strip())
-        normalized_end_marker = re.sub(r'\s+', '', end_marker.strip())
+        start_index = FileModifier._find_marker_in_content(content, start_marker)
+        end_index = FileModifier._find_marker_in_content(content, end_marker)
 
-        # Normalize the content by removing all whitespace for matching
-        normalized_content = re.sub(r'\s+', '', content)
-
-        # Find the start and end markers in the normalized content
-        start_index = normalized_content.find(normalized_start_marker)
-        end_index = normalized_content.find(normalized_end_marker)
-
-        if start_index == -1 or end_index == -1:
+        if start_index is None or end_index is None:
             logging.error(f"Markers not found in file: {filepath}")
             return
 
-        # Use regular expressions to find the start and end markers in the original content
-        start_pattern = re.escape(start_marker.strip()).replace(r'\s+', r'\\s+')
-        end_pattern = re.escape(end_marker.strip()).replace(r'\s+', r'\\s+')
-
-        start_match = re.search(start_pattern, content)
-        end_match = re.search(end_pattern, content)
-
-        if not start_match or not end_match:
-            logging.error(f"Markers not found in original content: {filepath}")
-            return
-
-        original_start_index = start_match.end()
-        original_end_index = end_match.start()
-
-        # Replace the section between the markers with the new content
         new_content_str = '\n'.join(new_content)
         modified_content = (
-            content[:original_start_index]
+            content[:start_index]
             + '\n' + new_content_str + '\n'
-            + content[original_end_index:]
+            + content[end_index:]
         )
 
         with open(filepath, 'w', encoding='utf-8') as f:
             f.write(modified_content)
 
         logging.info(f"Replaced section in: {filepath}")
+
+    @staticmethod
+    def _find_marker_in_content(content: str, marker: str) -> Optional[int]:
+        normalized_marker = re.sub(r'\s+', '', marker.strip())
+        normalized_content = re.sub(r'\s+', '', content)
+        start_index = normalized_content.find(normalized_marker)
+
+        if start_index == -1:
+            return None
+
+        marker_pattern = re.escape(marker.strip()).replace(r'\s+', r'\\s+')
+        match = re.search(marker_pattern, content)
+
+        if not match:
+            return None
+
+        return match.end()
 
 class FileLoader:
     @staticmethod
@@ -215,8 +204,6 @@ class FileLoader:
                 content = f.read()
             if "</think>" in content:
                 content = content.split('</think>')[1]
-            with open(os.path.join(ai_builder_dir, "extracted.txt"), 'w', encoding='utf-8') as f:
-                f.write(content)
             return content
         except Exception as e:
             logging.error(f"Error loading instructions: {e}")
@@ -267,6 +254,19 @@ class CodeUtility:
 class AIBuilder:
     def __init__(self):
         self.return_git_diff = True
+        self.root_directory = os.getenv("ROOT_DIRECTORY", os.getcwd())
+        self.ai_builder_dir = os.path.join(self.root_directory, "ai_builder")
+        os.makedirs(self.ai_builder_dir, exist_ok=True)
+
+        # Configure logging
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(asctime)s - %(levelname)s - %(message)s',
+            handlers=[
+                logging.FileHandler(os.path.join(self.ai_builder_dir, 'utility.log')),
+                logging.StreamHandler()
+            ]
+        )
 
     def run_pre_post_scripts(self, script_name: str) -> None:
         script_path = os.path.join(os.getcwd(), script_name)
@@ -279,7 +279,8 @@ class AIBuilder:
 
     def run(self) -> None:
         base_config_path = os.path.join("base_config.xml")
-        user_config_path = os.path.join(ai_builder_dir, "user_config.xml")
+        user_config_path = os.path.join(self.ai_builder_dir, "user_config.xml")
+
         if os.path.exists(base_config_path):
             shutil.copy(base_config_path, user_config_path)
             logging.info("Copied base_config.xml to user_config.xml")
@@ -308,10 +309,10 @@ class AIBuilder:
                 config_file.write(default_config)
             logging.warning("base_config.xml not found, created default user_config.xml")
 
-        os.chdir(root_directory)
-        logging.info(f"Changed working directory to: {root_directory}")
+        os.chdir(self.root_directory)
+        logging.info(f"Changed working directory to: {self.root_directory}")
 
-        self.utility = CodeUtility(root_directory)
+        self.utility = CodeUtility(self.root_directory)
         config = ET.parse(user_config_path).getroot()
         iterations = int(config.find('iterations').text)
         mode = config.find('mode').text
@@ -321,93 +322,99 @@ class AIBuilder:
             logging.info(f"Starting iteration {iteration + 1}")
             self.run_pre_post_scripts("pre.ps1")
             try:
-                modifications_format_path = os.path.join(ai_builder_dir, "modifications.txt")
+                modifications_format_path = os.path.join(self.ai_builder_dir, "modifications.txt")
                 if not os.path.exists(modifications_format_path):
                     if os.path.exists(self.utility.output_file):
                         os.remove(self.utility.output_file)
-                    self.utility.process_directory(root_directory, [], patterns, mode)
+                    self.utility.process_directory(self.root_directory, [], patterns, mode)
                     if not os.path.exists(self.utility.output_file):
                         logging.warning("output.txt was not created by process_directory.")
                         continue
+
                     with open(self.utility.output_file, 'r', encoding='utf-8') as file:
                         current_code = file.read().strip()
                     logging.info("Successfully read output.txt")
+
                     with open('instructions.txt', 'r', encoding='utf-8') as file:
                         instructions = file.read().strip()
                     logging.info("Successfully read instructions.txt")
 
                     prompt = f"""
-                        Generate a line-delimited format file that describes file modifications to apply using the `create_file`, `remove_file`, `replace_file`, and `replace_section` action types.
-                        Ensure all content is provided using line-delimited format-compatible entities.
-                        Focus on small, specific sections of code rather than large blocks.
-                        Ensure you do not omit any existing code and only modify the sections specified.
-                        1. `create_file`:
-                            - `file_content`: List of strings (lines of the file content)
-                            - ALL CONTENTS OF THE NEW FILE MUST BE PROVIDED
-                        2. `remove_file`:
-                            - No additional parameters needed.
-                        3. `replace_file`:
-                            - `file_content`: List of strings (lines of the new file content)
-                            - ALL CONTENTS OF THE REPLACEMENT FILE MUST BE PROVIDED
-                        4. `replace_section`:
-                            - `start_marker`: The starting marker in the file (with 4 lines of context)
-                            - `end_marker`: The ending marker in the file (with 4 lines of context)
-                            - `file_content`: List of strings (lines of the new file content to be inserted between the markers)
-                        Example output format:
-                        ```
-                        [aibuilder_change file="new_file.py"]
-                        [aibuilder_action type="create_file"]
-                        [aibuilder_file_content]
-                        # Content line 1 with whitespace preserved
-                        \t# Content line 2 with whitespace preserved
-                        \t# Content line 3 with whitespace preserved
-                        [/aibuilder_file_content]
-                        [/aibuilder_action]
-                        [/aibuilder_change]
-                        [aibuilder_change file="old_file.py"]
-                        [aibuilder_action type="remove_file"]
-                        [/aibuilder_action]
-                        [/aibuilder_change]
-                        [aibuilder_change file="file_to_replace.py"]
-                        [aibuilder_action type="replace_file"]
-                        [aibuilder_file_content]
-                        # New content line 1 with whitespace preserved
-                        \t# New content line 2 with whitespace preserved
-                        \t# New content line 3 with whitespace preserved
-                        [/aibuilder_file_content]
-                        [/aibuilder_action]
-                        [/aibuilder_change]
-                        [aibuilder_change file="file_to_modify.py"]
-                        [aibuilder_action type="replace_section"]
-                        [aibuilder_start_marker]
-                        # Starting marker line 1
-                        # Starting marker line 2
-                        # Starting marker line 3
-                        # Starting marker line 4
-                        # Actual starting marker
-                        [/aibuilder_start_marker]
-                        [aibuilder_end_marker]
-                        # Actual ending marker
-                        # Ending marker line 1
-                        # Ending marker line 2
-                        # Ending marker line 3
-                        # Ending marker line 4
-                        [/aibuilder_end_marker]
-                        [aibuilder_file_content]
-                        # New content line 1 with whitespace preserved
-                        \t# New content line 2 with whitespace preserved
-                        \t# New content line 3 with whitespace preserved
-                        [/aibuilder_file_content]
-                        [/aibuilder_action]
-                        [/aibuilder_change]
-                        ```
-                        Generate modifications logically based on the desired changes.
-                        Current code:
-                        {current_code}
-                        Instructions:
-                        {instructions}
+Generate a line-delimited format file that describes file modifications to apply using the `create_file`, `remove_file`, `replace_file`, and `replace_section` action types.
 
-                        Reply ONLY in the specified format. THAT'S AN ORDER, SOLDIER!
+Ensure all content is provided using line-delimited format-compatible entities.
+Focus on small, specific sections of code rather than large blocks.
+Ensure you do not omit any existing code and only modify the sections specified.
+
+Available operations:
+
+1. `create_file`:
+    - `file_content`: List of strings (lines of the file content)
+2. `remove_file`:
+    - No additional parameters needed.
+3. `replace_file`:
+    - `file_content`: List of strings (lines of the new file content)
+4. `replace_section`:
+    - `start_marker`: The starting marker in the file (with 4 lines of context)
+    - `end_marker`: The ending marker in the file (with 4 lines of context)
+    - `file_content`: List of strings (lines of the new file content to be inserted between the markers)
+
+Example output format:
+
+[aibuilder_change file="new_file.py"]
+[aibuilder_action type="create_file"]
+[aibuilder_file_content]
+# Content line 1 with whitespace preserved
+\t# Content line 2 with whitespace preserved
+\t# Content line 3 with whitespace preserved
+[/aibuilder_file_content]
+[/aibuilder_action]
+[/aibuilder_change]
+[aibuilder_change file="old_file.py"]
+[aibuilder_action type="remove_file"]
+[/aibuilder_action]
+[/aibuilder_change]
+[aibuilder_change file="file_to_replace.py"]
+[aibuilder_action type="replace_file"]
+[aibuilder_file_content]
+# New content line 1 with whitespace preserved
+\t# New content line 2 with whitespace preserved
+\t# New content line 3 with whitespace preserved
+[/aibuilder_file_content]
+[/aibuilder_action]
+[/aibuilder_change]
+[aibuilder_change file="file_to_modify.py"]
+[aibuilder_action type="replace_section"]
+[aibuilder_start_marker]
+# Starting marker line 1
+# Starting marker line 2
+# Starting marker line 3
+# Starting marker line 4
+[/aibuilder_start_marker]
+[aibuilder_end_marker]
+# Actual ending marker
+# Ending marker line 1
+# Ending marker line 2
+# Ending marker line 3
+# Ending marker line 4
+[/aibuilder_end_marker]
+[aibuilder_file_content]
+# New content line 1 with whitespace preserved
+\t# New content line 2 with whitespace preserved
+\t# New content line 3 with whitespace preserved
+[/aibuilder_file_content]
+[/aibuilder_action]
+[/aibuilder_change]
+
+Generate modifications logically based on the desired changes.
+
+Current code:
+{current_code}
+
+Instructions:
+{instructions}
+
+Reply ONLY in the specified format. THAT'S AN ORDER, SOLDIER!
                         """
 
                     use_local_model = os.getenv("USE_LOCAL_MODEL", "false").lower() == "true"
@@ -420,7 +427,7 @@ class AIBuilder:
                         response_content = ""
                         for response in llm.create_completion(
                             prompt,
-                            max_tokens=int(os.getenv("MODEL_CONTEXT", 0))/2,
+                            max_tokens=int(os.getenv("MODEL_CONTEXT", 0))//2,
                             stream=True
                         ):
                             token = response['choices'][0]['text']
@@ -443,7 +450,7 @@ class AIBuilder:
                                 SystemMessage(content="You are a helpful assistant."),
                                 UserMessage(content=prompt)
                             ],
-                            max_tokens=131072/2,
+                            max_tokens=131072 / 2,
                             model=model_name
                         )
                         response_content = ""
@@ -464,9 +471,12 @@ class AIBuilder:
                     logging.info(f"Successfully wrote modifications file to {modifications_format_path}")
 
                 if os.getenv("GENERATE_BUT_DO_NOT_APPLY", "false").lower() == "false":
-                    FileModifier.apply_modifications(modifications_format_path)
+                    changes = FileParser.parse_custom_format(response_content)
+                    FileModifier.apply_modifications(changes, dry_run=False)
+
             except Exception as e:
                 logging.error(f"An error occurred: {str(e)}", exc_info=True)
+
             self.run_pre_post_scripts("post.ps1")
 
 if __name__ == "__main__":
