@@ -21,7 +21,7 @@ class FileParser:
             content = content.split(r"\n</think>\n")[1]
         changes = []
         change_blocks = re.finditer(
-            r'\s*\[aibuilder_change file="([^"]+)"\]\s*(.*?)\s*\[\/aibuilder_change\]\s*',
+            r'\[aibuilder_change file="([^"]+)"\](.*?)(?=\[aibuilder_|\Z)',
             content,
             re.DOTALL
         )
@@ -35,7 +35,7 @@ class FileParser:
     def _parse_actions(content: str) -> List[Dict[str, Any]]:
         actions = []
         action_blocks = re.finditer(
-            r'\s*\[aibuilder_action type="([^"]+)"\]\s*(.*?)\s*\[\/aibuilder_action\]\s*',
+            r'\[aibuilder_action type="([^"]+)"\](.*?)(?=\[aibuilder_|\Z)',
             content,
             re.DOTALL
         )
@@ -58,7 +58,7 @@ class FileParser:
 
     @staticmethod
     def _parse_create_action(content: str) -> Optional[Dict[str, Any]]:
-        file_content_pattern = r'\s*\[aibuilder_file_content\]\s*(.*?)\s*\[\/aibuilder_file_content\]\s*'
+        file_content_pattern = r'\[aibuilder_file_content\](.*?)(?=\[aibuilder_|\Z)'
         file_content_match = re.search(file_content_pattern, content, re.DOTALL)
         if file_content_match:
             return {
@@ -69,7 +69,7 @@ class FileParser:
 
     @staticmethod
     def _parse_replace_file_action(content: str) -> Optional[Dict[str, Any]]:
-        file_content_pattern = r'\s*\[aibuilder_file_content\]\s*(.*?)\s*\[\/aibuilder_file_content\]\s*'
+        file_content_pattern = r'\[aibuilder_file_content\](.*?)(?=\[aibuilder_|\Z)'
         file_content_match = re.search(file_content_pattern, content, re.DOTALL)
         if file_content_match:
             return {
@@ -80,9 +80,9 @@ class FileParser:
 
     @staticmethod
     def _parse_replace_section_action(content: str) -> Optional[Dict[str, Any]]:
-        start_marker_pattern = r'\s*\[aibuilder_start_marker\]\s*(.*?)\s*\[/aibuilder_start_marker\]\s*'
-        end_marker_pattern = r'\s*\[aibuilder_end_marker\]\s*(.*?)\s*\[\/aibuilder_end_marker\]\s*'
-        file_content_pattern = r'\s*\[aibuilder_file_content\]\s*(.*?)\s*\[\/aibuilder_file_content\]\s*'
+        start_marker_pattern = r'\[aibuilder_start_marker\](.*?)(?=\[aibuilder_|\Z)'
+        end_marker_pattern = r'\[aibuilder_end_marker\](.*?)(?=\[aibuilder_|\Z)'
+        file_content_pattern = r'\[aibuilder_file_content\](.*?)(?=\[aibuilder_|\Z)'
 
         start_marker_match = re.search(start_marker_pattern, content, re.DOTALL)
         end_marker_match = re.search(end_marker_pattern, content, re.DOTALL)
@@ -147,27 +147,20 @@ class FileModifier:
     def _replace_section(filepath: str, start_marker: str, end_marker: str, new_content: List[str]) -> None:
         with open(filepath, 'r', encoding='utf-8') as f:
             content = f.read()
-
         normalized_content = re.sub(r'\s+', '', content)
         normalized_start_marker = re.sub(r'\s+', '', start_marker)
         normalized_end_marker = re.sub(r'\s+', '', end_marker)
-
         start_index = normalized_content.find(normalized_start_marker)
         end_index = normalized_content.find(normalized_end_marker, start_index + len(normalized_start_marker))
-
         if start_index == -1 or end_index == -1:
             logging.error(f"Markers not found in file: {filepath}")
             return
-
         original_start_index = content.find(start_marker)
         original_end_index = content.find(end_marker, original_start_index + len(start_marker))
-
         if original_start_index == -1 or original_end_index == -1:
             logging.error(f"Markers not found in original content: {filepath}")
             return
-
         new_content_str = '\n'.join(new_content)
-
         if normalized_start_marker == normalized_end_marker:
             modified_content = (
                 content[:original_start_index]
@@ -180,7 +173,6 @@ class FileModifier:
                 + '\n' + new_content_str + '\n'
                 + content[original_end_index:]
             )
-
         with open(filepath, 'w', encoding='utf-8') as f:
             f.write(modified_content)
         logging.info(f"Replaced section in: {filepath}")
@@ -361,7 +353,6 @@ Example output format:
 # New content line 1 with whitespace preserved
 \t# New content line 2 with whitespace preserved
 \t# New content line 3 with whitespace preserved
-
 Generate modifications logically based on the desired changes.
 Current code:
 {current_code}
