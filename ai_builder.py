@@ -21,7 +21,7 @@ class FileParser:
             content = content.split("\n</think>\n")[1]
         changes = []
         change_blocks = re.finditer(
-            r'\[aibuilder_change file="([^"]+)"\](.*?)\[/aibuilder_change\]',
+            r'\s*\[aibuilder_change file="([^"]+)"\]\s*(.*?)\s*\[\/aibuilder_change\]\s*',
             content,
             re.DOTALL
         )
@@ -35,7 +35,7 @@ class FileParser:
     def _parse_actions(content: str) -> List[Dict[str, Any]]:
         actions = []
         action_blocks = re.finditer(
-            r'\[aibuilder_action type="([^"]+)"\](.*?)\[/aibuilder_action\]',
+            r'\s*\[aibuilder_action type="([^"]+)"\]\s*(.*?)\s*\[\/aibuilder_action\]\s*',
             content,
             re.DOTALL
         )
@@ -51,7 +51,6 @@ class FileParser:
             elif action_type == 'replace_section':
                 action = FileParser._parse_replace_section_action(action_content)
             else:
-                logging.warning(f"Unknown action type: {action_type}")
                 continue
             if action:
                 actions.append(action)
@@ -59,11 +58,8 @@ class FileParser:
 
     @staticmethod
     def _parse_create_action(content: str) -> Optional[Dict[str, Any]]:
-        file_content_match = re.search(
-            r'\[aibuilder_file_content\](.*?)\[/aibuilder_file_content\]',
-            content,
-            re.DOTALL
-        )
+        file_content_pattern = r'\s*\[aibuilder_file_content\]\s*(.*?)\s*\[\/aibuilder_file_content\]\s*'
+        file_content_match = re.search(file_content_pattern, content, re.DOTALL)
         if file_content_match:
             return {
                 'action': 'create_file',
@@ -73,11 +69,8 @@ class FileParser:
 
     @staticmethod
     def _parse_replace_file_action(content: str) -> Optional[Dict[str, Any]]:
-        file_content_match = re.search(
-            r'\[aibuilder_file_content\](.*?)\[/aibuilder_file_content\]',
-            content,
-            re.DOTALL
-        )
+        file_content_pattern = r'\s*\[aibuilder_file_content\]\s*(.*?)\s*\[\/aibuilder_file_content\]\s*'
+        file_content_match = re.search(file_content_pattern, content, re.DOTALL)
         if file_content_match:
             return {
                 'action': 'replace_file',
@@ -87,21 +80,13 @@ class FileParser:
 
     @staticmethod
     def _parse_replace_section_action(content: str) -> Optional[Dict[str, Any]]:
-        start_marker_match = re.search(
-            r'\[aibuilder_start_marker\](.*?)\[/aibuilder_start_marker\]',
-            content,
-            re.DOTALL
-        )
-        end_marker_match = re.search(
-            r'\[aibuilder_end_marker\](.*?)\[/aibuilder_end_marker\]',
-            content,
-            re.DOTALL
-        )
-        file_content_match = re.search(
-            r'\[aibuilder_file_content\](.*?)\[/aibuilder_file_content\]',
-            content,
-            re.DOTALL
-        )
+        start_marker_pattern = r'\s*\[aibuilder_start_marker\]\s*(.*?)\s*\[\/aibuilder_start_marker\]\s*'
+        end_marker_pattern = r'\s*\[aibuilder_end_marker\]\s*(.*?)\s*\[\/aibuilder_end_marker\]\s*'
+        file_content_pattern = r'\s*\[aibuilder_file_content\]\s*(.*?)\s*\[\/aibuilder_file_content\]\s*'
+        start_marker_match = re.search(start_marker_pattern, content, re.DOTALL)
+        end_marker_match = re.search(end_marker_pattern, content, re.DOTALL)
+        file_content_match = re.search(file_content_pattern, content, re.DOTALL)
+
         if start_marker_match and end_marker_match and file_content_match:
             return {
                 'action': 'replace_section',
@@ -123,8 +108,8 @@ class FileModifier:
                     if os.path.exists(filepath):
                         shutil.copy2(filepath, backup_filepath)
                         logging.info(f"Created backup: {backup_filepath}")
-                except e:
-                    logging.error(f"Could not back up file: {filepath}")
+                except Exception as e:
+                    logging.error(f"Could not back up file: {filepath}: {e}")
             for action in change['actions']:
                 try:
                     if dry_run:
@@ -162,12 +147,10 @@ class FileModifier:
         with open(filepath, 'r', encoding='utf-8') as f:
             content = f.read()
 
-        # Normalize content and markers by removing all whitespace for comparison
         normalized_content = re.sub(r'\s+', '', content)
         normalized_start_marker = re.sub(r'\s+', '', start_marker)
         normalized_end_marker = re.sub(r'\s+', '', end_marker)
 
-        # Find the start and end indices of the markers in the normalized content
         start_index = normalized_content.find(normalized_start_marker)
         end_index = normalized_content.find(normalized_end_marker, start_index + len(normalized_start_marker))
 
@@ -175,7 +158,6 @@ class FileModifier:
             logging.error(f"Markers not found in file: {filepath}")
             return
 
-        # Adjust indices to the original content
         original_start_index = content.find(start_marker)
         original_end_index = content.find(end_marker, original_start_index + len(start_marker))
 
@@ -183,12 +165,9 @@ class FileModifier:
             logging.error(f"Markers not found in original content: {filepath}")
             return
 
-        # Strip out the start and end markers from the new content
         new_content_str = '\n'.join(new_content)
 
-        # Replace the section between the markers
         if normalized_start_marker == normalized_end_marker:
-            # If start and end markers are the same, replace the single line
             modified_content = (
                 content[:original_start_index]
                 + new_content_str + '\n'
@@ -203,7 +182,6 @@ class FileModifier:
 
         with open(filepath, 'w', encoding='utf-8') as f:
             f.write(modified_content)
-
         logging.info(f"Replaced section in: {filepath}")
 
 class CodeUtility:
@@ -254,8 +232,6 @@ class AIBuilder:
         self.root_directory = os.getenv("ROOT_DIRECTORY", os.getcwd())
         self.ai_builder_dir = os.path.join(self.root_directory, "ai_builder")
         os.makedirs(self.ai_builder_dir, exist_ok=True)
-
-        # Configure logging
         logging.basicConfig(
             level=logging.INFO,
             format='%(asctime)s - %(levelname)s - %(message)s',
@@ -318,7 +294,6 @@ class AIBuilder:
 
         os.chdir(self.root_directory)
         logging.info(f"Changed working directory to: {self.root_directory}")
-
         self.utility = CodeUtility(self.root_directory)
         config = ET.parse(user_config_path).getroot()
         iterations = int(config.find('iterations').text)
@@ -355,13 +330,11 @@ Available operations:
     - No additional parameters needed.
 3. `replace_file`:
     - `file_content`: List of strings (lines of the new file content)
-    - Use this if you are modifying more than 20 lines in a file
     - The revision must be entirely complete
 4. `replace_section`:
-    - `start_marker`: The starting marker in the file (single line, whitespace ignored)
-    - `end_marker`: The ending marker in the file (single line, whitespace ignored)
+    - `start_marker`: The starting marker in the file (single line, whitespace ignored - choose a line that is unique)
+    - `end_marker`: The ending marker in the file (single line, whitespace ignored - choose a line that is unique)
     - `file_content`: List of strings (lines of the new file content to be inserted between the markers)
-    - Only use this if you are modifying 20 lines of code or less
 Example output format:
 [aibuilder_change file="new_file.py"]
 [aibuilder_action type="create_file"]
@@ -440,7 +413,7 @@ Reply ONLY in the specified format. THAT'S AN ORDER, SOLDIER!
                                 SystemMessage(content="You are a helpful assistant."),
                                 UserMessage(content=prompt)
                             ],
-                            max_tokens=131072 / 2,
+                            max_tokens=131072 // 2,
                             model=model_name
                         )
                         response_content = ""
