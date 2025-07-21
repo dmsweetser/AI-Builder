@@ -17,6 +17,8 @@ load_dotenv()
 class FileParser:
     @staticmethod
     def parse_custom_format(content: str) -> List[Dict[str, Any]]:
+        if "</think>" in content:
+            content = content.split("</think>")[1]
         changes = []
         change_blocks = re.finditer(
             r'\[aibuilder_change file="([^"]+)"\](.*?)\[/aibuilder_change\]',
@@ -191,19 +193,6 @@ class FileModifier:
         if not match:
             return None
         return match.end()
-
-class FileLoader:
-    @staticmethod
-    def load_instructions(format_path: str) -> str:
-        try:
-            with open(format_path, 'r', encoding='utf-8') as f:
-                content = f.read()
-            if "</think>" in content:
-                content = content.split('</think>')[1]
-            return content
-        except Exception as e:
-            logging.error(f"Error loading instructions: {e}")
-            return ""
 
 class CodeUtility:
     def __init__(self, base_dir: str = os.getcwd()):
@@ -464,6 +453,9 @@ Reply ONLY in the specified format. THAT'S AN ORDER, SOLDIER!
                     with open(modifications_format_path, 'w', encoding='utf-8') as modifications_file:
                         modifications_file.write(response_content)
                     logging.info(f"Successfully wrote modifications file to {modifications_format_path}")
+                else:
+                    with open(modifications_format_path, 'r', encoding='utf-8') as modifications_file:
+                        response_content = modifications_file.read()
                 if os.getenv("GENERATE_BUT_DO_NOT_APPLY", "false").lower() == "false":
                     changes = FileParser.parse_custom_format(response_content)
                     FileModifier.apply_modifications(changes, dry_run=False)
