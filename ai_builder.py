@@ -17,8 +17,8 @@ load_dotenv()
 class FileParser:
     @staticmethod
     def parse_custom_format(content: str) -> List[Dict[str, Any]]:
-        if "\n</think>\n" in content:
-            content = content.split("\n</think>\n")[1]
+        if r"\n</think>\n" in content:
+            content = content.split(r"\n</think>\n")[1]
         changes = []
         change_blocks = re.finditer(
             r'\s*\[aibuilder_change file="([^"]+)"\]\s*(.*?)\s*\[\/aibuilder_change\]\s*',
@@ -80,9 +80,10 @@ class FileParser:
 
     @staticmethod
     def _parse_replace_section_action(content: str) -> Optional[Dict[str, Any]]:
-        start_marker_pattern = r'\s*\[aibuilder_start_marker\]\s*(.*?)\s*\[\/aibuilder_start_marker\]\s*'
+        start_marker_pattern = r'\s*\[aibuilder_start_marker\]\s*(.*?)\s*\[/aibuilder_start_marker\]\s*'
         end_marker_pattern = r'\s*\[aibuilder_end_marker\]\s*(.*?)\s*\[\/aibuilder_end_marker\]\s*'
         file_content_pattern = r'\s*\[aibuilder_file_content\]\s*(.*?)\s*\[\/aibuilder_file_content\]\s*'
+
         start_marker_match = re.search(start_marker_pattern, content, re.DOTALL)
         end_marker_match = re.search(end_marker_pattern, content, re.DOTALL)
         file_content_match = re.search(file_content_pattern, content, re.DOTALL)
@@ -342,37 +343,25 @@ Example output format:
 # Content line 1 with whitespace preserved
 \t# Content line 2 with whitespace preserved
 \t# Content line 3 with whitespace preserved
-[/aibuilder_file_content]
-[/aibuilder_action]
-[/aibuilder_change]
 [aibuilder_change file="old_file.py"]
 [aibuilder_action type="remove_file"]
-[/aibuilder_action]
-[/aibuilder_change]
 [aibuilder_change file="file_to_replace.py"]
 [aibuilder_action type="replace_file"]
 [aibuilder_file_content]
 # New content line 1 with whitespace preserved
 \t# New content line 2 with whitespace preserved
 \t# New content line 3 with whitespace preserved
-[/aibuilder_file_content]
-[/aibuilder_action]
-[/aibuilder_change]
 [aibuilder_change file="file_to_modify.py"]
 [aibuilder_action type="replace_section"]
 [aibuilder_start_marker]
 # Starting marker line
-[/aibuilder_start_marker]
 [aibuilder_end_marker]
 # Ending marker line
-[/aibuilder_end_marker]
 [aibuilder_file_content]
 # New content line 1 with whitespace preserved
 \t# New content line 2 with whitespace preserved
 \t# New content line 3 with whitespace preserved
-[/aibuilder_file_content]
-[/aibuilder_action]
-[/aibuilder_change]
+
 Generate modifications logically based on the desired changes.
 Current code:
 {current_code}
