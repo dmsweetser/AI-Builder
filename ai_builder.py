@@ -17,8 +17,8 @@ load_dotenv()
 class FileParser:
     @staticmethod
     def parse_custom_format(content: str) -> List[Dict[str, Any]]:
-        if "</think>" in content:
-            content = content.split("</think>")[1]
+        if "\n</think>\n" in content:
+            content = content.split("\n</think>\n")[1]
         changes = []
         change_blocks = re.finditer(
             r'\[aibuilder_change file="([^"]+)"\](.*?)\[/aibuilder_change\]',
@@ -114,13 +114,17 @@ class FileParser:
 class FileModifier:
     @staticmethod
     def apply_modifications(changes: List[Dict[str, Any]], dry_run: bool = False) -> None:
-        for change in changes:  # Process changes in normal order
+        for change in changes:
             filepath = change['file']
             backup_filepath = f"{filepath}.bak"
             logging.info(f"Processing file: {filepath}")
             if not dry_run:
-                shutil.copy2(filepath, backup_filepath)
-                logging.info(f"Created backup: {backup_filepath}")
+                try:
+                    if os.path.exists(filepath):
+                        shutil.copy2(filepath, backup_filepath)
+                        logging.info(f"Created backup: {backup_filepath}")
+                except e:
+                    logging.error(f"Could not back up file: {filepath}")
             for action in change['actions']:
                 try:
                     if dry_run:
@@ -139,7 +143,7 @@ class FileModifier:
         if action_type == 'create_file':
             with open(filepath, 'w', encoding='utf-8') as f:
                 f.write("\n".join(action['file_content']) + "\n")
-            logging.info(f"Created: {filepath}")
+            logging.info(f"Created/Replaced: {filepath}")
         elif action_type == 'remove_file':
             if os.path.isfile(filepath):
                 os.remove(filepath)
@@ -165,7 +169,7 @@ class FileModifier:
 
         # Find the start and end indices of the markers in the normalized content
         start_index = normalized_content.find(normalized_start_marker)
-        end_index = normalized_content.find(normalized_end_marker)
+        end_index = normalized_content.find(normalized_end_marker, start_index + len(normalized_start_marker))
 
         if start_index == -1 or end_index == -1:
             logging.error(f"Markers not found in file: {filepath}")
@@ -173,7 +177,7 @@ class FileModifier:
 
         # Adjust indices to the original content
         original_start_index = content.find(start_marker)
-        original_end_index = content.find(end_marker)
+        original_end_index = content.find(end_marker, original_start_index + len(start_marker))
 
         if original_start_index == -1 or original_end_index == -1:
             logging.error(f"Markers not found in original content: {filepath}")
@@ -181,15 +185,21 @@ class FileModifier:
 
         # Strip out the start and end markers from the new content
         new_content_str = '\n'.join(new_content)
-        new_content_str = re.sub(re.escape(start_marker), '', new_content_str)
-        new_content_str = re.sub(re.escape(end_marker), '', new_content_str)
 
         # Replace the section between the markers
-        modified_content = (
-            content[:original_start_index + len(start_marker)]
-            + '\n' + new_content_str + '\n'
-            + content[original_end_index:]
-        )
+        if normalized_start_marker == normalized_end_marker:
+            # If start and end markers are the same, replace the single line
+            modified_content = (
+                content[:original_start_index]
+                + new_content_str + '\n'
+                + content[original_end_index + len(end_marker):]
+            )
+        else:
+            modified_content = (
+                content[:original_start_index + len(start_marker)]
+                + '\n' + new_content_str + '\n'
+                + content[original_end_index:]
+            )
 
         with open(filepath, 'w', encoding='utf-8') as f:
             f.write(modified_content)
@@ -396,7 +406,7 @@ Current code:
 Instructions:
 {instructions}
 Reply ONLY in the specified format. THAT'S AN ORDER, SOLDIER!
-                        """
+"""
                     use_local_model = os.getenv("USE_LOCAL_MODEL", "false").lower() == "true"
                     if use_local_model:
                         model_path = os.getenv("MODEL_PATH")
