@@ -114,7 +114,7 @@ class FileParser:
 class FileModifier:
     @staticmethod
     def apply_modifications(changes: List[Dict[str, Any]], dry_run: bool = False) -> None:
-        for change in changes:
+        for change in changes:  # Process changes in normal order
             filepath = change['file']
             backup_filepath = f"{filepath}.bak"
             logging.info(f"Processing file: {filepath}")
@@ -158,41 +158,43 @@ class FileModifier:
         with open(filepath, 'r', encoding='utf-8') as f:
             content = f.read()
 
-        start_index = FileModifier._find_marker_in_content(content, start_marker)
-        end_index = FileModifier._find_marker_in_content(content, end_marker)
+        # Normalize content and markers by removing all whitespace for comparison
+        normalized_content = re.sub(r'\s+', '', content)
+        normalized_start_marker = re.sub(r'\s+', '', start_marker)
+        normalized_end_marker = re.sub(r'\s+', '', end_marker)
 
-        if start_index is None or end_index is None:
+        # Find the start and end indices of the markers in the normalized content
+        start_index = normalized_content.find(normalized_start_marker)
+        end_index = normalized_content.find(normalized_end_marker)
+
+        if start_index == -1 or end_index == -1:
             logging.error(f"Markers not found in file: {filepath}")
+            return
+
+        # Adjust indices to the original content
+        original_start_index = content.find(start_marker)
+        original_end_index = content.find(end_marker)
+
+        if original_start_index == -1 or original_end_index == -1:
+            logging.error(f"Markers not found in original content: {filepath}")
             return
 
         # Strip out the start and end markers from the new content
         new_content_str = '\n'.join(new_content)
-        new_content_str = re.sub(re.escape(start_marker.strip()), '', new_content_str)
-        new_content_str = re.sub(re.escape(end_marker.strip()), '', new_content_str)
+        new_content_str = re.sub(re.escape(start_marker), '', new_content_str)
+        new_content_str = re.sub(re.escape(end_marker), '', new_content_str)
 
+        # Replace the section between the markers
         modified_content = (
-            content[:start_index]
+            content[:original_start_index + len(start_marker)]
             + '\n' + new_content_str + '\n'
-            + content[end_index:]
+            + content[original_end_index:]
         )
 
         with open(filepath, 'w', encoding='utf-8') as f:
             f.write(modified_content)
 
         logging.info(f"Replaced section in: {filepath}")
-
-    @staticmethod
-    def _find_marker_in_content(content: str, marker: str) -> Optional[int]:
-        normalized_marker = re.sub(r'\s+', '', marker.strip())
-        normalized_content = re.sub(r'\s+', '', content)
-        start_index = normalized_content.find(normalized_marker)
-        if start_index == -1:
-            return None
-        marker_pattern = re.escape(marker.strip()).replace(r'\s+', r'\\s+')
-        match = re.search(marker_pattern, content)
-        if not match:
-            return None
-        return match.end()
 
 class CodeUtility:
     def __init__(self, base_dir: str = os.getcwd()):
@@ -346,8 +348,8 @@ Available operations:
     - Use this if you are modifying more than 20 lines in a file
     - The revision must be entirely complete
 4. `replace_section`:
-    - `start_marker`: The starting marker in the file (with 4 lines of context)
-    - `end_marker`: The ending marker in the file (with 4 lines of context)
+    - `start_marker`: The starting marker in the file (single line, whitespace ignored)
+    - `end_marker`: The ending marker in the file (single line, whitespace ignored)
     - `file_content`: List of strings (lines of the new file content to be inserted between the markers)
     - Only use this if you are modifying 20 lines of code or less
 Example output format:
@@ -376,17 +378,10 @@ Example output format:
 [aibuilder_change file="file_to_modify.py"]
 [aibuilder_action type="replace_section"]
 [aibuilder_start_marker]
-# Starting marker line 1
-# Starting marker line 2
-# Starting marker line 3
-# Starting marker line 4
+# Starting marker line
 [/aibuilder_start_marker]
 [aibuilder_end_marker]
-# Actual ending marker
-# Ending marker line 1
-# Ending marker line 2
-# Ending marker line 3
-# Ending marker line 4
+# Ending marker line
 [/aibuilder_end_marker]
 [aibuilder_file_content]
 # New content line 1 with whitespace preserved
