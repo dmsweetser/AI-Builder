@@ -354,10 +354,13 @@ Available operations:
     - No additional parameters needed.
 3. `replace_file`:
     - `file_content`: List of strings (lines of the new file content)
+    - Use this if you are modifying more than 20 lines in a file
+    - The revision must be entirely complete
 4. `replace_section`:
     - `start_marker`: The starting marker in the file (with 4 lines of context)
     - `end_marker`: The ending marker in the file (with 4 lines of context)
     - `file_content`: List of strings (lines of the new file content to be inserted between the markers)
+    - Only use this if you are modifying 20 lines of code or less
 Example output format:
 [aibuilder_change file="new_file.py"]
 [aibuilder_action type="create_file"]
