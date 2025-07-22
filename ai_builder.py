@@ -21,7 +21,7 @@ class FileParser:
             content = content.split(r"\n</think>\n")[1]
         changes = []
         change_blocks = re.finditer(
-            r'\[aibuilder_change file="([^"]+)"\](.*?)(?=\[aibuilder_|\Z)',
+            r'\[aibuilder_change\s+file\s*=\s*"([^"]+)"\s*\](.*?)(?=\[aibuilder_|\Z)',
             content,
             re.DOTALL
         )
@@ -35,7 +35,7 @@ class FileParser:
     def _parse_actions(content: str) -> List[Dict[str, Any]]:
         actions = []
         action_blocks = re.finditer(
-            r'\[aibuilder_action type="([^"]+)"\](.*?)(?=\[aibuilder_|\Z)',
+            r'\[aibuilder_action\s+type\s*=\s*"([^"]+)"\s*\](.*?)(?=\[aibuilder_|\Z)',
             content,
             re.DOTALL
         )
@@ -58,7 +58,7 @@ class FileParser:
 
     @staticmethod
     def _parse_create_action(content: str) -> Optional[Dict[str, Any]]:
-        file_content_pattern = r'\[aibuilder_file_content\](.*?)(?=\[aibuilder_|\Z)'
+        file_content_pattern = r'\[aibuilder_file_content\s*\](.*?)(?=\[aibuilder_|\Z)'
         file_content_match = re.search(file_content_pattern, content, re.DOTALL)
         if file_content_match:
             return {
@@ -69,7 +69,7 @@ class FileParser:
 
     @staticmethod
     def _parse_replace_file_action(content: str) -> Optional[Dict[str, Any]]:
-        file_content_pattern = r'\[aibuilder_file_content\](.*?)(?=\[aibuilder_|\Z)'
+        file_content_pattern = r'\[aibuilder_file_content\s*\](.*?)(?=\[aibuilder_|\Z)'
         file_content_match = re.search(file_content_pattern, content, re.DOTALL)
         if file_content_match:
             return {
@@ -80,9 +80,9 @@ class FileParser:
 
     @staticmethod
     def _parse_replace_section_action(content: str) -> Optional[Dict[str, Any]]:
-        start_marker_pattern = r'\[aibuilder_start_marker\](.*?)(?=\[aibuilder_|\Z)'
-        end_marker_pattern = r'\[aibuilder_end_marker\](.*?)(?=\[aibuilder_|\Z)'
-        file_content_pattern = r'\[aibuilder_file_content\](.*?)(?=\[aibuilder_|\Z)'
+        start_marker_pattern = r'\[aibuilder_start_marker\s*\](.*?)(?=\[aibuilder_|\Z)'
+        end_marker_pattern = r'\[aibuilder_end_marker\s*\](.*?)(?=\[aibuilder_|\Z)'
+        file_content_pattern = r'\[aibuilder_file_content\s*\](.*?)(?=\[aibuilder_|\Z)'
 
         start_marker_match = re.search(start_marker_pattern, content, re.DOTALL)
         end_marker_match = re.search(end_marker_pattern, content, re.DOTALL)
