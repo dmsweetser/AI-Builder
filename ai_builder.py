@@ -17,12 +17,12 @@ load_dotenv()
 class FileParser:
     @staticmethod
     def parse_custom_format(content: str) -> List[Dict[str, Any]]:
-        if r"\n</think>\n" in content:
-            content = content.split(r"\n</think>\n")[1]
+        # Remove any leading content before the first tag
+        content = re.sub(r'^.*?\[aibuilder_change', '[aibuilder_change', content, flags=re.DOTALL)
 
         changes = []
         change_blocks = re.finditer(
-            r'\s*\[aibuilder_change\s+file\s*=\s*"([^"]+)"\s*\](.*?)(?=\[aibuilder_|\Z)',
+            r'\[aibuilder_change\s+file\s*=\s*"([^"]+)"\](.*?)(?=\[aibuilder_change|$)',
             content,
             re.DOTALL
         )
@@ -38,7 +38,7 @@ class FileParser:
     def _parse_actions(content: str) -> List[Dict[str, Any]]:
         actions = []
         action_blocks = re.finditer(
-            r'\s*\[aibuilder_action\s+type\s*=\s*"([^"]+)"\s*\](.*?)(?=\[aibuilder_|\Z)',
+            r'\[aibuilder_action\s+type\s*=\s*"([^"]+)"\](.*?)(?=\[aibuilder_action|$)',
             content,
             re.DOTALL
         )
@@ -65,7 +65,7 @@ class FileParser:
 
     @staticmethod
     def _parse_create_action(content: str) -> Optional[Dict[str, Any]]:
-        file_content_pattern = r'\s*\[aibuilder_file_content\s*\](.*?)(?=\[aibuilder_|\Z)'
+        file_content_pattern = r'\[aibuilder_file_content\](.*?)(?=\[aibuilder_|$)'
         file_content_match = re.search(file_content_pattern, content, re.DOTALL)
 
         if file_content_match:
@@ -77,7 +77,7 @@ class FileParser:
 
     @staticmethod
     def _parse_replace_file_action(content: str) -> Optional[Dict[str, Any]]:
-        file_content_pattern = r'\s*\[aibuilder_file_content\s*\](.*?)(?=\[aibuilder_|\Z)'
+        file_content_pattern = r'\[aibuilder_file_content\](.*?)(?=\[aibuilder_|$)'
         file_content_match = re.search(file_content_pattern, content, re.DOTALL)
 
         if file_content_match:
@@ -89,9 +89,9 @@ class FileParser:
 
     @staticmethod
     def _parse_replace_section_action(content: str) -> Optional[Dict[str, Any]]:
-        start_marker_pattern = r'\s*\[aibuilder_start_marker\s*\](.*?)(?=\[aibuilder_|\Z)'
-        end_marker_pattern = r'\s*\[aibuilder_end_marker\s*\](.*?)(?=\[aibuilder_|\Z)'
-        file_content_pattern = r'\s*\[aibuilder_file_content\s*\](.*?)(?=\[aibuilder_|\Z)'
+        start_marker_pattern = r'\[aibuilder_start_marker\](.*?)(?=\[aibuilder_|$)'
+        end_marker_pattern = r'\[aibuilder_end_marker\](.*?)(?=\[aibuilder_|$)'
+        file_content_pattern = r'\[aibuilder_file_content\](.*?)(?=\[aibuilder_|$)'
 
         start_marker_match = re.search(start_marker_pattern, content, re.DOTALL)
         end_marker_match = re.search(end_marker_pattern, content, re.DOTALL)
