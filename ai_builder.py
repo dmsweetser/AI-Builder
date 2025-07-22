@@ -19,29 +19,34 @@ class FileParser:
     def parse_custom_format(content: str) -> List[Dict[str, Any]]:
         if r"\n</think>\n" in content:
             content = content.split(r"\n</think>\n")[1]
+
         changes = []
         change_blocks = re.finditer(
-            r'\[aibuilder_change\s+file\s*=\s*"([^"]+)"\s*\](.*?)(?=\[aibuilder_|\Z)',
+            r'\s*\[aibuilder_change\s+file\s*=\s*"([^"]+)"\s*\](.*?)(?=\[aibuilder_|\Z)',
             content,
             re.DOTALL
         )
+
         for block in change_blocks:
             file = block.group(1)
             actions = FileParser._parse_actions(block.group(2))
             changes.append({'file': file, 'actions': actions})
+
         return changes
 
     @staticmethod
     def _parse_actions(content: str) -> List[Dict[str, Any]]:
         actions = []
         action_blocks = re.finditer(
-            r'\[aibuilder_action\s+type\s*=\s*"([^"]+)"\s*\](.*?)(?=\[aibuilder_|\Z)',
+            r'\s*\[aibuilder_action\s+type\s*=\s*"([^"]+)"\s*\](.*?)(?=\[aibuilder_|\Z)',
             content,
             re.DOTALL
         )
+
         for action_block in action_blocks:
             action_type = action_block.group(1)
             action_content = action_block.group(2)
+
             if action_type == 'create_file':
                 action = FileParser._parse_create_action(action_content)
             elif action_type == 'remove_file':
@@ -52,14 +57,17 @@ class FileParser:
                 action = FileParser._parse_replace_section_action(action_content)
             else:
                 continue
+
             if action:
                 actions.append(action)
+
         return actions
 
     @staticmethod
     def _parse_create_action(content: str) -> Optional[Dict[str, Any]]:
-        file_content_pattern = r'\[aibuilder_file_content\s*\](.*?)(?=\[aibuilder_|\Z)'
+        file_content_pattern = r'\s*\[aibuilder_file_content\s*\](.*?)(?=\[aibuilder_|\Z)'
         file_content_match = re.search(file_content_pattern, content, re.DOTALL)
+
         if file_content_match:
             return {
                 'action': 'create_file',
@@ -69,8 +77,9 @@ class FileParser:
 
     @staticmethod
     def _parse_replace_file_action(content: str) -> Optional[Dict[str, Any]]:
-        file_content_pattern = r'\[aibuilder_file_content\s*\](.*?)(?=\[aibuilder_|\Z)'
+        file_content_pattern = r'\s*\[aibuilder_file_content\s*\](.*?)(?=\[aibuilder_|\Z)'
         file_content_match = re.search(file_content_pattern, content, re.DOTALL)
+
         if file_content_match:
             return {
                 'action': 'replace_file',
@@ -80,9 +89,9 @@ class FileParser:
 
     @staticmethod
     def _parse_replace_section_action(content: str) -> Optional[Dict[str, Any]]:
-        start_marker_pattern = r'\[aibuilder_start_marker\s*\](.*?)(?=\[aibuilder_|\Z)'
-        end_marker_pattern = r'\[aibuilder_end_marker\s*\](.*?)(?=\[aibuilder_|\Z)'
-        file_content_pattern = r'\[aibuilder_file_content\s*\](.*?)(?=\[aibuilder_|\Z)'
+        start_marker_pattern = r'\s*\[aibuilder_start_marker\s*\](.*?)(?=\[aibuilder_|\Z)'
+        end_marker_pattern = r'\s*\[aibuilder_end_marker\s*\](.*?)(?=\[aibuilder_|\Z)'
+        file_content_pattern = r'\s*\[aibuilder_file_content\s*\](.*?)(?=\[aibuilder_|\Z)'
 
         start_marker_match = re.search(start_marker_pattern, content, re.DOTALL)
         end_marker_match = re.search(end_marker_pattern, content, re.DOTALL)
@@ -103,7 +112,9 @@ class FileModifier:
         for change in changes:
             filepath = change['file']
             backup_filepath = f"{filepath}.bak"
+
             logging.info(f"Processing file: {filepath}")
+
             if not dry_run:
                 try:
                     if os.path.exists(filepath):
@@ -111,6 +122,7 @@ class FileModifier:
                         logging.info(f"Created backup: {backup_filepath}")
                 except Exception as e:
                     logging.error(f"Could not back up file: {filepath}: {e}")
+
             for action in change['actions']:
                 try:
                     if dry_run:
@@ -126,20 +138,24 @@ class FileModifier:
     @staticmethod
     def _apply_action(filepath: str, action: Dict[str, Any]) -> None:
         action_type = action['action']
+
         if action_type == 'create_file':
             with open(filepath, 'w', encoding='utf-8') as f:
                 f.write("\n".join(action['file_content']) + "\n")
             logging.info(f"Created/Replaced: {filepath}")
+
         elif action_type == 'remove_file':
             if os.path.isfile(filepath):
                 os.remove(filepath)
                 logging.info(f"Removed: {filepath}")
             else:
                 logging.warning(f"File not found: {filepath}")
+
         elif action_type == 'replace_file':
             with open(filepath, 'w', encoding='utf-8') as f:
                 f.write("\n".join(action['file_content']) + "\n")
             logging.info(f"Replaced entire content of: {filepath}")
+
         elif action_type == 'replace_section':
             FileModifier._replace_section(filepath, action['start_marker'], action['end_marker'], action['file_content'])
 
@@ -147,20 +163,27 @@ class FileModifier:
     def _replace_section(filepath: str, start_marker: str, end_marker: str, new_content: List[str]) -> None:
         with open(filepath, 'r', encoding='utf-8') as f:
             content = f.read()
+
         normalized_content = re.sub(r'\s+', '', content)
         normalized_start_marker = re.sub(r'\s+', '', start_marker)
         normalized_end_marker = re.sub(r'\s+', '', end_marker)
+
         start_index = normalized_content.find(normalized_start_marker)
         end_index = normalized_content.find(normalized_end_marker, start_index + len(normalized_start_marker))
+
         if start_index == -1 or end_index == -1:
             logging.error(f"Markers not found in file: {filepath}")
             return
+
         original_start_index = content.find(start_marker)
         original_end_index = content.find(end_marker, original_start_index + len(start_marker))
+
         if original_start_index == -1 or original_end_index == -1:
             logging.error(f"Markers not found in original content: {filepath}")
             return
+
         new_content_str = '\n'.join(new_content)
+
         if normalized_start_marker == normalized_end_marker:
             modified_content = (
                 content[:original_start_index]
@@ -173,8 +196,10 @@ class FileModifier:
                 + '\n' + new_content_str + '\n'
                 + content[original_end_index:]
             )
+
         with open(filepath, 'w', encoding='utf-8') as f:
             f.write(modified_content)
+
         logging.info(f"Replaced section in: {filepath}")
 
 class CodeUtility:
@@ -204,10 +229,12 @@ class CodeUtility:
         current_rules = self.parse_gitignore(directory)
         all_rules = parent_rules + current_rules
         logging.info(f"Processing directory: {directory}")
+
         for root, _, files in os.walk(directory):
             for file in files:
                 relative_path = os.path.relpath(os.path.join(root, file), self.base_dir)
                 logging.info(f"Checking file: {relative_path}")
+
                 if self.should_process_file(relative_path, all_rules, patterns, mode):
                     try:
                         file_path = os.path.join(root, file)
@@ -225,6 +252,7 @@ class AIBuilder:
         self.root_directory = os.getenv("ROOT_DIRECTORY", os.getcwd())
         self.ai_builder_dir = os.path.join(self.root_directory, "ai_builder")
         os.makedirs(self.ai_builder_dir, exist_ok=True)
+
         logging.basicConfig(
             level=logging.INFO,
             format='%(asctime)s - %(levelname)s - %(message)s',
@@ -257,6 +285,7 @@ class AIBuilder:
     def run(self) -> None:
         base_config_path = os.path.join("base_config.xml")
         user_config_path = os.path.join(self.ai_builder_dir, "user_config.xml")
+
         if os.path.exists(base_config_path):
             shutil.copy(base_config_path, user_config_path)
             logging.info("Copied base_config.xml to user_config.xml")
@@ -287,6 +316,7 @@ class AIBuilder:
 
         os.chdir(self.root_directory)
         logging.info(f"Changed working directory to: {self.root_directory}")
+
         self.utility = CodeUtility(self.root_directory)
         config = ET.parse(user_config_path).getroot()
         iterations = int(config.find('iterations').text)
@@ -296,21 +326,29 @@ class AIBuilder:
         for iteration in range(iterations):
             logging.info(f"Starting iteration {iteration + 1}")
             self.run_pre_post_scripts("pre.ps1")
+
             try:
                 modifications_format_path = os.path.join(self.ai_builder_dir, "modifications.txt")
                 if not os.path.exists(modifications_format_path):
                     if os.path.exists(self.utility.output_file):
                         os.remove(self.utility.output_file)
+
                     self.utility.process_directory(self.root_directory, [], patterns, mode)
+
                     if not os.path.exists(self.utility.output_file):
                         logging.warning("output.txt was not created by process_directory.")
                         continue
+
                     with open(self.utility.output_file, 'r', encoding='utf-8') as file:
                         current_code = file.read().strip()
+
                     logging.info("Successfully read output.txt")
+
                     with open('instructions.txt', 'r', encoding='utf-8') as file:
                         instructions = file.read().strip()
+
                     logging.info("Successfully read instructions.txt")
+
                     prompt = f"""
 Generate a line-delimited format file that describes file modifications to apply using the `create_file`, `remove_file`, `replace_file`, and `replace_section` action types.
 Ensure all content is provided using line-delimited format-compatible entities.
@@ -360,12 +398,14 @@ Instructions:
 {instructions}
 Reply ONLY in the specified format. THAT'S AN ORDER, SOLDIER!
 """
+
                     use_local_model = os.getenv("USE_LOCAL_MODEL", "false").lower() == "true"
                     if use_local_model:
                         model_path = os.getenv("MODEL_PATH")
                         if not model_path:
                             logging.error("MODEL_PATH environment variable not set for local model.")
                             raise ValueError("MODEL_PATH environment variable not set.")
+
                         llm = Llama(model_path=model_path, n_ctx=int(os.getenv("MODEL_CONTEXT", 0)))
                         response_content = ""
                         for response in llm.create_completion(
@@ -379,14 +419,17 @@ Reply ONLY in the specified format. THAT'S AN ORDER, SOLDIER!
                         endpoint = os.getenv("ENDPOINT")
                         model_name = os.getenv("MODEL_NAME")
                         api_key = os.getenv("API_KEY")
+
                         if not all([endpoint, model_name, api_key]):
                             logging.error("Missing one or more required environment variables: ENDPOINT, MODEL_NAME, API_KEY")
                             raise ValueError("Missing required environment variables.")
+
                         client = ChatCompletionsClient(
                             endpoint=endpoint,
                             credential=AzureKeyCredential(api_key),
                             api_version="2024-05-01-preview"
                         )
+
                         response = client.complete(
                             stream=True,
                             messages=[
@@ -396,6 +439,7 @@ Reply ONLY in the specified format. THAT'S AN ORDER, SOLDIER!
                             max_tokens=131072 // 2,
                             model=model_name
                         )
+
                         response_content = ""
                         try:
                             for update in response:
@@ -407,18 +451,24 @@ Reply ONLY in the specified format. THAT'S AN ORDER, SOLDIER!
                                     break
                         finally:
                             response.close()
+
                     logging.info("Successfully obtained response from client.")
+
                     with open(modifications_format_path, 'w', encoding='utf-8') as modifications_file:
                         modifications_file.write(response_content)
+
                     logging.info(f"Successfully wrote modifications file to {modifications_format_path}")
                 else:
                     with open(modifications_format_path, 'r', encoding='utf-8') as modifications_file:
                         response_content = modifications_file.read()
+
                 if os.getenv("GENERATE_BUT_DO_NOT_APPLY", "false").lower() == "false":
                     changes = FileParser.parse_custom_format(response_content)
                     FileModifier.apply_modifications(changes, dry_run=False)
+
             except Exception as e:
                 logging.error(f"An error occurred: {str(e)}", exc_info=True)
+
             self.run_pre_post_scripts("post.ps1")
             self.cleanup_bak_files()
 
