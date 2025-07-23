@@ -288,10 +288,12 @@ class AIBuilder:
                         instructions = file.read().strip()
                     logging.info("Successfully read instructions.txt")
                     prompt = f"""
+
 Generate a line-delimited format file that describes file modifications to apply using the `create_file`, `remove_file`, `replace_file`, and `replace_section` action types.
 Ensure all content is provided using line-delimited format-compatible entities.
 Focus on small, specific sections of code rather than large blocks.
 Ensure you do not omit any existing code and only modify the sections specified.
+
 Available operations:
 1. `create_file`:
     - `file_content`: List of strings (lines of the file content)
@@ -303,7 +305,9 @@ Available operations:
 4. `replace_section`:
     - `original_content`: The original content in the file
     - `file_content`: List of strings (lines of the new file content to replace the original content)
+
 Example output format:
+
 [aibuilder_change file="new_file.py"]
 [aibuilder_action type="create_file"]
 [aibuilder_file_content]
@@ -327,12 +331,18 @@ Example output format:
 # New content line 1 with whitespace preserved
 \t# New content line 2 with whitespace preserved
 \t# New content line 3 with whitespace preserved
+
+
 Generate modifications logically based on the desired changes.
+
 Current code:
 {current_code}
+
 Instructions:
 {instructions}
-Reply ONLY in the specified format. THAT'S AN ORDER, SOLDIER!
+
+Reply ONLY in the specified format - do not include ending tags. THAT'S AN ORDER, SOLDIER!
+
 """
                     use_local_model = os.getenv("USE_LOCAL_MODEL", "false").lower() == "true"
                     if use_local_model:
