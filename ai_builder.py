@@ -37,7 +37,7 @@ class FileParser:
     def _parse_actions(content: str) -> List[Dict[str, Any]]:
         actions = []
         action_blocks = re.finditer(
-            r'\[aibuilder_action\s+type\s*=\s*"([^"]+)"\](.*?)(?=\[aibuilder_action|$)',
+            r'\[aibuilder_action\s+type\s*=\s*"([^"]+)"\](.*?)\[aibuilder_end_action\]',
             content,
             re.DOTALL
         )
@@ -60,7 +60,7 @@ class FileParser:
 
     @staticmethod
     def _parse_create_action(content: str) -> Optional[Dict[str, Any]]:
-        file_content_pattern = r'\[aibuilder_file_content\](.*?)(?=\[aibuilder_|$)'
+        file_content_pattern = r'\[aibuilder_file_content\](.*?)\[aibuilder_end_file_content\]'
         file_content_match = re.search(file_content_pattern, content, re.DOTALL)
         if file_content_match:
             return {
@@ -71,7 +71,7 @@ class FileParser:
 
     @staticmethod
     def _parse_replace_file_action(content: str) -> Optional[Dict[str, Any]]:
-        file_content_pattern = r'\[aibuilder_file_content\](.*?)(?=\[aibuilder_|$)'
+        file_content_pattern = r'\[aibuilder_file_content\](.*?)\[aibuilder_end_file_content\]'
         file_content_match = re.search(file_content_pattern, content, re.DOTALL)
         if file_content_match:
             return {
@@ -82,8 +82,8 @@ class FileParser:
 
     @staticmethod
     def _parse_replace_section_action(content: str) -> Optional[Dict[str, Any]]:
-        original_content_pattern = r'\[aibuilder_original_content\](.*?)(?=\[aibuilder_|$)'
-        file_content_pattern = r'\[aibuilder_file_content\](.*?)(?=\[aibuilder_|$)'
+        original_content_pattern = r'\[aibuilder_original_content\](.*?)\[aibuilder_end_original_content\]'
+        file_content_pattern = r'\[aibuilder_file_content\](.*?)\[aibuilder_end_file_content\]'
         original_content_match = re.search(original_content_pattern, content, re.DOTALL)
         file_content_match = re.search(file_content_pattern, content, re.DOTALL)
         if original_content_match and file_content_match:
@@ -144,11 +144,9 @@ class FileModifier:
     def _replace_section(filepath: str, original_content: str, new_content: List[str]) -> None:
         with open(filepath, 'r', encoding='utf-8') as f:
             content = f.read()
-
         # Replace the original content with the new content
         new_content_str = '\n'.join(new_content)
         modified_content = content.replace(original_content, new_content_str)
-
         with open(filepath, 'w', encoding='utf-8') as f:
             f.write(modified_content)
         logging.info(f"Replaced section in: {filepath}")
@@ -288,12 +286,10 @@ class AIBuilder:
                         instructions = file.read().strip()
                     logging.info("Successfully read instructions.txt")
                     prompt = f"""
-
 Generate a line-delimited format file that describes file modifications to apply using the `create_file`, `remove_file`, `replace_file`, and `replace_section` action types.
 Ensure all content is provided using line-delimited format-compatible entities.
 Focus on small, specific sections of code rather than large blocks.
 Ensure you do not omit any existing code and only modify the sections specified.
-
 Available operations:
 1. `create_file`:
     - `file_content`: List of strings (lines of the file content)
@@ -305,44 +301,44 @@ Available operations:
 4. `replace_section`:
     - `original_content`: The original content in the file
     - `file_content`: List of strings (lines of the new file content to replace the original content)
-
 Example output format:
-
 [aibuilder_change file="new_file.py"]
 [aibuilder_action type="create_file"]
 [aibuilder_file_content]
 # Content line 1 with whitespace preserved
 \t# Content line 2 with whitespace preserved
 \t# Content line 3 with whitespace preserved
+[aibuilder_end_file_content]
+[aibuilder_end_action]
 [aibuilder_change file="old_file.py"]
 [aibuilder_action type="remove_file"]
+[aibuilder_end_action]
 [aibuilder_change file="file_to_replace.py"]
 [aibuilder_action type="replace_file"]
 [aibuilder_file_content]
 # New content line 1 with whitespace preserved
 \t# New content line 2 with whitespace preserved
 \t# New content line 3 with whitespace preserved
+[aibuilder_end_file_content]
+[aibuilder_end_action]
 [aibuilder_change file="file_to_modify.py"]
 [aibuilder_action type="replace_section"]
 [aibuilder_original_content]
 # Original content line 1
 \t# Original content line 2
+[aibuilder_end_original_content]
 [aibuilder_file_content]
 # New content line 1 with whitespace preserved
 \t# New content line 2 with whitespace preserved
 \t# New content line 3 with whitespace preserved
-
-
+[aibuilder_end_file_content]
+[aibuilder_end_action]
 Generate modifications logically based on the desired changes.
-
 Current code:
 {current_code}
-
 Instructions:
 {instructions}
-
-Reply ONLY in the specified format - do not include ending tags. THAT'S AN ORDER, SOLDIER!
-
+Reply ONLY in the specified format with no commentary. THAT'S AN ORDER, SOLDIER!
 """
                     use_local_model = os.getenv("USE_LOCAL_MODEL", "false").lower() == "true"
                     if use_local_model:
