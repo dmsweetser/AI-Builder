@@ -18,6 +18,8 @@ class FileParser:
     @staticmethod
     def parse_custom_format(content: str) -> List[Dict[str, Any]]:
         # Remove any leading content before the first tag
+        if "</think>" in content:
+            content = content.split("</think>")[1]
         content = re.sub(r'^.*?\[aibuilder_change', '[aibuilder_change', content, flags=re.DOTALL)
         changes = []
         change_blocks = re.finditer(
@@ -80,17 +82,14 @@ class FileParser:
 
     @staticmethod
     def _parse_replace_section_action(content: str) -> Optional[Dict[str, Any]]:
-        start_marker_pattern = r'\[aibuilder_start_marker\](.*?)(?=\[aibuilder_|$)'
-        end_marker_pattern = r'\[aibuilder_end_marker\](.*?)(?=\[aibuilder_|$)'
+        original_content_pattern = r'\[aibuilder_original_content\](.*?)(?=\[aibuilder_|$)'
         file_content_pattern = r'\[aibuilder_file_content\](.*?)(?=\[aibuilder_|$)'
-        start_marker_match = re.search(start_marker_pattern, content, re.DOTALL)
-        end_marker_match = re.search(end_marker_pattern, content, re.DOTALL)
+        original_content_match = re.search(original_content_pattern, content, re.DOTALL)
         file_content_match = re.search(file_content_pattern, content, re.DOTALL)
-        if start_marker_match and end_marker_match and file_content_match:
+        if original_content_match and file_content_match:
             return {
                 'action': 'replace_section',
-                'start_marker': start_marker_match.group(1).strip(),
-                'end_marker': end_marker_match.group(1).strip(),
+                'original_content': original_content_match.group(1).strip(),
                 'file_content': file_content_match.group(1).strip().split('\n')
             }
         return None
@@ -139,52 +138,19 @@ class FileModifier:
                 f.write("\n".join(action['file_content']) + "\n")
             logging.info(f"Replaced entire content of: {filepath}")
         elif action_type == 'replace_section':
-            FileModifier._replace_section(filepath, action['start_marker'], action['end_marker'], action['file_content'])
+            FileModifier._replace_section(filepath, action['original_content'], action['file_content'])
 
     @staticmethod
-    def _replace_section(filepath: str, start_marker: str, end_marker: str, new_content: List[str]) -> None:
+    def _replace_section(filepath: str, original_content: str, new_content: List[str]) -> None:
         with open(filepath, 'r', encoding='utf-8') as f:
             content = f.read()
 
-        # Strip whitespace within each line of the content, start_marker, and end_marker
-        stripped_content = "\n".join(line.strip() for line in content.splitlines())
-        stripped_start_marker = "\n".join(line.strip() for line in start_marker.splitlines())
-        stripped_end_marker = "\n".join(line.strip() for line in end_marker.splitlines())
-
-        # Find the start and end indices in the stripped content
-        start_index = stripped_content.find(stripped_start_marker)
-        end_index = stripped_content.find(stripped_end_marker, start_index + len(stripped_start_marker))
-
-        if start_index == -1 or end_index == -1:
-            logging.error(f"Markers not found in file: {filepath}")
-            return
-
-        # Find the original start and end indices in the original content
-        original_start_index = content.find(start_marker)
-        original_end_index = content.find(end_marker, original_start_index + len(start_marker))
-
-        if original_start_index == -1 or original_end_index == -1:
-            logging.error(f"Markers not found in original content: {filepath}")
-            return
-
+        # Replace the original content with the new content
         new_content_str = '\n'.join(new_content)
-
-        if stripped_start_marker == stripped_end_marker:
-            modified_content = (
-                content[:original_start_index]
-                + new_content_str + '\n'
-                + content[original_end_index + len(end_marker):]
-            )
-        else:
-            modified_content = (
-                content[:original_start_index + len(start_marker)]
-                + '\n' + new_content_str + '\n'
-                + content[original_end_index:]
-            )
+        modified_content = content.replace(original_content, new_content_str)
 
         with open(filepath, 'w', encoding='utf-8') as f:
             f.write(modified_content)
-
         logging.info(f"Replaced section in: {filepath}")
 
 class CodeUtility:
@@ -297,7 +263,6 @@ class AIBuilder:
 
         os.chdir(self.root_directory)
         logging.info(f"Changed working directory to: {self.root_directory}")
-
         self.utility = CodeUtility(self.root_directory)
         config = ET.parse(user_config_path).getroot()
         iterations = int(config.find('iterations').text)
@@ -336,9 +301,8 @@ Available operations:
     - `file_content`: List of strings (lines of the new file content)
     - The revision must be entirely complete
 4. `replace_section`:
-    - `start_marker`: The starting marker in the file (single line, whitespace ignored - choose a line that is unique)
-    - `end_marker`: The ending marker in the file (single line, whitespace ignored - choose a line that is unique)
-    - `file_content`: List of strings (lines of the new file content to be inserted between the markers)
+    - `original_content`: The original content in the file
+    - `file_content`: List of strings (lines of the new file content to replace the original content)
 Example output format:
 [aibuilder_change file="new_file.py"]
 [aibuilder_action type="create_file"]
@@ -356,10 +320,9 @@ Example output format:
 \t# New content line 3 with whitespace preserved
 [aibuilder_change file="file_to_modify.py"]
 [aibuilder_action type="replace_section"]
-[aibuilder_start_marker]
-# Starting marker line
-[aibuilder_end_marker]
-# Ending marker line
+[aibuilder_original_content]
+# Original content line 1
+\t# Original content line 2
 [aibuilder_file_content]
 # New content line 1 with whitespace preserved
 \t# New content line 2 with whitespace preserved
