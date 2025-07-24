@@ -455,7 +455,7 @@ Reply ONLY in the specified format with no commentary. THAT'S AN ORDER, SOLDIER!
                             response_content = ""
                             for response in llm.create_completion(
                                 prompt,
-                                max_tokens=int(os.getenv("MODEL_CONTEXT", 0)) - len(prompt.split()),
+                                max_tokens=int(os.getenv("OUTPUT_TOKENS", 0)),
                                 stream=True
                             ):
                                 token = response['choices'][0]['text']
@@ -478,7 +478,7 @@ Reply ONLY in the specified format with no commentary. THAT'S AN ORDER, SOLDIER!
                                     SystemMessage(content="You are a helpful assistant."),
                                     UserMessage(content=prompt)
                                 ],
-                                max_tokens=int(os.getenv("MODEL_CONTEXT", 0)) - len(prompt.split()),
+                                max_tokens=int(os.getenv("OUTPUT_TOKENS", 0)),
                                 model=model_name
                             )
                             response_content = ""
