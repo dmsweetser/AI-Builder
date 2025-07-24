@@ -313,9 +313,9 @@ class AIBuilder:
                 logging.warning("base_config.xml not found, created default user_config.xml")
 
             # Check if pre and post scripts exist
-            pre_script_path = os.path.join(os.getcwd(), "pre.ps1")
-            post_script_path = os.path.join(os.getcwd(), "post.ps1")
-            instructions_path = os.path.join(os.getcwd(), "instructions.txt")
+            pre_script_path = os.path.join(self.root_directory, "pre.ps1")
+            post_script_path = os.path.join(self.root_directory, "post.ps1")
+            instructions_path = os.path.join(self.root_directory, "instructions.txt")
 
             if not all(os.path.exists(path) for path in [pre_script_path, post_script_path, instructions_path]):
                 raise FileNotFoundError("Pre script, post script, or instructions file not found.")
