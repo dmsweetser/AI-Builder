@@ -174,51 +174,12 @@ class FileModifier:
             with open(filepath, 'r', encoding='utf-8') as f:
                 content = f.read()
 
-            # Split original content into lines and strip for comparison
-            original_content_lines = original_content.split('\n')
-            stripped_original_lines = [line.strip() for line in original_content_lines]
+            new_section_str = '\n'.join(new_content)
+            modified_content = content.replace(original_content, new_section_str)
 
-            # Define start and end markers based on stripped original content
-            start_marker = stripped_original_lines[0] if stripped_original_lines else ""
-            end_marker = stripped_original_lines[-1] if stripped_original_lines else ""
-
-            # Split the new content into lines
-            new_content_lines = new_content
-            stripped_new_lines = [line.strip() for line in new_content_lines]
-
-            if stripped_new_lines:
-                new_start_marker = stripped_new_lines[0] if stripped_new_lines else ""
-                new_end_marker = stripped_new_lines[-1] if stripped_new_lines else ""
-
-                # Check if new content includes both markers
-                if stripped_original_lines and new_start_marker == start_marker and new_end_marker == end_marker:
-                    # Replace entire section including markers
-                    new_section_str = '\n'.join(new_content_lines)
-                    modified_content = content.replace(original_content, new_section_str)
-                else:
-                    # Keep original markers and insert new content in between
-                    # Split the file content into parts: before, section, after
-                    start_index = content.find(original_content)
-                    end_index = start_index + len(original_content)
-                    before_section = content[:start_index]
-                    after_section = content[end_index:]
-
-                    if start_marker and end_marker:
-                        # Construct new section with original markers
-                        modified_section = f"{original_content_lines[0]}\n"
-                        modified_section += '\n'.join(new_content_lines) + "\n"
-                        modified_section += original_content_lines[-1]
-                        modified_content = f"{before_section}{modified_section}{after_section}"
-                    else:
-                        # Replace the entire original content with new content
-                        modified_content = content.replace(original_content, '\n'.join(new_content_lines))
-            else:
-                # If no new content lines, replace the entire section with nothing
-                modified_content = content.replace(original_content, '')
-
-            # Write the modified content back to the file
             with open(filepath, 'w', encoding='utf-8') as f:
                 f.write(modified_content)
+
             logging.info(f"Replaced section in: {filepath}")
         except Exception as e:
             logging.error(f"Error replacing section: {e}")
