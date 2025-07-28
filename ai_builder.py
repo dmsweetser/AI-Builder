@@ -148,6 +148,9 @@ class FileModifier:
     def _apply_action(filepath: str, action: Dict[str, Any]) -> None:
         try:
             action_type = action['action']
+            # Ensure directory exists before file operations
+            os.makedirs(os.path.dirname(filepath), exist_ok=True)
+
             if action_type == 'create_file':
                 with open(filepath, 'w', encoding='utf-8') as f:
                     f.write("\n".join(action['file_content']) + "\n")
@@ -173,13 +176,10 @@ class FileModifier:
         try:
             with open(filepath, 'r', encoding='utf-8') as f:
                 content = f.read()
-
             new_section_str = '\n'.join(new_content)
             modified_content = content.replace(original_content, new_section_str)
-
             with open(filepath, 'w', encoding='utf-8') as f:
                 f.write(modified_content)
-
             logging.info(f"Replaced section in: {filepath}")
         except Exception as e:
             logging.error(f"Error replacing section: {e}")
@@ -319,13 +319,11 @@ class AIBuilder:
             pre_script_path = os.path.join(self.root_directory, "pre.ps1")
             post_script_path = os.path.join(self.root_directory, "post.ps1")
             instructions_path = os.path.join(self.root_directory, "instructions.txt")
-
             if not all(os.path.exists(path) for path in [pre_script_path, post_script_path, instructions_path]):
                 raise FileNotFoundError("Pre script, post script, or instructions file not found.")
 
             os.chdir(self.root_directory)
             logging.info(f"Changed working directory to: {self.root_directory}")
-
             self.utility = CodeUtility(self.root_directory)
             config = ET.parse(user_config_path).getroot()
             iterations = int(config.find('iterations').text)
@@ -350,7 +348,6 @@ class AIBuilder:
                         with open('instructions.txt', 'r', encoding='utf-8') as file:
                             instructions = file.read().strip()
                         logging.info("Successfully read instructions.txt")
-
                         prompt = f"""
 Generate a line-delimited format file that describes file modifications to apply using the `create_file`, `remove_file`, `replace_file`, and `replace_section` action types.
 Ensure all content is provided using line-delimited format-compatible entities.
