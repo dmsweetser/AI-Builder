@@ -116,8 +116,9 @@ class FileParser:
 
 class FileModifier:
     @staticmethod
-    def apply_modifications(changes: List[Dict[str, Any]], dry_run: bool = False) -> None:
+    def apply_modifications(changes: List[Dict[str, Any]], dry_run: bool = False) -> List[Dict[str, Any]]:
         try:
+            incomplete_actions = []
             for change in changes:
                 filepath = change['file']
                 backup_filepath = f"{filepath}.bak"
@@ -134,55 +135,114 @@ class FileModifier:
                         if dry_run:
                             logging.info(f"Dry run: Would apply action {action['action']} to {filepath}")
                         else:
-                            FileModifier._apply_action(filepath, action)
+                            if not FileModifier._apply_action(filepath, action):
+                                incomplete_actions.append({'file': filepath, 'action': action})
                     except Exception as e:
                         logging.error(f"Error applying modifications to {filepath}: {e}")
+                        incomplete_actions.append({'file': filepath, 'action': action})
                         if not dry_run and os.path.exists(backup_filepath):
                             shutil.copy2(backup_filepath, filepath)
                             logging.info(f"Restored backup for {filepath}")
+            return incomplete_actions
         except Exception as e:
             logging.error(f"Error applying modifications: {e}")
             raise
 
     @staticmethod
-    def _apply_action(filepath: str, action: Dict[str, Any]) -> None:
+    def _apply_action(filepath: str, action: Dict[str, Any]) -> bool:
         try:
             action_type = action['action']
             # Ensure directory exists before file operations
             os.makedirs(os.path.dirname(filepath), exist_ok=True)
-
             if action_type == 'create_file':
                 with open(filepath, 'w', encoding='utf-8') as f:
                     f.write("\n".join(action['file_content']) + "\n")
                 logging.info(f"Created/Replaced: {filepath}")
+                return True
             elif action_type == 'remove_file':
                 if os.path.isfile(filepath):
                     os.remove(filepath)
                     logging.info(f"Removed: {filepath}")
+                    return True
                 else:
                     logging.warning(f"File not found: {filepath}")
+                    return False
             elif action_type == 'replace_file':
                 with open(filepath, 'w', encoding='utf-8') as f:
                     f.write("\n".join(action['file_content']) + "\n")
                 logging.info(f"Replaced entire content of: {filepath}")
+                return True
             elif action_type == 'replace_section':
-                FileModifier._replace_section(filepath, action['original_content'], action['file_content'])
+                return FileModifier._replace_section(filepath, action['original_content'], action['file_content'])
+            return False
         except Exception as e:
             logging.error(f"Error applying action: {e}")
             raise
 
     @staticmethod
-    def _replace_section(filepath: str, original_content: str, new_content: List[str]) -> None:
+    def _replace_section(filepath: str, original_content: str, new_content: List[str]) -> bool:
         try:
             with open(filepath, 'r', encoding='utf-8') as f:
                 content = f.read()
             new_section_str = '\n'.join(new_content)
-            modified_content = content.replace(original_content, new_section_str)
-            with open(filepath, 'w', encoding='utf-8') as f:
-                f.write(modified_content)
-            logging.info(f"Replaced section in: {filepath}")
+            if original_content in content:
+                modified_content = content.replace(original_content, new_section_str)
+                with open(filepath, 'w', encoding='utf-8') as f:
+                    f.write(modified_content)
+                logging.info(f"Replaced section in: {filepath}")
+                return True
+            else:
+                logging.warning(f"Original content not found in: {filepath}")
+                return False
         except Exception as e:
             logging.error(f"Error replacing section: {e}")
+            raise
+
+class ActionManager:
+    @staticmethod
+    def save_actions(actions: List[Dict[str, Any]], filepath: str) -> None:
+        try:
+            with open(filepath, 'w', encoding='utf-8') as f:
+                for action in actions:
+                    f.write(f"File: {action['file']}\n")
+                    f.write(f"Action: {action['action']['action']}\n")
+                    if action['action']['action'] in ['create_file', 'replace_file', 'replace_section']:
+                        f.write("Content:\n")
+                        f.write("\n".join(action['action']['file_content']) + "\n")
+                    if action['action']['action'] == 'replace_section':
+                        f.write(f"Original Content:\n{action['action']['original_content']}\n")
+                    f.write("\n")
+            logging.info(f"Saved actions to {filepath}")
+        except Exception as e:
+            logging.error(f"Error saving actions: {e}")
+            raise
+
+    @staticmethod
+    def load_actions(filepath: str) -> List[Dict[str, Any]]:
+        try:
+            actions = []
+            with open(filepath, 'r', encoding='utf-8') as f:
+                content = f.read()
+                action_blocks = re.finditer(
+                    r'File: (.*?)\nAction: (.*?)\n(?:Content:\n(.*?)(?=\nFile:|\Z))?(?:Original Content:\n(.*?)(?=\nFile:|\Z))?',
+                    content,
+                    re.DOTALL
+                )
+                for block in action_blocks:
+                    file = block.group(1)
+                    action_type = block.group(2)
+                    file_content = block.group(3).strip().split('\n') if block.group(3) else []
+                    original_content = block.group(4).strip() if block.group(4) else None
+                    action = {'action': action_type}
+                    if action_type in ['create_file', 'replace_file', 'replace_section']:
+                        action['file_content'] = file_content
+                    if action_type == 'replace_section':
+                        action['original_content'] = original_content
+                    actions.append({'file': file, 'action': action})
+            logging.info(f"Loaded actions from {filepath}")
+            return actions
+        except Exception as e:
+            logging.error(f"Error loading actions: {e}")
             raise
 
 class CodeUtility:
@@ -324,15 +384,20 @@ class AIBuilder:
 
             os.chdir(self.root_directory)
             logging.info(f"Changed working directory to: {self.root_directory}")
+
             self.utility = CodeUtility(self.root_directory)
             config = ET.parse(user_config_path).getroot()
             iterations = int(config.find('iterations').text)
             mode = config.find('mode').text
             patterns = [pattern.text for pattern in config.findall('patterns/pattern')]
 
+            actions_file_path = os.path.join(self.ai_builder_dir, "actions.txt")
+
             for iteration in range(iterations):
                 logging.info(f"Starting iteration {iteration + 1}")
+
                 self.run_pre_post_scripts("pre.ps1")
+
                 try:
                     modifications_format_path = os.path.join(self.ai_builder_dir, "modifications.txt")
                     if not os.path.exists(modifications_format_path):
@@ -342,12 +407,15 @@ class AIBuilder:
                         if not os.path.exists(self.utility.output_file):
                             logging.warning("output.txt was not created by process_directory.")
                             continue
+
                         with open(self.utility.output_file, 'r', encoding='utf-8') as file:
                             current_code = file.read().strip()
                         logging.info("Successfully read output.txt")
+
                         with open('instructions.txt', 'r', encoding='utf-8') as file:
                             instructions = file.read().strip()
                         logging.info("Successfully read instructions.txt")
+
                         prompt = f"""
 Generate a line-delimited format file that describes file modifications to apply using the `create_file`, `remove_file`, `replace_file`, and `replace_section` action types.
 Ensure all content is provided using line-delimited format-compatible entities.
@@ -450,20 +518,28 @@ Reply ONLY in the specified format with no commentary. THAT'S AN ORDER, SOLDIER!
                                         break
                             finally:
                                 response.close()
+
                         logging.info("Successfully obtained response from client.")
+
                         with open(modifications_format_path, 'w', encoding='utf-8') as modifications_file:
                             modifications_file.write(response_content)
                         logging.info(f"Successfully wrote modifications file to {modifications_format_path}")
+
                     else:
                         with open(modifications_format_path, 'r', encoding='utf-8') as modifications_file:
                             response_content = modifications_file.read()
+
                     if os.getenv("GENERATE_BUT_DO_NOT_APPLY", "false").lower() == "false":
                         changes = FileParser.parse_custom_format(response_content)
-                        FileModifier.apply_modifications(changes, dry_run=False)
+                        incomplete_actions = FileModifier.apply_modifications(changes, dry_run=False)
+                        ActionManager.save_actions(incomplete_actions, actions_file_path)
+
                 except Exception as e:
                     logging.error(f"An error occurred: {str(e)}", exc_info=True)
+
                 self.run_pre_post_scripts("post.ps1")
                 self.cleanup_bak_files()
+
         except Exception as e:
             logging.error(f"An error occurred during execution: {str(e)}", exc_info=True)
 
