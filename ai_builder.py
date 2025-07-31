@@ -152,8 +152,11 @@ class FileModifier:
     def _apply_action(filepath: str, action: Dict[str, Any]) -> bool:
         try:
             action_type = action['action']
+
             # Ensure directory exists before file operations
-            os.makedirs(os.path.dirname(filepath), exist_ok=True)
+            if os.path.dirname(filepath) != "":
+                os.makedirs(os.path.dirname(filepath), exist_ok=True)
+                
             if action_type == 'create_file':
                 with open(filepath, 'w', encoding='utf-8') as f:
                     f.write("\n".join(action['file_content']) + "\n")
