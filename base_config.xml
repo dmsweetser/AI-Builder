@@ -16,5 +16,6 @@
         <pattern>.webp</pattern>
         <pattern>.gguf</pattern>
         <pattern>build/</pattern>
+        <pattern>simulations/</pattern>
     </patterns>
 </config>

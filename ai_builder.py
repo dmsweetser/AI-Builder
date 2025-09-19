@@ -10,6 +10,7 @@ from azure.ai.inference import ChatCompletionsClient
 from azure.ai.inference.models import SystemMessage, UserMessage
 from azure.core.credentials import AzureKeyCredential
 from llama_cpp import Llama
+from config import Config
 
 # Load environment variables from .env file
 load_dotenv()
@@ -18,7 +19,6 @@ class FileParser:
     @staticmethod
     def parse_custom_format(content: str) -> List[Dict[str, Any]]:
         try:
-            # Remove any leading content before the first tag
             if "</think>" in content:
                 content = content.split("</think>")[1]
             content = re.sub(r'^.*?\[aibuilder_change', '[aibuilder_change', content, flags=re.DOTALL)
@@ -152,11 +152,9 @@ class FileModifier:
     def _apply_action(filepath: str, action: Dict[str, Any]) -> bool:
         try:
             action_type = action['action']
-
-            # Ensure directory exists before file operations
             if os.path.dirname(filepath) != "":
                 os.makedirs(os.path.dirname(filepath), exist_ok=True)
-                
+
             if action_type == 'create_file':
                 with open(filepath, 'w', encoding='utf-8') as f:
                     f.write("\n".join(action['file_content']) + "\n")
@@ -305,14 +303,14 @@ class CodeUtility:
 class AIBuilder:
     def __init__(self):
         self.return_git_diff = True
-        self.root_directory = os.getenv("ROOT_DIRECTORY", os.getcwd())
-        self.ai_builder_dir = os.path.join(self.root_directory, "ai_builder")
+        self.root_directory = Config.get_root_directory()
+        self.ai_builder_dir = Config.get_ai_builder_dir(self.root_directory)
         os.makedirs(self.ai_builder_dir, exist_ok=True)
         logging.basicConfig(
             level=logging.INFO,
             format='%(asctime)s - %(levelname)s - %(message)s',
             handlers=[
-                logging.FileHandler(os.path.join(self.ai_builder_dir, 'utility.log')),
+                logging.FileHandler(Config.get_log_file_path(self.root_directory)),
                 logging.StreamHandler()
             ]
         )
@@ -350,10 +348,10 @@ class AIBuilder:
         try:
             base_config_path = os.path.join("base_config.xml")
             user_config_path = os.path.join(self.ai_builder_dir, "user_config.xml")
-            if os.path.exists(base_config_path):
+            if os.path.exists(base_config_path) and not os.path.exists(user_config_path):
                 shutil.copy(base_config_path, user_config_path)
                 logging.info("Copied base_config.xml to user_config.xml")
-            else:
+            elif not os.path.exists(base_config_path):
                 default_config = """<?xml version="1.0" encoding="UTF-8"?>
 <config>
     <iterations>1</iterations>
@@ -378,7 +376,6 @@ class AIBuilder:
                     config_file.write(default_config)
                 logging.warning("base_config.xml not found, created default user_config.xml")
 
-            # Check if pre and post scripts exist
             pre_script_path = os.path.join(self.root_directory, "pre.ps1")
             post_script_path = os.path.join(self.root_directory, "post.ps1")
             instructions_path = os.path.join(self.root_directory, "instructions.txt")
@@ -387,20 +384,16 @@ class AIBuilder:
 
             os.chdir(self.root_directory)
             logging.info(f"Changed working directory to: {self.root_directory}")
-
             self.utility = CodeUtility(self.root_directory)
             config = ET.parse(user_config_path).getroot()
             iterations = int(config.find('iterations').text)
             mode = config.find('mode').text
             patterns = [pattern.text for pattern in config.findall('patterns/pattern')]
-
             actions_file_path = os.path.join(self.ai_builder_dir, "actions.txt")
 
             for iteration in range(iterations):
                 logging.info(f"Starting iteration {iteration + 1}")
-
                 self.run_pre_post_scripts("pre.ps1")
-
                 try:
                     modifications_format_path = os.path.join(self.ai_builder_dir, "modifications.txt")
                     if not os.path.exists(modifications_format_path):
@@ -410,11 +403,9 @@ class AIBuilder:
                         if not os.path.exists(self.utility.output_file):
                             logging.warning("output.txt was not created by process_directory.")
                             continue
-
                         with open(self.utility.output_file, 'r', encoding='utf-8') as file:
                             current_code = file.read().strip()
                         logging.info("Successfully read output.txt")
-
                         with open('instructions.txt', 'r', encoding='utf-8') as file:
                             instructions = file.read().strip()
                         logging.info("Successfully read instructions.txt")
@@ -474,25 +465,31 @@ Instructions:
 {instructions}
 Reply ONLY in the specified format with no commentary. THAT'S AN ORDER, SOLDIER!
 """
-                        use_local_model = os.getenv("USE_LOCAL_MODEL", "false").lower() == "true"
+
+                        use_local_model = Config.use_local_model()
                         if use_local_model:
-                            model_path = os.getenv("MODEL_PATH")
+                            model_path = Config.get_model_path()
                             if not model_path:
                                 logging.error("MODEL_PATH environment variable not set for local model.")
                                 raise ValueError("MODEL_PATH environment variable not set.")
-                            llm = Llama(model_path=model_path, n_ctx=int(os.getenv("MODEL_CONTEXT", 0)))
+                            llm = Llama(
+                                model_path=model_path,
+                                n_ctx=Config.get_model_context()
+                            )
                             response_content = ""
                             for response in llm.create_completion(
                                 prompt,
-                                max_tokens=int(os.getenv("OUTPUT_TOKENS", 0)),
+                                temperature=Config.get_temperature(),
+                                top_p=Config.get_top_p(),
+                                max_tokens=Config.get_output_tokens(),
                                 stream=True
                             ):
                                 token = response['choices'][0]['text']
                                 response_content += token
                         else:
-                            endpoint = os.getenv("ENDPOINT")
-                            model_name = os.getenv("MODEL_NAME")
-                            api_key = os.getenv("API_KEY")
+                            endpoint = Config.get_endpoint()
+                            model_name = Config.get_model_name()
+                            api_key = Config.get_api_key()
                             if not all([endpoint, model_name, api_key]):
                                 logging.error("Missing one or more required environment variables: ENDPOINT, MODEL_NAME, API_KEY")
                                 raise ValueError("Missing required environment variables.")
@@ -507,7 +504,7 @@ Reply ONLY in the specified format with no commentary. THAT'S AN ORDER, SOLDIER!
                                     SystemMessage(content="You are a helpful assistant."),
                                     UserMessage(content=prompt)
                                 ],
-                                max_tokens=int(os.getenv("OUTPUT_TOKENS", 0)),
+                                max_tokens=Config.get_output_tokens(),
                                 model=model_name
                             )
                             response_content = ""
@@ -523,16 +520,14 @@ Reply ONLY in the specified format with no commentary. THAT'S AN ORDER, SOLDIER!
                                 response.close()
 
                         logging.info("Successfully obtained response from client.")
-
                         with open(modifications_format_path, 'w', encoding='utf-8') as modifications_file:
                             modifications_file.write(response_content)
                         logging.info(f"Successfully wrote modifications file to {modifications_format_path}")
-
                     else:
                         with open(modifications_format_path, 'r', encoding='utf-8') as modifications_file:
                             response_content = modifications_file.read()
 
-                    if os.getenv("GENERATE_BUT_DO_NOT_APPLY", "false").lower() == "false":
+                    if not Config.generate_but_do_not_apply():
                         changes = FileParser.parse_custom_format(response_content)
                         incomplete_actions = FileModifier.apply_modifications(changes, dry_run=False)
                         ActionManager.save_actions(incomplete_actions, actions_file_path)
