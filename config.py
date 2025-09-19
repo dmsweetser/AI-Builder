@@ -32,12 +32,12 @@ class Config:
     @staticmethod
     def get_temperature() -> int:
         """Returns the temperature for the local model."""
-        return int(os.getenv("TEMPERATURE", 1))
+        return float(os.getenv("TEMPERATURE", 1))
 
     @staticmethod
     def get_top_p() -> int:
         """Returns the top_p for the local model."""
-        return int(os.getenv("TOP_P", 1))
+        return float(os.getenv("TOP_P", 1))
 
     @staticmethod
     def get_output_tokens() -> int:
