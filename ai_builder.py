@@ -403,6 +403,10 @@ class AIBuilder:
                         if not os.path.exists(self.utility.output_file):
                             logging.warning("output.txt was not created by process_directory.")
                             continue
+
+                        if Config.generate_output_only():
+                            return
+
                         with open(self.utility.output_file, 'r', encoding='utf-8') as file:
                             current_code = file.read().strip()
                         logging.info("Successfully read output.txt")

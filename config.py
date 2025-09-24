@@ -63,6 +63,11 @@ class Config:
     def generate_but_do_not_apply() -> bool:
         """Returns whether to generate changes but not apply them."""
         return os.getenv("GENERATE_BUT_DO_NOT_APPLY", "false").lower() == "true"
+    
+    @staticmethod
+    def generate_output_only() -> Optional[str]:
+        """Returns whether to only generate the target code output and nothing more."""
+        return os.getenv("GENERATE_OUTPUT_ONLY", False)
 
     @staticmethod
     def get_log_file_path(root_dir: str) -> str:
