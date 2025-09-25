@@ -250,6 +250,7 @@ class CodeUtility:
     def __init__(self, base_dir: str = os.getcwd()):
         self.base_dir = base_dir
         self.output_file = os.path.join(base_dir, "ai_builder", "output.txt")
+        self.response_file = os.path.join(base_dir, "ai_builder", "current_response.txt")
         self.log_file = os.path.join(base_dir, "ai_builder", "utility.log")
 
     def parse_gitignore(self, directory: str) -> List[str]:
@@ -481,6 +482,7 @@ Reply ONLY in the specified format with no commentary. THAT'S AN ORDER, SOLDIER!
                                 n_ctx=Config.get_model_context()
                             )
                             response_content = ""
+                            current_iteration = 0
                             for response in llm.create_completion(
                                 prompt,
                                 temperature=Config.get_temperature(),
@@ -492,6 +494,10 @@ Reply ONLY in the specified format with no commentary. THAT'S AN ORDER, SOLDIER!
                             ):
                                 token = response['choices'][0]['text']
                                 response_content += token
+                                if current_iteration % 100 == 0:
+                                    with open(self.response_file, 'a', encoding='utf-8') as response_file:
+                                        response_file.write(response_content)
+                                current_iteration = current_iteration + 1
                         else:
                             endpoint = Config.get_endpoint()
                             model_name = Config.get_model_name()
