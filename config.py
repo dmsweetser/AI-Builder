@@ -42,7 +42,7 @@ class Config:
     @staticmethod
     def get_top_k() -> int:
         """Returns the top_p for the local model."""
-        return float(os.getenv("TOP_K", 1))
+        return int(os.getenv("TOP_K", 1))
 
     @staticmethod
     def get_min_p() -> int:
