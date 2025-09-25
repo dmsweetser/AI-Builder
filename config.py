@@ -77,7 +77,7 @@ class Config:
     @staticmethod
     def generate_output_only() -> Optional[str]:
         """Returns whether to only generate the target code output and nothing more."""
-        return os.getenv("GENERATE_OUTPUT_ONLY", False)
+        return os.getenv("GENERATE_OUTPUT_ONLY", "false").lower() == "true"
 
     @staticmethod
     def get_log_file_path(root_dir: str) -> str:
