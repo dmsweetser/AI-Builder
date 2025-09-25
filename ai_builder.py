@@ -495,8 +495,8 @@ Reply ONLY in the specified format with no commentary. THAT'S AN ORDER, SOLDIER!
                                 token = response['choices'][0]['text']
                                 response_content += token
                                 if current_iteration % 100 == 0:
-                                    with open(self.response_file, 'a', encoding='utf-8') as response_file:
-                                        response_file.write(response_content)
+                                    with open(self.response_file, 'a', encoding='utf-8') as response_log:
+                                        response_log.write(response_content)
                                 current_iteration = current_iteration + 1
                         else:
                             endpoint = Config.get_endpoint()
