@@ -38,6 +38,16 @@ class Config:
     def get_top_p() -> int:
         """Returns the top_p for the local model."""
         return float(os.getenv("TOP_P", 1))
+    
+    @staticmethod
+    def get_top_k() -> int:
+        """Returns the top_p for the local model."""
+        return float(os.getenv("TOP_K", 1))
+
+    @staticmethod
+    def get_min_p() -> int:
+        """Returns the top_p for the local model."""
+        return float(os.getenv("MIN_P", 1))
 
     @staticmethod
     def get_output_tokens() -> int:

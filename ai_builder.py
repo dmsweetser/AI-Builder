@@ -485,6 +485,8 @@ Reply ONLY in the specified format with no commentary. THAT'S AN ORDER, SOLDIER!
                                 prompt,
                                 temperature=Config.get_temperature(),
                                 top_p=Config.get_top_p(),
+                                top_k=Config.get_top_k(),                                
+                                min_p=Config.get_min_p(),
                                 max_tokens=Config.get_output_tokens(),
                                 stream=True
                             ):
