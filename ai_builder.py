@@ -249,8 +249,7 @@ class ActionManager:
 class CodeUtility:
     def __init__(self, base_dir: str = os.getcwd()):
         self.base_dir = base_dir
-        self.output_file = os.path.join(base_dir, "ai_builder", "output.txt")
-        self.response_file = os.path.join(base_dir, "ai_builder", "current_response.txt")
+        self.output_file = os.path.join(base_dir, "ai_builder", "output.txt")        
         self.log_file = os.path.join(base_dir, "ai_builder", "utility.log")
 
     def parse_gitignore(self, directory: str) -> List[str]:
@@ -306,6 +305,7 @@ class AIBuilder:
         self.return_git_diff = True
         self.root_directory = Config.get_root_directory()
         self.ai_builder_dir = Config.get_ai_builder_dir(self.root_directory)
+        self.response_file = os.path.join(self.ai_builder_dir, "current_response.txt")
         os.makedirs(self.ai_builder_dir, exist_ok=True)
         logging.basicConfig(
             level=logging.INFO,
