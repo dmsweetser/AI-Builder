@@ -20,7 +20,13 @@ class FileParser:
     def parse_custom_format(content: str) -> List[Dict[str, Any]]:
         try:
             if "</think>" in content:
-                content = content.split("</think>")[1]
+                # Split the content at the occurrence of </think> followed by [aibuilder
+                # The pattern matches </think> followed by any whitespace and then [aibuilder
+                split_content = re.split(r'<\/think>\s*\[aibuilder', content, flags=re.DOTALL)
+                if len(split_content) > 1:
+                    content = split_content[1]
+                else:
+                    content = split_content[0]
             content = re.sub(r'^.*?\[aibuilder_change', '[aibuilder_change', content, flags=re.DOTALL)
             changes = []
             change_blocks = re.finditer(
