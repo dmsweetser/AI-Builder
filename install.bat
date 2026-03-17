@@ -70,19 +70,18 @@ if not exist llama.cpp (
 )
 
 REM -------------------------------
-REM Download prebuilt Windows binaries
+REM Download prebuilt Windows binaries (direct link)
 REM -------------------------------
 echo Downloading latest llama.cpp Windows binary release...
 
+set DOWNLOAD_URL=https://github.com/ggerganov/llama.cpp/releases/latest/download/llama-windows-x64.zip
+
 powershell -Command ^
-    "(Invoke-WebRequest -Uri 'https://api.github.com/repos/ggerganov/llama.cpp/releases/latest').Content |" ^
-    "ConvertFrom-Json |" ^
-    "Select-Object -ExpandProperty assets |" ^
-    "Where-Object { $_.name -match 'windows-x64.zip' } |" ^
-    "ForEach-Object { Invoke-WebRequest -Uri $_.browser_download_url -OutFile 'llama_latest.zip' }"
+    "Invoke-WebRequest '%DOWNLOAD_URL%' -OutFile 'llama_latest.zip' -UseBasicParsing"
 
 if not exist llama_latest.zip (
-    echo Error: Failed to download llama.cpp release.
+    echo Error: Failed to download llama.cpp binary.
+    echo URL attempted: %DOWNLOAD_URL%
     exit /b 1
 )
 
