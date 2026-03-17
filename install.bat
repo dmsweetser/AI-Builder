@@ -40,51 +40,65 @@ echo Virtual environment activated successfully.
 REM -------------------------------
 REM Install Python dependencies
 REM -------------------------------
-echo Installing required Python packages...
-pip install -r requirements.txt
-if %errorlevel% neq 0 (
-    echo Error: Unable to install required Python packages.
-    exit /b 1
+if exist requirements.txt (
+    echo Installing required Python packages...
+    pip install -r requirements.txt
+    if %errorlevel% neq 0 (
+        echo Error: Unable to install required Python packages.
+        exit /b 1
+    )
+    echo Required Python packages installed successfully.
 )
-echo Required Python packages installed successfully.
-
 
 REM -------------------------------
-REM Install latest llama.cpp binary
+REM Clone or update llama.cpp
 REM -------------------------------
-echo Downloading latest llama.cpp release...
+echo Checking llama.cpp source...
 
-REM Create folder if missing
 if not exist llama.cpp (
-    mkdir llama.cpp
+    echo Cloning llama.cpp repository...
+    git clone https://github.com/ggerganov/llama.cpp
+    if %errorlevel% neq 0 (
+        echo Error: Failed to clone llama.cpp.
+        exit /b 1
+    )
+) else (
+    echo llama.cpp already exists. Updating...
+    pushd llama.cpp
+    git pull
+    popd
 )
 
-REM Download latest Windows release zip
-powershell -Command ^
-    "(Invoke-WebRequest -Uri 'https://api.github.com/repos/ggerganov/llama.cpp/releases/latest').Content |" ^
-    "ConvertFrom-Json |" ^
-    "Select-Object -ExpandProperty assets |" ^
-    "Where-Object { $_.name -match 'windows-x64.zip' } |" ^
-    "ForEach-Object { Invoke-WebRequest -Uri $_.browser_download_url -OutFile 'llama_latest.zip' }"
+REM -------------------------------
+REM Build llama.cpp with CMake
+REM -------------------------------
+echo Building llama.cpp...
 
-if not exist llama_latest.zip (
-    echo Error: Failed to download llama.cpp release.
+pushd llama.cpp
+
+if not exist build (
+    mkdir build
+)
+
+pushd build
+
+cmake .. -A x64
+if %errorlevel% neq 0 (
+    echo Error: CMake configuration failed.
     exit /b 1
 )
 
-echo Extracting llama.cpp...
-powershell -Command "Expand-Archive -Path 'llama_latest.zip' -DestinationPath 'llama.cpp' -Force"
-del llama_latest.zip
-
-REM Ensure consistent bin path
-if not exist llama.cpp\bin (
-    echo Error: llama.cpp binary folder not found after extraction.
+cmake --build . --config Release
+if %errorlevel% neq 0 (
+    echo Error: Build failed.
     exit /b 1
 )
 
-echo llama.cpp installed successfully.
-echo Binary located at: llama.cpp\bin\llama-cli.exe
+popd
+popd
 
+echo llama.cpp built successfully.
+echo Binary should be located at: llama.cpp\build\bin\Release\llama-cli.exe
 
 echo.
 echo Environment setup complete.
