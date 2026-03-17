@@ -495,7 +495,7 @@ Reply ONLY in the specified format with no commentary. THAT'S AN ORDER, SOLDIER!
                             # Determine base directory of the running script
                             BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-                            # Build full path to llama-cli
+                            # Build full path to llama-completion
                             llama_binary = os.path.join(BASE_DIR, "llama.cpp", "build", "bin", "llama-completion")
 
                             if not os.path.isfile(llama_binary):
