@@ -51,9 +51,9 @@ if exist requirements.txt (
 )
 
 REM -------------------------------
-REM Clone or update llama.cpp
+REM Clone or update llama.cpp source
 REM -------------------------------
-echo Checking llama.cpp source...
+echo Checking llama.cpp source folder...
 
 if not exist llama.cpp (
     echo Cloning llama.cpp repository...
@@ -70,35 +70,34 @@ if not exist llama.cpp (
 )
 
 REM -------------------------------
-REM Build llama.cpp with CMake
+REM Download prebuilt Windows binaries
 REM -------------------------------
-echo Building llama.cpp...
+echo Downloading latest llama.cpp Windows binary release...
 
-pushd llama.cpp
+powershell -Command ^
+    "(Invoke-WebRequest -Uri 'https://api.github.com/repos/ggerganov/llama.cpp/releases/latest').Content |" ^
+    "ConvertFrom-Json |" ^
+    "Select-Object -ExpandProperty assets |" ^
+    "Where-Object { $_.name -match 'windows-x64.zip' } |" ^
+    "ForEach-Object { Invoke-WebRequest -Uri $_.browser_download_url -OutFile 'llama_latest.zip' }"
 
-if not exist build (
-    mkdir build
-)
-
-pushd build
-
-cmake .. -A x64
-if %errorlevel% neq 0 (
-    echo Error: CMake configuration failed.
+if not exist llama_latest.zip (
+    echo Error: Failed to download llama.cpp release.
     exit /b 1
 )
 
-cmake --build . --config Release
-if %errorlevel% neq 0 (
-    echo Error: Build failed.
+echo Extracting llama.cpp binaries...
+powershell -Command "Expand-Archive -Path 'llama_latest.zip' -DestinationPath 'llama.cpp' -Force"
+del llama_latest.zip
+
+REM Ensure bin folder exists
+if not exist llama.cpp\bin (
+    echo Error: llama.cpp binary folder not found after extraction.
     exit /b 1
 )
 
-popd
-popd
-
-echo llama.cpp built successfully.
-echo Binary should be located at: llama.cpp\build\bin\Release\llama-cli.exe
+echo llama.cpp installed successfully.
+echo Binaries located at: llama.cpp\bin\llama-cli.exe
 
 echo.
 echo Environment setup complete.
