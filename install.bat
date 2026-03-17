@@ -86,17 +86,17 @@ if not exist llama_latest.zip (
 )
 
 echo Extracting llama.cpp binaries...
-powershell -Command "Expand-Archive -Path 'llama_latest.zip' -DestinationPath 'llama.cpp' -Force"
+powershell -Command "Expand-Archive -Path 'llama_latest.zip' -DestinationPath 'llama.cpp\build\bin' -Force"
 del llama_latest.zip
 
 REM Ensure bin folder exists
-if not exist llama.cpp\bin (
+if not exist llama.cpp\build\bin (
     echo Error: llama.cpp binary folder not found after extraction.
     exit /b 1
 )
 
 echo llama.cpp installed successfully.
-echo Binaries located at: llama.cpp\bin\llama-cli.exe
+echo Binaries located at: llama.cpp\build\bin\llama-completion.exe
 
 echo.
 echo Environment setup complete.
