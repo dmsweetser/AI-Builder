@@ -5,6 +5,7 @@ import logging
 import shutil
 import shlex
 import subprocess
+import time
 import xml.etree.ElementTree as ET
 from typing import List, Dict, Any, Optional
 from dotenv import load_dotenv
@@ -500,10 +501,15 @@ Reply ONLY in the specified format with no commentary. THAT'S AN ORDER, SOLDIER!
                             if not os.path.isfile(llama_binary):
                                 raise FileNotFoundError(f"llama binary not found at: {llama_binary}")
 
+                            ticks = int(time.time() * 1000)
+                            filename = f"prompt_{ticks}.txt"
+                            with open(filename, "w") as f:
+                                f.write(prompt)
+
                             cmd = [
                                 llama_binary,
                                 "-m", model_path,
-                                "-p", prompt,
+                                "-f", filename,
                                 "--temp", str(Config.get_temperature()),
                                 "--top-p", str(Config.get_top_p()),
                                 "--top-k", str(Config.get_top_k()),
@@ -531,10 +537,10 @@ Reply ONLY in the specified format with no commentary. THAT'S AN ORDER, SOLDIER!
                                     with open(self.response_file, 'w', encoding='utf-8') as response_log:
                                         response_log.write(response_content)
                                 if not token:
+                                    os.remove(filename)
                                     break
                                 response_content += token
                                 current_iteration += 1
-
                             process.wait()
                         else:
                             endpoint = Config.get_endpoint()
