@@ -1,7 +1,9 @@
 import os
+import platform
 import re
 import logging
 import shutil
+import shlex
 import subprocess
 import xml.etree.ElementTree as ET
 from typing import List, Dict, Any, Optional
@@ -9,7 +11,6 @@ from dotenv import load_dotenv
 from azure.ai.inference import ChatCompletionsClient
 from azure.ai.inference.models import SystemMessage, UserMessage
 from azure.core.credentials import AzureKeyCredential
-from llama_cpp import Llama
 from config import Config
 
 # Load environment variables from .env file
@@ -327,7 +328,13 @@ class AIBuilder:
             script_path = os.path.join(os.getcwd(), script_name)
             if not os.path.exists(script_path):
                 raise FileNotFoundError(f"Script {script_name} not found.")
-            subprocess.run(["powershell", "-File", script_path], check=True)
+            # Determine correct PowerShell executable
+            if platform.system() == "Windows":
+                powershell = "powershell"
+            else:
+                powershell = "pwsh"
+
+            subprocess.run([powershell, "-File", script_path], check=True)
             logging.info(f"Successfully executed {script_name}")
         except subprocess.CalledProcessError as e:
             logging.error(f"Failed to execute {script_name}: {e}")
@@ -477,33 +484,58 @@ Instructions:
 Reply ONLY in the specified format with no commentary. THAT'S AN ORDER, SOLDIER!
 """
 
-                        use_local_model = Config.use_local_model()
+                        use_local_model = Config.use_local_model()                        
                         if use_local_model:
                             model_path = Config.get_model_path()
                             if not model_path:
                                 logging.error("MODEL_PATH environment variable not set for local model.")
                                 raise ValueError("MODEL_PATH environment variable not set.")
-                            llm = Llama(
-                                model_path=model_path,
-                                n_ctx=Config.get_model_context()
+
+                            # Determine base directory of the running script
+                            BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+                            # Build full path to llama-cli
+                            llama_binary = os.path.join(BASE_DIR, "llama.cpp", "build", "bin", "llama-completion")
+
+                            if not os.path.isfile(llama_binary):
+                                raise FileNotFoundError(f"llama binary not found at: {llama_binary}")
+
+                            cmd = [
+                                llama_binary,
+                                "-m", model_path,
+                                "-p", prompt,
+                                "--temp", str(Config.get_temperature()),
+                                "--top-p", str(Config.get_top_p()),
+                                "--top-k", str(Config.get_top_k()),
+                                "--min-p", str(Config.get_min_p()),
+                                "-n", str(Config.get_output_tokens()),
+                                "--ctx-size", str(Config.get_model_context()),
+                                "--no-display-prompt",
+                                "-st"
+                            ]
+
+                            process = subprocess.Popen(
+                                cmd,
+                                stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE,
+                                text=True,
+                                bufsize=1
                             )
+
                             response_content = ""
                             current_iteration = 0
-                            for response in llm.create_completion(
-                                prompt,
-                                temperature=Config.get_temperature(),
-                                top_p=Config.get_top_p(),
-                                top_k=Config.get_top_k(),                                
-                                min_p=Config.get_min_p(),
-                                max_tokens=Config.get_output_tokens(),
-                                stream=True
-                            ):
-                                token = response['choices'][0]['text']
-                                response_content += token
-                                if current_iteration % 100 == 0:
-                                    with open(self.response_file, 'a', encoding='utf-8') as response_log:
+
+                            while True:
+                                token = process.stdout.read(1)
+                                if current_iteration % 100 == 0 or not token:
+                                    with open(self.response_file, 'w', encoding='utf-8') as response_log:
                                         response_log.write(response_content)
-                                current_iteration = current_iteration + 1
+                                if not token:
+                                    break
+                                response_content += token
+                                current_iteration += 1
+
+                            process.wait()
                         else:
                             endpoint = Config.get_endpoint()
                             model_name = Config.get_model_name()

@@ -3,4 +3,3 @@ azure-ai-projects
 azure-identity
 azure-ai-inference
 dotenv
-llama-cpp-python
