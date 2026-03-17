@@ -74,7 +74,7 @@ REM Download prebuilt Windows binaries (direct link)
 REM -------------------------------
 echo Downloading latest llama.cpp Windows binary release...
 
-set DOWNLOAD_URL=https://github.com/ggerganov/llama.cpp/releases/latest/download/llama-windows-x64.zip
+set DOWNLOAD_URL=https://github.com/ggml-org/llama.cpp/releases/download/b8400/llama-b8400-bin-win-cpu-x64.zip
 
 powershell -Command ^
     "Invoke-WebRequest '%DOWNLOAD_URL%' -OutFile 'llama_latest.zip' -UseBasicParsing"
