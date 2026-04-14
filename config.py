@@ -88,3 +88,8 @@ class Config:
     def get_output_file_path(root_dir: str) -> str:
         """Returns the path to the output file."""
         return os.path.join(root_dir, "ai_builder", "output.txt")
+    
+    @staticmethod
+    def get_use_git_diff() -> bool:
+        """Returns whether to ignore user_config.xml and instead only use files present in a git diff"""
+        return os.getenv("USE_GIT_DIFF", "false").lower() == "true"
