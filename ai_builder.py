@@ -313,6 +313,8 @@ class AIBuilder:
         self.return_git_diff = True
         self.root_directory = Config.get_root_directory()
         self.ai_builder_dir = Config.get_ai_builder_dir(self.root_directory)
+        self.use_git_diff = Config.get_use_git_diff()
+
         self.response_file = os.path.join(self.ai_builder_dir, "current_response.txt")
         os.makedirs(self.ai_builder_dir, exist_ok=True)
         logging.basicConfig(
@@ -323,6 +325,20 @@ class AIBuilder:
                 logging.StreamHandler()
             ]
         )
+
+    def get_git_diff_files(self) -> List[str]:
+        try:
+            result = subprocess.run(
+                ["git", "diff", "--name-only"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=True
+            )
+            return [line.strip() for line in result.stdout.splitlines() if line.strip()]
+        except Exception as e:
+            logging.error(f"Error getting git diff files: {e}")
+            return []
 
     def run_pre_post_scripts(self, script_name: str) -> None:
         try:
@@ -414,7 +430,25 @@ class AIBuilder:
                     if not os.path.exists(modifications_format_path):
                         if os.path.exists(self.utility.output_file):
                             os.remove(self.utility.output_file)
-                        self.utility.process_directory(self.root_directory, [], patterns, mode)
+                        if self.use_git_diff:
+                            logging.info("use_git_diff enabled — collecting files from git diff instead of walking directory.")
+                            diff_files = self.get_git_diff_files()
+                            if os.path.exists(self.utility.output_file):
+                                os.remove(self.utility.output_file)
+                            for rel_path in diff_files:
+                                abs_path = os.path.join(self.root_directory, rel_path)
+                                if not os.path.isfile(abs_path):
+                                    continue
+                                try:
+                                    with open(abs_path, 'r', encoding='utf-8') as f:
+                                        content = f.read()
+                                    with open(self.utility.output_file, 'a', encoding='utf-8') as out_file:
+                                        out_file.write(f"\n### {rel_path}\n```\n{content}\n```\n")
+                                except Exception as e:
+                                    logging.warning(f"Skipped unreadable diff file: {rel_path} - Error: {e}")
+                        else:
+                            self.utility.process_directory(self.root_directory, [], patterns, mode)
+
                         if not os.path.exists(self.utility.output_file):
                             logging.warning("output.txt was not created by process_directory.")
                             continue
