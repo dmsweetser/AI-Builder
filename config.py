@@ -93,3 +93,8 @@ class Config:
     def get_use_git_diff() -> bool:
         """Returns whether to ignore user_config.xml and instead only use files present in a git diff"""
         return os.getenv("USE_GIT_DIFF", "false").lower() == "true"
+    
+    @staticmethod
+    def verify_ssl() -> bool:
+        """Returns whether to verify SSL for Azure AI Foundry or not"""
+        return os.getenv("VERIFY_SSL", "false").lower() == "true"
