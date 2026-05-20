@@ -22,17 +22,15 @@ class FileParser:
     def parse_custom_format(content: str) -> List[Dict[str, Any]]:
         try:
             if "</think>" in content:
-                # Split the content at the occurrence of </think> followed by [aibuilder
-                # The pattern matches </think> followed by any whitespace and then [aibuilder
-                split_content = re.split(r'<\/think>\s*\[aibuilder', content, flags=re.DOTALL)
+                split_content = re.split(r'<\/think>\s*\[?aibuilder', content, flags=re.DOTALL)
                 if len(split_content) > 1:
                     content = split_content[1]
                 else:
                     content = split_content[0]
-            content = re.sub(r'^.*?\[aibuilder_change', '[aibuilder_change', content, flags=re.DOTALL)
+            content = re.sub(r'^.*?\[?aibuilder_change', '[aibuilder_change', content, flags=re.DOTALL)
             changes = []
             change_blocks = re.finditer(
-                r'\[aibuilder_change\s+file\s*=\s*"([^"]+)"\](.*?)(?=\[aibuilder_change|$)',
+                r'\[?aibuilder_change\s+file\s*=\s*"([^"]+)"\](.*?)(?=\[?aibuilder_change|$)',
                 content,
                 re.DOTALL
             )
@@ -50,7 +48,7 @@ class FileParser:
         try:
             actions = []
             action_blocks = re.finditer(
-                r'\[aibuilder_action\s+type\s*=\s*"([^"]+)"\](.*?)\[aibuilder_end_action\]',
+                r'\[?aibuilder_action\s+type\s*=\s*"([^"]+)"\](.*?)\[?aibuilder_end_action\]',
                 content,
                 re.DOTALL
             )
@@ -77,12 +75,16 @@ class FileParser:
     @staticmethod
     def _parse_create_action(content: str) -> Optional[Dict[str, Any]]:
         try:
-            file_content_pattern = r'\[aibuilder_file_content\](.*?)\[aibuilder_end_file_content\]'
+            content = content.strip('`')
+            file_content_pattern = r'\[?aibuilder_file_content\](.*?)\[?aibuilder_end_file_content\]'
             file_content_match = re.search(file_content_pattern, content, re.DOTALL)
             if file_content_match:
+                file_content = file_content_match.group(1).strip()
+                # Remove triple backticks from the file content
+                file_content = file_content.strip('`')
                 return {
                     'action': 'create_file',
-                    'file_content': file_content_match.group(1).strip().split('\n')
+                    'file_content': file_content.split('\n')
                 }
             return None
         except Exception as e:
@@ -92,12 +94,14 @@ class FileParser:
     @staticmethod
     def _parse_replace_file_action(content: str) -> Optional[Dict[str, Any]]:
         try:
-            file_content_pattern = r'\[aibuilder_file_content\](.*?)\[aibuilder_end_file_content\]'
+            file_content_pattern = r'\[?aibuilder_file_content\](.*?)\[?aibuilder_end_file_content\]'
             file_content_match = re.search(file_content_pattern, content, re.DOTALL)
             if file_content_match:
+                file_content = file_content_match.group(1).strip()
+                file_content = file_content.strip('`')
                 return {
                     'action': 'replace_file',
-                    'file_content': file_content_match.group(1).strip().split('\n')
+                    'file_content': file_content.split('\n')
                 }
             return None
         except Exception as e:
@@ -107,15 +111,18 @@ class FileParser:
     @staticmethod
     def _parse_replace_section_action(content: str) -> Optional[Dict[str, Any]]:
         try:
-            original_content_pattern = r'\[aibuilder_original_content\](.*?)\[aibuilder_end_original_content\]'
-            file_content_pattern = r'\[aibuilder_file_content\](.*?)\[aibuilder_end_file_content\]'
+            original_content_pattern = r'\[?aibuilder_original_content\](.*?)\[?aibuilder_end_original_content\]'
+            file_content_pattern = r'\[?aibuilder_file_content\](.*?)\[?aibuilder_end_file_content\]'
             original_content_match = re.search(original_content_pattern, content, re.DOTALL)
             file_content_match = re.search(file_content_pattern, content, re.DOTALL)
             if original_content_match and file_content_match:
+                original_content = original_content_match.group(1).strip()
+                file_content = file_content_match.group(1).strip()
+                file_content = file_content.strip('`')
                 return {
                     'action': 'replace_section',
-                    'original_content': original_content_match.group(1).strip(),
-                    'file_content': file_content_match.group(1).strip().split('\n')
+                    'original_content': original_content,
+                    'file_content': file_content.split('\n')
                 }
             return None
         except Exception as e:
@@ -257,7 +264,7 @@ class ActionManager:
 class CodeUtility:
     def __init__(self, base_dir: str = os.getcwd()):
         self.base_dir = base_dir
-        self.output_file = os.path.join(base_dir, "ai_builder", "output.txt")        
+        self.output_file = os.path.join(base_dir, "ai_builder", "output.txt")
         self.log_file = os.path.join(base_dir, "ai_builder", "utility.log")
 
     def parse_gitignore(self, directory: str) -> List[str]:
@@ -328,8 +335,9 @@ class AIBuilder:
 
     def get_git_diff_files(self) -> List[str]:
         try:
+            git_diff_command = Config.get_git_diff_command()
             result = subprocess.run(
-                ["git", "diff", "--name-only"],
+                git_diff_command.split(),
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
@@ -387,6 +395,7 @@ class AIBuilder:
 <config>
     <iterations>1</iterations>
     <mode>exclude</mode>
+    <git_diff_command>git diff --name-only</git_diff_command>
     <patterns>
         <pattern>package-lock.json</pattern>
         <pattern>output.txt</pattern>
@@ -519,25 +528,22 @@ Instructions:
 Reply ONLY in the specified format with no commentary. THAT'S AN ORDER, SOLDIER!
 """
 
-                        use_local_model = Config.use_local_model()                        
+                        use_local_model = Config.use_local_model()
                         if use_local_model:
                             model_path = Config.get_model_path()
                             if not model_path:
                                 logging.error("MODEL_PATH environment variable not set for local model.")
                                 raise ValueError("MODEL_PATH environment variable not set.")
 
-                            # Determine base directory of the running script
                             BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-
-                            # Build full path to llama-completion
                             llama_binary = os.path.join(BASE_DIR, "llama.cpp", "build", "bin", "llama-completion")
 
                             if not os.path.isfile(llama_binary):
                                 raise FileNotFoundError(f"llama binary not found at: {llama_binary}")
 
                             ticks = int(time.time() * 1000)
-                            filename = f"prompt_{ticks}.txt"
-                            with open(filename, "w") as f:
+                            filename = f"aibuilder_prompt_{ticks}.txt"
+                            with open(filename, "w", encoding='utf-8') as f:
                                 f.write(prompt)
 
                             cmd = [
@@ -580,13 +586,15 @@ Reply ONLY in the specified format with no commentary. THAT'S AN ORDER, SOLDIER!
                             endpoint = Config.get_endpoint()
                             model_name = Config.get_model_name()
                             api_key = Config.get_api_key()
+                            verify_ssl = Config.verify_ssl()
                             if not all([endpoint, model_name, api_key]):
                                 logging.error("Missing one or more required environment variables: ENDPOINT, MODEL_NAME, API_KEY")
                                 raise ValueError("Missing required environment variables.")
                             client = ChatCompletionsClient(
                                 endpoint=endpoint,
                                 credential=AzureKeyCredential(api_key),
-                                api_version="2024-05-01-preview"
+                                api_version="2024-05-01-preview",
+                                verify=verify_ssl
                             )
                             response = client.complete(
                                 stream=True,
@@ -598,12 +606,18 @@ Reply ONLY in the specified format with no commentary. THAT'S AN ORDER, SOLDIER!
                                 model=model_name
                             )
                             response_content = ""
+                            current_iteration = 0
+
                             try:
                                 for update in response:
                                     if update.choices and isinstance(update.choices, list) and len(update.choices) > 0:
                                         content = update.choices[0].get("delta", {}).get("content", "")
                                         if content is not None:
                                             response_content += content
+                                        if current_iteration % 100 == 0 or not token:
+                                            with open(self.response_file, 'w', encoding='utf-8') as response_log:
+                                                response_log.write(response_content)
+                                        current_iteration += 0
                                     else:
                                         break
                             finally:
