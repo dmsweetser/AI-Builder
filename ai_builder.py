@@ -171,7 +171,7 @@ class FileModifier:
                 logging.info(f"Created/Replaced: {filepath}")
                 return True
             elif action_type == 'remove_file':
-                if os.path.isfile(filepath):
+                if os.path.isfile(filepath) and not "pre.ps1" in filepath and not "post.ps1" in filepath:
                     os.remove(filepath)
                     logging.info(f"Removed: {filepath}")
                     return True
