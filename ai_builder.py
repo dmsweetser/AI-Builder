@@ -75,13 +75,10 @@ class FileParser:
     @staticmethod
     def _parse_create_action(content: str) -> Optional[Dict[str, Any]]:
         try:
-            content = content.strip('`')
             file_content_pattern = r'\[?aibuilder_file_content\](.*?)\[?aibuilder_end_file_content\]'
             file_content_match = re.search(file_content_pattern, content, re.DOTALL)
             if file_content_match:
                 file_content = file_content_match.group(1).strip()
-                # Remove triple backticks from the file content
-                file_content = file_content.strip('`')
                 return {
                     'action': 'create_file',
                     'file_content': file_content.split('\n')
@@ -98,7 +95,6 @@ class FileParser:
             file_content_match = re.search(file_content_pattern, content, re.DOTALL)
             if file_content_match:
                 file_content = file_content_match.group(1).strip()
-                file_content = file_content.strip('`')
                 return {
                     'action': 'replace_file',
                     'file_content': file_content.split('\n')
@@ -118,7 +114,6 @@ class FileParser:
             if original_content_match and file_content_match:
                 original_content = original_content_match.group(1).strip()
                 file_content = file_content_match.group(1).strip()
-                file_content = file_content.strip('`')
                 return {
                     'action': 'replace_section',
                     'original_content': original_content,
@@ -176,7 +171,7 @@ class FileModifier:
                 logging.info(f"Created/Replaced: {filepath}")
                 return True
             elif action_type == 'remove_file':
-                if os.path.isfile(filepath):
+                if os.path.isfile(filepath) and not "pre.ps1" in filepath and not "post.ps1" in filepath:
                     os.remove(filepath)
                     logging.info(f"Removed: {filepath}")
                     return True
