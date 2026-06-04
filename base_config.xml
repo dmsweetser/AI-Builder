@@ -1,6 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
 <config>
     <iterations>1</iterations>
     <mode>exclude</mode>
+    <git_diff_command>git diff --name-only</git_diff_command>
     <patterns>
         <pattern>package-lock.json</pattern>
         <pattern>output.txt</pattern>
@@ -15,7 +17,5 @@
         <pattern>.ico</pattern>
         <pattern>.webp</pattern>
         <pattern>.gguf</pattern>
-        <pattern>build/</pattern>
-        <pattern>simulations/</pattern>
     </patterns>
 </config>

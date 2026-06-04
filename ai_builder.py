@@ -382,35 +382,8 @@ class AIBuilder:
         try:
             base_config_path = os.path.join("base_config.xml")
             user_config_path = os.path.join(self.ai_builder_dir, "user_config.xml")
-            if os.path.exists(base_config_path) and not os.path.exists(user_config_path):
-                shutil.copy(base_config_path, user_config_path)
-                logging.info("Copied base_config.xml to user_config.xml")
-            elif not os.path.exists(base_config_path):
-                default_config = """<?xml version="1.0" encoding="UTF-8"?>
-<config>
-    <iterations>1</iterations>
-    <mode>exclude</mode>
-    <git_diff_command>git diff --name-only</git_diff_command>
-    <patterns>
-        <pattern>package-lock.json</pattern>
-        <pattern>output.txt</pattern>
-        <pattern>full_request.txt</pattern>
-        <pattern>full_response.txt</pattern>
-        <pattern>instructions.txt</pattern>
-        <pattern>changes.patch</pattern>
-        <pattern>.git</pattern>
-        <pattern>utility.log</pattern>
-        <pattern>.png</pattern>
-        <pattern>.exe</pattern>
-        <pattern>.ico</pattern>
-        <pattern>.webp</pattern>
-        <pattern>.gguf</pattern>
-    </patterns>
-</config>"""
-                with open(user_config_path, 'w', encoding='utf-8') as config_file:
-                    config_file.write(default_config)
-                logging.warning("base_config.xml not found, created default user_config.xml")
-
+            shutil.copy(base_config_path, user_config_path)
+            logging.info("Copied base_config.xml to user_config.xml")
             pre_script_path = os.path.join(self.root_directory, "pre.ps1")
             post_script_path = os.path.join(self.root_directory, "post.ps1")
             instructions_path = os.path.join(self.root_directory, "instructions.txt")
@@ -589,7 +562,7 @@ Reply ONLY in the specified format with no commentary. THAT'S AN ORDER, SOLDIER!
                                 endpoint=endpoint,
                                 credential=AzureKeyCredential(api_key),
                                 api_version="2024-05-01-preview",
-                                verify=verify_ssl
+                                connection_verify=verify_ssl
                             )
                             response = client.complete(
                                 stream=True,

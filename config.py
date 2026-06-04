@@ -98,3 +98,8 @@ class Config:
     def verify_ssl() -> bool:
         """Returns whether to verify SSL for Azure AI Foundry or not"""
         return os.getenv("VERIFY_SSL", "false").lower() == "true"
+    
+    @staticmethod
+    def get_git_diff_command() -> bool:
+        """Returns whether to verify SSL for Azure AI Foundry or not"""
+        return os.getenv("GIT_DIFF_COMMAND", "git diff --name-only")
