@@ -524,6 +524,7 @@ Reply ONLY in the specified format with no commentary. THAT'S AN ORDER, SOLDIER!
                                 "--min-p", str(Config.get_min_p()),
                                 "-n", str(Config.get_output_tokens()),
                                 "--ctx-size", str(Config.get_model_context()),
+                                "--jinja",
                                 "--no-display-prompt",
                                 "-st"
                             ]
