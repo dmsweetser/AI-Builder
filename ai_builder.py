@@ -6,6 +6,7 @@ import shutil
 import shlex
 import subprocess
 import time
+import uuid
 import xml.etree.ElementTree as ET
 from typing import List, Dict, Any, Optional
 from dotenv import load_dotenv
@@ -17,7 +18,21 @@ from config import Config
 # Load environment variables from .env file
 load_dotenv()
 
+# Unique delimiter for safe line splitting/joining
+LINE_DELIMITER = f"<<<AI_BUILDER_LINE_DELIMITER_{uuid.uuid4().hex}>>>"
+
+
 class FileParser:
+    @staticmethod
+    def _safe_split(content: str) -> List[str]:
+        """Split content by newlines, preserving literal \\n in strings."""
+        return content.replace('\n', LINE_DELIMITER).split('\n')
+
+    @staticmethod
+    def _safe_join(lines: List[str]) -> str:
+        """Join lines with newlines, restoring literal \\n in strings."""
+        return '\n'.join(lines).replace(LINE_DELIMITER, '\n')
+
     @staticmethod
     def parse_custom_format(content: str) -> List[Dict[str, Any]]:
         try:
@@ -78,10 +93,10 @@ class FileParser:
             file_content_pattern = r'\[?aibuilder_file_content\](.*?)\[?aibuilder_end_file_content\]'
             file_content_match = re.search(file_content_pattern, content, re.DOTALL)
             if file_content_match:
-                file_content = file_content_match.group(1).strip()
+                file_content = file_content_match.group(1)
                 return {
                     'action': 'create_file',
-                    'file_content': file_content.split('\n')
+                    'file_content': FileParser._safe_split(file_content)
                 }
             return None
         except Exception as e:
@@ -94,10 +109,10 @@ class FileParser:
             file_content_pattern = r'\[?aibuilder_file_content\](.*?)\[?aibuilder_end_file_content\]'
             file_content_match = re.search(file_content_pattern, content, re.DOTALL)
             if file_content_match:
-                file_content = file_content_match.group(1).strip()
+                file_content = file_content_match.group(1)
                 return {
                     'action': 'replace_file',
-                    'file_content': file_content.split('\n')
+                    'file_content': FileParser._safe_split(file_content)
                 }
             return None
         except Exception as e:
@@ -112,17 +127,18 @@ class FileParser:
             original_content_match = re.search(original_content_pattern, content, re.DOTALL)
             file_content_match = re.search(file_content_pattern, content, re.DOTALL)
             if original_content_match and file_content_match:
-                original_content = original_content_match.group(1).strip()
-                file_content = file_content_match.group(1).strip()
+                original_content = original_content_match.group(1)
+                file_content = file_content_match.group(1)
                 return {
                     'action': 'replace_section',
                     'original_content': original_content,
-                    'file_content': file_content.split('\n')
+                    'file_content': FileParser._safe_split(file_content)
                 }
             return None
         except Exception as e:
             logging.error(f"Error parsing replace section action: {e}")
             raise
+
 
 class FileModifier:
     @staticmethod
@@ -167,7 +183,7 @@ class FileModifier:
 
             if action_type == 'create_file':
                 with open(filepath, 'w', encoding='utf-8') as f:
-                    f.write("\n".join(action['file_content']) + "\n")
+                    f.write(FileParser._safe_join(action['file_content']))
                 logging.info(f"Created/Replaced: {filepath}")
                 return True
             elif action_type == 'remove_file':
@@ -180,7 +196,7 @@ class FileModifier:
                     return False
             elif action_type == 'replace_file':
                 with open(filepath, 'w', encoding='utf-8') as f:
-                    f.write("\n".join(action['file_content']) + "\n")
+                    f.write(FileParser._safe_join(action['file_content']))
                 logging.info(f"Replaced entire content of: {filepath}")
                 return True
             elif action_type == 'replace_section':
@@ -195,7 +211,7 @@ class FileModifier:
         try:
             with open(filepath, 'r', encoding='utf-8') as f:
                 content = f.read()
-            new_section_str = '\n'.join(new_content)
+            new_section_str = FileParser._safe_join(new_content)
             if original_content in content:
                 modified_content = content.replace(original_content, new_section_str)
                 with open(filepath, 'w', encoding='utf-8') as f:
@@ -209,6 +225,7 @@ class FileModifier:
             logging.error(f"Error replacing section: {e}")
             raise
 
+
 class ActionManager:
     @staticmethod
     def save_actions(actions: List[Dict[str, Any]], filepath: str) -> None:
@@ -219,7 +236,7 @@ class ActionManager:
                     f.write(f"Action: {action['action']['action']}\n")
                     if action['action']['action'] in ['create_file', 'replace_file', 'replace_section']:
                         f.write("Content:\n")
-                        f.write("\n".join(action['action']['file_content']) + "\n")
+                        f.write(FileParser._safe_join(action['action']['file_content']) + "\n")
                     if action['action']['action'] == 'replace_section':
                         f.write(f"Original Content:\n{action['action']['original_content']}\n")
                     f.write("\n")
@@ -242,8 +259,8 @@ class ActionManager:
                 for block in action_blocks:
                     file = block.group(1)
                     action_type = block.group(2)
-                    file_content = block.group(3).strip().split('\n') if block.group(3) else []
-                    original_content = block.group(4).strip() if block.group(4) else None
+                    file_content = FileParser._safe_split(block.group(3)) if block.group(3) else []
+                    original_content = block.group(4) if block.group(4) else None
                     action = {'action': action_type}
                     if action_type in ['create_file', 'replace_file', 'replace_section']:
                         action['file_content'] = file_content
@@ -255,6 +272,7 @@ class ActionManager:
         except Exception as e:
             logging.error(f"Error loading actions: {e}")
             raise
+
 
 class CodeUtility:
     def __init__(self, base_dir: str = os.getcwd()):
@@ -309,6 +327,7 @@ class CodeUtility:
         except Exception as e:
             logging.error(f"Error processing directory: {e}")
             raise
+
 
 class AIBuilder:
     def __init__(self):
@@ -434,10 +453,10 @@ class AIBuilder:
                             return
 
                         with open(self.utility.output_file, 'r', encoding='utf-8') as file:
-                            current_code = file.read().strip()
+                            current_code = file.read()
                         logging.info("Successfully read output.txt")
                         with open('instructions.txt', 'r', encoding='utf-8') as file:
-                            instructions = file.read().strip()
+                            instructions = file.read()
                         logging.info("Successfully read instructions.txt")
 
                         prompt = f"""
@@ -583,10 +602,10 @@ Reply ONLY in the specified format with no commentary. THAT'S AN ORDER, SOLDIER!
                                         content = update.choices[0].get("delta", {}).get("content", "")
                                         if content is not None:
                                             response_content += content
-                                        if current_iteration % 100 == 0 or not token:
+                                        if current_iteration % 100 == 0:
                                             with open(self.response_file, 'w', encoding='utf-8') as response_log:
                                                 response_log.write(response_content)
-                                        current_iteration += 0
+                                        current_iteration += 1
                                     else:
                                         break
                             finally:
@@ -613,6 +632,7 @@ Reply ONLY in the specified format with no commentary. THAT'S AN ORDER, SOLDIER!
 
         except Exception as e:
             logging.error(f"An error occurred during execution: {str(e)}", exc_info=True)
+
 
 if __name__ == "__main__":
     try:
