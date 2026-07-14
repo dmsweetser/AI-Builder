@@ -26,10 +26,12 @@ body {
     box-shadow: inset 2px 2px 0px #000;
 }
 
-.blockworldstyle-input:focus, .form-select:focus {
+.blockworldstyle-input:focus, .blockworldstyle-input:active,
+.form-select:focus, .form-select:active {
     border-color: #55ff55;
     box-shadow: inset 2px 2px 0px #000, 0 0 5px #55ff55;
     color: #fff;
+    background-color: #3a3a3a !important;
 }
 
 .blockworldstyle-btn {
@@ -71,4 +73,9 @@ body {
 .list-group-item:hover {
     background-color: #3a3a3a;
     border-color: #55ff55;
+}
+
+.center-container {
+    max-width: 900px;
+    margin: 0 auto;
 }

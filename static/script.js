@@ -14,7 +14,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const li = document.createElement('li');
             li.className = 'list-group-item d-flex justify-content-between align-items-center';
             li.innerHTML = `
-                <span>${p.id}</span>
+                <span>${p.id} ${p.chat_mode ? '(Chat)' : ''}</span>
                 <div>
                     <button class="btn btn-sm btn-outline-light edit-btn" data-id="${p.id}">Edit</button>
                     <button class="btn btn-sm btn-outline-danger delete-btn" data-id="${p.id}">Del</button>
@@ -34,13 +34,16 @@ document.addEventListener('DOMContentLoaded', () => {
         const res = await fetch(`/api/projects/${id}`);
         const p = await res.json();
         document.getElementById('id').value = p.id;
+        document.getElementById('target_directory').value = p.target_directory || '';
         document.getElementById('instructions').value = p.instructions || '';
         document.getElementById('pre_script').value = p.pre_script || '';
         document.getElementById('post_script').value = p.post_script || '';
         document.getElementById('mode').value = p.mode || 'exclude';
         const allPatterns = (p.exclude_patterns || []).concat(p.include_patterns || []);
         document.getElementById('patterns').value = allPatterns.join('\n');
+        document.getElementById('chat_mode').checked = !!p.chat_mode;
         saveBtn.textContent = 'Update Project';
+        document.getElementById('id').dataset.oldId = p.id;
     }
 
     async function deleteProject(id) {
@@ -57,12 +60,14 @@ document.addEventListener('DOMContentLoaded', () => {
         
         const project = {
             id: document.getElementById('id').value,
+            target_directory: document.getElementById('target_directory').value,
             instructions: document.getElementById('instructions').value,
             pre_script: document.getElementById('pre_script').value,
             post_script: document.getElementById('post_script').value,
             mode: mode,
             exclude_patterns: mode === 'exclude' ? patterns : [],
-            include_patterns: mode === 'include' ? patterns : []
+            include_patterns: mode === 'include' ? patterns : [],
+            chat_mode: document.getElementById('chat_mode').checked
         };
         
         const method = document.getElementById('id').dataset.oldId ? 'PUT' : 'POST';
@@ -74,8 +79,8 @@ document.addEventListener('DOMContentLoaded', () => {
             body: JSON.stringify(project)
         });
         
-        document.getElementById('id').dataset.oldId = project.id;
         saveBtn.textContent = 'Save Project';
+        delete document.getElementById('id').dataset.oldId;
         loadProjects();
     });
 
@@ -91,7 +96,7 @@ document.addEventListener('DOMContentLoaded', () => {
             body: JSON.stringify({ project_id: id })
         });
         const data = await res.json();
-        logOutput.textContent += data.output || 'Execution complete.';
+        logOutput.textContent += data.output || 'Execution complete.\n';
         runBtn.disabled = false;
     });
 

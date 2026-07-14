@@ -10,7 +10,7 @@
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body class="bg-dark text-light">
-    <div class="container mt-4">
+    <div class="container center-container mt-4">
         <h1 class="text-center mb-4 blockworldstyle-title">AI BUILDER PROJECT MANAGER</h1>
         
         <div class="row">
@@ -24,6 +24,10 @@
                             <input type="text" class="form-control blockworldstyle-input" id="id" required>
                         </div>
                         <div class="mb-3">
+                            <label class="form-label">Target Directory</label>
+                            <input type="text" class="form-control blockworldstyle-input" id="target_directory" placeholder="Path to project root">
+                        </div>
+                        <div class="mb-3">
                             <label class="form-label">Instructions</label>
                             <textarea class="form-control blockworldstyle-input" id="instructions" rows="4" required></textarea>
                         </div>
@@ -34,6 +38,10 @@
                         <div class="mb-3">
                             <label class="form-label">Post-Script (PowerShell)</label>
                             <textarea class="form-control blockworldstyle-input" id="post_script" rows="3"></textarea>
+                        </div>
+                        <div class="mb-3 form-check">
+                            <input type="checkbox" class="form-check-input" id="chat_mode">
+                            <label class="form-check-label" for="chat_mode">Chat Mode (Track Conversation)</label>
                         </div>
                         <div class="mb-3">
                             <label class="form-label">Filter Mode</label>
