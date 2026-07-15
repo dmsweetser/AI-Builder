@@ -107,10 +107,16 @@
         <div class="block">
             <h2>ADD PROJECT</h2>
             <form method="POST" action="/add">
-                <label>PROJECT NAME</label>
-                <input name="name" required placeholder="My Cool Project">
-                <label>ROOT DIRECTORY</label>
-                <input name="rootDirectory" required placeholder="C:\dev\myapp">
+                <div class="form-grid">
+                    <div>
+                        <label>PROJECT NAME</label>
+                        <input name="name" required placeholder="My Cool Project">
+                    </div>
+                    <div>
+                        <label>ROOT DIRECTORY</label>
+                        <input name="rootDirectory" required placeholder="C:\dev\myapp">
+                    </div>
+                </div>
                 
                 <label>LOAD FILES FOR SELECTION</label>
                 <div class="flex-row">
@@ -130,12 +136,16 @@
                 <textarea id="patterns-display" rows="6" readonly></textarea>
                 <input type="hidden" name="includePatterns" id="patterns-input">
 
-                <label>USE GIT DIFF (true/false)</label>
-                <input name="useGitDiff" value="true">
-                <label>ITERATIONS</label>
-                <input name="iterations" value="1" type="number">
-                <label>MODE (include/exclude)</label>
-                <input name="mode" value="include">
+                <div class="form-grid">
+                    <div>
+                        <label>ITERATIONS</label>
+                        <input name="iterations" value="1" type="number">
+                    </div>
+                    <div>
+                        <label>MODE (include/exclude)</label>
+                        <input name="mode" value="include">
+                    </div>
+                </div>
                 <button type="submit">CREATE PROJECT</button>
             </form>
         </div>
@@ -147,22 +157,38 @@
             <p class="note">ANSWER THESE BLOCKS LIKE AN INTERVIEW. AI BUILDER WILL USE THEM WITHOUT DIRTYING THE TARGET DIRECTORY.</p>
             <form method="POST" action="/save">
                 <input type="hidden" name="id" value="{{selected['id']}}">
-                <label>1. WHERE IS YOUR PROJECT LOCATED?</label>
-                <input name="rootDirectory" value="{{selected['rootDirectory']}}">
-                <label>2. WHICH FILES/FOLDERS SHOULD BE INCLUDED?</label>
-                <input name="includePatterns" value="{{selected['includePatterns']|join(',')}}">
-                <label>3. SHOULD WE USE GIT DIFF? (true/false)</label>
-                <input name="useGitDiff" value="{{selected['useGitDiff']}}">
-                <label>4. HOW MANY ITERATIONS?</label>
-                <input name="iterations" value="{{selected['iterations']}}">
-                <label>5. MODE (include/exclude)</label>
-                <input name="mode" value="{{selected['mode']}}">
-                <label>6. INSTRUCTIONS FOR AI BUILDER</label>
+                <div class="form-grid">
+                    <div>
+                        <label>1. PROJECT LOCATION</label>
+                        <input name="rootDirectory" value="{{selected['rootDirectory']}}">
+                    </div>
+                    <div>
+                        <label>2. INCLUDED FILES/FOLDERS</label>
+                        <input name="includePatterns" value="{{selected['includePatterns']|join(',')}}">
+                    </div>
+                </div>
+                <div class="form-grid">
+                    <div>
+                        <label>3. ITERATIONS</label>
+                        <input name="iterations" value="{{selected['iterations']}}">
+                    </div>
+                    <div>
+                        <label>4. MODE</label>
+                        <input name="mode" value="{{selected['mode']}}">
+                    </div>
+                </div>
+                <label>5. INSTRUCTIONS FOR AI BUILDER</label>
                 <textarea name="instructions" rows="8">{{selected['instructions']}}</textarea>
-                <label>7. PRE-SCRIPT (BEFORE EACH ITERATION)</label>
-                <textarea name="preScript" rows="4">{{selected['preScript']}}</textarea>
-                <label>8. POST-SCRIPT (AFTER EACH ITERATION)</label>
-                <textarea name="postScript" rows="4">{{selected['postScript']}}</textarea>
+                <div class="form-grid">
+                    <div>
+                        <label>6. PRE-SCRIPT</label>
+                        <textarea name="preScript" rows="4">{{selected['preScript']}}</textarea>
+                    </div>
+                    <div>
+                        <label>7. POST-SCRIPT</label>
+                        <textarea name="postScript" rows="4">{{selected['postScript']}}</textarea>
+                    </div>
+                </div>
                 <button type="submit">SAVE INTERVIEW ANSWERS</button>
             </form>
             <form method="POST" action="/run">
