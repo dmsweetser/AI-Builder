@@ -3,7 +3,6 @@ import platform
 import re
 import logging
 import shutil
-import shlex
 import subprocess
 import time
 import uuid
@@ -18,19 +17,16 @@ from config import Config
 # Load environment variables from .env file
 load_dotenv()
 
-# Unique delimiter for safe line splitting/joining
 LINE_DELIMITER = f"<<<AI_BUILDER_LINE_DELIMITER_{uuid.uuid4().hex}>>>"
 
 
 class FileParser:
     @staticmethod
     def _safe_split(content: str) -> List[str]:
-        """Split content by newlines, preserving literal \\n in strings."""
         return content.replace('\n', LINE_DELIMITER).split('\n')
 
     @staticmethod
     def _safe_join(lines: List[str]) -> str:
-        """Join lines with newlines, restoring literal \\n in strings."""
         return '\n'.join(lines).replace(LINE_DELIMITER, '\n')
 
     @staticmethod
@@ -275,10 +271,10 @@ class ActionManager:
 
 
 class CodeUtility:
-    def __init__(self, base_dir: str = os.getcwd()):
+    def __init__(self, base_dir: str, ai_builder_dir: str):
         self.base_dir = base_dir
-        self.output_file = os.path.join(base_dir, "ai_builder", "output.txt")
-        self.log_file = os.path.join(base_dir, "ai_builder", "utility.log")
+        self.output_file = os.path.join(ai_builder_dir, "output.txt")
+        self.log_file = os.path.join(ai_builder_dir, "utility.log")
 
     def parse_gitignore(self, directory: str) -> List[str]:
         try:
@@ -328,21 +324,49 @@ class CodeUtility:
             logging.error(f"Error processing directory: {e}")
             raise
 
+    def collect_files(self, diff_files: List[str]) -> None:
+        try:
+            if os.path.exists(self.output_file):
+                os.remove(self.output_file)
+            for rel_path in diff_files:
+                abs_path = os.path.join(self.base_dir, rel_path)
+                if not os.path.isfile(abs_path):
+                    continue
+                try:
+                    with open(abs_path, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                    with open(self.output_file, 'a', encoding='utf-8') as out_file:
+                        out_file.write(f"\n### {rel_path}\n```\n{content}\n```\n")
+                except Exception as e:
+                    logging.warning(f"Skipped unreadable diff file: {rel_path} - Error: {e}")
+        except Exception as e:
+            logging.error(f"Error collecting diff files: {e}")
+            raise
+
 
 class AIBuilder:
-    def __init__(self):
-        self.return_git_diff = True
-        self.root_directory = Config.get_root_directory()
-        self.ai_builder_dir = Config.get_ai_builder_dir(self.root_directory)
-        self.use_git_diff = Config.get_use_git_diff()
+    def __init__(self, project_config: Dict[str, Any] = None):
+        self.project_config = project_config
+        self.clean_mode = project_config is not None
+
+        if self.clean_mode:
+            self.root_directory = project_config["rootDirectory"]
+            self.use_git_diff = project_config.get("useGitDiff", True)
+            self.ai_builder_dir = os.path.join(os.getcwd(), "ai_builder", project_config["id"])
+        else:
+            self.root_directory = Config.get_root_directory()
+            self.ai_builder_dir = Config.get_ai_builder_dir(self.root_directory)
+            self.use_git_diff = Config.get_use_git_diff()
+
+        os.makedirs(self.ai_builder_dir, exist_ok=True)
 
         self.response_file = os.path.join(self.ai_builder_dir, "current_response.txt")
-        os.makedirs(self.ai_builder_dir, exist_ok=True)
+
         logging.basicConfig(
             level=logging.INFO,
             format='%(asctime)s - %(levelname)s - %(message)s',
             handlers=[
-                logging.FileHandler(Config.get_log_file_path(self.root_directory)),
+                logging.FileHandler(Config.get_log_file_path(self.root_directory) if not self.clean_mode else os.path.join(self.ai_builder_dir, "log.txt")),
                 logging.StreamHandler()
             ]
         )
@@ -364,17 +388,31 @@ class AIBuilder:
 
     def run_pre_post_scripts(self, script_name: str) -> None:
         try:
-            script_path = os.path.join(os.getcwd(), script_name)
-            if not os.path.exists(script_path):
-                raise FileNotFoundError(f"Script {script_name} not found.")
-            # Determine correct PowerShell executable
-            if platform.system() == "Windows":
-                powershell = "powershell"
+            if self.clean_mode:
+                script_content = (
+                    self.project_config.get("preScript", "")
+                    if script_name == "pre.ps1"
+                    else self.project_config.get("postScript", "")
+                )
+                if not script_content.strip():
+                    return
+                temp_script_path = os.path.join(self.ai_builder_dir, f"{script_name}_{uuid.uuid4().hex}.ps1")
+                with open(temp_script_path, "w", encoding="utf-8") as f:
+                    f.write(script_content)
+                powershell = "powershell" if platform.system() == "Windows" else "pwsh"
+                subprocess.run([powershell, "-File", temp_script_path], check=True)
+                logging.info(f"Successfully executed {script_name} (clean mode)")
+                os.remove(temp_script_path)
             else:
-                powershell = "pwsh"
-
-            subprocess.run([powershell, "-File", script_path], check=True)
-            logging.info(f"Successfully executed {script_name}")
+                script_path = os.path.join(os.getcwd(), script_name)
+                if not os.path.exists(script_path):
+                    raise FileNotFoundError(f"Script {script_name} not found.")
+                if platform.system() == "Windows":
+                    powershell = "powershell"
+                else:
+                    powershell = "pwsh"
+                subprocess.run([powershell, "-File", script_path], check=True)
+                logging.info(f"Successfully executed {script_name}")
         except subprocess.CalledProcessError as e:
             logging.error(f"Failed to execute {script_name}: {e}")
             raise
@@ -397,69 +435,8 @@ class AIBuilder:
             logging.error(f"Error cleaning up backup files: {e}")
             raise
 
-    def run(self) -> None:
-        try:
-            base_config_path = os.path.join("base_config.xml")
-            user_config_path = os.path.join(self.ai_builder_dir, "user_config.xml")
-            shutil.copy(base_config_path, user_config_path)
-            logging.info("Copied base_config.xml to user_config.xml")
-            pre_script_path = os.path.join(self.root_directory, "pre.ps1")
-            post_script_path = os.path.join(self.root_directory, "post.ps1")
-            instructions_path = os.path.join(self.root_directory, "instructions.txt")
-            if not all(os.path.exists(path) for path in [pre_script_path, post_script_path, instructions_path]):
-                raise FileNotFoundError("Pre script, post script, or instructions file not found.")
-
-            os.chdir(self.root_directory)
-            logging.info(f"Changed working directory to: {self.root_directory}")
-            self.utility = CodeUtility(self.root_directory)
-            config = ET.parse(user_config_path).getroot()
-            iterations = int(config.find('iterations').text)
-            mode = config.find('mode').text
-            patterns = [pattern.text for pattern in config.findall('patterns/pattern')]
-            actions_file_path = os.path.join(self.ai_builder_dir, "actions.txt")
-
-            for iteration in range(iterations):
-                logging.info(f"Starting iteration {iteration + 1}")
-                self.run_pre_post_scripts("pre.ps1")
-                try:
-                    modifications_format_path = os.path.join(self.ai_builder_dir, "modifications.txt")
-                    if not os.path.exists(modifications_format_path):
-                        if os.path.exists(self.utility.output_file):
-                            os.remove(self.utility.output_file)
-                        if self.use_git_diff:
-                            logging.info("use_git_diff enabled — collecting files from git diff instead of walking directory.")
-                            diff_files = self.get_git_diff_files()
-                            if os.path.exists(self.utility.output_file):
-                                os.remove(self.utility.output_file)
-                            for rel_path in diff_files:
-                                abs_path = os.path.join(self.root_directory, rel_path)
-                                if not os.path.isfile(abs_path):
-                                    continue
-                                try:
-                                    with open(abs_path, 'r', encoding='utf-8') as f:
-                                        content = f.read()
-                                    with open(self.utility.output_file, 'a', encoding='utf-8') as out_file:
-                                        out_file.write(f"\n### {rel_path}\n```\n{content}\n```\n")
-                                except Exception as e:
-                                    logging.warning(f"Skipped unreadable diff file: {rel_path} - Error: {e}")
-                        else:
-                            self.utility.process_directory(self.root_directory, [], patterns, mode)
-
-                        if not os.path.exists(self.utility.output_file):
-                            logging.warning("output.txt was not created by process_directory.")
-                            continue
-
-                        if Config.generate_output_only():
-                            return
-
-                        with open(self.utility.output_file, 'r', encoding='utf-8') as file:
-                            current_code = file.read()
-                        logging.info("Successfully read output.txt")
-                        with open('instructions.txt', 'r', encoding='utf-8') as file:
-                            instructions = file.read()
-                        logging.info("Successfully read instructions.txt")
-
-                        prompt = f"""
+    def build_prompt(self, current_code: str, instructions: str) -> str:
+        return f"""
 Generate a line-delimited format file that describes file modifications to apply using the `create_file`, `remove_file`, `replace_file`, and `replace_section` action types.
 Ensure all content is provided using line-delimited format-compatible entities.
 Focus on small, specific sections of code rather than large blocks.
@@ -515,109 +492,153 @@ Instructions:
 Reply ONLY in the specified format with no commentary. THAT'S AN ORDER, SOLDIER!
 """
 
-                        use_local_model = Config.use_local_model()
-                        if use_local_model:
-                            model_path = Config.get_model_path()
-                            if not model_path:
-                                logging.error("MODEL_PATH environment variable not set for local model.")
-                                raise ValueError("MODEL_PATH environment variable not set.")
+    def run_model(self, prompt: str) -> str:
+        response_content = ""
+        if Config.use_local_model():
+            model_path = Config.get_model_path()
+            if not model_path:
+                raise ValueError("MODEL_PATH environment variable not set for local model.")
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            llama_binary = os.path.join(base_dir, "llama.cpp", "build", "bin", "llama-completion")
+            if not os.path.isfile(llama_binary):
+                raise FileNotFoundError(f"llama binary not found at: {llama_binary}")
+            ticks = int(time.time() * 1000)
+            filename = os.path.join(self.ai_builder_dir, f"aibuilder_prompt_{ticks}.txt")
+            with open(filename, "w", encoding='utf-8') as f:
+                f.write(prompt)
+            cmd = [
+                llama_binary,
+                "-m", model_path,
+                "-f", filename,
+                "--temp", str(Config.get_temperature()),
+                "--top-p", str(Config.get_top_p()),
+                "--top-k", str(Config.get_top_k()),
+                "--min-p", str(Config.get_min_p()),
+                "-n", str(Config.get_output_tokens()),
+                "--ctx-size", str(Config.get_model_context()),
+                "--jinja",
+                "--no-display-prompt",
+                "-st"
+            ]
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                bufsize=1
+            )
+            current_iteration = 0
+            while True:
+                token = process.stdout.read(1)
+                if current_iteration % 100 == 0 or not token:
+                    with open(self.response_file, 'w', encoding='utf-8') as response_log:
+                        response_log.write(response_content)
+                if not token:
+                    os.remove(filename)
+                    break
+                response_content += token
+                current_iteration += 1
+            process.wait()
+        else:
+            endpoint = self.project_config["modelConfig"]["endpoint"] if self.clean_mode else Config.get_endpoint()
+            model_name = self.project_config["modelConfig"]["modelName"] if self.clean_mode else Config.get_model_name()
+            api_key = self.project_config["modelConfig"]["apiKey"] if self.clean_mode else Config.get_api_key()
+            verify_ssl = Config.verify_ssl()
+            if not all([endpoint, model_name, api_key]):
+                logging.error("Missing one or more required environment variables: ENDPOINT, MODEL_NAME, API_KEY")
+                raise ValueError("Missing required environment variables.")
+            client = ChatCompletionsClient(
+                endpoint=endpoint,
+                credential=AzureKeyCredential(api_key),
+                api_version="2024-05-01-preview",
+                connection_verify=verify_ssl
+            )
+            response = client.complete(
+                stream=True,
+                messages=[
+                    SystemMessage(content="You are a helpful assistant."),
+                    UserMessage(content=prompt)
+                ],
+                max_tokens=Config.get_output_tokens(),
+                model=model_name
+            )
+            current_iteration = 0
+            try:
+                for update in response:
+                    if update.choices and isinstance(update.choices, list) and len(update.choices) > 0:
+                        content = update.choices[0].get("delta", {}).get("content", "")
+                        if content is not None:
+                            response_content += content
+                        if current_iteration % 100 == 0:
+                            with open(self.response_file, 'w', encoding='utf-8') as response_log:
+                                response_log.write(response_content)
+                        current_iteration += 1
+                    else:
+                        break
+            finally:
+                response.close()
+        logging.info("Successfully obtained response from client.")
+        return response_content
 
-                            BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-                            llama_binary = os.path.join(BASE_DIR, "llama.cpp", "build", "bin", "llama-completion")
+    def run(self) -> None:
+        try:
+            if self.clean_mode:
+                iterations = self.project_config.get("iterations", 1)
+                mode = self.project_config.get("mode", "include")
+                patterns = self.project_config.get("includePatterns", [])
+                exclude_patterns = self.project_config.get("excludePatterns", [])
+                instructions = self.project_config.get("instructions", "")
+            else:
+                base_config_path = os.path.join("base_config.xml")
+                user_config_path = os.path.join(self.ai_builder_dir, "user_config.xml")
+                shutil.copy(base_config_path, user_config_path)
+                logging.info("Copied base_config.xml to user_config.xml")
+                os.chdir(self.root_directory)
+                logging.info(f"Changed working directory to: {self.root_directory}")
+                config = ET.parse(user_config_path).getroot()
+                iterations = int(config.find('iterations').text)
+                mode = config.find('mode').text
+                patterns = [pattern.text for pattern in config.findall('patterns/pattern')]
+                exclude_patterns = []
+                with open('instructions.txt', 'r', encoding='utf-8') as file:
+                    instructions = file.read()
+                logging.info("Successfully read instructions.txt")
 
-                            if not os.path.isfile(llama_binary):
-                                raise FileNotFoundError(f"llama binary not found at: {llama_binary}")
+            self.utility = CodeUtility(self.root_directory, self.ai_builder_dir)
+            actions_file_path = os.path.join(self.ai_builder_dir, "actions.txt")
 
-                            ticks = int(time.time() * 1000)
-                            filename = f"aibuilder_prompt_{ticks}.txt"
-                            with open(filename, "w", encoding='utf-8') as f:
-                                f.write(prompt)
-
-                            cmd = [
-                                llama_binary,
-                                "-m", model_path,
-                                "-f", filename,
-                                "--temp", str(Config.get_temperature()),
-                                "--top-p", str(Config.get_top_p()),
-                                "--top-k", str(Config.get_top_k()),
-                                "--min-p", str(Config.get_min_p()),
-                                "-n", str(Config.get_output_tokens()),
-                                "--ctx-size", str(Config.get_model_context()),
-                                "--jinja",
-                                "--no-display-prompt",
-                                "-st"
-                            ]
-
-                            process = subprocess.Popen(
-                                cmd,
-                                stdout=subprocess.PIPE,
-                                stderr=subprocess.PIPE,
-                                text=True,
-                                bufsize=1
-                            )
-
-                            response_content = ""
-                            current_iteration = 0
-
-                            while True:
-                                token = process.stdout.read(1)
-                                if current_iteration % 100 == 0 or not token:
-                                    with open(self.response_file, 'w', encoding='utf-8') as response_log:
-                                        response_log.write(response_content)
-                                if not token:
-                                    os.remove(filename)
-                                    break
-                                response_content += token
-                                current_iteration += 1
-                            process.wait()
+            for iteration in range(iterations):
+                logging.info(f"Starting iteration {iteration + 1}")
+                self.run_pre_post_scripts("pre.ps1")
+                try:
+                    modifications_format_path = os.path.join(self.ai_builder_dir, "modifications.txt")
+                    if os.path.exists(modifications_format_path):
+                        with open(modifications_format_path, 'r', encoding='utf-8') as modifications_file:
+                            response_content = modifications_file.read()
+                    else:
+                        if os.path.exists(self.utility.output_file):
+                            os.remove(self.utility.output_file)
+                        if self.use_git_diff:
+                            logging.info("use_git_diff enabled — collecting files from git diff instead of walking directory.")
+                            diff_files = self.get_git_diff_files()
+                            self.utility.collect_files(diff_files)
                         else:
-                            endpoint = Config.get_endpoint()
-                            model_name = Config.get_model_name()
-                            api_key = Config.get_api_key()
-                            verify_ssl = Config.verify_ssl()
-                            if not all([endpoint, model_name, api_key]):
-                                logging.error("Missing one or more required environment variables: ENDPOINT, MODEL_NAME, API_KEY")
-                                raise ValueError("Missing required environment variables.")
-                            client = ChatCompletionsClient(
-                                endpoint=endpoint,
-                                credential=AzureKeyCredential(api_key),
-                                api_version="2024-05-01-preview",
-                                connection_verify=verify_ssl
-                            )
-                            response = client.complete(
-                                stream=True,
-                                messages=[
-                                    SystemMessage(content="You are a helpful assistant."),
-                                    UserMessage(content=prompt)
-                                ],
-                                max_tokens=Config.get_output_tokens(),
-                                model=model_name
-                            )
-                            response_content = ""
-                            current_iteration = 0
+                            self.utility.process_directory(self.root_directory, exclude_patterns, patterns, mode)
 
-                            try:
-                                for update in response:
-                                    if update.choices and isinstance(update.choices, list) and len(update.choices) > 0:
-                                        content = update.choices[0].get("delta", {}).get("content", "")
-                                        if content is not None:
-                                            response_content += content
-                                        if current_iteration % 100 == 0:
-                                            with open(self.response_file, 'w', encoding='utf-8') as response_log:
-                                                response_log.write(response_content)
-                                        current_iteration += 1
-                                    else:
-                                        break
-                            finally:
-                                response.close()
+                        if not os.path.exists(self.utility.output_file):
+                            logging.warning("output.txt was not created by process_directory.")
+                            continue
 
-                        logging.info("Successfully obtained response from client.")
+                        with open(self.utility.output_file, 'r', encoding='utf-8') as file:
+                            current_code = file.read()
+                        logging.info("Successfully read output.txt")
+
+                        prompt = self.build_prompt(current_code, instructions)
+                        response_content = self.run_model(prompt)
+
                         with open(modifications_format_path, 'w', encoding='utf-8') as modifications_file:
                             modifications_file.write(response_content)
                         logging.info(f"Successfully wrote modifications file to {modifications_format_path}")
-                    else:
-                        with open(modifications_format_path, 'r', encoding='utf-8') as modifications_file:
-                            response_content = modifications_file.read()
 
                     if not Config.generate_but_do_not_apply():
                         changes = FileParser.parse_custom_format(response_content)
