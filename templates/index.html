@@ -112,36 +112,23 @@
                 <label>ROOT DIRECTORY</label>
                 <input name="rootDirectory" required placeholder="C:\dev\myapp">
                 
+                <label>LOAD FILES FOR SELECTION</label>
                 <div class="flex-row">
-                    <div style="flex:1">
-                        <label>INCLUDE PATTERN PATH</label>
-                        <input id="include-path" placeholder="C:\dev\myapp\src">
-                        <button type="button" onclick="loadFileTree('include')">LOAD INCLUDE TREE</button>
-                    </div>
-                    <div style="flex:1">
-                        <label>EXCLUDE PATTERN PATH</label>
-                        <input id="exclude-path" placeholder="C:\dev\myapp\tests">
-                        <button type="button" onclick="loadFileTree('exclude')">LOAD EXCLUDE TREE</button>
-                    </div>
+                    <input id="root-path" placeholder="C:\dev\myapp" style="flex:1">
+                    <button type="button" onclick="loadFileTree()" style="flex:0 0 auto; margin-top:5px;">LOAD</button>
                 </div>
 
-                <label>SELECTED INCLUDE PATTERNS (comma sep)</label>
-                <textarea id="include-patterns-display" rows="4" readonly></textarea>
-                <input type="hidden" name="includePatterns" id="include-patterns-input">
-
-                <label>SELECTED EXCLUDE PATTERNS (comma sep)</label>
-                <textarea id="exclude-patterns-display" rows="4" readonly></textarea>
-                <input type="hidden" name="excludePatterns" id="exclude-patterns-input">
-
-                <div id="file-tree-container"></div>
                 <div class="selector-controls">
                     <button type="button" onclick="selectAll()">SELECT ALL</button>
                     <button type="button" onclick="deselectAll()">DESELECT ALL</button>
-                    <button type="button" onclick="selectFiltered()">SELECT FILTERED</button>
-                    <button type="button" onclick="deselectFiltered()">DESELECT FILTERED</button>
-                    <button type="button" onclick="toggleFilter()">TOGGLE FILTER</button>
                 </div>
-                <input type="text" id="tree-search" placeholder="Search files/folders..." oninput="filterTree()" style="display:none;">
+                <input type="text" id="tree-search" placeholder="Search files/folders..." oninput="filterTree()">
+                
+                <div id="file-tree-container"></div>
+
+                <label>SELECTED PATHS (comma sep)</label>
+                <textarea id="patterns-display" rows="6" readonly></textarea>
+                <input type="hidden" name="includePatterns" id="patterns-input">
 
                 <label>USE GIT DIFF (true/false)</label>
                 <input name="useGitDiff" value="true">
@@ -149,12 +136,6 @@
                 <input name="iterations" value="1" type="number">
                 <label>MODE (include/exclude)</label>
                 <input name="mode" value="include">
-                <label>MODEL ENDPOINT</label>
-                <input name="endpoint" placeholder="https://...">
-                <label>MODEL NAME</label>
-                <input name="modelName" placeholder="gpt-4o">
-                <label>API KEY</label>
-                <input name="apiKey" placeholder="">
                 <button type="submit">CREATE PROJECT</button>
             </form>
         </div>
@@ -170,26 +151,18 @@
                 <input name="rootDirectory" value="{{selected['rootDirectory']}}">
                 <label>2. WHICH FILES/FOLDERS SHOULD BE INCLUDED?</label>
                 <input name="includePatterns" value="{{selected['includePatterns']|join(',')}}">
-                <label>3. WHICH FILES/FOLDERS SHOULD BE EXCLUDED?</label>
-                <input name="excludePatterns" value="{{selected['excludePatterns']|join(',')}}">
-                <label>4. SHOULD WE USE GIT DIFF? (true/false)</label>
+                <label>3. SHOULD WE USE GIT DIFF? (true/false)</label>
                 <input name="useGitDiff" value="{{selected['useGitDiff']}}">
-                <label>5. HOW MANY ITERATIONS?</label>
+                <label>4. HOW MANY ITERATIONS?</label>
                 <input name="iterations" value="{{selected['iterations']}}">
-                <label>6. MODE (include/exclude)</label>
+                <label>5. MODE (include/exclude)</label>
                 <input name="mode" value="{{selected['mode']}}">
-                <label>7. INSTRUCTIONS FOR AI BUILDER</label>
+                <label>6. INSTRUCTIONS FOR AI BUILDER</label>
                 <textarea name="instructions" rows="8">{{selected['instructions']}}</textarea>
-                <label>8. PRE-SCRIPT (BEFORE EACH ITERATION)</label>
+                <label>7. PRE-SCRIPT (BEFORE EACH ITERATION)</label>
                 <textarea name="preScript" rows="4">{{selected['preScript']}}</textarea>
-                <label>9. POST-SCRIPT (AFTER EACH ITERATION)</label>
+                <label>8. POST-SCRIPT (AFTER EACH ITERATION)</label>
                 <textarea name="postScript" rows="4">{{selected['postScript']}}</textarea>
-                <label>10. MODEL ENDPOINT</label>
-                <input name="endpoint" value="{{selected['modelConfig']['endpoint']}}">
-                <label>11. MODEL NAME</label>
-                <input name="modelName" value="{{selected['modelConfig']['modelName']}}">
-                <label>12. API KEY</label>
-                <input name="apiKey" value="{{selected['modelConfig']['apiKey']}}">
                 <button type="submit">SAVE INTERVIEW ANSWERS</button>
             </form>
             <form method="POST" action="/run">

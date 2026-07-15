@@ -540,10 +540,20 @@ Reply ONLY in the specified format with no commentary. THAT'S AN ORDER, SOLDIER!
                 current_iteration += 1
             process.wait()
         else:
-            endpoint = self.project_config["modelConfig"]["endpoint"] if self.clean_mode else Config.get_endpoint()
-            model_name = self.project_config["modelConfig"]["modelName"] if self.clean_mode else Config.get_model_name()
-            api_key = self.project_config["modelConfig"]["apiKey"] if self.clean_mode else Config.get_api_key()
+            endpoint = (
+                self.project_config["modelConfig"].get("endpoint") if self.clean_mode else Config.get_endpoint()
+            )
+            model_name = (
+                self.project_config["modelConfig"].get("modelName") if self.clean_mode else Config.get_model_name()
+            )
+            api_key = (
+                self.project_config["modelConfig"].get("apiKey") if self.clean_mode else Config.get_api_key()
+            )
             verify_ssl = Config.verify_ssl()
+            if self.clean_mode:
+                endpoint = endpoint or Config.get_endpoint()
+                model_name = model_name or Config.get_model_name()
+                api_key = api_key or Config.get_api_key()
             if not all([endpoint, model_name, api_key]):
                 logging.error("Missing one or more required environment variables: ENDPOINT, MODEL_NAME, API_KEY")
                 raise ValueError("Missing required environment variables.")
