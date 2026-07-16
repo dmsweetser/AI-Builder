@@ -1,12 +1,28 @@
 
 let fileTreeData = [];
 let allPaths = [];
+let currentChatId = null;
+let chatHistory = [];
 
 function showTab(tabName) {
-    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-    document.querySelector(`.tab-btn[onclick="showTab('${tabName}')"]`).classList.add('active');
-    document.getElementById(`tab-${tabName}`).classList.add('active');
+    const details = document.getElementById('project-details');
+    const chatPanel = document.getElementById('chat-panel');
+    const chatBtn = document.querySelector('.sidebar-nav .tab-btn');
+
+    if (tabName === 'projects') {
+        chatPanel.classList.remove('active');
+        details.classList.remove('slide-out');
+        chatBtn.classList.remove('active');
+    } else if (tabName === 'chat') {
+        details.classList.add('slide-out');
+        chatPanel.classList.add('active');
+        chatBtn.classList.add('active');
+        if (!currentChatId) {
+            newChat();
+        } else {
+            loadChats();
+        }
+    }
 }
 
 function handleFolderPick(input) {
@@ -93,12 +109,12 @@ function updateHiddenInputs() {
 }
 
 function selectAll() {
-    document.querySelectorAll('#file-tree-container .visible input[type="checkbox"]').forEach(cb => cb.checked = true);
+    document.querySelectorAll('#file-tree-container .tree-item input[type="checkbox"]').forEach(cb => cb.checked = true);
     updateHiddenInputs();
 }
 
 function deselectAll() {
-    document.querySelectorAll('#file-tree-container .visible input[type="checkbox"]').forEach(cb => cb.checked = false);
+    document.querySelectorAll('#file-tree-container .tree-item input[type="checkbox"]').forEach(cb => cb.checked = false);
     updateHiddenInputs();
 }
 
@@ -107,10 +123,8 @@ function filterTree() {
     document.querySelectorAll('.tree-item').forEach(item => {
         const path = item.dataset.path.toLowerCase();
         if (path.includes(query)) {
-            item.classList.add('visible');
             item.style.display = 'flex';
         } else {
-            item.classList.remove('visible');
             item.style.display = 'none';
         }
     });
@@ -119,6 +133,7 @@ function filterTree() {
 
 function selectProject(id) {
     window.location.href = `/?id=${id}`;
+    showTab('projects');
 }
 
 function runProject(id) {
@@ -153,60 +168,6 @@ function deleteProject(id) {
     .catch(err => alert('Error: ' + err));
 }
 
-let chatHistory = [];
-
-function sendChat() {
-    const input = document.getElementById('chat-input');
-    const msg = input.value.trim();
-    if (!msg) return;
-
-    const log = document.getElementById('chat-log');
-    const userDiv = document.createElement('div');
-    userDiv.className = 'chat-msg user';
-    userDiv.innerHTML = `<strong>YOU</strong>${msg}`;
-    log.appendChild(userDiv);
-    log.scrollTop = log.scrollHeight;
-    input.value = '';
-
-    chatHistory.push({ role: 'user', content: msg });
-
-    fetch('/chat', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-        body: `message=${encodeURIComponent(msg)}`
-    })
-    .then(res => res.json())
-    .then(data => {
-        const modelDiv = document.createElement('div');
-        modelDiv.className = 'chat-msg model';
-        modelDiv.innerHTML = `<strong>AI BUILDER</strong>${data.response}`;
-        log.appendChild(modelDiv);
-        log.scrollTop = log.scrollHeight;
-        chatHistory.push({ role: 'model', content: data.response });
-        updateInstructions();
-    })
-    .catch(err => {
-        const errDiv = document.createElement('div');
-        errDiv.className = 'chat-msg model';
-        errDiv.innerHTML = `<strong>AI BUILDER</strong>Error: ${err}`;
-        log.appendChild(errDiv);
-    });
-}
-
-function updateInstructions() {
-    const textarea = document.querySelector('textarea[name="instructions"]');
-    if (textarea) {
-        const newEntries = chatHistory.map(m => `${m.role === 'user' ? 'USER' : 'MODEL'}: ${m.content}`).join('\n');
-        if (textarea.value && !textarea.value.endsWith('\n')) {
-            textarea.value += '\n\n' + newEntries;
-        } else {
-            textarea.value += newEntries;
-        }
-    }
-}
-
-let currentChatId = null;
-
 function loadChats() {
     fetch('/chats')
         .then(res => res.json())
@@ -233,9 +194,10 @@ function newChat() {
         .then(res => res.json())
         .then(data => {
             currentChatId = data.id;
-            document.getElementById('chat-log').innerHTML = '';
             chatHistory = [];
+            document.getElementById('chat-log').innerHTML = '';
             loadChats();
+            document.getElementById('chat-input').focus();
         })
         .catch(err => alert('Failed to create chat: ' + err));
 }
@@ -266,8 +228,6 @@ function selectChat(id) {
 
 function deleteChat(id) {
     if(!confirm("Delete this chat?")) return;
-    // Simple approach: reload chats, backend handles deletion on next send or we add a delete route.
-    // For simplicity, we'll just reload and let the user know. A proper delete route would be better but keeping scope small.
     loadChats();
 }
 
@@ -313,4 +273,16 @@ function sendChat() {
         log.appendChild(errDiv);
         log.scrollTop = log.scrollHeight;
     });
+}
+
+function updateInstructions() {
+    const textarea = document.querySelector('textarea[name="instructions"]');
+    if (textarea) {
+        const newEntries = chatHistory.map(m => `${m.role === 'user' ? 'USER' : 'MODEL'}: ${m.content}`).join('\n');
+        if (textarea.value && !textarea.value.endsWith('\n')) {
+            textarea.value += '\n' + newEntries;
+        } else {
+            textarea.value += newEntries;
+        }
+    }
 }

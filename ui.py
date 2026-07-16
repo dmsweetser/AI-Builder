@@ -2,7 +2,7 @@ import os
 import json
 from uuid import uuid4
 import uuid
-from flask import Flask, request, jsonify, render_template
+from flask import Flask, redirect, request, jsonify, render_template
 from ai_builder import AIBuilder
 from config import Config
 
@@ -93,7 +93,7 @@ def add():
 
     projects.append(project)
     save_projects(projects)
-    return jsonify({"status": "created", "id": pid})
+    return redirect(f"/?id={pid}")
 
 
 @app.route("/save", methods=["POST"])
