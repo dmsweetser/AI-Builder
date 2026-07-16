@@ -7,5 +7,4 @@ output.txt
 llama.cpp/*
 llama.cpp
 instructions.txt
-projects.json
-ui_results.txt
+instance/*

@@ -12,8 +12,12 @@ from azure.core.credentials import AzureKeyCredential
 
 app = Flask(__name__)
 
-PROJECTS_FILE = "projects.json"
+PROJECTS_FILE = "instance/projects.json"
 CHATS_DIR = "instance/chats"
+
+# Ensure required directories exist on startup
+os.makedirs(CHATS_DIR, exist_ok=True)
+os.makedirs(os.path.dirname(PROJECTS_FILE), exist_ok=True)
 
 # ---------- Helpers ----------
 def load_projects():
@@ -166,6 +170,7 @@ def list_chats():
 
 @app.route("/chat/new", methods=["POST"])
 def new_chat():
+    os.makedirs(CHATS_DIR, exist_ok=True)
     chat_id = str(uuid.uuid4())
     chat_path = os.path.join(CHATS_DIR, f"{chat_id}.json")
     with open(chat_path, "w", encoding="utf-8") as f:
@@ -174,6 +179,7 @@ def new_chat():
 
 @app.route("/chat/select", methods=["POST"])
 def select_chat():
+    os.makedirs(CHATS_DIR, exist_ok=True)
     chat_id = request.form.get("chat_id")
     chat_path = os.path.join(CHATS_DIR, f"{chat_id}.json")
     if not os.path.exists(chat_path):
@@ -189,6 +195,7 @@ def chat_send():
     if not chat_id:
         return jsonify({"error": "Missing chat_id"}), 400
     
+    os.makedirs(CHATS_DIR, exist_ok=True)
     chat_path = os.path.join(CHATS_DIR, f"{chat_id}.json")
     if not os.path.exists(chat_path):
         return jsonify({"error": "Chat not found"}), 404

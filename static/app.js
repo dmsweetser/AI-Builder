@@ -5,31 +5,25 @@ let currentChatId = null;
 let chatHistory = [];
 
 function showTab(tabName) {
-    const details = document.getElementById('project-details');
+    const projectsPanel = document.getElementById('projects-panel');
     const chatPanel = document.getElementById('chat-panel');
-    const chatBtn = document.querySelector('.sidebar-nav .tab-btn');
-
+    const tabs = document.querySelectorAll('.sidebar-nav .tab-btn');
+    
+    tabs.forEach(t => t.classList.remove('active'));
+    
     if (tabName === 'projects') {
+        projectsPanel.classList.add('active');
         chatPanel.classList.remove('active');
-        details.classList.remove('slide-out');
-        chatBtn.classList.remove('active');
+        document.querySelector('.sidebar-nav button:nth-child(1)').classList.add('active');
     } else if (tabName === 'chat') {
-        details.classList.add('slide-out');
+        projectsPanel.classList.remove('active');
         chatPanel.classList.add('active');
-        chatBtn.classList.add('active');
+        document.querySelector('.sidebar-nav button:nth-child(2)').classList.add('active');
         if (!currentChatId) {
             newChat();
         } else {
             loadChats();
         }
-    }
-}
-
-function handleFolderPick(input) {
-    if (input.files && input.files.length > 0) {
-        const path = input.files[0].webkitRelativePath.split('/')[0];
-        document.getElementById('root-path').value = path;
-        loadFileTree();
     }
 }
 
