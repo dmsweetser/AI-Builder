@@ -149,59 +149,93 @@
         </aside>
         <main class="main-content">
             <div id="projects-panel" class="panel active">
-                {% if selected %}
+                <div class="sidebar-section" id="projects-list-section">
+                    <h2>PROJECT LIST</h2>
+                    <div class="project-list" id="project-list">
+                        {% for p in projects %}
+                        <div class="project-item" id="proj-{{p['id']}}" onclick="selectProject('{{p['id']}}')">
+                            <div class="project-item-header">
+                                <span class="project-item-name">{{ p['name'] }}</span>
+                                <div class="project-item-actions">
+                                    <button class="btn-sm" onclick="event.stopPropagation(); runProject('{{p['id']}}')">Run</button>
+                                    <button class="btn-sm delete" onclick="event.stopPropagation(); deleteProject('{{p['id']}}')">Del</button>
+                                </div>
+                            </div>
+                            <span style="color: #ccc; font-size: 8px;">{{ p['rootDirectory'] }}</span>
+                        </div>
+                        {% endfor %}
+                        {% if not projects %}
+                        <div class="note">NO PROJECTS FOUND.<br>ADD ONE BELOW.</div>
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="sidebar-section" id="add-section">
+                    <h2>ADD PROJECT</h2>
+                    <form method="POST" action="/add" id="add-project-form">
+                        <label>PROJECT NAME</label>
+                        <input name="name" required placeholder="My Cool Project">
+                        <label>ROOT DIRECTORY</label>
+                        <input type="text" id="root-path" required placeholder="e.g., /home/user/project">
+                        <div class="selector-controls">
+                            <button type="button" id="load-tree-btn" onclick="loadFileTree()">LOAD TREE</button>
+                            <button type="button" onclick="selectAll()">SELECT ALL</button>
+                            <button type="button" onclick="deselectAll()">DESELECT ALL</button>
+                        </div>
+                        <input type="text" id="tree-search" placeholder="Search files/folders..." oninput="filterTree()">
+                        <div id="file-tree-container"></div>
+                        <label>SELECTED PATHS (comma sep)</label>
+                        <textarea id="patterns-display" rows="6" readonly></textarea>
+                        <input type="hidden" name="rootDirectory" id="root-path-hidden" required>
+                        <input type="hidden" name="includePatterns" id="patterns-input">
+                        <input type="hidden" name="mode" value="include">
+                        <input type="hidden" name="iterations" value="1">
+                        <button type="submit">CREATE PROJECT</button>
+                    </form>
+                </div>
+            </div>
+            <div id="project-details-panel" class="panel">
                 <div class="block">
-                    <h2>INTERVIEW – {{selected['name']}}</h2>
+                    <button class="btn-sm" onclick="goBackToProjects()" style="margin-bottom:10px;">← BACK TO PROJECTS</button>
+                    <h2>INTERVIEW – <span id="details-project-name"></span></h2>
                     <p class="note">ANSWER THESE BLOCKS LIKE AN INTERVIEW. AI BUILDER WILL USE THEM WITHOUT DIRTYING THE TARGET DIRECTORY.</p>
-                    <form method="POST" action="/save">
-                        <input type="hidden" name="id" value="{{selected['id']}}">
+                    <form method="POST" action="/save" id="project-details-form">
+                        <input type="hidden" name="id" id="details-project-id">
                         <div class="form-grid">
                             <div>
                                 <label>1. PROJECT LOCATION</label>
-                                <input name="rootDirectory" value="{{selected['rootDirectory']}}">
+                                <input name="rootDirectory" id="details-root-dir" required>
                             </div>
                             <div>
                                 <label>2. INCLUDED FILES/FOLDERS</label>
-                                <input name="includePatterns" value="{{selected['includePatterns']|join(',')}}">
+                                <input name="includePatterns" id="details-patterns">
                             </div>
                         </div>
                         <div class="form-grid">
                             <div>
                                 <label>3. ITERATIONS</label>
-                                <input name="iterations" value="1" readonly>
-                            </div>
-                            <div>
-                                <label>4. MODE</label>
-                                <input name="mode" value="include" readonly>
+                                <input name="iterations" id="details-iterations" value="1" readonly>
                             </div>
                         </div>
-                        <label>5. INSTRUCTIONS FOR AI BUILDER</label>
-                        <textarea name="instructions" rows="8">{{selected['instructions']}}</textarea>
+                        <label>4. INSTRUCTIONS FOR AI BUILDER</label>
+                        <textarea name="instructions" id="details-instructions" rows="8"></textarea>
                         <div class="form-grid">
                             <div>
-                                <label>6. PRE-SCRIPT</label>
-                                <textarea name="preScript" rows="4">{{selected['preScript']}}</textarea>
+                                <label>5. PRE-SCRIPT</label>
+                                <textarea name="preScript" id="details-pre-script" rows="4"></textarea>
                             </div>
                             <div>
-                                <label>7. POST-SCRIPT</label>
-                                <textarea name="postScript" rows="4">{{selected['postScript']}}</textarea>
+                                <label>6. POST-SCRIPT</label>
+                                <textarea name="postScript" id="details-post-script" rows="4"></textarea>
                             </div>
                         </div>
-                        <button type="submit">SAVE INTERVIEW ANSWERS</button>
-                        <button type="button" onclick="deleteProject('{{selected['id']}}')" style="background:#a03030; margin-top:10px;">DELETE PROJECT</button>
+                        <button type="button" onclick="deleteProject(document.getElementById('details-project-id').value)" style="background:#a03030; margin-top:10px;">DELETE PROJECT</button>
                     </form>
-                    <form method="POST" action="/run" style="margin-top:10px;">
-                        <input type="hidden" name="id" value="{{selected['id']}}">
+                    <form method="POST" action="/run" id="run-project-form">
+                        <input type="hidden" name="id" id="run-project-id">
                         <button type="submit" class="run-btn">RUN AI BUILDER (CLEAN MODE)</button>
                     </form>
                     <p class="note">REVISE INSTRUCTIONS & SCRIPTS, THEN RE-RUN AS MANY TIMES AS YOU LIKE.</p>
                 </div>
-                {% else %}
-                <div class="block">
-                    <h2>NO PROJECT SELECTED</h2>
-                    <p class="note">SELECT A PROJECT ON THE LEFT OR CREATE A NEW ONE.</p>
-                </div>
-                {% endif %}
             </div>
             <div id="chat-panel" class="panel">
                 <div class="block">

@@ -126,8 +126,40 @@ function filterTree() {
 }
 
 function selectProject(id) {
+    fetch(`/api/files?path=./`) // Trigger panel switch logic without full reload
+        .then(() => {
+            const projectPanel = document.getElementById('projects-panel');
+            const detailsPanel = document.getElementById('project-details-panel');
+            
+            projectPanel.classList.remove('active');
+            setTimeout(() => {
+                projectPanel.style.display = 'none';
+                detailsPanel.style.display = 'block';
+                setTimeout(() => detailsPanel.classList.add('active'), 10);
+            }, 300);
+            
+            populateProjectDetails(id);
+        });
+}
+
+function goBackToProjects() {
+    const projectPanel = document.getElementById('projects-panel');
+    const detailsPanel = document.getElementById('project-details-panel');
+    
+    detailsPanel.classList.remove('active');
+    setTimeout(() => {
+        detailsPanel.style.display = 'none';
+        projectPanel.style.display = 'block';
+        setTimeout(() => projectPanel.classList.add('active'), 10);
+    }, 300);
+}
+
+function populateProjectDetails(id) {
+    // Fetch project details from server or use existing form data if available
+    // For simplicity, we'll reload the page with the ID to get initial state, 
+    // but since we want SPA-like behavior, we'll fetch via a new route or use existing data.
+    // To keep it simple and robust with existing backend:
     window.location.href = `/?id=${id}`;
-    showTab('projects');
 }
 
 function runProject(id) {
@@ -161,6 +193,46 @@ function deleteProject(id) {
     })
     .catch(err => alert('Error: ' + err));
 }
+
+let saveTimeout = null;
+function autoSaveProject() {
+    if (saveTimeout) clearTimeout(saveTimeout);
+    saveTimeout = setTimeout(() => {
+        const form = document.getElementById('project-details-form');
+        const formData = new FormData(form);
+        fetch('/save', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+            body: new URLSearchParams(formData)
+        })
+        .then(res => res.json())
+        .then(data => {
+            if(data.status === 'saved') {
+                // Silent success
+            } else {
+                console.warn('Auto-save failed:', data);
+            }
+        })
+        .catch(err => console.error('Auto-save error:', err));
+    }, 500);
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    const detailsForm = document.getElementById('project-details-form');
+    if (detailsForm) {
+        detailsForm.addEventListener('input', autoSaveProject);
+        detailsForm.addEventListener('change', autoSaveProject);
+    }
+    
+    // Sync root path hidden field
+    const rootPathInput = document.getElementById('root-path');
+    const rootPathHidden = document.getElementById('root-path-hidden');
+    if (rootPathInput && rootPathHidden) {
+        rootPathInput.addEventListener('input', () => {
+            rootPathHidden.value = rootPathInput.value;
+        });
+    }
+});
 
 function loadChats() {
     fetch('/chats')
