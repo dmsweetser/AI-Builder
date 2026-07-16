@@ -191,10 +191,17 @@ class FileModifier:
                     logging.warning(f"File not found: {filepath}")
                     return False
             elif action_type == 'replace_file':
-                with open(filepath, 'w', encoding='utf-8') as f:
-                    f.write(FileParser._safe_join(action['file_content']))
-                logging.info(f"Replaced entire content of: {filepath}")
-                return True
+                try:
+                    dir_path = os.path.dirname(filepath)
+                    if dir_path:
+                        os.makedirs(dir_path, exist_ok=True)
+                    with open(filepath, 'w', encoding='utf-8') as f:
+                        f.write(FileParser._safe_join(action['file_content']))
+                    logging.info(f"Replaced entire content of: {filepath}")
+                    return True
+                except Exception as e:
+                    logging.error(f"Failed to replace file {filepath}: {e}")
+                    return False
             elif action_type == 'replace_section':
                 return FileModifier._replace_section(filepath, action['original_content'], action['file_content'])
             return False

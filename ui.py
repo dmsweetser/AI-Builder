@@ -1,13 +1,19 @@
 import os
 import json
 from uuid import uuid4
+import uuid
 from flask import Flask, request, jsonify, render_template
 from ai_builder import AIBuilder
+from config import Config
+
+from azure.ai.inference import ChatCompletionsClient
+from azure.ai.inference.models import SystemMessage, UserMessage
+from azure.core.credentials import AzureKeyCredential
 
 app = Flask(__name__)
 
 PROJECTS_FILE = "projects.json"
-
+CHATS_DIR = "instance/chats"
 
 # ---------- Helpers ----------
 def load_projects():
@@ -146,13 +152,82 @@ def delete():
     save_projects(projects)
     return jsonify({"status": "deleted"})
 
-@app.route("/chat", methods=["POST"])
-def chat():
+@app.route("/chats", methods=["GET"])
+def list_chats():
+    chats = []
+    if os.path.exists(CHATS_DIR):
+        for fname in os.listdir(CHATS_DIR):
+            if fname.endswith(".json"):
+                fpath = os.path.join(CHATS_DIR, fname)
+                with open(fpath, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    chats.append({"id": data.get("id", fname.replace(".json", "")), "title": data.get("messages", [{}])[0].get("content", "New Chat")[:30]})
+    return jsonify(chats)
+
+@app.route("/chat/new", methods=["POST"])
+def new_chat():
+    chat_id = str(uuid.uuid4())
+    chat_path = os.path.join(CHATS_DIR, f"{chat_id}.json")
+    with open(chat_path, "w", encoding="utf-8") as f:
+        json.dump({"id": chat_id, "messages": []}, f)
+    return jsonify({"id": chat_id})
+
+@app.route("/chat/select", methods=["POST"])
+def select_chat():
+    chat_id = request.form.get("chat_id")
+    chat_path = os.path.join(CHATS_DIR, f"{chat_id}.json")
+    if not os.path.exists(chat_path):
+        return jsonify({"error": "Chat not found"}), 404
+    with open(chat_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    return jsonify({"id": data["id"], "messages": data["messages"]})
+
+@app.route("/chat/send", methods=["POST"])
+def chat_send():
+    chat_id = request.form.get("chat_id")
     message = request.form.get("message", "")
-    # In a real implementation, this would call the LLM and return the response.
-    # For now, it echoes back to demonstrate the UI flow.
-    response = f"Logged: '{message}'. AI response simulation."
-    return jsonify({"response": response})
+    if not chat_id:
+        return jsonify({"error": "Missing chat_id"}), 400
+    
+    chat_path = os.path.join(CHATS_DIR, f"{chat_id}.json")
+    if not os.path.exists(chat_path):
+        return jsonify({"error": "Chat not found"}), 404
+        
+    with open(chat_path, "r", encoding="utf-8") as f:
+        chat_data = json.load(f)
+        
+    chat_data["messages"].append({"role": "user", "content": message})
+    
+    try:
+        endpoint = Config.get_endpoint()
+        model_name = Config.get_model_name()
+        api_key = Config.get_api_key()
+        if not all([endpoint, model_name, api_key]):
+            raise ValueError("Missing Azure AI credentials")
+            
+        client = ChatCompletionsClient(
+            endpoint=endpoint,
+            credential=AzureKeyCredential(api_key),
+            api_version="2024-05-01-preview",
+            connection_verify=Config.verify_ssl()
+        )
+        
+        messages = [SystemMessage(content="You are a helpful coding assistant.")] + [
+            UserMessage(content=msg["content"]) if msg["role"] == "user" else SystemMessage(content=msg["content"]) if msg["role"] == "assistant" else UserMessage(content=msg["content"])
+            for msg in chat_data["messages"]
+        ]
+        
+        response = client.complete(messages=messages, max_tokens=Config.get_output_tokens() or 2048, model=model_name)
+        ai_reply = response.choices[0].message.content if response.choices else "No response generated."
+        
+        chat_data["messages"].append({"role": "assistant", "content": ai_reply})
+    except Exception as e:
+        ai_reply = f"Error calling LLM: {str(e)}"
+        
+    with open(chat_path, "w", encoding="utf-8") as f:
+        json.dump(chat_data, f, indent=2)
+        
+    return jsonify({"response": ai_reply})
 
 
 if __name__ == "__main__":

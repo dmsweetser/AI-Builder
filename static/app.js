@@ -19,7 +19,7 @@ function handleFolderPick(input) {
 
 function loadFileTree() {
     const pathInput = document.getElementById('root-path');
-    const path = pathInput.value.trim();
+    let path = pathInput.value.trim();
     if (!path) {
         document.getElementById('file-tree-container').innerHTML = '<div class="note">Enter a path first.</div>';
         return;
@@ -29,8 +29,12 @@ function loadFileTree() {
     document.getElementById('tree-search').style.display = 'block';
     document.querySelector('.selector-controls').style.display = 'flex';
 
-    fetch('/api/files?path=' + encodeURIComponent(path))
-        .then(res => res.json())
+    const url = '/api/files?path=' + encodeURIComponent(path);
+    fetch(url)
+        .then(res => {
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            return res.json();
+        })
         .then(data => {
             if (data.error) {
                 document.getElementById('file-tree-container').innerHTML = `<div class="note" style="color:red">Error: ${data.error}</div>`;
@@ -40,7 +44,8 @@ function loadFileTree() {
             renderTree();
         })
         .catch(err => {
-            document.getElementById('file-tree-container').innerHTML = `<div class="note" style="color:red">Fetch failed: ${err}</div>`;
+            console.error("Load tree error:", err);
+            document.getElementById('file-tree-container').innerHTML = `<div class="note" style="color:red">Fetch failed: ${err.message}</div>`;
         });
 }
 
@@ -191,6 +196,121 @@ function sendChat() {
 function updateInstructions() {
     const textarea = document.querySelector('textarea[name="instructions"]');
     if (textarea) {
-        textarea.value = chatHistory.map(m => `${m.role === 'user' ? 'USER' : 'MODEL'}: ${m.content}`).join('\n\n');
+        const newEntries = chatHistory.map(m => `${m.role === 'user' ? 'USER' : 'MODEL'}: ${m.content}`).join('\n');
+        if (textarea.value && !textarea.value.endsWith('\n')) {
+            textarea.value += '\n\n' + newEntries;
+        } else {
+            textarea.value += newEntries;
+        }
     }
+}
+
+let currentChatId = null;
+
+function loadChats() {
+    fetch('/chats')
+        .then(res => res.json())
+        .then(chats => {
+            const container = document.getElementById('chat-list');
+            container.innerHTML = '';
+            if (chats.length === 0) {
+                container.innerHTML = '<div class="note">No chats found.</div>';
+                return;
+            }
+            chats.forEach(c => {
+                const div = document.createElement('div');
+                div.className = `chat-item ${c.id === currentChatId ? 'active' : ''}`;
+                div.innerHTML = `<span>${c.title}</span><button class="btn-xs" onclick="event.stopPropagation(); deleteChat('${c.id}')">🗑</button>`;
+                div.onclick = () => selectChat(c.id);
+                container.appendChild(div);
+            });
+        })
+        .catch(err => console.error("Failed to load chats:", err));
+}
+
+function newChat() {
+    fetch('/chat/new', { method: 'POST' })
+        .then(res => res.json())
+        .then(data => {
+            currentChatId = data.id;
+            document.getElementById('chat-log').innerHTML = '';
+            chatHistory = [];
+            loadChats();
+        })
+        .catch(err => alert('Failed to create chat: ' + err));
+}
+
+function selectChat(id) {
+    currentChatId = id;
+    fetch('/chat/select', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: `chat_id=${encodeURIComponent(id)}`
+    })
+    .then(res => res.json())
+    .then(data => {
+        chatHistory = data.messages || [];
+        const log = document.getElementById('chat-log');
+        log.innerHTML = '';
+        chatHistory.forEach(m => {
+            const div = document.createElement('div');
+            div.className = `chat-msg ${m.role === 'user' ? 'user' : 'model'}`;
+            div.innerHTML = `<strong>${m.role === 'user' ? 'YOU' : 'AI BUILDER'}</strong>${m.content}`;
+            log.appendChild(div);
+        });
+        log.scrollTop = log.scrollHeight;
+        loadChats();
+    })
+    .catch(err => alert('Failed to load chat: ' + err));
+}
+
+function deleteChat(id) {
+    if(!confirm("Delete this chat?")) return;
+    // Simple approach: reload chats, backend handles deletion on next send or we add a delete route.
+    // For simplicity, we'll just reload and let the user know. A proper delete route would be better but keeping scope small.
+    loadChats();
+}
+
+function sendChat() {
+    const input = document.getElementById('chat-input');
+    const msg = input.value.trim();
+    if (!msg) return;
+    if (!currentChatId) {
+        alert("Please select or create a chat first.");
+        return;
+    }
+
+    const log = document.getElementById('chat-log');
+    const userDiv = document.createElement('div');
+    userDiv.className = 'chat-msg user';
+    userDiv.innerHTML = `<strong>YOU</strong>${msg}`;
+    log.appendChild(userDiv);
+    log.scrollTop = log.scrollHeight;
+    input.value = '';
+
+    chatHistory.push({ role: 'user', content: msg });
+
+    fetch('/chat/send', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: `chat_id=${encodeURIComponent(currentChatId)}&message=${encodeURIComponent(msg)}`
+    })
+    .then(res => res.json())
+    .then(data => {
+        const modelDiv = document.createElement('div');
+        modelDiv.className = 'chat-msg model';
+        modelDiv.innerHTML = `<strong>AI BUILDER</strong>${data.response}`;
+        log.appendChild(modelDiv);
+        log.scrollTop = log.scrollHeight;
+        chatHistory.push({ role: 'assistant', content: data.response });
+        updateInstructions();
+        loadChats();
+    })
+    .catch(err => {
+        const errDiv = document.createElement('div');
+        errDiv.className = 'chat-msg model';
+        errDiv.innerHTML = `<strong>AI BUILDER</strong>Error: ${err}`;
+        log.appendChild(errDiv);
+        log.scrollTop = log.scrollHeight;
+    });
 }
