@@ -138,6 +138,22 @@ def run():
 
     return jsonify({"status": "completed"})
 
+@app.route("/delete", methods=["POST"])
+def delete():
+    pid = request.form["id"]
+    projects = load_projects()
+    projects = [p for p in projects if p["id"] != pid]
+    save_projects(projects)
+    return jsonify({"status": "deleted"})
+
+@app.route("/chat", methods=["POST"])
+def chat():
+    message = request.form.get("message", "")
+    # In a real implementation, this would call the LLM and return the response.
+    # For now, it echoes back to demonstrate the UI flow.
+    response = f"Logged: '{message}'. AI response simulation."
+    return jsonify({"response": response})
+
 
 if __name__ == "__main__":
     app.run(port=5000, debug=True)
