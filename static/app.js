@@ -1,354 +1,390 @@
-
+// Global state
+let currentProjectId = null;
 let fileTreeData = [];
-let allPaths = [];
-let currentChatId = null;
-let chatHistory = [];
 
+// Tab switching
 function showTab(tabName) {
-    const projectsPanel = document.getElementById('projects-panel');
-    const chatPanel = document.getElementById('chat-panel');
-    const tabs = document.querySelectorAll('.sidebar-nav .tab-btn');
-    
-    tabs.forEach(t => t.classList.remove('active'));
-    
+    document.querySelectorAll('.panel').forEach(panel => {
+        panel.classList.add('hidden');
+        panel.classList.remove('active');
+    });
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.classList.remove('active');
+    });
+
+    document.getElementById(tabName + '-panel').classList.remove('hidden');
+    document.getElementById(tabName + '-panel').classList.add('active');
+    event.target.classList.add('active');
+
     if (tabName === 'projects') {
-        projectsPanel.classList.add('active');
-        chatPanel.classList.remove('active');
-        document.querySelector('.sidebar-nav button:nth-child(1)').classList.add('active');
+        loadProjects();
     } else if (tabName === 'chat') {
-        projectsPanel.classList.remove('active');
-        chatPanel.classList.add('active');
-        document.querySelector('.sidebar-nav button:nth-child(2)').classList.add('active');
-        if (!currentChatId) {
-            newChat();
-        } else {
-            loadChats();
-        }
+        loadChats();
     }
 }
 
-function loadFileTree() {
-    const pathInput = document.getElementById('root-path');
-    let path = pathInput.value.trim();
-    if (!path) {
-        document.getElementById('file-tree-container').innerHTML = '<div class="note">Enter a path first.</div>';
-        return;
-    }
-    document.getElementById('file-tree-container').innerHTML = '<div class="note">Loading...</div>';
-    document.getElementById('tree-search').value = '';
-    document.getElementById('tree-search').style.display = 'block';
-    document.querySelector('.selector-controls').style.display = 'flex';
-
-    const url = '/api/files?path=' + encodeURIComponent(path);
-    fetch(url)
-        .then(res => {
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            return res.json();
-        })
+// Load projects
+function loadProjects() {
+    fetch('/api/projects')
+        .then(response => response.json())
         .then(data => {
-            if (data.error) {
-                document.getElementById('file-tree-container').innerHTML = `<div class="note" style="color:red">Error: ${data.error}</div>`;
+            const projectList = document.getElementById('project-list');
+            projectList.innerHTML = '';
+
+            if (data.length === 0) {
+                projectList.innerHTML = '<div class="note">NO PROJECTS FOUND.<br>ADD ONE BELOW.</div>';
                 return;
             }
-            allPaths = flattenTree(data, '');
-            renderTree();
-        })
-        .catch(err => {
-            console.error("Load tree error:", err);
-            document.getElementById('file-tree-container').innerHTML = `<div class="note" style="color:red">Fetch failed: ${err.message}</div>`;
+
+            data.forEach(project => {
+                const projectItem = document.createElement('div');
+                projectItem.className = 'project-item';
+                projectItem.id = `proj-${project.id}`;
+                projectItem.onclick = () => selectProject(project.id);
+
+                projectItem.innerHTML = `
+                            <div class="project-item-header">
+                                <span class="project-item-name">${project.name}</span>
+                                <div class="project-item-actions">
+                                    <button class="btn-sm" onclick="event.stopPropagation(); runProject('${project.id}')">Run</button>
+                                    <button class="btn-sm delete" onclick="event.stopPropagation(); deleteProject('${project.id}')">Del</button>
+                                </div>
+                            </div>
+                            <span style="color: #ccc; font-size: 8px;">${project.rootDirectory || ''}</span>
+                        `;
+
+                projectList.appendChild(projectItem);
+            });
         });
 }
 
-function flattenTree(tree, currentPath) {
-    let paths = [];
-    for (const [dir, info] of Object.entries(tree)) {
-        const fullPath = currentPath ? currentPath + '/' + dir : dir;
-        info.dirs.forEach(d => paths.push(fullPath + '/' + d));
-        info.files.forEach(f => paths.push(fullPath + '/' + f));
+// Select a project
+function selectProject(projectId) {
+    currentProjectId = projectId;
+
+    // Hide projects panel with animation
+    document.getElementById('projects-panel').classList.add('hidden');
+    document.getElementById('projects-panel').classList.remove('active');
+
+    // Show project details panel
+    document.getElementById('project-details-panel').classList.remove('hidden');
+    document.getElementById('project-details-panel').classList.add('active');
+
+    // Load project details
+    fetch(`/api/projects/${projectId}`)
+        .then(response => response.json())
+        .then(project => {
+            document.getElementById('details-project-id').value = project.id;
+            document.getElementById('details-project-name').textContent = project.name;
+            document.getElementById('details-root-dir').value = project.rootDirectory || '';
+            document.getElementById('details-patterns').value = project.includePatterns || '';
+            document.getElementById('details-iterations').value = project.iterations || 1;
+            document.getElementById('details-instructions').value = project.instructions || '';
+            document.getElementById('details-pre-script').value = project.preScript || '';
+            document.getElementById('details-post-script').value = project.postScript || '';
+            document.getElementById('run-project-id').value = project.id;
+        });
+}
+
+// Go back to projects
+function goBackToProjects() {
+    document.getElementById('project-details-panel').classList.add('hidden');
+    document.getElementById('project-details-panel').classList.remove('active');
+    document.getElementById('projects-panel').classList.remove('hidden');
+    document.getElementById('projects-panel').classList.add('active');
+    loadProjects();
+}
+
+// Load file tree
+function loadFileTree() {
+    const rootPath = document.getElementById('root-path').value;
+    if (!rootPath) {
+        alert('Please enter a root directory first');
+        return;
     }
-    return paths;
+
+    // Disable button and show spinner
+    const loadTreeBtn = document.getElementById('load-tree-btn');
+    const loadTreeText = document.getElementById('load-tree-text');
+    const loadTreeSpinner = document.getElementById('load-tree-spinner');
+
+    loadTreeBtn.disabled = true;
+    loadTreeText.style.display = 'none';
+    loadTreeSpinner.style.display = 'inline-block';
+
+    // Simulate API call (replace with actual API call)
+    setTimeout(() => {
+        // This is a mock response - replace with actual fetch call
+        fileTreeData = [
+            {
+                name: 'src', type: 'dir', path: `${rootPath}/src`, children: [
+                    { name: 'main.py', type: 'file', path: `${rootPath}/src/main.py` },
+                    { name: 'utils', type: 'dir', path: `${rootPath}/src/utils`, children: [] }
+                ]
+            },
+            { name: 'README.md', type: 'file', path: `${rootPath}/README.md` }
+        ];
+
+        renderFileTree(fileTreeData);
+
+        // Re-enable button and hide spinner
+        loadTreeBtn.disabled = false;
+        loadTreeText.style.display = 'inline';
+        loadTreeSpinner.style.display = 'none';
+
+        // Update hidden input for form submission
+        document.getElementById('root-path-hidden').value = rootPath;
+    }, 1000);
 }
 
-function renderTree() {
-    const container = document.getElementById('file-tree-container');
+// Render file tree
+function renderFileTree(data, parentElement = null, level = 0) {
+    const container = parentElement || document.getElementById('file-tree-container');
     container.innerHTML = '';
-    allPaths.forEach(path => {
-        const el = createTreeItem(path);
-        container.appendChild(el);
-    });
-    updateHiddenInputs();
+
+    function renderItems(items, container, level) {
+        items.forEach(item => {
+            const itemElement = document.createElement('div');
+            itemElement.className = `tree-item ${item.type}`;
+            itemElement.style.paddingLeft = `${level * 15}px`;
+
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.checked = true; // Default to checked
+            checkbox.onchange = () => updateSelectedPatterns();
+            checkbox.dataset.path = item.path;
+
+            const label = document.createElement('label');
+            label.textContent = item.name;
+            label.style.marginLeft = '5px';
+
+            itemElement.appendChild(checkbox);
+            itemElement.appendChild(label);
+            container.appendChild(itemElement);
+
+            if (item.type === 'dir' && item.children) {
+                renderItems(item.children, container, level + 1);
+            }
+        });
+    }
+
+    renderItems(data, container, level);
+    updateSelectedPatterns();
 }
 
-function createTreeItem(path) {
-    const div = document.createElement('div');
-    div.className = 'tree-item file';
-    div.dataset.path = path;
-    const cb = document.createElement('input');
-    cb.type = 'checkbox';
-    cb.checked = false;
-    cb.onchange = updateHiddenInputs;
-    const label = document.createElement('span');
-    label.textContent = path;
-    div.appendChild(cb);
-    div.appendChild(label);
-    return div;
+// Update selected patterns display
+function updateSelectedPatterns() {
+    const checkboxes = document.querySelectorAll('#file-tree-container input[type="checkbox"]:checked');
+    const patterns = Array.from(checkboxes).map(cb => cb.dataset.path);
+    document.getElementById('patterns-display').value = patterns.join(', ');
+    document.getElementById('patterns-input').value = patterns.join(',');
 }
 
-function updateHiddenInputs() {
-    const container = document.getElementById('file-tree-container');
-    const checked = Array.from(container.querySelectorAll('input[type="checkbox"]:checked'));
-    const paths = checked.map(cb => cb.parentElement.dataset.path);
-    document.getElementById('patterns-input').value = paths.join(',');
-    document.getElementById('patterns-display').value = paths.join('\n');
-}
-
+// Select all files
 function selectAll() {
-    document.querySelectorAll('#file-tree-container .tree-item input[type="checkbox"]').forEach(cb => cb.checked = true);
-    updateHiddenInputs();
+    document.querySelectorAll('#file-tree-container input[type="checkbox"]').forEach(cb => {
+        cb.checked = true;
+    });
+    updateSelectedPatterns();
 }
 
+// Deselect all files
 function deselectAll() {
-    document.querySelectorAll('#file-tree-container .tree-item input[type="checkbox"]').forEach(cb => cb.checked = false);
-    updateHiddenInputs();
+    document.querySelectorAll('#file-tree-container input[type="checkbox"]').forEach(cb => {
+        cb.checked = false;
+    });
+    updateSelectedPatterns();
 }
 
+// Filter file tree
 function filterTree() {
-    const query = document.getElementById('tree-search').value.toLowerCase();
-    document.querySelectorAll('.tree-item').forEach(item => {
-        const path = item.dataset.path.toLowerCase();
-        if (path.includes(query)) {
-            item.style.display = 'flex';
+    const searchTerm = document.getElementById('tree-search').value.toLowerCase();
+    const items = document.querySelectorAll('.tree-item');
+
+    items.forEach(item => {
+        const text = item.textContent.toLowerCase();
+        if (text.includes(searchTerm)) {
+            item.style.display = '';
         } else {
             item.style.display = 'none';
         }
     });
-    updateHiddenInputs();
 }
 
-function selectProject(id) {
-    fetch(`/api/files?path=./`) // Trigger panel switch logic without full reload
-        .then(() => {
-            const projectPanel = document.getElementById('projects-panel');
-            const detailsPanel = document.getElementById('project-details-panel');
-            
-            projectPanel.classList.remove('active');
-            setTimeout(() => {
-                projectPanel.style.display = 'none';
-                detailsPanel.style.display = 'block';
-                setTimeout(() => detailsPanel.classList.add('active'), 10);
-            }, 300);
-            
-            populateProjectDetails(id);
-        });
-}
-
-function goBackToProjects() {
-    const projectPanel = document.getElementById('projects-panel');
-    const detailsPanel = document.getElementById('project-details-panel');
-    
-    detailsPanel.classList.remove('active');
-    setTimeout(() => {
-        detailsPanel.style.display = 'none';
-        projectPanel.style.display = 'block';
-        setTimeout(() => projectPanel.classList.add('active'), 10);
-    }, 300);
-}
-
-function populateProjectDetails(id) {
-    // Fetch project details from server or use existing form data if available
-    // For simplicity, we'll reload the page with the ID to get initial state, 
-    // but since we want SPA-like behavior, we'll fetch via a new route or use existing data.
-    // To keep it simple and robust with existing backend:
-    window.location.href = `/?id=${id}`;
-}
-
-function runProject(id) {
-    if(!confirm("Run AI Builder for this project?")) return;
-    const form = document.createElement('form');
-    form.method = 'POST';
-    form.action = '/run';
-    const input = document.createElement('input');
-    input.type = 'hidden';
-    input.name = 'id';
-    input.value = id;
-    form.appendChild(input);
-    document.body.appendChild(form);
-    form.submit();
-}
-
-function deleteProject(id) {
-    if(!confirm("Are you sure you want to delete this project? This cannot be undone.")) return;
-    fetch('/delete', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-        body: `id=${encodeURIComponent(id)}`
-    })
-    .then(res => res.json())
-    .then(data => {
-        if(data.status === 'deleted') {
-            window.location.reload();
-        } else {
-            alert('Failed to delete project.');
-        }
-    })
-    .catch(err => alert('Error: ' + err));
-}
-
-let saveTimeout = null;
+// Auto-save project
 function autoSaveProject() {
-    if (saveTimeout) clearTimeout(saveTimeout);
-    saveTimeout = setTimeout(() => {
-        const form = document.getElementById('project-details-form');
-        const formData = new FormData(form);
-        fetch('/save', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-            body: new URLSearchParams(formData)
-        })
-        .then(res => res.json())
-        .then(data => {
-            if(data.status === 'saved') {
-                // Silent success
-            } else {
-                console.warn('Auto-save failed:', data);
-            }
-        })
-        .catch(err => console.error('Auto-save error:', err));
-    }, 500);
+    if (!currentProjectId) return;
+
+    const form = document.getElementById('project-details-form');
+    const formData = new FormData(form);
+
+    fetch(`/api/projects/${currentProjectId}`, {
+        method: 'POST',
+        body: formData
+    }).catch(error => {
+        console.error('Auto-save failed:', error);
+    });
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-    const detailsForm = document.getElementById('project-details-form');
-    if (detailsForm) {
-        detailsForm.addEventListener('input', autoSaveProject);
-        detailsForm.addEventListener('change', autoSaveProject);
-    }
-    
-    // Sync root path hidden field
-    const rootPathInput = document.getElementById('root-path');
-    const rootPathHidden = document.getElementById('root-path-hidden');
-    if (rootPathInput && rootPathHidden) {
-        rootPathInput.addEventListener('input', () => {
-            rootPathHidden.value = rootPathInput.value;
+// Create new project
+document.getElementById('add-project-form').addEventListener('submit', function (e) {
+    e.preventDefault();
+
+    const formData = new FormData(this);
+    const projectName = document.getElementById('add-project-name').value;
+    const rootPath = document.getElementById('root-path').value;
+
+    fetch('/api/projects', {
+        method: 'POST',
+        body: formData
+    })
+        .then(response => response.json())
+        .then(data => {
+            // Clear form
+            this.reset();
+            document.getElementById('file-tree-container').innerHTML = '';
+            document.getElementById('patterns-display').value = '';
+
+            // Select the new project
+            selectProject(data.id);
         });
-    }
 });
 
-function loadChats() {
-    fetch('/chats')
-        .then(res => res.json())
-        .then(chats => {
-            const container = document.getElementById('chat-list');
-            container.innerHTML = '';
-            if (chats.length === 0) {
-                container.innerHTML = '<div class="note">No chats found.</div>';
-                return;
+// Run project
+function runProject(projectId) {
+    fetch(`/api/projects/${projectId}/run`, {
+        method: 'POST'
+    });
+}
+
+// Delete project
+function deleteProject(projectId) {
+    if (!confirm('Are you sure you want to delete this project?')) return;
+
+    fetch(`/api/projects/${projectId}`, {
+        method: 'DELETE'
+    })
+        .then(() => {
+            if (currentProjectId === projectId) {
+                goBackToProjects();
+            } else {
+                loadProjects();
             }
-            chats.forEach(c => {
-                const div = document.createElement('div');
-                div.className = `chat-item ${c.id === currentChatId ? 'active' : ''}`;
-                div.innerHTML = `<span>${c.title}</span><button class="btn-xs" onclick="event.stopPropagation(); deleteChat('${c.id}')">🗑</button>`;
-                div.onclick = () => selectChat(c.id);
-                container.appendChild(div);
+        });
+}
+
+// Chat functions
+function loadChats() {
+    fetch('/api/chats')
+        .then(response => response.json())
+        .then(chats => {
+            const chatList = document.getElementById('chat-list');
+            chatList.innerHTML = '';
+
+            chats.forEach(chat => {
+                const chatItem = document.createElement('div');
+                chatItem.className = 'chat-item';
+                chatItem.onclick = () => selectChat(chat.id);
+                chatItem.innerHTML = `
+                            <span>${chat.name || 'Unnamed Chat'}</span>
+                            <button class="btn-xs" onclick="event.stopPropagation(); deleteChat('${chat.id}')">X</button>
+                        `;
+                chatList.appendChild(chatItem);
             });
-        })
-        .catch(err => console.error("Failed to load chats:", err));
+        });
 }
 
 function newChat() {
-    fetch('/chat/new', { method: 'POST' })
-        .then(res => res.json())
-        .then(data => {
-            currentChatId = data.id;
-            chatHistory = [];
-            document.getElementById('chat-log').innerHTML = '';
-            loadChats();
-            document.getElementById('chat-input').focus();
-        })
-        .catch(err => alert('Failed to create chat: ' + err));
-}
-
-function selectChat(id) {
-    currentChatId = id;
-    fetch('/chat/select', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-        body: `chat_id=${encodeURIComponent(id)}`
-    })
-    .then(res => res.json())
-    .then(data => {
-        chatHistory = data.messages || [];
-        const log = document.getElementById('chat-log');
-        log.innerHTML = '';
-        chatHistory.forEach(m => {
-            const div = document.createElement('div');
-            div.className = `chat-msg ${m.role === 'user' ? 'user' : 'model'}`;
-            div.innerHTML = `<strong>${m.role === 'user' ? 'YOU' : 'AI BUILDER'}</strong>${m.content}`;
-            log.appendChild(div);
+    fetch('/api/chats', { method: 'POST' })
+        .then(response => response.json())
+        .then(chat => {
+            selectChat(chat.id);
         });
-        log.scrollTop = log.scrollHeight;
-        loadChats();
-    })
-    .catch(err => alert('Failed to load chat: ' + err));
 }
 
-function deleteChat(id) {
-    if(!confirm("Delete this chat?")) return;
-    loadChats();
+function selectChat(chatId) {
+    // Remove active class from all chat items
+    document.querySelectorAll('.chat-item').forEach(item => {
+        item.classList.remove('active');
+    });
+
+    // Add active class to selected chat
+    event.target.classList.add('active');
+
+    // Load chat messages
+    fetch(`/api/chats/${chatId}`)
+        .then(response => response.json())
+        .then(chat => {
+            const chatLog = document.getElementById('chat-log');
+            chatLog.innerHTML = '';
+
+            chat.messages.forEach(msg => {
+                const msgElement = document.createElement('div');
+                msgElement.className = `chat-msg ${msg.sender}`;
+
+                // Render markdown content
+                if (msg.content.includes('```') || msg.content.includes('**') || msg.content.includes('*')) {
+                    msgElement.innerHTML = `<strong>${msg.sender.toUpperCase()}</strong><div class="markdown-content">${renderMarkdown(msg.content)}</div>`;
+                } else {
+                    msgElement.innerHTML = `<strong>${msg.sender.toUpperCase()}</strong>${msg.content}`;
+                }
+
+                chatLog.appendChild(msgElement);
+                chatLog.scrollTop = chatLog.scrollHeight;
+            });
+        });
 }
 
 function sendChat() {
     const input = document.getElementById('chat-input');
-    const msg = input.value.trim();
-    if (!msg) return;
-    if (!currentChatId) {
-        alert("Please select or create a chat first.");
-        return;
-    }
+    const content = input.value;
+    if (!content) return;
 
-    const log = document.getElementById('chat-log');
-    const userDiv = document.createElement('div');
-    userDiv.className = 'chat-msg user';
-    userDiv.innerHTML = `<strong>YOU</strong>${msg}`;
-    log.appendChild(userDiv);
-    log.scrollTop = log.scrollHeight;
-    input.value = '';
+    // Get current chat ID (you'll need to track this)
+    const chatId = 'current-chat-id'; // Replace with actual chat ID
 
-    chatHistory.push({ role: 'user', content: msg });
-
-    fetch('/chat/send', {
+    fetch(`/api/chats/${chatId}/messages`, {
         method: 'POST',
-        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-        body: `chat_id=${encodeURIComponent(currentChatId)}&message=${encodeURIComponent(msg)}`
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content })
     })
-    .then(res => res.json())
-    .then(data => {
-        const modelDiv = document.createElement('div');
-        modelDiv.className = 'chat-msg model';
-        modelDiv.innerHTML = `<strong>AI BUILDER</strong>${data.response}`;
-        log.appendChild(modelDiv);
-        log.scrollTop = log.scrollHeight;
-        chatHistory.push({ role: 'assistant', content: data.response });
-        updateInstructions();
-        loadChats();
-    })
-    .catch(err => {
-        const errDiv = document.createElement('div');
-        errDiv.className = 'chat-msg model';
-        errDiv.innerHTML = `<strong>AI BUILDER</strong>Error: ${err}`;
-        log.appendChild(errDiv);
-        log.scrollTop = log.scrollHeight;
-    });
+        .then(response => response.json())
+        .then(message => {
+            input.value = '';
+            selectChat(chatId); // Refresh chat
+        });
 }
 
-function updateInstructions() {
-    const textarea = document.querySelector('textarea[name="instructions"]');
-    if (textarea) {
-        const newEntries = chatHistory.map(m => `${m.role === 'user' ? 'USER' : 'MODEL'}: ${m.content}`).join('\n');
-        if (textarea.value && !textarea.value.endsWith('\n')) {
-            textarea.value += '\n' + newEntries;
-        } else {
-            textarea.value += newEntries;
-        }
-    }
+function deleteChat(chatId) {
+    if (!confirm('Delete this chat?')) return;
+    fetch(`/api/chats/${chatId}`, { method: 'DELETE' })
+        .then(() => loadChats());
 }
+
+// Simple markdown renderer
+function renderMarkdown(text) {
+    // Escape HTML first
+    let html = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+    // Code blocks
+    html = html.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>');
+
+    // Inline code
+    html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+
+    // Bold
+    html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+
+    // Italic
+    html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+
+    // Line breaks
+    html = html.replace(/\n/g, '<br>');
+
+    return html;
+}
+
+// Initialize
+document.addEventListener('DOMContentLoaded', () => {
+    loadProjects();
+});
