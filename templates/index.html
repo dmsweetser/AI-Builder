@@ -477,6 +477,18 @@
             animation: slideOut 0.3s ease-out;
             position: absolute;
         }
+
+        #run-status {
+            margin-top: 10px;
+            padding: 10px;
+            background: var(--dark-bg);
+            border: 2px solid var(--grass);
+            font-size: 10px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            max-height: 200px;
+            overflow-y: auto;
+        }
     </style>
 </head>
 
@@ -550,24 +562,47 @@
                         </div>
                         <div class="form-grid">
                             <div>
-                                <label>3. ITERATIONS</label>
-                                <input name="iterations" id="details-iterations" value="1" readonly>
+                                <label>3. EXCLUDED FILES/FOLDERS</label>
+                                <input name="excludePatterns" id="details-exclude-patterns">
+                            </div>
+                            <div>
+                                <label>4. ITERATIONS</label>
+                                <input name="iterations" id="details-iterations" value="1">
                             </div>
                         </div>
-                        <label>4. INSTRUCTIONS FOR AI BUILDER</label>
+                        <label>5. MODE (include/exclude)</label>
+                        <select name="mode" id="details-mode">
+                            <option value="include">Include</option>
+                            <option value="exclude">Exclude</option>
+                        </select>
+                        <label>6. INSTRUCTIONS FOR AI BUILDER</label>
                         <textarea name="instructions" id="details-instructions" rows="8"
                             oninput="autoSaveProject()"></textarea>
                         <div class="form-grid">
                             <div>
-                                <label>5. PRE-SCRIPT</label>
+                                <label>7. PRE-SCRIPT</label>
                                 <textarea name="preScript" id="details-pre-script" rows="4"
                                     oninput="autoSaveProject()"></textarea>
                             </div>
                             <div>
-                                <label>6. POST-SCRIPT</label>
+                                <label>8. POST-SCRIPT</label>
                                 <textarea name="postScript" id="details-post-script" rows="4"
                                     oninput="autoSaveProject()"></textarea>
                             </div>
+                        </div>
+                        <div class="form-grid">
+                            <div>
+                                <label>9. AZURE ENDPOINT</label>
+                                <input name="endpoint" id="details-endpoint" placeholder="https://your-endpoint.openai.azure.com/">
+                            </div>
+                            <div>
+                                <label>10. MODEL NAME</label>
+                                <input name="modelName" id="details-model-name" placeholder="gpt-4">
+                            </div>
+                        </div>
+                        <div>
+                            <label>11. API KEY</label>
+                            <input name="apiKey" id="details-api-key" type="password" placeholder="Your Azure API Key">
                         </div>
                         <button type="button"
                             onclick="deleteProject(document.getElementById('details-project-id').value)"
@@ -576,6 +611,7 @@
                     <form id="run-project-form" onsubmit="event.preventDefault(); runProject(document.getElementById('run-project-id').value)">
                         <input type="hidden" name="id" id="run-project-id">
                         <button type="submit" class="run-btn">RUN AI BUILDER (CLEAN MODE)</button>
+                        <div id="run-status"></div>
                     </form>
                     <p class="note">REVISE INSTRUCTIONS & SCRIPTS, THEN RE-RUN AS MANY TIMES AS YOU LIKE.</p>
                 </div>
@@ -684,11 +720,17 @@
                     document.getElementById('details-project-name').textContent = project.name;
                     document.getElementById('details-root-dir').value = project.rootDirectory || '';
                     document.getElementById('details-patterns').value = project.includePatterns || '';
+                    document.getElementById('details-exclude-patterns').value = project.excludePatterns || '';
                     document.getElementById('details-iterations').value = project.iterations || 1;
+                    document.getElementById('details-mode').value = project.mode || 'include';
                     document.getElementById('details-instructions').value = project.instructions || '';
                     document.getElementById('details-pre-script').value = project.preScript || '';
                     document.getElementById('details-post-script').value = project.postScript || '';
+                    document.getElementById('details-endpoint').value = project.modelConfig?.endpoint || '';
+                    document.getElementById('details-model-name').value = project.modelConfig?.modelName || '';
+                    document.getElementById('details-api-key').value = project.modelConfig?.apiKey || '';
                     document.getElementById('run-project-id').value = project.id;
+                    document.getElementById('run-status').textContent = '';
                 });
         }
 
@@ -881,12 +923,24 @@
 
         // Run project
         function runProject(projectId) {
+            const statusElement = document.getElementById('run-status');
+            statusElement.textContent = 'Starting AIBuilder...';
+
             fetch(`/api/projects/${projectId}/run`, {
                 method: 'POST'
             })
-            .then(response => response.json())
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                return response.json();
+            })
             .then(data => {
-                alert(`Project run status: ${data.status}`);
+                statusElement.textContent = `Status: ${data.status}\nMessage: ${data.message || ''}`;
+            })
+            .catch(error => {
+                console.error('Error running project:', error);
+                statusElement.textContent = `Error: ${error.message}`;
             });
         }
 
@@ -914,6 +968,11 @@
                     const chatList = document.getElementById('chat-list');
                     chatList.innerHTML = '';
 
+                    if (chats.length === 0) {
+                        chatList.innerHTML = '<div class="note">NO CHATS FOUND.<br>START A NEW ONE BELOW.</div>';
+                        return;
+                    }
+
                     chats.forEach(chat => {
                         const chatItem = document.createElement('div');
                         chatItem.className = 'chat-item';
@@ -929,10 +988,20 @@
         }
 
         function newChat() {
-            fetch('/api/chats', { method: 'POST' })
-                .then(response => response.json())
+            return fetch('/api/chats', { method: 'POST' })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response.json();
+                })
                 .then(chat => {
+                    currentChatId = chat.id;
                     selectChat(chat.id);
+                })
+                .catch(err => {
+                    console.error('Failed to create chat:', err);
+                    alert('Failed to create chat. Check console for details.');
                 });
         }
 
@@ -955,11 +1024,16 @@
                     const chatLog = document.getElementById('chat-log');
                     chatLog.innerHTML = '';
 
+                    if (!chat.messages || chat.messages.length === 0) {
+                        chatLog.innerHTML = '<div class="note">No messages yet. Start a conversation!</div>';
+                        return;
+                    }
+
                     chat.messages.forEach(msg => {
                         const msgElement = document.createElement('div');
                         msgElement.className = `chat-msg ${msg.role}`;
 
-                        // Render markdown content
+                        // Render markdown content if applicable
                         if (msg.content.includes('```') || msg.content.includes('**') || msg.content.includes('*')) {
                             msgElement.innerHTML = `<strong>${msg.role.toUpperCase()}</strong><div class="markdown-content">${renderMarkdown(msg.content)}</div>`;
                         } else {
@@ -970,6 +1044,10 @@
                     });
 
                     chatLog.scrollTop = chatLog.scrollHeight;
+                })
+                .catch(err => {
+                    console.error('Failed to load chat:', err);
+                    alert('Failed to load chat. Check console for details.');
                 });
         }
 
@@ -988,19 +1066,36 @@
                 return;
             }
 
+            // Disable input and send button while processing
+            input.disabled = true;
+            const sendButton = document.querySelector('.chat-controls button');
+            sendButton.disabled = true;
+            sendButton.textContent = 'SENDING...';
+
             fetch(`/api/chats/${currentChatId}/messages`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ content })
             })
-            .then(response => response.json())
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                return response.json();
+            })
             .then(data => {
                 input.value = '';
+                input.disabled = false;
+                sendButton.disabled = false;
+                sendButton.textContent = 'SEND';
                 selectChat(currentChatId);
             })
             .catch(err => {
                 console.error('Send failed:', err);
-                alert('Failed to send message. Check console for details.');
+                alert(`Failed to send message: ${err.message}`);
+                input.disabled = false;
+                sendButton.disabled = false;
+                sendButton.textContent = 'SEND';
             });
         }
 

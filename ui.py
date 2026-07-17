@@ -1,7 +1,15 @@
 import os
 import json
-from uuid import uuid4
+import uuid
+import time
+import subprocess
+import platform
 from flask import Flask, request, jsonify, render_template
+from ai_builder import AIBuilder
+from config import Config
+from azure.ai.inference import ChatCompletionsClient
+from azure.ai.inference.models import SystemMessage, UserMessage
+from azure.core.credentials import AzureKeyCredential
 
 app = Flask(__name__)
 
@@ -49,17 +57,24 @@ def api_get_project(pid):
 @app.route("/api/projects", methods=["POST"])
 def api_create_project():
     projects = load_projects()
-    pid = str(uuid4())
+    pid = str(uuid.uuid4())
 
     project = {
         "id": pid,
         "name": request.form["name"],
         "rootDirectory": request.form["rootDirectory"],
         "includePatterns": request.form.get("includePatterns", ""),
+        "excludePatterns": request.form.get("excludePatterns", ""),
         "iterations": int(request.form.get("iterations", "1")),
-        "instructions": "",
-        "preScript": "",
-        "postScript": "",
+        "instructions": request.form.get("instructions", ""),
+        "preScript": request.form.get("preScript", ""),
+        "postScript": request.form.get("postScript", ""),
+        "mode": request.form.get("mode", "include"),
+        "modelConfig": {
+            "endpoint": request.form.get("endpoint", Config.get_endpoint()),
+            "modelName": request.form.get("modelName", Config.get_model_name()),
+            "apiKey": request.form.get("apiKey", Config.get_api_key())
+        }
     }
 
     projects.append(project)
@@ -73,12 +88,20 @@ def api_update_project(pid):
         return jsonify({"error": "Project not found"}), 404
 
     project.update({
-        "rootDirectory": request.form.get("rootDirectory", project.get("rootDirectory", "")),
+        "name": request.form.get("name", project["name"]),
+        "rootDirectory": request.form.get("rootDirectory", project["rootDirectory"]),
         "includePatterns": request.form.get("includePatterns", project.get("includePatterns", "")),
+        "excludePatterns": request.form.get("excludePatterns", project.get("excludePatterns", "")),
         "iterations": int(request.form.get("iterations", project.get("iterations", 1))),
         "instructions": request.form.get("instructions", project.get("instructions", "")),
         "preScript": request.form.get("preScript", project.get("preScript", "")),
         "postScript": request.form.get("postScript", project.get("postScript", "")),
+        "mode": request.form.get("mode", project.get("mode", "include")),
+        "modelConfig": {
+            "endpoint": request.form.get("endpoint", project.get("modelConfig", {}).get("endpoint", Config.get_endpoint())),
+            "modelName": request.form.get("modelName", project.get("modelConfig", {}).get("modelName", Config.get_model_name())),
+            "apiKey": request.form.get("apiKey", project.get("modelConfig", {}).get("apiKey", Config.get_api_key()))
+        }
     })
 
     save_projects(projects)
@@ -89,7 +112,14 @@ def api_run_project(pid):
     project, _ = get_project(pid)
     if not project:
         return jsonify({"error": "Project not found"}), 404
-    return jsonify({"status": "completed"})
+
+    try:
+        # Initialize AIBuilder with the project config
+        builder = AIBuilder(project_config=project)
+        builder.run()  # Run the AIBuilder with the project config
+        return jsonify({"status": "completed", "message": f"Project {project['name']} executed successfully!"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @app.route("/api/projects/<pid>", methods=["DELETE"])
 def api_delete_project(pid):
@@ -102,6 +132,9 @@ def api_delete_project(pid):
 def api_files():
     path = request.args.get("path", ".")
     try:
+        if not os.path.exists(path):
+            return jsonify({"error": f"Path does not exist: {path}"}), 400
+
         paths = []
         for root, dirs, files in os.walk(path):
             rel_root = os.path.relpath(root, path)
@@ -125,18 +158,23 @@ def api_list_chats():
         for fname in os.listdir(CHATS_DIR):
             if fname.endswith(".json"):
                 fpath = os.path.join(CHATS_DIR, fname)
-                with open(fpath, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                    chats.append({
-                        "id": data.get("id", fname.replace(".json", "")),
-                        "title": data.get("messages", [{}])[0].get("content", "New Chat")[:30]
-                    })
+                try:
+                    with open(fpath, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                        first_message = data.get("messages", [{}])[0] if data.get("messages") else {}
+                        title = first_message.get("content", "New Chat")[:30]
+                        chats.append({
+                            "id": data.get("id", fname.replace(".json", "")),
+                            "title": title
+                        })
+                except Exception as e:
+                    print(f"Error reading chat file {fname}: {e}")
     return jsonify(chats)
 
 @app.route("/api/chats", methods=["POST"])
 def api_create_chat():
     os.makedirs(CHATS_DIR, exist_ok=True)
-    chat_id = str(uuid4())
+    chat_id = str(uuid.uuid4())
     chat_path = os.path.join(CHATS_DIR, f"{chat_id}.json")
     with open(chat_path, "w", encoding="utf-8") as f:
         json.dump({"id": chat_id, "messages": []}, f)
@@ -147,9 +185,119 @@ def api_get_chat(chat_id):
     chat_path = os.path.join(CHATS_DIR, f"{chat_id}.json")
     if not os.path.exists(chat_path):
         return jsonify({"error": "Chat not found"}), 404
-    with open(chat_path, "r", encoding="utf-8") as f:
-        data = json.load(f)
-    return jsonify(data)
+    try:
+        with open(chat_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return jsonify(data)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+
+def run_model_for_chat(prompt: str, project_config: dict = None) -> str:
+    """
+    Mirrors the logic in AIBuilder.run_model() to generate a response for chat.
+    Uses either local model (llama.cpp) or Azure AI Inference based on Config.
+    """
+    response_content = ""
+
+    if Config.use_local_model():
+        # Use local model (llama.cpp)
+        model_path = Config.get_model_path()
+        if not model_path:
+            raise ValueError("MODEL_PATH environment variable not set for local model.")
+
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        llama_binary = os.path.join(base_dir, "llama.cpp", "build", "bin", "llama-completion")
+
+        if not os.path.isfile(llama_binary):
+            raise FileNotFoundError(f"llama binary not found at: {llama_binary}")
+
+        ticks = int(time.time() * 1000)
+        filename = os.path.join(CHATS_DIR, f"chat_prompt_{ticks}.txt")
+
+        with open(filename, "w", encoding='utf-8') as f:
+            f.write(prompt)
+
+        cmd = [
+            llama_binary,
+            "-m", model_path,
+            "-f", filename,
+            "--temp", str(Config.get_temperature()),
+            "--top-p", str(Config.get_top_p()),
+            "--top-k", str(Config.get_top_k()),
+            "--min-p", str(Config.get_min_p()),
+            "-n", str(Config.get_output_tokens()),
+            "--ctx-size", str(Config.get_model_context()),
+            "--jinja",
+            "--no-display-prompt",
+            "-st"
+        ]
+
+        process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1
+        )
+
+        current_iteration = 0
+        while True:
+            token = process.stdout.read(1)
+            if current_iteration % 100 == 0 or not token:
+                # For chat, we don't need to write to a file, but we can log progress
+                pass
+            if not token:
+                if os.path.exists(filename):
+                    os.remove(filename)
+                break
+            response_content += token
+            current_iteration += 1
+
+        process.wait()
+    else:
+        # Use Azure AI Inference
+        endpoint = Config.get_endpoint()
+        model_name = Config.get_model_name()
+        api_key = Config.get_api_key()
+        verify_ssl = Config.verify_ssl()
+
+        if not all([endpoint, model_name, api_key]):
+            raise ValueError("Missing one or more required environment variables: ENDPOINT, MODEL_NAME, API_KEY")
+
+        client = ChatCompletionsClient(
+            endpoint=endpoint,
+            credential=AzureKeyCredential(api_key),
+            api_version="2024-05-01-preview",
+            connection_verify=verify_ssl
+        )
+
+        response = client.complete(
+            stream=True,
+            messages=[
+                SystemMessage(content="You are a helpful coding assistant."),
+                UserMessage(content=prompt)
+            ],
+            max_tokens=Config.get_output_tokens(),
+            model=model_name
+        )
+
+        current_iteration = 0
+        try:
+            for update in response:
+                if update.choices and isinstance(update.choices, list) and len(update.choices) > 0:
+                    content = update.choices[0].get("delta", {}).get("content", "")
+                    if content is not None:
+                        response_content += content
+                    if current_iteration % 100 == 0:
+                        # For chat, we don't need to write to a file, but we can log progress
+                        pass
+                    current_iteration += 1
+                else:
+                    break
+        finally:
+            response.close()
+
+    return response_content
 
 @app.route("/api/chats/<chat_id>/messages", methods=["POST"])
 def api_send_message(chat_id):
@@ -162,19 +310,40 @@ def api_send_message(chat_id):
     if not os.path.exists(chat_path):
         return jsonify({"error": "Chat not found"}), 404
 
-    with open(chat_path, "r", encoding="utf-8") as f:
-        chat_data = json.load(f)
+    try:
+        with open(chat_path, "r", encoding="utf-8") as f:
+            chat_data = json.load(f)
 
-    chat_data["messages"].append({"role": "user", "content": message})
+        chat_data["messages"].append({"role": "user", "content": message})
 
-    # Simulate AI response (replace with actual AI call if needed)
-    ai_reply = f"Simulated response to: {message}"
-    chat_data["messages"].append({"role": "assistant", "content": ai_reply})
+        # Build a prompt for the AI
+        # Include previous messages for context
+        messages = chat_data["messages"]
+        prompt_parts = []
+        for msg in messages:
+            role = msg["role"]
+            content = msg["content"]
+            if role == "user":
+                prompt_parts.append(f"User: {content}")
+            else:
+                prompt_parts.append(f"Assistant: {content}")
 
-    with open(chat_path, "w", encoding="utf-8") as f:
-        json.dump(chat_data, f, indent=2)
+        prompt = "\n".join(prompt_parts) + "\nAssistant:"
 
-    return jsonify({"response": ai_reply, "messages": chat_data["messages"]})
+        # Use the same model selection logic as AIBuilder
+        try:
+            ai_reply = run_model_for_chat(prompt)
+            chat_data["messages"].append({"role": "assistant", "content": ai_reply})
+        except Exception as e:
+            ai_reply = f"Error generating response: {str(e)}"
+            chat_data["messages"].append({"role": "assistant", "content": ai_reply})
+
+        with open(chat_path, "w", encoding="utf-8") as f:
+            json.dump(chat_data, f, indent=2)
+
+        return jsonify({"status": "success", "messages": chat_data["messages"]})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @app.route("/api/chats/<chat_id>", methods=["DELETE"])
 def api_delete_chat(chat_id):
