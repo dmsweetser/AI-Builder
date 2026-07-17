@@ -196,7 +196,8 @@ def api_get_chat(chat_id):
 
 @app.route("/api/chats/<chat_id>/messages", methods=["POST"])
 def api_send_message(chat_id):
-    message = request.json.get("content", "")
+    data = request.get_json(silent=True) or {}
+    message = data.get("content", "")
     if not message:
         return jsonify({"error": "Missing message content"}), 400
     

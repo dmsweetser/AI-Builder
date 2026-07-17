@@ -368,19 +368,28 @@ function selectChat(chatId) {
 function sendChat() {
     const input = document.getElementById('chat-input');
     const content = input.value.trim();
-    if (!content || !currentChatId) return;
+    if (!content || !currentChatId) {
+        console.warn('Cannot send: missing content or chat ID');
+        return;
+    }
 
     fetch(`/api/chats/${currentChatId}/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content })
     })
-        .then(response => response.json())
-        .then(message => {
-            input.value = '';
-            selectChat(currentChatId); // Refresh chat
-        })
-        .catch(err => console.error('Send failed:', err));
+    .then(response => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return response.json();
+    })
+    .then(message => {
+        input.value = '';
+        selectChat(currentChatId);
+    })
+    .catch(err => {
+        console.error('Send failed:', err);
+        alert('Failed to send message. Check console for details.');
+    });
 }
 
 function deleteChat(chatId) {
