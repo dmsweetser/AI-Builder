@@ -28,6 +28,7 @@
             background-size: 20px 20px;
             font-family: 'Press Start 2P', monospace;
             color: var(--light-text);
+            font-size: 14px;
             margin: 0;
             padding: 0;
             display: flex;
@@ -228,10 +229,30 @@
         .run-btn {
             background: var(--sky);
             color: #000;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
         }
 
         .run-btn:hover {
             background: #aaddff;
+        }
+
+        .run-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .run-spinner {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border: 2px solid rgba(0, 0, 0, 0.3);
+            border-radius: 50%;
+            border-top-color: #000;
+            animation: spin 1s ease-in-out infinite;
         }
 
         .note {
@@ -304,15 +325,32 @@
         .btn-xs {
             background: var(--stone);
             color: #fff;
-            padding: 2px 6px;
+            padding: 4px 6px;
             border: 2px solid #000;
             cursor: pointer;
             font-family: 'Press Start 2P', monospace;
-            font-size: 7px;
+            font-size: 8px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 20px;
+            min-height: 20px;
+        }
+
+        .btn-xs.chat-delete {
+            background: #a03030;
+            width: 20px;
+            height: 20px;
+            padding: 0;
+            font-size: 10px;
         }
 
         .btn-xs:hover {
             background: #6aa94a;
+        }
+
+        .btn-xs.chat-delete:hover {
+            background: #c04040;
         }
 
         .selector-controls {
@@ -419,8 +457,13 @@
         }
 
         @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
         }
 
         .spinner {
@@ -460,13 +503,27 @@
         }
 
         @keyframes slideIn {
-            from { transform: translateX(100%); opacity: 0; }
-            to { transform: translateX(0); opacity: 1; }
+            from {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
         }
 
         @keyframes slideOut {
-            from { transform: translateX(0); opacity: 1; }
-            to { transform: translateX(-100%); opacity: 0; }
+            from {
+                transform: translateX(0);
+                opacity: 1;
+            }
+
+            to {
+                transform: translateX(-100%);
+                opacity: 0;
+            }
         }
 
         .panel {
@@ -562,57 +619,37 @@
                         </div>
                         <div class="form-grid">
                             <div>
-                                <label>3. EXCLUDED FILES/FOLDERS</label>
-                                <input name="excludePatterns" id="details-exclude-patterns">
-                            </div>
-                            <div>
-                                <label>4. ITERATIONS</label>
+                                <label>3. ITERATIONS</label>
                                 <input name="iterations" id="details-iterations" value="1">
                             </div>
+                            <div>
+                                <label>4. INSTRUCTIONS FOR AI BUILDER</label>
+                                <textarea name="instructions" id="details-instructions" rows="8"
+                                    oninput="autoSaveProject()"></textarea>
+                            </div>
                         </div>
-                        <label>5. MODE (include/exclude)</label>
-                        <select name="mode" id="details-mode">
-                            <option value="include">Include</option>
-                            <option value="exclude">Exclude</option>
-                        </select>
-                        <label>6. INSTRUCTIONS FOR AI BUILDER</label>
-                        <textarea name="instructions" id="details-instructions" rows="8"
-                            oninput="autoSaveProject()"></textarea>
                         <div class="form-grid">
                             <div>
-                                <label>7. PRE-SCRIPT</label>
+                                <label>5. PRE-SCRIPT</label>
                                 <textarea name="preScript" id="details-pre-script" rows="4"
                                     oninput="autoSaveProject()"></textarea>
                             </div>
                             <div>
-                                <label>8. POST-SCRIPT</label>
+                                <label>6. POST-SCRIPT</label>
                                 <textarea name="postScript" id="details-post-script" rows="4"
                                     oninput="autoSaveProject()"></textarea>
                             </div>
                         </div>
-                        <div class="form-grid">
-                            <div>
-                                <label>9. AZURE ENDPOINT</label>
-                                <input name="endpoint" id="details-endpoint" placeholder="https://your-endpoint.openai.azure.com/">
-                            </div>
-                            <div>
-                                <label>10. MODEL NAME</label>
-                                <input name="modelName" id="details-model-name" placeholder="gpt-4">
-                            </div>
+                        <div style="display: flex; gap: 10px; margin-top: 15px;">
+                            <button type="button" id="details-run-btn"
+                                onclick="runProject(document.getElementById('run-project-id').value)"
+                                style="flex: 3;">RUN AI BUILDER</button>
+                            <button type="button"
+                                onclick="deleteProject(document.getElementById('details-project-id').value)"
+                                style="flex: 1; background:#a03030;">DELETE PROJECT</button>
                         </div>
-                        <div>
-                            <label>11. API KEY</label>
-                            <input name="apiKey" id="details-api-key" type="password" placeholder="Your Azure API Key">
-                        </div>
-                        <button type="button"
-                            onclick="deleteProject(document.getElementById('details-project-id').value)"
-                            style="background:#a03030; margin-top:10px;">DELETE PROJECT</button>
                     </form>
-                    <form id="run-project-form" onsubmit="event.preventDefault(); runProject(document.getElementById('run-project-id').value)">
-                        <input type="hidden" name="id" id="run-project-id">
-                        <button type="submit" class="run-btn">RUN AI BUILDER (CLEAN MODE)</button>
-                        <div id="run-status"></div>
-                    </form>
+                    <div id="run-status"></div>
                     <p class="note">REVISE INSTRUCTIONS & SCRIPTS, THEN RE-RUN AS MANY TIMES AS YOU LIKE.</p>
                 </div>
             </div>
@@ -643,6 +680,8 @@
         let currentProjectId = null;
         let currentChatId = null;
         let fileTreeData = [];
+        let runQueue = [];
+        let isRunningQueue = false;
 
         // Tab switching
         function showTab(tabName) {
@@ -720,15 +759,10 @@
                     document.getElementById('details-project-name').textContent = project.name;
                     document.getElementById('details-root-dir').value = project.rootDirectory || '';
                     document.getElementById('details-patterns').value = project.includePatterns || '';
-                    document.getElementById('details-exclude-patterns').value = project.excludePatterns || '';
                     document.getElementById('details-iterations').value = project.iterations || 1;
-                    document.getElementById('details-mode').value = project.mode || 'include';
                     document.getElementById('details-instructions').value = project.instructions || '';
                     document.getElementById('details-pre-script').value = project.preScript || '';
                     document.getElementById('details-post-script').value = project.postScript || '';
-                    document.getElementById('details-endpoint').value = project.modelConfig?.endpoint || '';
-                    document.getElementById('details-model-name').value = project.modelConfig?.modelName || '';
-                    document.getElementById('details-api-key').value = project.modelConfig?.apiKey || '';
                     document.getElementById('run-project-id').value = project.id;
                     document.getElementById('run-status').textContent = '';
                 });
@@ -921,27 +955,66 @@
                 });
         });
 
-        // Run project
-        function runProject(projectId) {
-            const statusElement = document.getElementById('run-status');
-            statusElement.textContent = 'Starting AIBuilder...';
+        function updateRunButtonState(projectId, isLoading) {
+            const btn = document.querySelector(`#proj-${projectId} .btn-sm:not(.delete)`);
+            const detailBtn = document.getElementById('details-run-btn');
+
+            if (btn) {
+                btn.disabled = isLoading;
+                if (isLoading) {
+                    btn.innerHTML = '<span class="spinner"></span> Running...';
+                } else {
+                    btn.textContent = 'Run';
+                }
+            }
+            if (detailBtn) {
+                detailBtn.disabled = isLoading;
+                if (isLoading) {
+                    detailBtn.innerHTML = '<span class="run-spinner"></span> Running...';
+                } else {
+                    detailBtn.textContent = 'RUN AI BUILDER (CLEAN MODE)';
+                }
+            }
+        }
+
+        function processRunQueue() {
+            if (isRunningQueue || runQueue.length === 0) return;
+            isRunningQueue = true;
+            const projectId = runQueue.shift();
+
+            updateRunButtonState(projectId, true);
 
             fetch(`/api/projects/${projectId}/run`, {
                 method: 'POST'
             })
-            .then(response => {
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
-                return response.json();
-            })
-            .then(data => {
-                statusElement.textContent = `Status: ${data.status}\nMessage: ${data.message || ''}`;
-            })
-            .catch(error => {
-                console.error('Error running project:', error);
-                statusElement.textContent = `Error: ${error.message}`;
-            });
+                .then(response => {
+                    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                    return response.json();
+                })
+                .then(data => {
+                    const statusElement = document.getElementById('run-status');
+                    statusElement.textContent = `Status: ${data.status} \n Message: ${data.message || ''}`;
+                })
+                .catch(error => {
+                    console.error('Error running project:', error);
+                    const statusElement = document.getElementById('run-status');
+                    statusElement.textContent = `Error: ${error.message}`;
+                })
+                .finally(() => {
+                    updateRunButtonState(projectId, false);
+                    isRunningQueue = false;
+                    processRunQueue();
+                });
+        }
+
+        function queueRunProject(projectId) {
+            runQueue.push(projectId);
+            processRunQueue();
+        }
+
+        // Run project
+        function runProject(projectId) {
+            queueRunProject(projectId);
         }
 
         // Delete project
@@ -980,7 +1053,7 @@
                         chatItem.onclick = () => selectChat(chat.id);
                         chatItem.innerHTML = `
                             <span>${chat.title || 'Unnamed Chat'}</span>
-                            <button class="btn-xs" onclick="event.stopPropagation(); deleteChat('${chat.id}')">X</button>
+                            <button class="btn-xs chat-delete" onclick="event.stopPropagation(); deleteChat('${chat.id}')">X</button>
                         `;
                         chatList.appendChild(chatItem);
                     });
@@ -1059,18 +1132,20 @@
                 return;
             }
 
-            // Clear input immediately so it doesn't sit in the box
-            input.value = '';
 
             if (!currentChatId) {
                 newChat().then(() => {
                     sendChat();
+                }).catch(err => {
+                    console.error('Failed to create chat:', err);
+                    alert('Failed to create chat. Check console for details.');
+                    input.value = content;
                 });
                 return;
             }
 
             const chatLog = document.getElementById('chat-log');
-            
+
             // Immediately show user message above
             const userMsgElement = document.createElement('div');
             userMsgElement.className = 'chat-msg user';
@@ -1093,43 +1168,43 @@
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ content })
             })
-            .then(response => {
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
-                if (!response.body) throw new Error('ReadableStream not supported');
-                return response.body.getReader();
-            })
-            .then(reader => {
-                const decoder = new TextDecoder();
-                function read() {
-                    return reader.read().then(({ done, value }) => {
-                        if (done) {
-                            assistantMsgElement.querySelector('.spinner')?.remove();
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    if (!response.body) throw new Error('ReadableStream not supported');
+                    return response.body.getReader();
+                })
+                .then(reader => {
+                    const decoder = new TextDecoder();
+                    function read() {
+                        return reader.read().then(({ done, value }) => {
+                            if (done) {
+                                assistantMsgElement.querySelector('.spinner')?.remove();
+                                contentDiv.innerHTML = renderMarkdown(accumulated);
+                                chatLog.scrollTop = chatLog.scrollHeight;
+                                return;
+                            }
+                            const text = decoder.decode(value, { stream: true });
+                            accumulated += text;
+
+                            if (accumulated.length > 0 && assistantMsgElement.querySelector('.spinner')) {
+                                assistantMsgElement.querySelector('.spinner')?.remove();
+                            }
+
                             contentDiv.innerHTML = renderMarkdown(accumulated);
                             chatLog.scrollTop = chatLog.scrollHeight;
-                            return;
-                        }
-                        const text = decoder.decode(value, { stream: true });
-                        accumulated += text;
-                        
-                        if (accumulated.length > 0 && assistantMsgElement.querySelector('.spinner')) {
-                            assistantMsgElement.querySelector('.spinner')?.remove();
-                        }
-                        
-                        contentDiv.innerHTML = renderMarkdown(accumulated);
-                        chatLog.scrollTop = chatLog.scrollHeight;
-                        return read();
-                    });
-                }
-                read();
-            })
-            .catch(err => {
-                console.error('Send failed:', err);
-                assistantMsgElement.querySelector('.spinner')?.remove();
-                contentDiv.innerHTML = `<span style="color:red;">Error: ${err.message}</span>`;
-                chatLog.scrollTop = chatLog.scrollHeight;
-            });
+                            return read();
+                        });
+                    }
+                    read();
+                })
+                .catch(err => {
+                    console.error('Send failed:', err);
+                    assistantMsgElement.querySelector('.spinner')?.remove();
+                    contentDiv.innerHTML = `<span style="color:red;">Error: ${err.message}</span>`;
+                    chatLog.scrollTop = chatLog.scrollHeight;
+                });
         }
 
         function escapeHtml(text) {
@@ -1178,4 +1253,5 @@
         });
     </script>
 </body>
+
 </html>

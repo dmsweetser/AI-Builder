@@ -358,8 +358,8 @@ class AIBuilder:
 
         if self.clean_mode:
             self.root_directory = project_config["rootDirectory"]
-            self.use_git_diff = project_config.get("useGitDiff", True)
-            self.ai_builder_dir = os.path.join(self.root_directory, "instance", "ai_builder", project_config["id"])
+            self.use_git_diff = project_config.get("useGitDiff", Config.get_use_git_diff())
+            self.ai_builder_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "instance", "ai_builder", project_config["id"])
         else:
             self.root_directory = Config.get_root_directory()
             self.ai_builder_dir = Config.get_ai_builder_dir(self.root_directory)
