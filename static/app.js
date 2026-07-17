@@ -1,5 +1,6 @@
 // Global state
 let currentProjectId = null;
+let currentChatId = null;
 let fileTreeData = [];
 
 // Tab switching
@@ -103,7 +104,6 @@ function loadFileTree() {
         return;
     }
 
-    // Disable button and show spinner
     const loadTreeBtn = document.getElementById('load-tree-btn');
     const loadTreeText = document.getElementById('load-tree-text');
     const loadTreeSpinner = document.getElementById('load-tree-spinner');
@@ -112,29 +112,55 @@ function loadFileTree() {
     loadTreeText.style.display = 'none';
     loadTreeSpinner.style.display = 'inline-block';
 
-    // Simulate API call (replace with actual API call)
-    setTimeout(() => {
-        // This is a mock response - replace with actual fetch call
-        fileTreeData = [
-            {
-                name: 'src', type: 'dir', path: `${rootPath}/src`, children: [
-                    { name: 'main.py', type: 'file', path: `${rootPath}/src/main.py` },
-                    { name: 'utils', type: 'dir', path: `${rootPath}/src/utils`, children: [] }
-                ]
-            },
-            { name: 'README.md', type: 'file', path: `${rootPath}/README.md` }
-        ];
+    fetch(`/api/files?path=${encodeURIComponent(rootPath)}`)
+        .then(response => response.json())
+        .then(paths => {
+            // Build tree structure from flat paths
+            const tree = {};
+            paths.forEach(p => {
+                const isDir = p.endsWith('/');
+                const cleanPath = isDir ? p.slice(0, -1) : p;
+                const parts = cleanPath.split('/');
+                let current = tree;
+                parts.forEach((part, idx) => {
+                    if (!current[part]) {
+                        current[part] = { children: {}, isDir: idx === parts.length - 1 ? false : true };
+                    }
+                    current = current[part].children;
+                });
+            });
 
-        renderFileTree(fileTreeData);
+            // Convert to array format expected by renderFileTree
+            function buildArray(obj) {
+                return Object.keys(obj).map(key => {
+                    const node = obj[key];
+                    const isDir = node.isDir;
+                    const item = {
+                        name: key,
+                        type: isDir ? 'dir' : 'file',
+                        path: `${rootPath}/${key}`,
+                        children: isDir ? buildArray(node.children) : []
+                    };
+                    return item;
+                });
+            }
 
-        // Re-enable button and hide spinner
-        loadTreeBtn.disabled = false;
-        loadTreeText.style.display = 'inline';
-        loadTreeSpinner.style.display = 'none';
+            fileTreeData = buildArray(tree);
+            renderFileTree(fileTreeData);
 
-        // Update hidden input for form submission
-        document.getElementById('root-path-hidden').value = rootPath;
-    }, 1000);
+            loadTreeBtn.disabled = false;
+            loadTreeText.style.display = 'inline';
+            loadTreeSpinner.style.display = 'none';
+
+            document.getElementById('root-path-hidden').value = rootPath;
+        })
+        .catch(err => {
+            console.error('Failed to load file tree:', err);
+            loadTreeBtn.disabled = false;
+            loadTreeText.style.display = 'inline';
+            loadTreeSpinner.style.display = 'none';
+            alert('Failed to load file tree. Check console.');
+        });
 }
 
 // Render file tree
@@ -284,9 +310,10 @@ function loadChats() {
             chats.forEach(chat => {
                 const chatItem = document.createElement('div');
                 chatItem.className = 'chat-item';
+                chatItem.dataset.chatId = chat.id;
                 chatItem.onclick = () => selectChat(chat.id);
                 chatItem.innerHTML = `
-                            <span>${chat.name || 'Unnamed Chat'}</span>
+                            <span>${chat.title || 'Unnamed Chat'}</span>
                             <button class="btn-xs" onclick="event.stopPropagation(); deleteChat('${chat.id}')">X</button>
                         `;
                 chatList.appendChild(chatItem);
@@ -303,13 +330,16 @@ function newChat() {
 }
 
 function selectChat(chatId) {
+    currentChatId = chatId;
+
     // Remove active class from all chat items
     document.querySelectorAll('.chat-item').forEach(item => {
         item.classList.remove('active');
     });
 
     // Add active class to selected chat
-    event.target.classList.add('active');
+    const selectedItem = document.querySelector(`.chat-item[data-chat-id="${chatId}"]`);
+    if (selectedItem) selectedItem.classList.add('active');
 
     // Load chat messages
     fetch(`/api/chats/${chatId}`)
@@ -320,13 +350,13 @@ function selectChat(chatId) {
 
             chat.messages.forEach(msg => {
                 const msgElement = document.createElement('div');
-                msgElement.className = `chat-msg ${msg.sender}`;
+                msgElement.className = `chat-msg ${msg.role}`;
 
                 // Render markdown content
                 if (msg.content.includes('```') || msg.content.includes('**') || msg.content.includes('*')) {
-                    msgElement.innerHTML = `<strong>${msg.sender.toUpperCase()}</strong><div class="markdown-content">${renderMarkdown(msg.content)}</div>`;
+                    msgElement.innerHTML = `<strong>${msg.role.toUpperCase()}</strong><div class="markdown-content">${renderMarkdown(msg.content)}</div>`;
                 } else {
-                    msgElement.innerHTML = `<strong>${msg.sender.toUpperCase()}</strong>${msg.content}`;
+                    msgElement.innerHTML = `<strong>${msg.role.toUpperCase()}</strong>${msg.content}`;
                 }
 
                 chatLog.appendChild(msgElement);
@@ -337,13 +367,10 @@ function selectChat(chatId) {
 
 function sendChat() {
     const input = document.getElementById('chat-input');
-    const content = input.value;
-    if (!content) return;
+    const content = input.value.trim();
+    if (!content || !currentChatId) return;
 
-    // Get current chat ID (you'll need to track this)
-    const chatId = 'current-chat-id'; // Replace with actual chat ID
-
-    fetch(`/api/chats/${chatId}/messages`, {
+    fetch(`/api/chats/${currentChatId}/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content })
@@ -351,8 +378,9 @@ function sendChat() {
         .then(response => response.json())
         .then(message => {
             input.value = '';
-            selectChat(chatId); // Refresh chat
-        });
+            selectChat(currentChatId); // Refresh chat
+        })
+        .catch(err => console.error('Send failed:', err));
 }
 
 function deleteChat(chatId) {
