@@ -639,7 +639,11 @@ Reply ONLY in the specified format with no commentary. THAT'S AN ORDER, SOLDIER!
                         if self.use_git_diff:
                             logging.info("use_git_diff enabled — collecting files from git diff instead of walking directory.")
                             diff_files = self.get_git_diff_files()
-                            self.utility.collect_files(diff_files)
+                            if diff_files:
+                                self.utility.collect_files(diff_files)
+                            else:
+                                logging.info("No files in git diff, falling back to directory walk.")
+                                self.utility.process_directory(self.root_directory, exclude_patterns, patterns, mode)
                         else:
                             self.utility.process_directory(self.root_directory, exclude_patterns, patterns, mode)
 

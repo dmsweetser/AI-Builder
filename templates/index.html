@@ -1059,6 +1059,9 @@
                 return;
             }
 
+            // Clear input immediately so it doesn't sit in the box
+            input.value = '';
+
             if (!currentChatId) {
                 newChat().then(() => {
                     sendChat();
@@ -1066,11 +1069,24 @@
                 return;
             }
 
-            // Disable input and send button while processing
-            input.disabled = true;
-            const sendButton = document.querySelector('.chat-controls button');
-            sendButton.disabled = true;
-            sendButton.textContent = 'SENDING...';
+            const chatLog = document.getElementById('chat-log');
+            
+            // Immediately show user message above
+            const userMsgElement = document.createElement('div');
+            userMsgElement.className = 'chat-msg user';
+            userMsgElement.innerHTML = `<strong>USER</strong><div class="markdown-content">${escapeHtml(content)}</div>`;
+            chatLog.appendChild(userMsgElement);
+            chatLog.scrollTop = chatLog.scrollHeight;
+
+            // Immediately show assistant spinner
+            const assistantMsgElement = document.createElement('div');
+            assistantMsgElement.className = 'chat-msg model';
+            assistantMsgElement.innerHTML = `<strong>ASSISTANT</strong><div class="spinner"></div><div class="markdown-content"></div>`;
+            chatLog.appendChild(assistantMsgElement);
+            chatLog.scrollTop = chatLog.scrollHeight;
+
+            const contentDiv = assistantMsgElement.querySelector('.markdown-content');
+            let accumulated = '';
 
             fetch(`/api/chats/${currentChatId}/messages`, {
                 method: 'POST',
@@ -1081,22 +1097,45 @@
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
                 }
-                return response.json();
+                if (!response.body) throw new Error('ReadableStream not supported');
+                return response.body.getReader();
             })
-            .then(data => {
-                input.value = '';
-                input.disabled = false;
-                sendButton.disabled = false;
-                sendButton.textContent = 'SEND';
-                selectChat(currentChatId);
+            .then(reader => {
+                const decoder = new TextDecoder();
+                function read() {
+                    return reader.read().then(({ done, value }) => {
+                        if (done) {
+                            assistantMsgElement.querySelector('.spinner')?.remove();
+                            contentDiv.innerHTML = renderMarkdown(accumulated);
+                            chatLog.scrollTop = chatLog.scrollHeight;
+                            return;
+                        }
+                        const text = decoder.decode(value, { stream: true });
+                        accumulated += text;
+                        
+                        if (accumulated.length > 0 && assistantMsgElement.querySelector('.spinner')) {
+                            assistantMsgElement.querySelector('.spinner')?.remove();
+                        }
+                        
+                        contentDiv.innerHTML = renderMarkdown(accumulated);
+                        chatLog.scrollTop = chatLog.scrollHeight;
+                        return read();
+                    });
+                }
+                read();
             })
             .catch(err => {
                 console.error('Send failed:', err);
-                alert(`Failed to send message: ${err.message}`);
-                input.disabled = false;
-                sendButton.disabled = false;
-                sendButton.textContent = 'SEND';
+                assistantMsgElement.querySelector('.spinner')?.remove();
+                contentDiv.innerHTML = `<span style="color:red;">Error: ${err.message}</span>`;
+                chatLog.scrollTop = chatLog.scrollHeight;
             });
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
         }
 
         function deleteChat(chatId) {

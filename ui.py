@@ -4,7 +4,7 @@ import uuid
 import time
 import subprocess
 import platform
-from flask import Flask, request, jsonify, render_template
+from flask import Flask, Response, request, jsonify, render_template
 from ai_builder import AIBuilder
 from config import Config
 from azure.ai.inference import ChatCompletionsClient
@@ -315,9 +315,9 @@ def api_send_message(chat_id):
             chat_data = json.load(f)
 
         chat_data["messages"].append({"role": "user", "content": message})
+        with open(chat_path, "w", encoding="utf-8") as f:
+            json.dump(chat_data, f, indent=2)
 
-        # Build a prompt for the AI
-        # Include previous messages for context
         messages = chat_data["messages"]
         prompt_parts = []
         for msg in messages:
@@ -330,18 +330,65 @@ def api_send_message(chat_id):
 
         prompt = "\n".join(prompt_parts) + "\nAssistant:"
 
-        # Use the same model selection logic as AIBuilder
-        try:
-            ai_reply = run_model_for_chat(prompt)
-            chat_data["messages"].append({"role": "assistant", "content": ai_reply})
-        except Exception as e:
-            ai_reply = f"Error generating response: {str(e)}"
-            chat_data["messages"].append({"role": "assistant", "content": ai_reply})
+        def generate():
+            response_content = ""
+            try:
+                if Config.use_local_model():
+                    model_path = Config.get_model_path()
+                    if not model_path:
+                        raise ValueError("MODEL_PATH environment variable not set for local model.")
+                    base_dir = os.path.dirname(os.path.abspath(__file__))
+                    llama_binary = os.path.join(base_dir, "llama.cpp", "build", "bin", "llama-completion")
+                    if not os.path.isfile(llama_binary):
+                        raise FileNotFoundError(f"llama binary not found at: {llama_binary}")
+                    ticks = int(time.time() * 1000)
+                    filename = os.path.join(CHATS_DIR, f"chat_prompt_{ticks}.txt")
+                    with open(filename, "w", encoding='utf-8') as f:
+                        f.write(prompt)
+                    cmd = [
+                        llama_binary, "-m", model_path, "-f", filename,
+                        "--temp", str(Config.get_temperature()), "--top-p", str(Config.get_top_p()),
+                        "--top-k", str(Config.get_top_k()), "--min-p", str(Config.get_min_p()),
+                        "-n", str(Config.get_output_tokens()), "--ctx-size", str(Config.get_model_context()),
+                        "--jinja", "--no-display-prompt", "-st"
+                    ]
+                    process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
+                    for token in iter(lambda: process.stdout.read(1), ''):
+                        response_content += token
+                        yield token
+                    process.wait()
+                    if os.path.exists(filename):
+                        os.remove(filename)
+                else:
+                    endpoint = Config.get_endpoint()
+                    model_name = Config.get_model_name()
+                    api_key = Config.get_api_key()
+                    verify_ssl = Config.verify_ssl()
+                    if not all([endpoint, model_name, api_key]):
+                        raise ValueError("Missing one or more required environment variables: ENDPOINT, MODEL_NAME, API_KEY")
+                    client = ChatCompletionsClient(
+                        endpoint=endpoint, credential=AzureKeyCredential(api_key),
+                        api_version="2024-05-01-preview", connection_verify=verify_ssl
+                    )
+                    response = client.complete(
+                        stream=True,
+                        messages=[SystemMessage(content="You are a helpful coding assistant."), UserMessage(content=prompt)],
+                        max_tokens=Config.get_output_tokens(), model=model_name
+                    )
+                    for update in response:
+                        if update.choices and isinstance(update.choices, list) and len(update.choices) > 0:
+                            content = update.choices[0].get("delta", {}).get("content", "")
+                            if content is not None:
+                                response_content += content
+                                yield content
+                    response.close()
+                chat_data["messages"].append({"role": "assistant", "content": response_content})
+                with open(chat_path, "w", encoding="utf-8") as f:
+                    json.dump(chat_data, f, indent=2)
+            except Exception as e:
+                yield f"Error: {str(e)}"
 
-        with open(chat_path, "w", encoding="utf-8") as f:
-            json.dump(chat_data, f, indent=2)
-
-        return jsonify({"status": "success", "messages": chat_data["messages"]})
+        return Response(generate(), mimetype='text/plain')
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
