@@ -918,19 +918,21 @@
             });
         }
 
-        // Auto-save project
+        // Auto-save project with debounce
+        let autoSaveTimeout = null;
         function autoSaveProject() {
             if (!currentProjectId) return;
-
-            const form = document.getElementById('project-details-form');
-            const formData = new FormData(form);
-
-            fetch(`/api/projects/${currentProjectId}`, {
-                method: 'POST',
-                body: formData
-            }).catch(error => {
-                console.error('Auto-save failed:', error);
-            });
+            clearTimeout(autoSaveTimeout);
+            autoSaveTimeout = setTimeout(() => {
+                const form = document.getElementById('project-details-form');
+                const formData = new FormData(form);
+                fetch(`/api/projects/${currentProjectId}`, {
+                    method: 'POST',
+                    body: formData
+                }).catch(error => {
+                    console.error('Auto-save failed:', error);
+                });
+            }, 500);
         }
 
         // Create new project
@@ -1250,6 +1252,18 @@
         // Initialize
         document.addEventListener('DOMContentLoaded', () => {
             loadProjects();
+            // Auto-create chat if none exist
+            fetch('/api/chats/auto')
+                .then(res => res.json())
+                .then(data => {
+                    if (data.created) {
+                        currentChatId = data.id;
+                        selectChat(data.id);
+                    } else {
+                        loadChats();
+                    }
+                })
+                .catch(err => console.error('Auto chat failed:', err));
         });
     </script>
 </body>

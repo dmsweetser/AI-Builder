@@ -52,6 +52,7 @@ def api_get_project(pid):
     project, _ = get_project(pid)
     if not project:
         return jsonify({"error": "Project not found"}), 404
+    project.pop("modelConfig", None)
     return jsonify(project)
 
 @app.route("/api/projects", methods=["POST"])
@@ -69,12 +70,7 @@ def api_create_project():
         "instructions": request.form.get("instructions", ""),
         "preScript": request.form.get("preScript", ""),
         "postScript": request.form.get("postScript", ""),
-        "mode": request.form.get("mode", "include"),
-        "modelConfig": {
-            "endpoint": request.form.get("endpoint", Config.get_endpoint()),
-            "modelName": request.form.get("modelName", Config.get_model_name()),
-            "apiKey": request.form.get("apiKey", Config.get_api_key())
-        }
+        "mode": request.form.get("mode", "include")
     }
 
     projects.append(project)
@@ -96,12 +92,7 @@ def api_update_project(pid):
         "instructions": request.form.get("instructions", project.get("instructions", "")),
         "preScript": request.form.get("preScript", project.get("preScript", "")),
         "postScript": request.form.get("postScript", project.get("postScript", "")),
-        "mode": request.form.get("mode", project.get("mode", "include")),
-        "modelConfig": {
-            "endpoint": request.form.get("endpoint", project.get("modelConfig", {}).get("endpoint", Config.get_endpoint())),
-            "modelName": request.form.get("modelName", project.get("modelConfig", {}).get("modelName", Config.get_model_name())),
-            "apiKey": request.form.get("apiKey", project.get("modelConfig", {}).get("apiKey", Config.get_api_key()))
-        }
+        "mode": request.form.get("mode", project.get("mode", "include"))
     })
 
     save_projects(projects)
@@ -112,14 +103,14 @@ def api_run_project(pid):
     project, _ = get_project(pid)
     if not project:
         return jsonify({"error": "Project not found"}), 404
+    job_id = str(uuid.uuid4())
+    run_queue.put({'pid': pid, 'job_id': job_id})
+    return jsonify({"status": "queued", "job_id": job_id})
 
-    try:
-        # Initialize AIBuilder with the project config
-        builder = AIBuilder(project_config=project)
-        builder.run()  # Run the AIBuilder with the project config
-        return jsonify({"status": "completed", "message": f"Project {project['name']} executed successfully!"})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+@app.route("/api/run/<job_id>/status", methods=["GET"])
+def api_run_status(job_id):
+    status = run_status.get(job_id, {'status': 'unknown'})
+    return jsonify(status)
 
 @app.route("/api/projects/<pid>", methods=["DELETE"])
 def api_delete_project(pid):
