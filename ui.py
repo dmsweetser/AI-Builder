@@ -4,6 +4,8 @@ import uuid
 import time
 import subprocess
 import platform
+import queue
+import threading
 from flask import Flask, Response, request, jsonify, render_template
 from ai_builder import AIBuilder
 from config import Config
@@ -12,6 +14,29 @@ from azure.ai.inference.models import SystemMessage, UserMessage
 from azure.core.credentials import AzureKeyCredential
 
 app = Flask(__name__)
+
+run_queue = queue.Queue()
+run_status = {}
+
+def worker():
+    while True:
+        job = run_queue.get()
+        pid = job['pid']
+        job_id = job['job_id']
+        run_status[job_id] = {'status': 'running'}
+        project, _ = get_project(pid)
+        if project:
+            try:
+                ai = AIBuilder(project)
+                ai.run()
+                run_status[job_id] = {'status': 'completed'}
+            except Exception as e:
+                run_status[job_id] = {'status': 'error', 'message': str(e)}
+        else:
+            run_status[job_id] = {'status': 'error', 'message': 'Project not found'}
+        run_queue.task_done()
+
+threading.Thread(target=worker, daemon=True).start()
 
 PROJECTS_FILE = "instance/projects.json"
 CHATS_DIR = "instance/chats"
@@ -389,6 +414,23 @@ def api_delete_chat(chat_id):
     if os.path.exists(chat_path):
         os.remove(chat_path)
     return jsonify({"status": "deleted"})
+
+@app.route("/api/chats/auto", methods=["GET"])
+def api_auto_chat():
+    if not os.path.exists(CHATS_DIR):
+        os.makedirs(CHATS_DIR, exist_ok=True)
+    chats = []
+    if os.path.exists(CHATS_DIR):
+        for fname in os.listdir(CHATS_DIR):
+            if fname.endswith(".json"):
+                chats.append(fname.replace(".json", ""))
+    if not chats:
+        chat_id = str(uuid.uuid4())
+        chat_path = os.path.join(CHATS_DIR, f"{chat_id}.json")
+        with open(chat_path, "w", encoding="utf-8") as f:
+            json.dump({"id": chat_id, "messages": []}, f)
+        return jsonify({"created": True, "id": chat_id})
+    return jsonify({"created": False, "id": chats[-1]})
 
 if __name__ == "__main__":
     app.run(port=5000, debug=True)
