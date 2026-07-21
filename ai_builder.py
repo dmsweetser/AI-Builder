@@ -359,14 +359,14 @@ class AIBuilder:
         if self.clean_mode:
             self.root_directory = project_config["rootDirectory"]
             self.use_git_diff = project_config.get("useGitDiff", Config.get_use_git_diff())
-            self.ai_builder_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "instance", "ai_builder", project_config["id"])
+            self.ai_builder_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aib_instance", "ai_builder", project_config["id"])
         else:
             self.root_directory = Config.get_root_directory()
             self.ai_builder_dir = Config.get_ai_builder_dir(self.root_directory)
             self.use_git_diff = Config.get_use_git_diff()
 
         os.makedirs(self.ai_builder_dir, exist_ok=True)
-        os.makedirs(os.path.join(self.root_directory, "instance", "chats"), exist_ok=True)
+        os.makedirs(os.path.join(self.root_directory, "aib_instance", "chats"), exist_ok=True)
 
         self.response_file = os.path.join(self.ai_builder_dir, "current_response.txt")
 

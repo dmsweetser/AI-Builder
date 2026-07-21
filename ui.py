@@ -38,8 +38,8 @@ def worker():
 
 threading.Thread(target=worker, daemon=True).start()
 
-PROJECTS_FILE = "instance/projects.json"
-CHATS_DIR = "instance/chats"
+PROJECTS_FILE = "aib_instance/projects.json"
+CHATS_DIR = "aib_instance/chats"
 
 # Ensure required directories exist on startup
 os.makedirs(CHATS_DIR, exist_ok=True)

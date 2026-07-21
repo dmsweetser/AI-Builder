@@ -12,7 +12,7 @@ class Config:
     @staticmethod
     def get_ai_builder_dir(root_dir: str) -> str:
         """Returns the path to the ai_builder directory."""
-        return os.path.join(root_dir, "instance", "ai_builder")
+        return os.path.join(root_dir, "aib_instance", "ai_builder")
     
     @staticmethod
     def use_local_model() -> bool:
@@ -82,12 +82,12 @@ class Config:
     @staticmethod
     def get_log_file_path(root_dir: str) -> str:
         """Returns the path to the log file."""
-        return os.path.join(root_dir, "instance", "ai_builder", "utility.log")
+        return os.path.join(root_dir, "aib_instance", "ai_builder", "utility.log")
 
     @staticmethod
     def get_output_file_path(root_dir: str) -> str:
         """Returns the path to the output file."""
-        return os.path.join(root_dir, "instance", "ai_builder", "output.txt")
+        return os.path.join(root_dir, "aib_instance", "ai_builder", "output.txt")
     
     @staticmethod
     def get_use_git_diff() -> bool:
