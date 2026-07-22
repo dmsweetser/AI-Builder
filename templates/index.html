@@ -78,7 +78,7 @@
             padding: 10px;
             cursor: pointer;
             font-family: 'Press Start 2P', monospace;
-            font-size: 10px;
+            font-size: 12px;
             box-shadow: 4px 4px 0px #000;
             transition: all 0.1s;
         }
@@ -128,7 +128,7 @@
             padding: 10px;
             margin: 8px 0;
             border: 3px solid #000;
-            font-size: 10px;
+            font-size: 12px;
             line-height: 1.4;
             cursor: pointer;
         }
@@ -157,7 +157,7 @@
             border: 2px solid #000;
             cursor: pointer;
             font-family: 'Press Start 2P', monospace;
-            font-size: 8px;
+            font-size: 10px;
         }
 
         .btn-sm.delete {
@@ -186,7 +186,7 @@
             padding: 8px;
             margin-top: 5px;
             font-family: 'Press Start 2P', monospace;
-            font-size: 10px;
+            font-size: 12px;
             box-sizing: border-box;
         }
 
@@ -203,7 +203,7 @@
             border: 3px solid #000;
             cursor: pointer;
             font-family: 'Press Start 2P', monospace;
-            font-size: 11px;
+            font-size: 13px;
             margin-top: 15px;
             width: 100%;
             box-shadow: 4px 4px 0px #000;
@@ -256,7 +256,7 @@
         }
 
         .note {
-            font-size: 9px;
+            font-size: 11px;
             color: #aaa;
             margin-top: 8px;
             line-height: 1.4;
@@ -306,7 +306,7 @@
             padding: 8px;
             margin: 5px 0;
             border: 2px solid #000;
-            font-size: 9px;
+            font-size: 11px;
             cursor: pointer;
             display: flex;
             justify-content: space-between;
@@ -329,7 +329,7 @@
             border: 2px solid #000;
             cursor: pointer;
             font-family: 'Press Start 2P', monospace;
-            font-size: 8px;
+            font-size: 10px;
             display: inline-flex;
             align-items: center;
             justify-content: center;
@@ -374,7 +374,7 @@
             overflow-y: auto;
             padding: 10px;
             font-family: monospace;
-            font-size: 11px;
+            font-size: 13px;
         }
 
         .tree-item {
@@ -392,10 +392,12 @@
         .tree-item.dir {
             font-weight: bold;
             color: var(--sky);
+            font-size: 13px;
         }
 
         .tree-item.file {
             color: #ccc;
+            font-size: 13px;
         }
 
         ::-webkit-scrollbar {
@@ -439,7 +441,7 @@
         .chat-msg strong {
             display: block;
             margin-bottom: 4px;
-            font-size: 10px;
+            font-size: 12px;
             color: #aaa;
         }
 
@@ -606,7 +608,7 @@
                     <p class="note">ANSWER THESE BLOCKS LIKE AN INTERVIEW. AI BUILDER WILL USE THEM WITHOUT DIRTYING THE
                         TARGET DIRECTORY.</p>
                     <form id="project-details-form">
-                        <input type="hidden" name="id" id="details-project-id">
+                        <input type="hidden" name="id" id="run-project-id">
                         <div class="form-grid">
                             <div>
                                 <label>1. PROJECT LOCATION</label>
@@ -700,7 +702,18 @@
             if (tabName === 'projects') {
                 loadProjects();
             } else if (tabName === 'chat') {
-                loadChats();
+                if (!currentChatId) {
+                    fetch('/api/chats/auto')
+                        .then(res => res.json())
+                        .then(data => {
+                            currentChatId = data.id;
+                            selectChat(data.id);
+                        })
+                        .catch(err => console.error('Auto chat failed:', err));
+                } else {
+                    loadChats();
+                    selectChat(currentChatId);
+                }
             }
         }
 
@@ -945,7 +958,10 @@
                 method: 'POST',
                 body: formData
             })
-                .then(response => response.json())
+                .then(response => {
+                    if (!response.ok) throw new Error('Failed to create project');
+                    return response.json();
+                })
                 .then(data => {
                     // Clear form
                     this.reset();
@@ -954,6 +970,10 @@
 
                     // Select the new project
                     selectProject(data.id);
+                })
+                .catch(err => {
+                    console.error('Project creation failed:', err);
+                    alert('Failed to create project. Check console for details.');
                 });
         });
 

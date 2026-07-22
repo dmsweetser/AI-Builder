@@ -330,6 +330,9 @@ def api_send_message(chat_id):
         with open(chat_path, "r", encoding="utf-8") as f:
             chat_data = json.load(f)
 
+        # Prevent duplicate user messages
+        if chat_data["messages"] and chat_data["messages"][-1].get("role") == "user" and chat_data["messages"][-1].get("content") == message:
+            chat_data["messages"].pop()
         chat_data["messages"].append({"role": "user", "content": message})
         with open(chat_path, "w", encoding="utf-8") as f:
             json.dump(chat_data, f, indent=2)
@@ -344,7 +347,7 @@ def api_send_message(chat_id):
             else:
                 prompt_parts.append(f"Assistant: {content}")
 
-        prompt = "\n".join(prompt_parts) + "\nAssistant:"
+        prompt = f"{chr(10)}".join(prompt_parts) + f"{chr(10)}Assistant:"
 
         def generate():
             response_content = ""
