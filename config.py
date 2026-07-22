@@ -35,23 +35,23 @@ class Config:
         return int(os.getenv("MODEL_CONTEXT", 0))
 
     @staticmethod
-    def get_temperature() -> int:
+    def get_temperature() -> float:
         """Returns the temperature for the local model."""
         return float(os.getenv("TEMPERATURE", 1))
 
     @staticmethod
-    def get_top_p() -> int:
+    def get_top_p() -> float:
         """Returns the top_p for the local model."""
         return float(os.getenv("TOP_P", 1))
     
     @staticmethod
     def get_top_k() -> int:
-        """Returns the top_p for the local model."""
+        """Returns the top_k for the local model."""
         return int(os.getenv("TOP_K", 1))
 
     @staticmethod
-    def get_min_p() -> int:
-        """Returns the top_p for the local model."""
+    def get_min_p() -> float:
+        """Returns the min_p for the local model."""
         return float(os.getenv("MIN_P", 1))
 
     @staticmethod

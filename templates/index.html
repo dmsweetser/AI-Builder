@@ -647,7 +647,7 @@
                                 onclick="runProject(document.getElementById('run-project-id').value)"
                                 style="flex: 3;">RUN AI BUILDER</button>
                             <button type="button"
-                                onclick="deleteProject(document.getElementById('details-project-id').value)"
+                                onclick="deleteProject(document.getElementById('run-project-id').value)"
                                 style="flex: 1; background:#a03030;">DELETE PROJECT</button>
                         </div>
                     </form>
@@ -723,9 +723,10 @@
                 .then(response => response.json())
                 .then(data => {
                     const projectList = document.getElementById('project-list');
+                    if (!projectList) return;
                     projectList.innerHTML = '';
 
-                    if (data.length === 0) {
+                    if (!data || data.length === 0) {
                         projectList.innerHTML = '<div class="note">NO PROJECTS FOUND.<br>ADD ONE BELOW.</div>';
                         return;
                     }
@@ -738,7 +739,7 @@
 
                         projectItem.innerHTML = `
                             <div class="project-item-header">
-                                <span class="project-item-name">${project.name}</span>
+                                <span class="project-item-name">${project.name || 'Untitled'}</span>
                                 <div class="project-item-actions">
                                     <button class="btn-sm" onclick="event.stopPropagation(); runProject('${project.id}')">Run</button>
                                     <button class="btn-sm delete" onclick="event.stopPropagation(); deleteProject('${project.id}')">Del</button>
@@ -749,7 +750,8 @@
 
                         projectList.appendChild(projectItem);
                     });
-                });
+                })
+                .catch(err => console.error('Failed to load projects:', err));
         }
 
         // Select a project
@@ -757,28 +759,38 @@
             currentProjectId = projectId;
 
             // Hide projects panel with animation
-            document.getElementById('projects-panel').classList.add('hidden');
-            document.getElementById('projects-panel').classList.remove('active');
-
-            // Show project details panel
-            document.getElementById('project-details-panel').classList.remove('hidden');
-            document.getElementById('project-details-panel').classList.add('active');
+            const projectsPanel = document.getElementById('projects-panel');
+            const detailsPanel = document.getElementById('project-details-panel');
+            if (projectsPanel) {
+                projectsPanel.classList.add('hidden');
+                projectsPanel.classList.remove('active');
+            }
+            if (detailsPanel) {
+                detailsPanel.classList.remove('hidden');
+                detailsPanel.classList.add('active');
+            }
 
             // Load project details
             fetch(`/api/projects/${projectId}`)
                 .then(response => response.json())
                 .then(project => {
-                    document.getElementById('details-project-id').value = project.id;
-                    document.getElementById('details-project-name').textContent = project.name;
-                    document.getElementById('details-root-dir').value = project.rootDirectory || '';
-                    document.getElementById('details-patterns').value = project.includePatterns || '';
-                    document.getElementById('details-iterations').value = project.iterations || 1;
-                    document.getElementById('details-instructions').value = project.instructions || '';
-                    document.getElementById('details-pre-script').value = project.preScript || '';
-                    document.getElementById('details-post-script').value = project.postScript || '';
-                    document.getElementById('run-project-id').value = project.id;
-                    document.getElementById('run-status').textContent = '';
-                });
+                    const safeSet = (id, val) => {
+                        const el = document.getElementById(id);
+                        if (el) el.value = val;
+                    };
+                    safeSet('run-project-id', project.id);
+                    const nameEl = document.getElementById('details-project-name');
+                    if (nameEl) nameEl.textContent = project.name;
+                    safeSet('details-root-dir', project.rootDirectory || '');
+                    safeSet('details-patterns', project.includePatterns || '');
+                    safeSet('details-iterations', project.iterations || 1);
+                    safeSet('details-instructions', project.instructions || '');
+                    safeSet('details-pre-script', project.preScript || '');
+                    safeSet('details-post-script', project.postScript || '');
+                    const statusEl = document.getElementById('run-status');
+                    if (statusEl) statusEl.textContent = '';
+                })
+                .catch(err => console.error('Failed to load project details:', err));
         }
 
         // Go back to projects

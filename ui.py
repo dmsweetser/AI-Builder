@@ -78,6 +78,9 @@ def api_get_project(pid):
     if not project:
         return jsonify({"error": "Project not found"}), 404
     project.pop("modelConfig", None)
+    # Ensure includePatterns is always a string for frontend compatibility
+    if not isinstance(project.get("includePatterns"), str):
+        project["includePatterns"] = ""
     return jsonify(project)
 
 @app.route("/api/projects", methods=["POST"])
@@ -85,13 +88,18 @@ def api_create_project():
     projects = load_projects()
     pid = str(uuid.uuid4())
 
+    try:
+        iterations = int(request.form.get("iterations", "1"))
+    except ValueError:
+        iterations = 1
+
     project = {
         "id": pid,
-        "name": request.form["name"],
-        "rootDirectory": request.form["rootDirectory"],
+        "name": request.form.get("name", ""),
+        "rootDirectory": request.form.get("rootDirectory", ""),
         "includePatterns": request.form.get("includePatterns", ""),
         "excludePatterns": request.form.get("excludePatterns", ""),
-        "iterations": int(request.form.get("iterations", "1")),
+        "iterations": iterations,
         "instructions": request.form.get("instructions", ""),
         "preScript": request.form.get("preScript", ""),
         "postScript": request.form.get("postScript", ""),
@@ -108,12 +116,17 @@ def api_update_project(pid):
     if not project:
         return jsonify({"error": "Project not found"}), 404
 
+    try:
+        iterations = int(request.form.get("iterations", project.get("iterations", 1)))
+    except ValueError:
+        iterations = project.get("iterations", 1)
+
     project.update({
         "name": request.form.get("name", project["name"]),
         "rootDirectory": request.form.get("rootDirectory", project["rootDirectory"]),
         "includePatterns": request.form.get("includePatterns", project.get("includePatterns", "")),
         "excludePatterns": request.form.get("excludePatterns", project.get("excludePatterns", "")),
-        "iterations": int(request.form.get("iterations", project.get("iterations", 1))),
+        "iterations": iterations,
         "instructions": request.form.get("instructions", project.get("instructions", "")),
         "preScript": request.form.get("preScript", project.get("preScript", "")),
         "postScript": request.form.get("postScript", project.get("postScript", "")),
