@@ -49,10 +49,10 @@ TOP_K=""
 MIN_P=""
 
 if [ "$model_choice" == "2" ]; then
-    MODEL_PATH="aib_instance/models/Qwen3.6-35B-A3B-UD-IQ3_S.gguf"
+    MODEL_PATH="aib_instance/models/Qwen3.6-35B-A3B-UD-Q4_K_M.gguf"
     if [ ! -f "$MODEL_PATH" ]; then
         echo "Downloading $MODEL_PATH..."
-        curl -L "https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF/resolve/main/Qwen3.6-35B-A3B-UD-IQ3_S.gguf?download=true" -o "$MODEL_PATH"
+        curl -L "https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF/resolve/main/Qwen3.6-35B-A3B-UD-Q4_K_M.gguf?download=true" -o "$MODEL_PATH"
     else
         echo "$MODEL_PATH already exists, skipping download."
     fi
