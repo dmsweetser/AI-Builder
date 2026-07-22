@@ -9,6 +9,6 @@ fi
 source venv/bin/activate
 
 # Forward all arguments directly to the Python script
-python3 ai_builder.py
+python3 ui.py
 
 exit $?

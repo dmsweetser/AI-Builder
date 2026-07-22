@@ -95,6 +95,7 @@ fi
 # Generate .env with selected model hyperparameters
 cat > .env << EOF
 USE_LOCAL_MODEL=true
+LLAMA_BINARY_PATH="aib_instance/llama.cpp/bin/llama-completion"
 MODEL_PATH="$MODEL_PATH"
 MODEL_CONTEXT=$CONTEXT_SIZE
 OUTPUT_TOKENS=$OUTPUT_TOKENS
@@ -112,12 +113,12 @@ echo "Please edit this file with your specific paths and settings"
 
 # Download llama.cpp binary
 echo "Downloading llama.cpp binary..."
-if [ ! -f "instance/llama.cpp/bin/llama-server" ]; then
+if [ ! -f "aib_instance/llama.cpp/bin/llama-server" ]; then
     wget -O llama.cpp.tar.gz \
     "https://github.com/ggml-org/llama.cpp/releases/download/b9279/llama-b9279-bin-ubuntu-x64.tar.gz"
 
     echo "Extracting llama.cpp binary..."
-    tar -xzf llama.cpp.tar.gz -C instance/llama.cpp/bin --strip-components=1
+    tar -xzf llama.cpp.tar.gz -C aib_instance/llama.cpp/bin --strip-components=1
     rm llama.cpp.tar.gz
 else
     echo "llama.cpp already exists, skipping download."

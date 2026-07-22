@@ -222,7 +222,7 @@ def run_model_for_chat(prompt: str, project_config: dict = None) -> str:
             raise ValueError("MODEL_PATH environment variable not set for local model.")
 
         base_dir = os.path.dirname(os.path.abspath(__file__))
-        llama_binary = os.path.join(base_dir, "llama.cpp", "build", "bin", "llama-completion")
+        llama_binary = Config.get_llama_binary_path()
 
         if not os.path.isfile(llama_binary):
             raise FileNotFoundError(f"llama binary not found at: {llama_binary}")
@@ -357,7 +357,7 @@ def api_send_message(chat_id):
                     if not model_path:
                         raise ValueError("MODEL_PATH environment variable not set for local model.")
                     base_dir = os.path.dirname(os.path.abspath(__file__))
-                    llama_binary = os.path.join(base_dir, "llama.cpp", "build", "bin", "llama-completion")
+                    llama_binary = Config.get_llama_binary_path()
                     if not os.path.isfile(llama_binary):
                         raise FileNotFoundError(f"llama binary not found at: {llama_binary}")
                     ticks = int(time.time() * 1000)

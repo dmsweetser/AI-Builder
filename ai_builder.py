@@ -507,7 +507,7 @@ Reply ONLY in the specified format with no commentary. THAT'S AN ORDER, SOLDIER!
             if not model_path:
                 raise ValueError("MODEL_PATH environment variable not set for local model.")
             base_dir = os.path.dirname(os.path.abspath(__file__))
-            llama_binary = os.path.join(base_dir, "llama.cpp", "build", "bin", "llama-completion")
+            llama_binary = Config.get_llama_binary_path()
             if not os.path.isfile(llama_binary):
                 raise FileNotFoundError(f"llama binary not found at: {llama_binary}")
             ticks = int(time.time() * 1000)

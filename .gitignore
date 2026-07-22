@@ -8,3 +8,5 @@ llama.cpp/*
 llama.cpp
 instructions.txt
 instance/*
+aib_instance/*
+.env*

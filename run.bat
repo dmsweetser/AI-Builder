@@ -33,7 +33,7 @@ echo Running Python script: ai_builder.py
 echo.
 
 REM Run your Python script within the virtual environment
-python ai_builder.py
+python ui.py
 
 REM Check the exit code of the script
 if %errorlevel% neq 0 (

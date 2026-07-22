@@ -25,6 +25,11 @@ class Config:
         return os.getenv("MODEL_PATH")
 
     @staticmethod
+    def get_llama_binary_path() -> Optional[str]:
+        """Returns the path to the local model, if USE_LOCAL_MODEL is True."""
+        return os.getenv("LLAMA_BINARY_PATH")
+
+    @staticmethod
     def get_model_context() -> int:
         """Returns the context size for the local model."""
         return int(os.getenv("MODEL_CONTEXT", 0))
