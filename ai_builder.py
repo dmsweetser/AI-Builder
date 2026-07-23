@@ -23,11 +23,11 @@ LINE_DELIMITER = f"<<<AI_BUILDER_LINE_DELIMITER_{uuid.uuid4().hex}>>>"
 class FileParser:
     @staticmethod
     def _safe_split(content: str) -> List[str]:
-        return content.replace('\n', LINE_DELIMITER).split('\n')
+        return content.replace(f"{chr(10)}", LINE_DELIMITER).split(f"{chr(10)}")
 
     @staticmethod
     def _safe_join(lines: List[str]) -> str:
-        return '\n'.join(lines).replace(LINE_DELIMITER, '\n')
+        return f"{chr(10)}".join(lines).replace(LINE_DELIMITER, f"{chr(10)}")
 
     @staticmethod
     def parse_custom_format(content: str) -> List[Dict[str, Any]]:
@@ -217,11 +217,11 @@ class FileModifier:
                 content = f.read()
             new_section_str = FileParser._safe_join(new_content)
             # Normalize line endings and strip whitespace for robust matching
-            normalized_original = original_content.replace('\r\n', '\n').strip()
-            normalized_content = content.replace('\r\n', '\n')
+            normalized_original = original_content.replace(f"{chr(13)}{chr(10)}", f"{chr(10)}").strip()
+            normalized_content = content.replace(f"{chr(13)}{chr(10)}", f"{chr(10)}")
             # Use stripped versions for matching to avoid whitespace mismatches
-            match_original = '\n'.join([line.strip() for line in normalized_original.split('\n') if line.strip()])
-            match_content = '\n'.join([line.strip() for line in normalized_content.split('\n') if line.strip()])
+            match_original = f"{chr(10)}".join([line.strip() for line in normalized_original.split(f"{chr(10)}") if line.strip()])
+            match_content = f"{chr(10)}".join([line.strip() for line in normalized_content.split(f"{chr(10)}") if line.strip()])
             if match_original in match_content:
                 # Replace using original content to preserve exact formatting/indentation
                 modified_content = content.replace(original_content.strip(), new_section_str)
@@ -244,14 +244,14 @@ class ActionManager:
         try:
             with open(filepath, 'w', encoding='utf-8') as f:
                 for action in actions:
-                    f.write(f"File: {action['file']}\n")
-                    f.write(f"Action: {action['action']['action']}\n")
+                    f.write(f"File: {action['file']}{chr(10)}")
+                    f.write(f"Action: {action['action']['action']}{chr(10)}")
                     if action['action']['action'] in ['create_file', 'replace_file', 'replace_section']:
-                        f.write("Content:\n")
-                        f.write(FileParser._safe_join(action['action']['file_content']) + "\n")
+                        f.write(f"Content:{chr(10)}")
+                        f.write(FileParser._safe_join(action['action']['file_content']) + f"{chr(10)}")
                     if action['action']['action'] == 'replace_section':
-                        f.write(f"Original Content:\n{action['action']['original_content']}\n")
-                    f.write("\n")
+                        f.write(f"Original Content:{chr(10)}{action['action']['original_content']}{chr(10)}")
+                    f.write(f"{chr(10)}")
             logging.info(f"Saved actions to {filepath}")
         except Exception as e:
             logging.error(f"Error saving actions: {e}")
@@ -336,9 +336,11 @@ class CodeUtility:
                             with open(file_path, 'r', encoding='utf-8') as f:
                                 content = f.read()
                             with open(self.output_file, 'a', encoding='utf-8') as out_file:
-                                out_file.write(f"\n### {relative_path}\n```\n{content}\n```\n")
+                                out_file.write(f"{chr(10)}### {relative_path}{chr(10)}```{chr(10)}{content}{chr(10)}```{chr(10)}")
                             logging.info(f"Successfully wrote content from {relative_path} to {self.output_file}")
                         except Exception as e:
+                            with open(self.output_file, 'a', encoding='utf-8') as out_file:
+                                out_file.write(f"{chr(10)}### {relative_path}{chr(10)}```{chr(10)}CONTENT UNREADABLE / POTENTIAL BINARY{chr(10)}```{chr(10)}")
                             logging.warning(f"Skipped unreadable file: {relative_path} - Error: {e}")
         except Exception as e:
             logging.error(f"Error processing directory: {e}")
@@ -356,7 +358,7 @@ class CodeUtility:
                     with open(abs_path, 'r', encoding='utf-8') as f:
                         content = f.read()
                     with open(self.output_file, 'a', encoding='utf-8') as out_file:
-                        out_file.write(f"\n### {rel_path}\n```\n{content}\n```\n")
+                        out_file.write(f"{chr(10)}### {rel_path}{chr(10)}```{chr(10)}{content}{chr(10)}```{chr(10)}")
                 except Exception as e:
                     logging.warning(f"Skipped unreadable diff file: {rel_path} - Error: {e}")
         except Exception as e:
