@@ -362,6 +362,7 @@ def api_send_message(chat_id):
 
         prompt = f"{chr(10)}".join(prompt_parts) + f"{chr(10)}Assistant:"
 
+        
         def generate():
             response_content = ""
             try:
@@ -388,6 +389,11 @@ def api_send_message(chat_id):
                     for token in iter(lambda: process.stdout.read(1), ''):
                         response_content += token
                         yield token
+                        if len(response_content) % 20 == 0:
+                            chat_data["messages"] = [m for m in chat_data["messages"] if m["role"] != "assistant"]
+                            chat_data["messages"].append({"role": "assistant", "content": response_content})
+                            with open(chat_path, "w", encoding="utf-8") as f:
+                                json.dump(chat_data, f, indent=2)
                     process.wait()
                     if os.path.exists(filename):
                         os.remove(filename)
@@ -413,12 +419,19 @@ def api_send_message(chat_id):
                             if content is not None:
                                 response_content += content
                                 yield content
+                                if len(response_content) % 20 == 0:
+                                    chat_data["messages"] = [m for m in chat_data["messages"] if m["role"] != "assistant"]
+                                    chat_data["messages"].append({"role": "assistant", "content": response_content})
+                                    with open(chat_path, "w", encoding="utf-8") as f:
+                                        json.dump(chat_data, f, indent=2)
                     response.close()
+                chat_data["messages"] = [m for m in chat_data["messages"] if m["role"] != "assistant"]
                 chat_data["messages"].append({"role": "assistant", "content": response_content})
                 with open(chat_path, "w", encoding="utf-8") as f:
                     json.dump(chat_data, f, indent=2)
             except Exception as e:
                 yield f"Error: {str(e)}"
+
 
         return Response(generate(), mimetype='text/plain')
     except Exception as e:

@@ -679,8 +679,8 @@
 
     <script>
         // Global state
-        let currentProjectId = null;
-        let currentChatId = null;
+        let currentProjectId = localStorage.getItem('currentProjectId');
+        let currentChatId = localStorage.getItem('currentChatId');
         let fileTreeData = [];
         let runQueue = [];
         let isRunningQueue = false;
@@ -754,9 +754,13 @@
                 .catch(err => console.error('Failed to load projects:', err));
         }
 
+        
         // Select a project
         function selectProject(projectId) {
             currentProjectId = projectId;
+            localStorage.setItem('currentProjectId', projectId);
+
+            localStorage.setItem('currentProjectId', projectId);
 
             // Hide projects panel with animation
             const projectsPanel = document.getElementById('projects-panel');
@@ -799,6 +803,8 @@
             document.getElementById('project-details-panel').classList.remove('active');
             document.getElementById('projects-panel').classList.remove('hidden');
             document.getElementById('projects-panel').classList.add('active');
+            localStorage.removeItem('currentProjectId');
+            currentProjectId = null;
             loadProjects();
         }
 
@@ -1112,8 +1118,12 @@
                 });
         }
 
+        
         function selectChat(chatId) {
             currentChatId = chatId;
+            localStorage.setItem('currentChatId', chatId);
+
+            localStorage.setItem('currentChatId', chatId);
 
             // Remove active class from all chat items
             document.querySelectorAll('.chat-item').forEach(item => {
@@ -1253,6 +1263,8 @@
                 .then(() => {
                     if (currentChatId === chatId) {
                         currentChatId = null;
+                        localStorage.removeItem('currentChatId');
+                        newChat();
                     }
                     loadChats();
                 });
@@ -1284,18 +1296,25 @@
         // Initialize
         document.addEventListener('DOMContentLoaded', () => {
             loadProjects();
-            // Auto-create chat if none exist
-            fetch('/api/chats/auto')
-                .then(res => res.json())
-                .then(data => {
-                    if (data.created) {
-                        currentChatId = data.id;
-                        selectChat(data.id);
-                    } else {
-                        loadChats();
-                    }
-                })
-                .catch(err => console.error('Auto chat failed:', err));
+            
+            // Restore chat state on refresh
+            if (currentChatId) {
+                loadChats();
+                selectChat(currentChatId);
+            } else {
+                // Auto-create chat if none exist
+                fetch('/api/chats/auto')
+                    .then(res => res.json())
+                    .then(data => {
+                        if (data.created) {
+                            currentChatId = data.id;
+                            selectChat(data.id);
+                        } else {
+                            loadChats();
+                        }
+                    })
+                    .catch(err => console.error('Auto chat failed:', err));
+            }
         });
     </script>
 </body>

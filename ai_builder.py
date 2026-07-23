@@ -209,14 +209,22 @@ class FileModifier:
             logging.error(f"Error applying action: {e}")
             raise
 
+    
     @staticmethod
     def _replace_section(filepath: str, original_content: str, new_content: List[str]) -> bool:
         try:
             with open(filepath, 'r', encoding='utf-8') as f:
                 content = f.read()
             new_section_str = FileParser._safe_join(new_content)
-            if original_content in content:
-                modified_content = content.replace(original_content, new_section_str)
+            # Normalize line endings and strip whitespace for robust matching
+            normalized_original = original_content.replace('\r\n', '\n').strip()
+            normalized_content = content.replace('\r\n', '\n')
+            # Use stripped versions for matching to avoid whitespace mismatches
+            match_original = '\n'.join([line.strip() for line in normalized_original.split('\n') if line.strip()])
+            match_content = '\n'.join([line.strip() for line in normalized_content.split('\n') if line.strip()])
+            if match_original in match_content:
+                # Replace using original content to preserve exact formatting/indentation
+                modified_content = content.replace(original_content.strip(), new_section_str)
                 with open(filepath, 'w', encoding='utf-8') as f:
                     f.write(modified_content)
                 logging.info(f"Replaced section in: {filepath}")
@@ -227,6 +235,7 @@ class FileModifier:
         except Exception as e:
             logging.error(f"Error replacing section: {e}")
             raise
+
 
 
 class ActionManager:
@@ -308,10 +317,14 @@ class CodeUtility:
             logging.error(f"Error determining if file should be processed: {e}")
             raise
 
+    
     def process_directory(self, directory: str, parent_rules: List[str], patterns: List[str], mode: str) -> None:
         try:
+            if not isinstance(parent_rules, list):
+                parent_rules = [parent_rules] if parent_rules else []
             current_rules = self.parse_gitignore(directory)
             all_rules = parent_rules + current_rules
+
             logging.info(f"Processing directory: {directory}")
             for root, _, files in os.walk(directory):
                 for file in files:
@@ -365,8 +378,9 @@ class AIBuilder:
             self.ai_builder_dir = Config.get_ai_builder_dir(self.root_directory)
             self.use_git_diff = Config.get_use_git_diff()
 
+        
         os.makedirs(self.ai_builder_dir, exist_ok=True)
-        os.makedirs(os.path.join(self.root_directory, "aib_instance", "chats"), exist_ok=True)
+
 
         self.response_file = os.path.join(self.ai_builder_dir, "current_response.txt")
 
@@ -603,8 +617,10 @@ Reply ONLY in the specified format with no commentary. THAT'S AN ORDER, SOLDIER!
             if self.clean_mode:
                 iterations = self.project_config.get("iterations", 1)
                 mode = self.project_config.get("mode", "include")
-                patterns = self.project_config.get("includePatterns", [])
-                exclude_patterns = self.project_config.get("excludePatterns", [])
+                raw_patterns = self.project_config.get("includePatterns", "")
+                patterns = [p.strip() for p in raw_patterns.split(",") if p.strip()] if isinstance(raw_patterns, str) else (raw_patterns if isinstance(raw_patterns, list) else [])
+                raw_exclude = self.project_config.get("excludePatterns", "")
+                exclude_patterns = [p.strip() for p in raw_exclude.split(",") if p.strip()] if isinstance(raw_exclude, str) else (raw_exclude if isinstance(raw_exclude, list) else [])
                 instructions = self.project_config.get("instructions", "")
             else:
                 base_config_path = os.path.join("base_config.xml")
