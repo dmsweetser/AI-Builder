@@ -1213,6 +1213,7 @@
             chatLog.appendChild(userMsgElement);
             chatLog.scrollTop = chatLog.scrollHeight;
 
+            
             // Immediately show assistant spinner
             const assistantMsgElement = document.createElement('div');
             assistantMsgElement.className = 'chat-msg model';
@@ -1220,7 +1221,11 @@
             chatLog.appendChild(assistantMsgElement);
             chatLog.scrollTop = chatLog.scrollHeight;
 
+            // Clear input immediately after sending
+            input.value = '';
+
             const contentDiv = assistantMsgElement.querySelector('.markdown-content');
+
             let accumulated = '';
 
             fetch(`/api/chats/${currentChatId}/messages`, {
