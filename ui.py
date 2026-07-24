@@ -83,15 +83,11 @@ def api_get_project(pid):
         project["includePatterns"] = ""
     return jsonify(project)
 
+
 @app.route("/api/projects", methods=["POST"])
 def api_create_project():
     projects = load_projects()
     pid = str(uuid.uuid4())
-
-    try:
-        iterations = int(request.form.get("iterations", "1"))
-    except ValueError:
-        iterations = 1
 
     project = {
         "id": pid,
@@ -99,7 +95,7 @@ def api_create_project():
         "rootDirectory": request.form.get("rootDirectory", ""),
         "includePatterns": request.form.get("includePatterns", ""),
         "excludePatterns": request.form.get("excludePatterns", ""),
-        "iterations": iterations,
+        "iterations": 1,
         "instructions": request.form.get("instructions", ""),
         "preScript": request.form.get("preScript", ""),
         "postScript": request.form.get("postScript", ""),
@@ -116,17 +112,12 @@ def api_update_project(pid):
     if not project:
         return jsonify({"error": "Project not found"}), 404
 
-    try:
-        iterations = int(request.form.get("iterations", project.get("iterations", 1)))
-    except ValueError:
-        iterations = project.get("iterations", 1)
-
     project.update({
         "name": request.form.get("name", project["name"]),
         "rootDirectory": request.form.get("rootDirectory", project["rootDirectory"]),
         "includePatterns": request.form.get("includePatterns", project.get("includePatterns", "")),
         "excludePatterns": request.form.get("excludePatterns", project.get("excludePatterns", "")),
-        "iterations": iterations,
+        "iterations": 1,
         "instructions": request.form.get("instructions", project.get("instructions", "")),
         "preScript": request.form.get("preScript", project.get("preScript", "")),
         "postScript": request.form.get("postScript", project.get("postScript", "")),
@@ -136,14 +127,56 @@ def api_update_project(pid):
     save_projects(projects)
     return jsonify({"status": "saved", "project": project})
 
+
+
 @app.route("/api/projects/<pid>/run", methods=["POST"])
 def api_run_project(pid):
     project, _ = get_project(pid)
     if not project:
         return jsonify({"error": "Project not found"}), 404
+    
+    output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aib_instance", "output", pid)
+    actions_file = os.path.join(output_dir, "actions.txt")
+    
+    warning_content = None
+    if os.path.exists(actions_file):
+        with open(actions_file, "r", encoding="utf-8") as f:
+            content = f.read().strip()
+            if content:
+                warning_content = content
+
+    # Clear old artifacts
+    for fname in ["output.txt", "modifications.txt", "current_response.txt", "log.txt"]:
+        fpath = os.path.join(output_dir, fname)
+        if os.path.exists(fpath):
+            try:
+                os.remove(fpath)
+            except Exception:
+                pass
+                    
+    if warning_content:
+        return jsonify({
+            "warning": True,
+            "actions_content": warning_content,
+            "message": "Existing unapplied changes found. Please review or clear them before running."
+        })
+
     job_id = str(uuid.uuid4())
     run_queue.put({'pid': pid, 'job_id': job_id})
-    return jsonify({"status": "queued", "job_id": job_id})
+    return jsonify({"status": "queued", "job_id": job_id, "cleared": True})
+
+@app.route("/api/projects/<pid>/clear", methods=["POST"])
+def api_clear_project_artifacts(pid):
+    output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aib_instance", "output", pid)
+    for fname in ["output.txt", "modifications.txt", "current_response.txt", "log.txt", "actions.txt"]:
+        fpath = os.path.join(output_dir, fname)
+        if os.path.exists(fpath):
+            try:
+                os.remove(fpath)
+            except Exception:
+                pass
+    return jsonify({"status": "cleared"})
+
 
 @app.route("/api/run/<job_id>/status", methods=["GET"])
 def api_run_status(job_id):
@@ -156,6 +189,7 @@ def api_delete_project(pid):
     projects = [p for p in projects if p["id"] != pid]
     save_projects(projects)
     return jsonify({"status": "deleted"})
+
 
 @app.route("/api/files", methods=["GET"])
 def api_files():
@@ -171,13 +205,15 @@ def api_files():
                 rel_root = ""
             for d in dirs:
                 rel_path = os.path.join(rel_root, d) if rel_root else d
-                paths.append(f"{rel_path}/")
+                paths.append({"path": f"{rel_path}/", "size": 0})
             for f in files:
                 rel_path = os.path.join(rel_root, f) if rel_root else f
-                paths.append(rel_path)
+                file_size = os.path.getsize(os.path.join(root, f))
+                paths.append({"path": rel_path, "size": file_size})
         return jsonify(paths)
     except Exception as e:
         return jsonify({"error": str(e)}), 400
+
 
 # ---------- Chat Routes ----------
 @app.route("/api/chats", methods=["GET"])

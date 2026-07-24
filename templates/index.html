@@ -363,6 +363,7 @@
             background: #c04040;
         }
 
+
         .selector-controls {
             display: flex;
             gap: 10px;
@@ -376,6 +377,30 @@
             font-size: 10px;
             padding: 8px;
         }
+
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .modal-content {
+            background: #2a2a2a;
+            padding: 20px;
+            border: 3px solid var(--grass);
+            max-width: 600px;
+            width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+
 
         #file-tree-container {
             background: var(--dark-bg);
@@ -694,6 +719,17 @@
         let fileTreeData = [];
         let runQueue = [];
         let isRunningQueue = false;
+        let pendingProjectId = null;
+        let pendingActionsContent = null;
+        let sortMode = 'name';
+
+        function formatSize(bytes) {
+            if (bytes === 0) return '0 B';
+            const k = 1024;
+            const sizes = ['B', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+        }
 
         // Tab switching
         function showTab(tabName) {
@@ -819,6 +855,7 @@
         }
 
 
+
         // Load file tree
         function loadFileTree() {
             const rootPath = document.getElementById('root-path').value;
@@ -841,16 +878,18 @@
                     const container = document.getElementById('file-tree-container');
                     container.innerHTML = '';
 
-                    // Sort paths: directories first, then files, alphabetically
                     const sortedPaths = [...paths].sort((a, b) => {
-                        const aIsDir = a.endsWith('/');
-                        const bIsDir = b.endsWith('/');
+                        const aIsDir = a.path.endsWith('/');
+                        const bIsDir = b.path.endsWith('/');
                         if (aIsDir !== bIsDir) return aIsDir ? -1 : 1;
-                        return a.localeCompare(b);
+                        if (sortMode === 'size') {
+                            return (b.size || 0) - (a.size || 0);
+                        }
+                        return a.path.localeCompare(b.path);
                     });
 
-                    sortedPaths.forEach(path => {
-                        const isDir = path.endsWith('/');
+                    sortedPaths.forEach(item => {
+                        const isDir = item.path.endsWith('/');
                         const itemElement = document.createElement('div');
                         itemElement.className = `tree-item ${isDir ? 'dir' : 'file'}`;
 
@@ -858,11 +897,16 @@
                         checkbox.type = 'checkbox';
                         checkbox.checked = true;
                         checkbox.onchange = () => updateSelectedPatterns();
-                        checkbox.dataset.path = path;
+                        checkbox.dataset.path = item.path;
 
                         const label = document.createElement('label');
-                        label.textContent = path;
+                        label.textContent = item.path;
                         label.style.marginLeft = '5px';
+                        const sizeLabel = document.createElement('span');
+                        sizeLabel.textContent = ` (${formatSize(item.size)})`;
+                        sizeLabel.style.color = '#888';
+                        sizeLabel.style.fontSize = '11px';
+                        label.appendChild(sizeLabel);
 
                         itemElement.appendChild(checkbox);
                         itemElement.appendChild(label);
@@ -884,6 +928,78 @@
                     alert('Failed to load file tree. Check console.');
                 });
         }
+
+        function loadDetailsFileTree() {
+            const rootPath = document.getElementById('details-root-dir').value;
+            if (!rootPath) {
+                alert('Please enter a root directory first');
+                return;
+            }
+
+            const loadTreeBtn = document.getElementById('details-load-tree-btn');
+            const loadTreeText = document.getElementById('details-load-tree-text');
+            const loadTreeSpinner = document.getElementById('details-load-tree-spinner');
+
+            loadTreeBtn.disabled = true;
+            loadTreeText.style.display = 'none';
+            loadTreeSpinner.style.display = 'inline-block';
+
+            fetch(`/api/files?path=${encodeURIComponent(rootPath)}`)
+                .then(response => response.json())
+                .then(paths => {
+                    const container = document.getElementById('details-file-tree-container');
+                    container.innerHTML = '';
+
+                    const sortedPaths = [...paths].sort((a, b) => {
+                        const aIsDir = a.path.endsWith('/');
+                        const bIsDir = b.path.endsWith('/');
+                        if (aIsDir !== bIsDir) return aIsDir ? -1 : 1;
+                        if (sortMode === 'size') {
+                            return (b.size || 0) - (a.size || 0);
+                        }
+                        return a.path.localeCompare(b.path);
+                    });
+
+                    sortedPaths.forEach(item => {
+                        const isDir = item.path.endsWith('/');
+                        const itemElement = document.createElement('div');
+                        itemElement.className = `tree-item ${isDir ? 'dir' : 'file'}`;
+
+                        const checkbox = document.createElement('input');
+                        checkbox.type = 'checkbox';
+                        checkbox.checked = true;
+                        checkbox.onchange = () => detailsUpdateSelectedPatterns();
+                        checkbox.dataset.path = item.path;
+
+                        const label = document.createElement('label');
+                        label.textContent = item.path;
+                        label.style.marginLeft = '5px';
+                        const sizeLabel = document.createElement('span');
+                        sizeLabel.textContent = ` (${formatSize(item.size)})`;
+                        sizeLabel.style.color = '#888';
+                        sizeLabel.style.fontSize = '11px';
+                        label.appendChild(sizeLabel);
+
+                        itemElement.appendChild(checkbox);
+                        itemElement.appendChild(label);
+                        container.appendChild(itemElement);
+                    });
+
+                    detailsUpdateSelectedPatterns();
+
+                    loadTreeBtn.disabled = false;
+                    loadTreeText.style.display = 'inline';
+                    loadTreeSpinner.style.display = 'none';
+                })
+                .catch(err => {
+                    console.error('Failed to load details file tree:', err);
+                    loadTreeBtn.disabled = false;
+                    loadTreeText.style.display = 'inline';
+                    loadTreeSpinner.style.display = 'none';
+                    alert('Failed to load file tree. Check console.');
+                });
+        }
+
 
 
         // Render file tree
@@ -921,12 +1037,20 @@
             updateSelectedPatterns();
         }
 
+
         // Update selected patterns display
         function updateSelectedPatterns() {
             const checkboxes = document.querySelectorAll('#file-tree-container input[type="checkbox"]:checked');
             const patterns = Array.from(checkboxes).map(cb => cb.dataset.path);
             document.getElementById('patterns-display').value = patterns.join(', ');
             document.getElementById('patterns-input').value = patterns.join(',');
+        }
+
+        function detailsUpdateSelectedPatterns() {
+            const checkboxes = document.querySelectorAll('#details-file-tree-container input[type="checkbox"]:checked');
+            const patterns = Array.from(checkboxes).map(cb => cb.dataset.path);
+            document.getElementById('details-patterns-display').value = patterns.join(', ');
+            document.getElementById('details-patterns-input').value = patterns.join(',');
         }
 
         function selectAll() {
@@ -947,10 +1071,28 @@
             updateSelectedPatterns();
         }
 
+        function detailsSelectAll() {
+            document.querySelectorAll('#details-file-tree-container input[type="checkbox"]').forEach(cb => {
+                if (cb.parentElement.style.display !== 'none') {
+                    cb.checked = true;
+                }
+            });
+            detailsUpdateSelectedPatterns();
+        }
+
+        function detailsDeselectAll() {
+            document.querySelectorAll('#details-file-tree-container input[type="checkbox"]').forEach(cb => {
+                if (cb.parentElement.style.display !== 'none') {
+                    cb.checked = false;
+                }
+            });
+            detailsUpdateSelectedPatterns();
+        }
+
         // Filter file tree
         function filterTree() {
             const searchTerm = document.getElementById('tree-search').value.toLowerCase();
-            const items = document.querySelectorAll('.tree-item');
+            const items = document.querySelectorAll('#file-tree-container .tree-item');
 
             items.forEach(item => {
                 const text = item.textContent.toLowerCase();
@@ -961,6 +1103,21 @@
                 }
             });
         }
+
+        function detailsFilterTree() {
+            const searchTerm = document.getElementById('details-tree-search').value.toLowerCase();
+            const items = document.querySelectorAll('#details-file-tree-container .tree-item');
+
+            items.forEach(item => {
+                const text = item.textContent.toLowerCase();
+                if (text.includes(searchTerm)) {
+                    item.style.display = '';
+                } else {
+                    item.style.display = 'none';
+                }
+            });
+        }
+
 
         // Auto-save project with debounce
         let autoSaveTimeout = null;
@@ -1125,10 +1282,44 @@
             statusElement.textContent = lines.join('\n');
         }
 
+
         // Run project
         function runProject(projectId) {
-            queueRunProject(projectId);
+            pendingProjectId = projectId;
+            fetch(`/api/projects/${projectId}/run`, { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.warning) {
+                        showWarningModal(data.actions_content);
+                    } else {
+                        queueRunProject(projectId);
+                    }
+                })
+                .catch(error => console.error('Error checking run:', error));
         }
+
+        function showWarningModal(actionsContent) {
+            pendingActionsContent = actionsContent;
+            document.getElementById('warning-actions-content').textContent = actionsContent;
+            document.getElementById('warning-modal').style.display = 'flex';
+        }
+
+        function closeWarningModal() {
+            document.getElementById('warning-modal').style.display = 'none';
+            pendingProjectId = null;
+            pendingActionsContent = null;
+        }
+
+        function clearAndRun() {
+            if (!pendingProjectId) return;
+            fetch(`/api/projects/${pendingProjectId}/clear`, { method: 'POST' })
+                .then(() => {
+                    closeWarningModal();
+                    runProject(pendingProjectId);
+                })
+                .catch(err => console.error('Failed to clear artifacts:', err));
+        }
+
 
         // Delete project
         function deleteProject(projectId) {
