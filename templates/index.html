@@ -22,7 +22,7 @@
             box-sizing: border-box;
         }
 
-        
+
         body {
             background-color: var(--dark-bg);
             background-image: linear-gradient(45deg, #252525 25%, transparent 25%), linear-gradient(-45deg, #252525 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #252525 75%), linear-gradient(-45deg, transparent 75%, #252525 75%);
@@ -58,7 +58,7 @@
             gap: 10px;
         }
 
-        
+
         .sidebar-header h1 {
             text-align: center;
             color: var(--grass);
@@ -75,7 +75,7 @@
             padding: 10px 0;
         }
 
-        
+
         .sidebar-nav button {
             background: var(--wood);
             color: var(--light-text);
@@ -182,7 +182,7 @@
             color: #ddd;
         }
 
-        
+
         input,
         textarea,
         select {
@@ -204,7 +204,7 @@
             border-color: var(--grass);
         }
 
-        
+
         button {
             background: var(--grass);
             color: #fff;
@@ -764,7 +764,7 @@
                 .catch(err => console.error('Failed to load projects:', err));
         }
 
-        
+
         // Select a project
         function selectProject(projectId) {
             currentProjectId = projectId;
@@ -818,7 +818,7 @@
             loadProjects();
         }
 
-        
+
         // Load file tree
         function loadFileTree() {
             const rootPath = document.getElementById('root-path').value;
@@ -838,44 +838,42 @@
             fetch(`/api/files?path=${encodeURIComponent(rootPath)}`)
                 .then(response => response.json())
                 .then(paths => {
-                    // Build tree structure from flat paths using relative paths
-                    const tree = {};
-                    paths.forEach(p => {
-                        const isDir = p.endsWith('/');
-                        const cleanPath = isDir ? p.slice(0, -1) : p;
-                        const parts = cleanPath.split('/');
-                        let current = tree;
-                        parts.forEach((part, idx) => {
-                            if (!current[part]) {
-                                current[part] = { children: {}, isDir: idx === parts.length - 1 ? false : true };
-                            }
-                            current = current[part].children;
-                        });
+                    const container = document.getElementById('file-tree-container');
+                    container.innerHTML = '';
+
+                    // Sort paths: directories first, then files, alphabetically
+                    const sortedPaths = [...paths].sort((a, b) => {
+                        const aIsDir = a.endsWith('/');
+                        const bIsDir = b.endsWith('/');
+                        if (aIsDir !== bIsDir) return aIsDir ? -1 : 1;
+                        return a.localeCompare(b);
                     });
 
-                    // Convert to array format expected by renderFileTree
-                    function buildArray(obj, currentPath = '') {
-                        return Object.keys(obj).map(key => {
-                            const node = obj[key];
-                            const isDir = node.isDir;
-                            const relativePath = currentPath ? `${currentPath}/${key}` : key;
-                            const item = {
-                                name: key,
-                                type: isDir ? 'dir' : 'file',
-                                path: relativePath,
-                                children: isDir ? buildArray(node.children, relativePath) : []
-                            };
-                            return item;
-                        });
-                    }
+                    sortedPaths.forEach(path => {
+                        const isDir = path.endsWith('/');
+                        const itemElement = document.createElement('div');
+                        itemElement.className = `tree-item ${isDir ? 'dir' : 'file'}`;
 
-                    fileTreeData = buildArray(tree);
-                    renderFileTree(fileTreeData);
+                        const checkbox = document.createElement('input');
+                        checkbox.type = 'checkbox';
+                        checkbox.checked = true;
+                        checkbox.onchange = () => updateSelectedPatterns();
+                        checkbox.dataset.path = path;
+
+                        const label = document.createElement('label');
+                        label.textContent = path;
+                        label.style.marginLeft = '5px';
+
+                        itemElement.appendChild(checkbox);
+                        itemElement.appendChild(label);
+                        container.appendChild(itemElement);
+                    });
+
+                    updateSelectedPatterns();
 
                     loadTreeBtn.disabled = false;
                     loadTreeText.style.display = 'inline';
                     loadTreeSpinner.style.display = 'none';
-
                     document.getElementById('root-path-hidden').value = rootPath;
                 })
                 .catch(err => {
@@ -931,18 +929,20 @@
             document.getElementById('patterns-input').value = patterns.join(',');
         }
 
-        // Select all files
         function selectAll() {
             document.querySelectorAll('#file-tree-container input[type="checkbox"]').forEach(cb => {
-                cb.checked = true;
+                if (cb.parentElement.style.display !== 'none') {
+                    cb.checked = true;
+                }
             });
             updateSelectedPatterns();
         }
 
-        // Deselect all files
         function deselectAll() {
             document.querySelectorAll('#file-tree-container input[type="checkbox"]').forEach(cb => {
-                cb.checked = false;
+                if (cb.parentElement.style.display !== 'none') {
+                    cb.checked = false;
+                }
             });
             updateSelectedPatterns();
         }
@@ -1030,10 +1030,20 @@
             }
         }
 
+        // Track active jobs: { jobId: { projectId, status, intervalId } }
+        const activeJobs = {};
+
+        function queueRunProject(projectId) {
+            runQueue.push(projectId);
+            updateStatusDisplay();
+            processRunQueue();
+        }
+
         function processRunQueue() {
             if (isRunningQueue || runQueue.length === 0) return;
             isRunningQueue = true;
             const projectId = runQueue.shift();
+            updateStatusDisplay();
 
             updateRunButtonState(projectId, true);
 
@@ -1045,24 +1055,74 @@
                     return response.json();
                 })
                 .then(data => {
-                    const statusElement = document.getElementById('run-status');
-                    statusElement.textContent = `Status: ${data.status} \n Message: ${data.message || ''}`;
+                    const jobId = data.job_id;
+                    activeJobs[jobId] = {
+                        projectId: projectId,
+                        status: data.status
+                    };
+                    updateStatusDisplay();
+
+                    const intervalId = setInterval(() => {
+                        pollJobStatus(jobId, intervalId);
+                    }, 1000);
+                    activeJobs[jobId].intervalId = intervalId;
                 })
                 .catch(error => {
                     console.error('Error running project:', error);
                     const statusElement = document.getElementById('run-status');
-                    statusElement.textContent = `Error: ${error.message}`;
+                    statusElement.textContent = `Error starting job: ${error.message}`;
+                    updateRunButtonState(projectId, false);
                 })
                 .finally(() => {
-                    updateRunButtonState(projectId, false);
                     isRunningQueue = false;
                     processRunQueue();
                 });
         }
 
-        function queueRunProject(projectId) {
-            runQueue.push(projectId);
-            processRunQueue();
+        function pollJobStatus(jobId, intervalId) {
+            const job = activeJobs[jobId];
+            if (!job) {
+                clearInterval(intervalId);
+                return;
+            }
+
+            fetch(`/api/run/${jobId}/status`)
+                .then(response => response.json())
+                .then(status => {
+                    job.status = status.status;
+                    updateStatusDisplay();
+
+                    if (status.status === 'completed' || status.status === 'error') {
+                        clearInterval(intervalId);
+                        delete activeJobs[jobId];
+                        updateRunButtonState(job.projectId, false);
+                        updateStatusDisplay();
+                    }
+                })
+                .catch(error => {
+                    console.error('Error polling job status:', error);
+                    clearInterval(intervalId);
+                    if (activeJobs[jobId]) {
+                        delete activeJobs[jobId];
+                        updateRunButtonState(job.projectId, false);
+                        updateStatusDisplay();
+                    }
+                });
+        }
+
+        function updateStatusDisplay() {
+            const statusElement = document.getElementById('run-status');
+            const lines = [];
+
+            if (runQueue.length > 0) {
+                lines.push(`Queued: ${runQueue.length} project(s)`);
+            }
+
+            for (const [jobId, job] of Object.entries(activeJobs)) {
+                lines.push(`Job ${jobId}: ${job.status}`);
+            }
+
+            statusElement.textContent = lines.join('\n');
         }
 
         // Run project
@@ -1131,8 +1191,8 @@
                 });
         }
 
-        
-        
+
+
         function selectChat(chatId) {
             currentChatId = chatId;
             localStorage.setItem('currentChatId', chatId);
@@ -1181,7 +1241,7 @@
         }
 
 
-        
+
         function sendChat() {
             const input = document.getElementById('chat-input');
             const content = input.value.trim();
@@ -1213,7 +1273,7 @@
             chatLog.appendChild(userMsgElement);
             chatLog.scrollTop = chatLog.scrollHeight;
 
-            
+
             // Immediately show assistant spinner
             const assistantMsgElement = document.createElement('div');
             assistantMsgElement.className = 'chat-msg model';
@@ -1320,7 +1380,7 @@
         // Initialize
         document.addEventListener('DOMContentLoaded', () => {
             loadProjects();
-            
+
             // Restore chat state on refresh
             if (currentChatId) {
                 loadChats();

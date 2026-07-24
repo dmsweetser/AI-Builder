@@ -35,12 +35,13 @@ class FileParser:
             if "</think>" in content:
                 split_content = re.split(r'<\/think>\s*\[?aibuilder', content, flags=re.DOTALL)
                 if len(split_content) > 1:
-                    content = split_content[1]
+                    content = "[aibuilder" + split_content[1]
                 else:
                     content = split_content[0]
             content = re.sub(r'^.*?\[?aibuilder_change', '[aibuilder_change', content, flags=re.DOTALL)
             changes = []
             change_blocks = re.finditer(
+                # Remove 'end_action' from the lookahead to preserve it in the match
                 r'\[?aibuilder_change\s+file\s*=\s*"([^"]+)"\](.*?)(?=\[?aibuilder_change|$)',
                 content,
                 re.DOTALL
@@ -53,7 +54,7 @@ class FileParser:
         except Exception as e:
             logging.error(f"Error parsing custom format: {e}")
             raise
-
+        
     @staticmethod
     def _parse_actions(content: str) -> List[Dict[str, Any]]:
         try:
@@ -138,11 +139,12 @@ class FileParser:
 
 class FileModifier:
     @staticmethod
-    def apply_modifications(changes: List[Dict[str, Any]], dry_run: bool = False) -> List[Dict[str, Any]]:
+    def apply_modifications(changes: List[Dict[str, Any]], root_directory : str, dry_run: bool = False) -> List[Dict[str, Any]]:
         try:
             incomplete_actions = []
             for change in changes:
                 filepath = change['file']
+                filepath = os.path.join(root_directory, filepath)
                 backup_filepath = f"{filepath}.bak"
                 logging.info(f"Processing file: {filepath}")
                 if not dry_run:
@@ -682,7 +684,7 @@ Reply ONLY in the specified format with no commentary. THAT'S AN ORDER, SOLDIER!
 
                     if not Config.generate_but_do_not_apply():
                         changes = FileParser.parse_custom_format(response_content)
-                        incomplete_actions = FileModifier.apply_modifications(changes, dry_run=False)
+                        incomplete_actions = FileModifier.apply_modifications(changes, self.root_directory, dry_run=False)
                         ActionManager.save_actions(incomplete_actions, actions_file_path)
 
                 except Exception as e:
