@@ -204,8 +204,10 @@ def api_files():
             if rel_root == ".":
                 rel_root = ""
             for d in dirs:
-                rel_path = os.path.join(rel_root, d) if rel_root else d
-                paths.append({"path": f"{rel_path}/", "size": 0})
+                # Do nothing - no raw dirs
+                continue
+                # rel_path = os.path.join(rel_root, d) if rel_root else d
+                # paths.append({"path": f"{rel_path}/", "size": 0})
             for f in files:
                 rel_path = os.path.join(rel_root, f) if rel_root else f
                 file_size = os.path.getsize(os.path.join(root, f))

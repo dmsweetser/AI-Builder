@@ -376,6 +376,7 @@
             margin-top: 0;
             font-size: 10px;
             padding: 8px;
+            max-width: 150px;
         }
 
         .modal {
@@ -583,6 +584,24 @@
             max-height: 200px;
             overflow-y: auto;
         }
+
+        .sort-controls {
+            display: flex;
+            gap: 5px;
+            align-items: center;
+        }
+
+        .sort-controls label {
+            margin: 0;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        #details-file-tree-container {
+            max-height: 400px;
+            overflow: auto;
+        }
     </style>
 </head>
 
@@ -590,7 +609,7 @@
     <div class="app-layout">
         <aside class="sidebar">
             <div class="sidebar-header">
-                <h1>AI BUILDER – STUDIO</h1>
+                <h1>AI BUILDER - STUDIO</h1>
             </div>
             <div class="sidebar-nav">
                 <button class="tab-btn active" onclick="showTab('projects')">PROJECTS</button>
@@ -620,6 +639,16 @@
                             </button>
                             <button type="button" onclick="selectAll()">SELECT ALL</button>
                             <button type="button" onclick="deselectAll()">DESELECT ALL</button>
+                            <div class="sort-controls">
+                                <button type="button" onclick="setSortMode('name')" class="btn-sm"
+                                    id="sort-name-btn">SORT: NAME</button>
+                                <button type="button" onclick="setSortMode('size')" class="btn-sm"
+                                    id="sort-size-btn">SORT: SIZE</button>
+                            </div>
+                            <label style="display: flex; align-items: center; gap: 5px; margin: 0; width:200px;">
+                                <input type="checkbox" id="show-selected-only-new" style="width:50px;" onchange="filterTree()">
+                                <span style="font-size: 11px;">SHOW SELECTED ONLY</span>
+                            </label>
                         </div>
                         <input type="text" id="tree-search" placeholder="Search files/folders..."
                             oninput="filterTree()">
@@ -639,44 +668,61 @@
                 <div class="block">
                     <button class="btn-sm" onclick="goBackToProjects()" style="margin-bottom:10px;">← BACK TO
                         PROJECTS</button>
-                    <h2>INTERVIEW – <span id="details-project-name"></span></h2>
+                    <h2>INTERVIEW - <span id="details-project-name"></span></h2>
                     <p class="note">ANSWER THESE BLOCKS LIKE AN INTERVIEW. AI BUILDER WILL USE THEM WITHOUT DIRTYING THE
                         TARGET DIRECTORY.</p>
                     <form id="project-details-form">
                         <input type="hidden" name="id" id="run-project-id">
-                        <div class="form-grid">
-                            <div>
-                                <label>1. PROJECT LOCATION</label>
-                                <input name="rootDirectory" id="details-root-dir" required>
+                        <div>
+                            <label>1. PROJECT LOCATION</label>
+                            <input name="rootDirectory" id="details-root-dir" required>
+                        </div>
+                        <div style="margin-top: 15px;">
+                            <label>2. INCLUDED FILES/FOLDERS</label>
+                            <div class="selector-controls">
+                                <button type="button" id="details-load-tree-btn" onclick="loadDetailsFileTree()">
+                                    <span id="details-load-tree-text">LOAD TREE</span>
+                                    <span id="details-load-tree-spinner" class="spinner" style="display: none;"></span>
+                                </button>
+                                <button type="button" onclick="detailsSelectAll()">SELECT ALL</button>
+                                <button type="button" onclick="detailsDeselectAll()">DESELECT ALL</button>
+                                <div class="sort-controls">
+                                    <button type="button" onclick="setDetailsSortMode('name')" class="btn-sm"
+                                        id="details-sort-name-btn">SORT: NAME</button>
+                                    <button type="button" onclick="setDetailsSortMode('size')" class="btn-sm"
+                                        id="details-sort-size-btn">SORT: SIZE</button>
+                                </div>
+                                <label style="display: flex; align-items: center; gap: 5px; margin: 0; width:200px;">
+                                    <input type="checkbox" id="details-show-selected-only" style="width:50px;"
+                                        onchange="detailsFilterTree()">
+                                    <span style="font-size: 11px;">SHOW SELECTED ONLY</span>
+                                </label>
                             </div>
-                            <div>
-                                <label>2. INCLUDED FILES/FOLDERS</label>
-                                <input name="includePatterns" id="details-patterns">
-                            </div>
+                            <input type="text" id="details-tree-search" placeholder="Search files/folders..."
+                                oninput="detailsFilterTree()">
+                            <div id="details-file-tree-container"></div>
+                            <label>SELECTED PATHS (comma sep)</label>
+                            <textarea id="details-patterns-display" rows="6" readonly></textarea>
+                            <input type="hidden" name="includePatterns" id="details-patterns-input">
+                        </div>
+                        <div>
+                            <label>3. INSTRUCTIONS FOR AI BUILDER</label>
+                            <textarea name="instructions" id="details-instructions" rows="8"
+                                oninput="autoSaveProject()"></textarea>
                         </div>
                         <div class="form-grid">
                             <div>
-                                <label>3. ITERATIONS</label>
-                                <input name="iterations" id="details-iterations" value="1">
-                            </div>
-                            <div>
-                                <label>4. INSTRUCTIONS FOR AI BUILDER</label>
-                                <textarea name="instructions" id="details-instructions" rows="8"
-                                    oninput="autoSaveProject()"></textarea>
-                            </div>
-                        </div>
-                        <div class="form-grid">
-                            <div>
-                                <label>5. PRE-SCRIPT</label>
+                                <label>4. PRE-SCRIPT</label>
                                 <textarea name="preScript" id="details-pre-script" rows="4"
                                     oninput="autoSaveProject()"></textarea>
                             </div>
                             <div>
-                                <label>6. POST-SCRIPT</label>
+                                <label>5. POST-SCRIPT</label>
                                 <textarea name="postScript" id="details-post-script" rows="4"
                                     oninput="autoSaveProject()"></textarea>
                             </div>
                         </div>
+                        <input type="hidden" name="iterations" value="1">
                         <div style="display: flex; gap: 10px; margin-top: 15px;">
                             <button type="button" id="details-run-btn"
                                 onclick="runProject(document.getElementById('run-project-id').value)"
@@ -722,6 +768,7 @@
         let pendingProjectId = null;
         let pendingActionsContent = null;
         let sortMode = 'name';
+        let detailsSortMode = 'name';
 
         function formatSize(bytes) {
             if (bytes === 0) return '0 B';
@@ -729,6 +776,20 @@
             const sizes = ['B', 'KB', 'MB', 'GB'];
             const i = Math.floor(Math.log(bytes) / Math.log(k));
             return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+        }
+
+        function setSortMode(mode) {
+            sortMode = mode;
+            document.getElementById('sort-name-btn').style.background = mode === 'name' ? 'var(--grass)' : 'var(--wood)';
+            document.getElementById('sort-size-btn').style.background = mode === 'size' ? 'var(--grass)' : 'var(--wood)';
+            loadFileTree();
+        }
+
+        function setDetailsSortMode(mode) {
+            detailsSortMode = mode;
+            document.getElementById('details-sort-name-btn').style.background = mode === 'name' ? 'var(--grass)' : 'var(--wood)';
+            document.getElementById('details-sort-size-btn').style.background = mode === 'size' ? 'var(--grass)' : 'var(--wood)';
+            loadDetailsFileTree();
         }
 
         // Tab switching
@@ -806,8 +867,6 @@
             currentProjectId = projectId;
             localStorage.setItem('currentProjectId', projectId);
 
-            localStorage.setItem('currentProjectId', projectId);
-
             // Hide projects panel with animation
             const projectsPanel = document.getElementById('projects-panel');
             const detailsPanel = document.getElementById('project-details-panel');
@@ -832,13 +891,19 @@
                     const nameEl = document.getElementById('details-project-name');
                     if (nameEl) nameEl.textContent = project.name;
                     safeSet('details-root-dir', project.rootDirectory || '');
-                    safeSet('details-patterns', project.includePatterns || '');
-                    safeSet('details-iterations', project.iterations || 1);
+                    safeSet('details-patterns-input', project.includePatterns || '');
+                    safeSet('details-patterns-display', project.includePatterns || '');
                     safeSet('details-instructions', project.instructions || '');
                     safeSet('details-pre-script', project.preScript || '');
                     safeSet('details-post-script', project.postScript || '');
                     const statusEl = document.getElementById('run-status');
                     if (statusEl) statusEl.textContent = '';
+
+                    // Load the file tree if root directory is set
+                    if (project.rootDirectory) {
+                        document.getElementById('details-root-dir').value = project.rootDirectory;
+                        loadDetailsFileTree();
+                    }
                 })
                 .catch(err => console.error('Failed to load project details:', err));
         }
@@ -853,8 +918,6 @@
             currentProjectId = null;
             loadProjects();
         }
-
-
 
         // Load file tree
         function loadFileTree() {
@@ -954,11 +1017,14 @@
                         const aIsDir = a.path.endsWith('/');
                         const bIsDir = b.path.endsWith('/');
                         if (aIsDir !== bIsDir) return aIsDir ? -1 : 1;
-                        if (sortMode === 'size') {
+                        if (detailsSortMode === 'size') {
                             return (b.size || 0) - (a.size || 0);
                         }
                         return a.path.localeCompare(b.path);
                     });
+
+                    const showSelectedOnly = document.getElementById('details-show-selected-only').checked;
+                    const searchTerm = document.getElementById('details-tree-search').value.toLowerCase();
 
                     sortedPaths.forEach(item => {
                         const isDir = item.path.endsWith('/');
@@ -967,7 +1033,9 @@
 
                         const checkbox = document.createElement('input');
                         checkbox.type = 'checkbox';
-                        checkbox.checked = true;
+                        // Check if this path is in the current includePatterns
+                        const currentPatterns = (document.getElementById('details-patterns-input').value || '').split(',').map(p => p.trim());
+                        checkbox.checked = currentPatterns.includes(item.path) || currentPatterns.length === 0;
                         checkbox.onchange = () => detailsUpdateSelectedPatterns();
                         checkbox.dataset.path = item.path;
 
@@ -990,6 +1058,9 @@
                     loadTreeBtn.disabled = false;
                     loadTreeText.style.display = 'inline';
                     loadTreeSpinner.style.display = 'none';
+
+                    // Apply filter after rendering
+                    detailsFilterTree();
                 })
                 .catch(err => {
                     console.error('Failed to load details file tree:', err);
@@ -999,44 +1070,6 @@
                     alert('Failed to load file tree. Check console.');
                 });
         }
-
-
-
-        // Render file tree
-        function renderFileTree(data, parentElement = null, level = 0) {
-            const container = parentElement || document.getElementById('file-tree-container');
-            container.innerHTML = '';
-
-            function renderItems(items, container, level) {
-                items.forEach(item => {
-                    const itemElement = document.createElement('div');
-                    itemElement.className = `tree-item ${item.type}`;
-                    itemElement.style.paddingLeft = `${level * 15}px`;
-
-                    const checkbox = document.createElement('input');
-                    checkbox.type = 'checkbox';
-                    checkbox.checked = true; // Default to checked
-                    checkbox.onchange = () => updateSelectedPatterns();
-                    checkbox.dataset.path = item.path;
-
-                    const label = document.createElement('label');
-                    label.textContent = item.name;
-                    label.style.marginLeft = '5px';
-
-                    itemElement.appendChild(checkbox);
-                    itemElement.appendChild(label);
-                    container.appendChild(itemElement);
-
-                    if (item.type === 'dir' && item.children) {
-                        renderItems(item.children, container, level + 1);
-                    }
-                });
-            }
-
-            renderItems(data, container, level);
-            updateSelectedPatterns();
-        }
-
 
         // Update selected patterns display
         function updateSelectedPatterns() {
@@ -1054,6 +1087,7 @@
         }
 
         function selectAll() {
+            const showSelectedOnly = document.getElementById('show-selected-only-new').checked;
             document.querySelectorAll('#file-tree-container input[type="checkbox"]').forEach(cb => {
                 if (cb.parentElement.style.display !== 'none') {
                     cb.checked = true;
@@ -1092,11 +1126,18 @@
         // Filter file tree
         function filterTree() {
             const searchTerm = document.getElementById('tree-search').value.toLowerCase();
+            const showSelectedOnly = document.getElementById('show-selected-only-new').checked;
             const items = document.querySelectorAll('#file-tree-container .tree-item');
 
             items.forEach(item => {
+                const checkbox = item.querySelector('input[type="checkbox"]');
                 const text = item.textContent.toLowerCase();
-                if (text.includes(searchTerm)) {
+                const isSelected = checkbox && checkbox.checked;
+
+                const matchesSearch = text.includes(searchTerm);
+                const matchesFilter = !showSelectedOnly || isSelected;
+
+                if (matchesSearch && matchesFilter) {
                     item.style.display = '';
                 } else {
                     item.style.display = 'none';
@@ -1106,18 +1147,24 @@
 
         function detailsFilterTree() {
             const searchTerm = document.getElementById('details-tree-search').value.toLowerCase();
+            const showSelectedOnly = document.getElementById('details-show-selected-only').checked;
             const items = document.querySelectorAll('#details-file-tree-container .tree-item');
 
             items.forEach(item => {
+                const checkbox = item.querySelector('input[type="checkbox"]');
                 const text = item.textContent.toLowerCase();
-                if (text.includes(searchTerm)) {
+                const isSelected = checkbox && checkbox.checked;
+
+                const matchesSearch = text.includes(searchTerm);
+                const matchesFilter = !showSelectedOnly || isSelected;
+
+                if (matchesSearch && matchesFilter) {
                     item.style.display = '';
                 } else {
                     item.style.display = 'none';
                 }
             });
         }
-
 
         // Auto-save project with debounce
         let autoSaveTimeout = null;
@@ -1182,7 +1229,7 @@
                 if (isLoading) {
                     detailBtn.innerHTML = '<span class="run-spinner"></span> Running...';
                 } else {
-                    detailBtn.textContent = 'RUN AI BUILDER (CLEAN MODE)';
+                    detailBtn.textContent = 'RUN AI BUILDER';
                 }
             }
         }
