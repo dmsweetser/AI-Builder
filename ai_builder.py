@@ -18,7 +18,7 @@ from config import Config
 load_dotenv()
 
 LINE_DELIMITER = f"<<<AI_BUILDER_LINE_DELIMITER_{uuid.uuid4().hex}>>>"
-
+IS_LEGACY = False
 
 class FileParser:
     @staticmethod
@@ -307,38 +307,49 @@ class CodeUtility:
 
     def should_process_file(self, path: str, rules: List[str], patterns: List[str], mode: str) -> bool:
         try:
-            file_name = os.path.basename(path)
+            if IS_LEGACY:
+                file_name = os.path.basename(path)
+                for rule in rules:
+                    if rule in path:
+                        return False
+                for pattern in patterns:
+                    if pattern in file_name or pattern in path:
+                        return mode == "include"
+                return mode == "exclude"
+            else:
 
-            # Check .gitignore rules first - these still use substring matching
-            for rule in rules:
-                if rule in path:
-                    return False
+                file_name = os.path.basename(path)
 
-            # If no patterns specified, use mode default
-            if not patterns:
-                return mode == "include"
+                # Check .gitignore rules first - these still use substring matching
+                for rule in rules:
+                    if rule in path:
+                        return False
 
-            # Normalize patterns by stripping trailing slashes
-            normalized_patterns = [p.rstrip('/') for p in patterns]
-
-            for pattern in normalized_patterns:
-                # Strip trailing slash from pattern for comparison
-                pattern_clean = pattern.rstrip('/')
-
-                # Exact match (file or directory without trailing slash)
-                if pattern_clean == path or pattern_clean == path.rstrip('/'):
+                # If no patterns specified, use mode default
+                if not patterns:
                     return mode == "include"
 
-                # Directory match: path is inside this directory
-                if path.startswith(pattern_clean + '/') or path == pattern_clean:
-                    return mode == "include"
+                # Normalize patterns by stripping trailing slashes
+                normalized_patterns = [p.rstrip('/') for p in patterns]
 
-                # Legacy: substring match in filename or full path
-                if pattern_clean in file_name or pattern_clean in path:
-                    return mode == "include"
+                for pattern in normalized_patterns:
+                    # Strip trailing slash from pattern for comparison
+                    pattern_clean = pattern.rstrip('/')
 
-            # No pattern matched
-            return mode == "exclude"
+                    # Exact match (file or directory without trailing slash)
+                    if pattern_clean == path or pattern_clean == path.rstrip('/'):
+                        return mode == "include"
+
+                    # Directory match: path is inside this directory
+                    if path.startswith(pattern_clean + '/') or path == pattern_clean:
+                        return mode == "include"
+
+                    # Legacy: substring match in filename or full path
+                    if pattern_clean in file_name or pattern_clean in path:
+                        return mode == "include"
+
+                # No pattern matched
+                return mode == "exclude"
         except Exception as e:
             logging.error(f"Error determining if file should be processed: {e}")
             raise
@@ -722,6 +733,7 @@ Reply ONLY in the specified format with no commentary. THAT'S AN ORDER, SOLDIER!
 
 
 if __name__ == "__main__":
+    IS_LEGACY = True
     try:
         ai_builder = AIBuilder()
         ai_builder.run()

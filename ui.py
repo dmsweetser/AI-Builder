@@ -1,3 +1,4 @@
+
 import os
 import json
 import uuid
@@ -6,37 +7,64 @@ import subprocess
 import platform
 import queue
 import threading
+import shutil
 from flask import Flask, Response, request, jsonify, render_template
+
 from ai_builder import AIBuilder
 from config import Config
 from azure.ai.inference import ChatCompletionsClient
 from azure.ai.inference.models import SystemMessage, UserMessage
 from azure.core.credentials import AzureKeyCredential
 
+
 app = Flask(__name__)
 
+STATUS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aib_instance", "run_status.json")
 run_queue = queue.Queue()
 run_status = {}
+
+def load_run_status():
+    global run_status
+    if os.path.exists(STATUS_FILE):
+        try:
+            with open(STATUS_FILE, 'r') as f:
+                run_status = json.load(f)
+        except Exception:
+            run_status = {}
+    else:
+        run_status = {}
+
+def save_run_status():
+    try:
+        with open(STATUS_FILE, 'w') as f:
+            json.dump(run_status, f)
+    except Exception:
+        pass
+
+load_run_status()
 
 def worker():
     while True:
         job = run_queue.get()
         pid = job['pid']
         job_id = job['job_id']
-        run_status[job_id] = {'status': 'running'}
+        run_status[job_id] = {'status': 'running', 'project_id': pid}
+        save_run_status()
         project, _ = get_project(pid)
         if project:
             try:
                 ai = AIBuilder(project)
                 ai.run()
-                run_status[job_id] = {'status': 'completed'}
+                run_status[job_id] = {'status': 'completed', 'project_id': pid}
             except Exception as e:
-                run_status[job_id] = {'status': 'error', 'message': str(e)}
+                run_status[job_id] = {'status': 'error', 'message': str(e), 'project_id': pid}
         else:
-            run_status[job_id] = {'status': 'error', 'message': 'Project not found'}
+            run_status[job_id] = {'status': 'error', 'message': 'Project not found', 'project_id': pid}
+        save_run_status()
         run_queue.task_done()
 
 threading.Thread(target=worker, daemon=True).start()
+
 
 PROJECTS_FILE = "aib_instance/projects.json"
 CHATS_DIR = "aib_instance/chats"
@@ -129,15 +157,23 @@ def api_update_project(pid):
 
 
 
+
 @app.route("/api/projects/<pid>/run", methods=["POST"])
 def api_run_project(pid):
     project, _ = get_project(pid)
     if not project:
         return jsonify({"error": "Project not found"}), 404
     
+    
     output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aib_instance", "output", pid)
     actions_file = os.path.join(output_dir, "actions.txt")
     
+    # Clear all contents of output_dir completely
+    if os.path.exists(output_dir):
+        shutil.rmtree(output_dir)
+    os.makedirs(output_dir, exist_ok=True)
+
+
     warning_content = None
     if os.path.exists(actions_file):
         with open(actions_file, "r", encoding="utf-8") as f:
@@ -145,15 +181,6 @@ def api_run_project(pid):
             if content:
                 warning_content = content
 
-    # Clear old artifacts
-    for fname in ["output.txt", "modifications.txt", "current_response.txt", "log.txt"]:
-        fpath = os.path.join(output_dir, fname)
-        if os.path.exists(fpath):
-            try:
-                os.remove(fpath)
-            except Exception:
-                pass
-                    
     if warning_content:
         return jsonify({
             "warning": True,
@@ -161,9 +188,14 @@ def api_run_project(pid):
             "message": "Existing unapplied changes found. Please review or clear them before running."
         })
 
+    
     job_id = str(uuid.uuid4())
+    run_status[job_id] = {'status': 'queued', 'project_id': pid}
+    save_run_status()
     run_queue.put({'pid': pid, 'job_id': job_id})
     return jsonify({"status": "queued", "job_id": job_id, "cleared": True})
+
+
 
 @app.route("/api/projects/<pid>/clear", methods=["POST"])
 def api_clear_project_artifacts(pid):
@@ -499,5 +531,6 @@ def api_auto_chat():
         return jsonify({"created": True, "id": chat_id})
     return jsonify({"created": False, "id": chats[-1]})
 
+
 if __name__ == "__main__":
-    app.run(port=5000, debug=True)
+    app.run(port=5000, debug=True, threaded=True)
