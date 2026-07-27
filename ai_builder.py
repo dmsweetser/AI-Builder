@@ -320,11 +320,6 @@ class CodeUtility:
 
                 file_name = os.path.basename(path)
 
-                # Check .gitignore rules first - these still use substring matching
-                for rule in rules:
-                    if rule in path:
-                        return False
-
                 # If no patterns specified, use mode default
                 if not patterns:
                     return mode == "include"
