@@ -627,8 +627,42 @@
             display: inline-block;
             vertical-align: middle;
         }
+
+        .file-tree-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 10;
+            color: #fff;
+            font-family: 'Press Start 2P', monospace;
+            font-size: 12px;
+        }
+
+        .file-tree-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 10;
+            color: #fff;
+            font-family: 'Press Start 2P', monospace;
+            font-size: 12px;
+        }
     </style>
 </head>
+
+
 
 <body>
     <div class="app-layout">
@@ -677,9 +711,14 @@
                         </div>
                         <input type="text" id="tree-search" placeholder="Search files/folders..."
                             oninput="filterTree()">
-                        <div id="file-tree-container"></div>
+
+                        <div id="file-tree-container" style="position: relative;">
+                            <div id="file-tree-loading-overlay" class="file-tree-overlay">PROCESSING...</div>
+                        </div>
+
                         <label>SELECTED PATHS (comma sep)</label>
-                        <textarea id="patterns-display" rows="6" onchange="updatePatternsDisplay()" oninput="autoSaveProject()"></textarea>
+                        <textarea id="patterns-display" rows="6" onchange="updatePatternsDisplay()"
+                            oninput="autoSaveProject()"></textarea>
                         <input type="hidden" name="rootDirectory" id="root-path-hidden" required>
                         <input type="hidden" name="includePatterns" id="patterns-input">
                         <input type="hidden" name="iterations" value="1">
@@ -723,8 +762,8 @@
                                 oninput="detailsFilterTree()">
                             <div id="details-file-tree-container"></div>
                             <label>SELECTED PATHS (comma sep)</label>
-                            <textarea id="details-patterns-display" rows="6"
-                                onchange="updateDetailsPatternsDisplay()" oninput="autoSaveProject()"></textarea>
+                            <textarea id="details-patterns-display" rows="6" onchange="updateDetailsPatternsDisplay()"
+                                oninput="autoSaveProject()"></textarea>
                             <input type="hidden" name="includePatterns" id="details-patterns-input">
                         </div>
                         <div>
