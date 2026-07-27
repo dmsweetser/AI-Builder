@@ -4,7 +4,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Builder – Studio</title>
+    
+<title>Portal</title>
+
     <style>
         :root {
             --dirt: #8B4513;
@@ -504,16 +506,26 @@
             }
         }
 
+        
         .spinner {
             display: inline-block;
-            width: 12px;
-            height: 12px;
-            border: 2px solid rgba(255, 255, 255, 0.3);
-            border-radius: 50%;
-            border-top-color: #fff;
-            animation: spin 1s ease-in-out infinite;
+            width: 16px;
+            height: 16px;
+            background-color: var(--grass);
+            border: 2px solid #000;
+            box-shadow: 2px 2px 0px #000;
+            animation: spin-block 0.8s steps(4) infinite;
             margin-right: 8px;
+            image-rendering: pixelated;
         }
+        @keyframes spin-block {
+            0% { transform: rotate(0deg) scale(1); background-color: var(--grass); }
+            25% { transform: rotate(90deg) scale(0.8); background-color: var(--wood); }
+            50% { transform: rotate(180deg) scale(1); background-color: var(--stone); }
+            75% { transform: rotate(270deg) scale(0.8); background-color: var(--sky); }
+            100% { transform: rotate(360deg) scale(1); background-color: var(--grass); }
+        }
+
 
         .markdown-content {
             font-family: 'Courier New', monospace;
@@ -609,7 +621,9 @@
     <div class="app-layout">
         <aside class="sidebar">
             <div class="sidebar-header">
-                <h1>AI BUILDER - STUDIO</h1>
+                
+                <h1>PORTAL</h1>
+
             </div>
             <div class="sidebar-nav">
                 <button class="tab-btn active" onclick="showTab('projects')">PROJECTS</button>
@@ -669,8 +683,6 @@
                     <button class="btn-sm" onclick="goBackToProjects()" style="margin-bottom:10px;">← BACK TO
                         PROJECTS</button>
                     <h2>INTERVIEW - <span id="details-project-name"></span></h2>
-                    <p class="note">ANSWER THESE BLOCKS LIKE AN INTERVIEW. AI BUILDER WILL USE THEM WITHOUT DIRTYING THE
-                        TARGET DIRECTORY.</p>
                     <form id="project-details-form">
                         <input type="hidden" name="id" id="run-project-id">
                         <div>
@@ -905,11 +917,14 @@
                     const statusEl = document.getElementById('run-status');
                     if (statusEl) statusEl.textContent = '';
 
+                    
                     // Load the file tree if root directory is set
                     if (project.rootDirectory) {
                         document.getElementById('details-root-dir').value = project.rootDirectory;
+                        document.getElementById('details-show-selected-only').checked = true;
                         loadDetailsFileTree();
                     }
+
                 })
                 .catch(err => console.error('Failed to load project details:', err));
         }
