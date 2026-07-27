@@ -41,7 +41,6 @@ class FileParser:
             content = re.sub(r'^.*?\[?aibuilder_change', '[aibuilder_change', content, flags=re.DOTALL)
             changes = []
             change_blocks = re.finditer(
-                # Remove 'end_action' from the lookahead to preserve it in the match
                 r'\[?aibuilder_change\s+file\s*=\s*"([^"]+)"\](.*?)(?=\[?aibuilder_change|$)',
                 content,
                 re.DOTALL
@@ -54,7 +53,7 @@ class FileParser:
         except Exception as e:
             logging.error(f"Error parsing custom format: {e}")
             raise
-        
+
     @staticmethod
     def _parse_actions(content: str) -> List[Dict[str, Any]]:
         try:
@@ -136,15 +135,14 @@ class FileParser:
             logging.error(f"Error parsing replace section action: {e}")
             raise
 
-
 class FileModifier:
     @staticmethod
-    def apply_modifications(changes: List[Dict[str, Any]], root_directory : str, dry_run: bool = False) -> List[Dict[str, Any]]:
+    def apply_modifications(changes: List[Dict[str, Any]], root_directory: str, dry_run: bool = False) -> List[Dict[str, Any]]:
         try:
             incomplete_actions = []
             for change in changes:
                 filepath = change['file']
-                filepath = os.path.join(root_directory, filepath)
+                filepath = os.path.join(root_directory, filepath) if root_directory else filepath
                 backup_filepath = f"{filepath}.bak"
                 logging.info(f"Processing file: {filepath}")
                 if not dry_run:
@@ -176,7 +174,7 @@ class FileModifier:
     def _apply_action(filepath: str, action: Dict[str, Any]) -> bool:
         try:
             action_type = action['action']
-            if os.path.dirname(filepath) != "":
+            if os.path.dirname(filepath):
                 os.makedirs(os.path.dirname(filepath), exist_ok=True)
 
             if action_type == 'create_file':
@@ -211,21 +209,17 @@ class FileModifier:
             logging.error(f"Error applying action: {e}")
             raise
 
-    
     @staticmethod
     def _replace_section(filepath: str, original_content: str, new_content: List[str]) -> bool:
         try:
             with open(filepath, 'r', encoding='utf-8') as f:
                 content = f.read()
             new_section_str = FileParser._safe_join(new_content)
-            # Normalize line endings and strip whitespace for robust matching
             normalized_original = original_content.replace(f"{chr(13)}{chr(10)}", f"{chr(10)}").strip()
             normalized_content = content.replace(f"{chr(13)}{chr(10)}", f"{chr(10)}")
-            # Use stripped versions for matching to avoid whitespace mismatches
             match_original = f"{chr(10)}".join([line.strip() for line in normalized_original.split(f"{chr(10)}") if line.strip()])
             match_content = f"{chr(10)}".join([line.strip() for line in normalized_content.split(f"{chr(10)}") if line.strip()])
             if match_original in match_content:
-                # Replace using original content to preserve exact formatting/indentation
                 modified_content = content.replace(original_content.strip(), new_section_str)
                 with open(filepath, 'w', encoding='utf-8') as f:
                     f.write(modified_content)
@@ -237,8 +231,6 @@ class FileModifier:
         except Exception as e:
             logging.error(f"Error replacing section: {e}")
             raise
-
-
 
 class ActionManager:
     @staticmethod
@@ -287,7 +279,6 @@ class ActionManager:
             logging.error(f"Error loading actions: {e}")
             raise
 
-
 class CodeUtility:
     def __init__(self, base_dir: str, ai_builder_dir: str):
         self.base_dir = base_dir
@@ -317,42 +308,27 @@ class CodeUtility:
                         return mode == "include"
                 return mode == "exclude"
             else:
-
                 file_name = os.path.basename(path)
-
-                # If no patterns specified, use mode default
                 if not patterns:
                     return mode == "include"
-
-                # Normalize patterns by stripping trailing slashes
                 normalized_patterns = [p.rstrip('/') for p in patterns]
-
                 for pattern in normalized_patterns:
-                    # Strip trailing slash from pattern for comparison
                     pattern_clean = pattern.rstrip('/')
-
-                    # Exact match (file or directory without trailing slash)
                     if pattern_clean == path or pattern_clean == path.rstrip('/'):
                         return mode == "include"
-
-                    # Directory match: path is inside this directory
                     if path.startswith(pattern_clean + '/') or path == pattern_clean:
                         return mode == "include"
-
-                # No pattern matched
                 return mode == "exclude"
         except Exception as e:
             logging.error(f"Error determining if file should be processed: {e}")
             raise
 
-    
     def process_directory(self, directory: str, parent_rules: List[str], patterns: List[str], mode: str) -> None:
         try:
             if not isinstance(parent_rules, list):
                 parent_rules = [parent_rules] if parent_rules else []
             current_rules = self.parse_gitignore(directory)
             all_rules = parent_rules + current_rules
-
             logging.info(f"Processing directory: {directory}")
             for root, _, files in os.walk(directory):
                 for file in files:
@@ -379,7 +355,7 @@ class CodeUtility:
             if os.path.exists(self.output_file):
                 os.remove(self.output_file)
             for rel_path in diff_files:
-                abs_path = os.path.join(self.base_dir, rel_path)
+                abs_path = os.path.join(self.base_dir, rel_path) if self.base_dir else rel_path
                 if not os.path.isfile(abs_path):
                     continue
                 try:
@@ -393,25 +369,28 @@ class CodeUtility:
             logging.error(f"Error collecting diff files: {e}")
             raise
 
-
 class AIBuilder:
     def __init__(self, project_config: Dict[str, Any] = None):
         self.project_config = project_config
         self.clean_mode = project_config is not None
+        self.use_git_diff = False
 
         if self.clean_mode:
-            self.root_directory = project_config["rootDirectory"]
-            self.use_git_diff = project_config.get("useGitDiff", Config.get_use_git_diff())
-            self.ai_builder_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aib_instance", "output", project_config["id"])
+            self.root_directory = project_config.get("rootDirectory", "")
+            self.ai_builder_dir = os.path.join(
+                os.path.dirname(os.path.abspath(__file__)),
+                "aib_instance",
+                "output",
+                project_config["id"]
+            )
+            if not self.root_directory:
+                logging.warning("No rootDirectory provided. Assuming includePatterns are full paths.")
         else:
             self.root_directory = Config.get_root_directory()
             self.ai_builder_dir = Config.get_ai_builder_dir(self.root_directory)
             self.use_git_diff = Config.get_use_git_diff()
 
-        
         os.makedirs(self.ai_builder_dir, exist_ok=True)
-
-
         self.response_file = os.path.join(self.ai_builder_dir, "current_response.txt")
 
         logging.basicConfig(
@@ -449,7 +428,7 @@ class AIBuilder:
                 if not script_content.strip():
                     return
                 temp_script_path = os.path.join(self.ai_builder_dir, f"{script_name}_{uuid.uuid4().hex}.ps1")
-                with open(temp_script_path, "w", encoding="utf-8") as f:
+                with open(temp_script_path, "w", encoding='utf-8') as f:
                     f.write(script_content)
                 powershell = "powershell" if platform.system() == "Windows" else "pwsh"
                 subprocess.run([powershell, "-File", temp_script_path], check=True)
@@ -592,20 +571,10 @@ Reply ONLY in the specified format with no commentary. THAT'S AN ORDER, SOLDIER!
                 current_iteration += 1
             process.wait()
         else:
-            endpoint = (
-                self.project_config["modelConfig"].get("endpoint") if self.clean_mode else Config.get_endpoint()
-            )
-            model_name = (
-                self.project_config["modelConfig"].get("modelName") if self.clean_mode else Config.get_model_name()
-            )
-            api_key = (
-                self.project_config["modelConfig"].get("apiKey") if self.clean_mode else Config.get_api_key()
-            )
+            endpoint = Config.get_endpoint()
+            model_name = Config.get_model_name()
+            api_key = Config.get_api_key()
             verify_ssl = Config.verify_ssl()
-            if self.clean_mode:
-                endpoint = endpoint or Config.get_endpoint()
-                model_name = model_name or Config.get_model_name()
-                api_key = api_key or Config.get_api_key()
             if not all([endpoint, model_name, api_key]):
                 logging.error("Missing one or more required environment variables: ENDPOINT, MODEL_NAME, API_KEY")
                 raise ValueError("Missing required environment variables.")
@@ -652,6 +621,13 @@ Reply ONLY in the specified format with no commentary. THAT'S AN ORDER, SOLDIER!
                 raw_exclude = self.project_config.get("excludePatterns", "")
                 exclude_patterns = [p.strip() for p in raw_exclude.split(",") if p.strip()] if isinstance(raw_exclude, str) else (raw_exclude if isinstance(raw_exclude, list) else [])
                 instructions = self.project_config.get("instructions", "")
+
+                # If patterns are full paths, use them directly
+                if all(os.path.isabs(p) for p in patterns):
+                    diff_files = patterns
+                else:
+                    # Otherwise, resolve relative to rootDirectory
+                    diff_files = [os.path.join(self.root_directory, p) for p in patterns]
             else:
                 base_config_path = os.path.join("base_config.xml")
                 user_config_path = os.path.join(self.ai_builder_dir, "user_config.xml")
@@ -721,7 +697,6 @@ Reply ONLY in the specified format with no commentary. THAT'S AN ORDER, SOLDIER!
 
         except Exception as e:
             logging.error(f"An error occurred during execution: {str(e)}", exc_info=True)
-
 
 if __name__ == "__main__":
     IS_LEGACY = True

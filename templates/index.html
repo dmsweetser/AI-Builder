@@ -688,8 +688,8 @@
                     <form id="add-project-form">
                         <label>PROJECT NAME</label>
                         <input name="name" id="add-project-name" required placeholder="My Cool Project">
-                        <label>ROOT DIRECTORY</label>
-                        <input type="text" id="root-path" required placeholder="e.g., /home/user/project">
+                        <label>ROOT DIRECTORY (OPTIONAL IF ALL SELECTED FILE PATHS ARE ABSOLUTE)</label>
+                        <input type="text" id="root-path" placeholder="e.g., /home/user/project">
                         <div class="selector-controls">
                             <button type="button" id="load-tree-btn" onclick="loadFileTree()">
                                 <span id="load-tree-text">LOAD TREE</span>
@@ -719,7 +719,7 @@
                         <label>SELECTED PATHS (comma sep)</label>
                         <textarea id="patterns-display" rows="6" onchange="updatePatternsDisplay()"
                             oninput="autoSaveProject()"></textarea>
-                        <input type="hidden" name="rootDirectory" id="root-path-hidden" required>
+                        <input type="hidden" name="rootDirectory" id="root-path-hidden">
                         <input type="hidden" name="includePatterns" id="patterns-input">
                         <input type="hidden" name="iterations" value="1">
                         <button type="submit">CREATE PROJECT</button>
@@ -734,8 +734,8 @@
                     <form id="project-details-form">
                         <input type="hidden" name="id" id="run-project-id">
                         <div>
-                            <label>1. PROJECT LOCATION</label>
-                            <input name="rootDirectory" id="details-root-dir" required>
+                            <label>1. PROJECT LOCATION (OPTIONAL IF ALL SELECTED FILE PATHS ARE ABSOLUTE)</label>
+                            <input name="rootDirectory" id="details-root-dir">
                         </div>
                         <div style="margin-top: 15px;">
                             <label>2. INCLUDED FILES/FOLDERS</label>
