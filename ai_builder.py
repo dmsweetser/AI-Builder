@@ -480,17 +480,30 @@ class AIBuilder:
             logging.error(f"Error executing script {script_name}: {e}")
             raise
 
-    def cleanup_bak_files(self) -> None:
+    def cleanup_bak_files(self, directory: str, patterns: List[str]) -> None:
         try:
-            for root, _, files in os.walk(self.root_directory):
-                for file in files:
-                    if file.endswith('.bak'):
-                        file_path = os.path.join(root, file)
-                        try:
-                            os.remove(file_path)
-                            logging.info(f"Removed backup file: {file_path}")
-                        except Exception as e:
-                            logging.error(f"Error removing backup file {file_path}: {e}")
+            # Determine mode: absolute vs relative
+            absolute_mode = not directory
+
+            if absolute_mode:
+                logging.info("Directory is blank — treating patterns as absolute .bak file paths.")
+            else:
+                logging.info(f"Directory provided — treating patterns as relative .bak paths inside: {directory}")
+
+            # Build full paths
+            file_paths = []
+            for p in patterns:
+                full_path = p if absolute_mode else os.path.join(directory, p)
+                file_paths.append(full_path + ".bak")
+
+            # Process each file path directly
+            for full_path in file_paths:
+                try:
+                    os.remove(full_path)
+                    logging.info(f"Removed backup file: {full_path}")
+                except Exception as e:
+                    logging.error(f"Error removing backup file {full_path}: {e}")
+
         except Exception as e:
             logging.error(f"Error cleaning up backup files: {e}")
             raise
@@ -722,7 +735,7 @@ Reply ONLY in the specified format with no commentary. THAT'S AN ORDER, SOLDIER!
                     logging.error(f"An error occurred: {str(e)}", exc_info=True)
 
                 self.run_pre_post_scripts("post.ps1")
-                self.cleanup_bak_files()
+                self.cleanup_bak_files(self.root_directory, patterns)
 
         except Exception as e:
             logging.error(f"An error occurred during execution: {str(e)}", exc_info=True)
