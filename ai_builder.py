@@ -376,7 +376,7 @@ class AIBuilder:
         self.use_git_diff = False
 
         if self.clean_mode:
-            self.root_directory = project_config.get("rootDirectory", "")
+            self.root_directory = project_config.get("rootDirectory", None)
             self.ai_builder_dir = os.path.join(
                 os.path.dirname(os.path.abspath(__file__)),
                 "aib_instance",
@@ -623,7 +623,7 @@ Reply ONLY in the specified format with no commentary. THAT'S AN ORDER, SOLDIER!
                 instructions = self.project_config.get("instructions", "")
 
                 # If patterns are full paths, use them directly
-                if all(os.path.isabs(p) for p in patterns):
+                if self.root_directory is None or all(os.path.isabs(p) for p in patterns):
                     diff_files = patterns
                 else:
                     # Otherwise, resolve relative to rootDirectory
