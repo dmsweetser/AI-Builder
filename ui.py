@@ -60,6 +60,7 @@ def worker():
             run_status[job_id] = {'status': 'error', 'message': 'Project not found', 'project_id': pid}
         save_run_status()
         run_queue.task_done()
+        time.sleep(3)
 
 threading.Thread(target=worker, daemon=True).start()
 
