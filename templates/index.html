@@ -4,9 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
     <title>Portal</title>
-
     <style>
         :root {
             --dirt: #8B4513;
@@ -24,7 +22,6 @@
             box-sizing: border-box;
         }
 
-
         body {
             background-color: var(--dark-bg);
             background-image: linear-gradient(45deg, #252525 25%, transparent 25%), linear-gradient(-45deg, #252525 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #252525 75%), linear-gradient(-45deg, transparent 75%, #252525 75%);
@@ -38,7 +35,6 @@
             flex-direction: column;
             min-height: 100vh;
         }
-
 
         .app-layout {
             display: flex;
@@ -60,7 +56,6 @@
             gap: 10px;
         }
 
-
         .sidebar-header h1 {
             text-align: center;
             color: var(--grass);
@@ -69,14 +64,12 @@
             font-size: 18px;
         }
 
-
         .sidebar-nav {
             display: flex;
             flex-direction: column;
             gap: 10px;
             padding: 10px 0;
         }
-
 
         .sidebar-nav button {
             background: var(--wood);
@@ -89,7 +82,6 @@
             box-shadow: 4px 4px 0px #000;
             transition: all 0.1s;
         }
-
 
         .sidebar-nav button:hover {
             background: #6a4a2a;
@@ -184,7 +176,6 @@
             color: #ddd;
         }
 
-
         input,
         textarea,
         select {
@@ -199,13 +190,11 @@
             box-sizing: border-box;
         }
 
-
         input:focus,
         textarea:focus {
             outline: none;
             border-color: var(--grass);
         }
-
 
         button {
             background: var(--grass);
@@ -220,7 +209,6 @@
             box-shadow: 4px 4px 0px #000;
             transition: all 0.1s;
         }
-
 
         button:hover {
             background: #6aa94a;
@@ -365,7 +353,6 @@
             background: #c04040;
         }
 
-
         .selector-controls {
             display: flex;
             gap: 10px;
@@ -403,7 +390,6 @@
             max-height: 80vh;
             overflow-y: auto;
         }
-
 
         #file-tree-container {
             background: var(--dark-bg);
@@ -506,7 +492,6 @@
             }
         }
 
-
         .spinner {
             display: inline-block;
             width: 16px;
@@ -545,7 +530,6 @@
                 background-color: var(--grass);
             }
         }
-
 
         .markdown-content {
             font-family: 'Courier New', monospace;
@@ -650,9 +634,7 @@
     <div class="app-layout">
         <aside class="sidebar">
             <div class="sidebar-header">
-
                 <h1>PORTAL</h1>
-
             </div>
             <div class="sidebar-nav">
                 <button class="tab-btn active" onclick="showTab('projects')">PROJECTS</button>
@@ -660,7 +642,6 @@
             </div>
         </aside>
         <main class="main-content">
-            <!-- Projects Panel -->
             <div id="projects-panel" class="panel active">
                 <div class="sidebar-section">
                     <h2>PROJECT LIST</h2>
@@ -706,8 +687,6 @@
                     </form>
                 </div>
             </div>
-
-            <!-- Project Details Panel -->
             <div id="project-details-panel" class="panel">
                 <div class="block">
                     <button class="btn-sm" onclick="goBackToProjects()" style="margin-bottom:10px;">← BACK TO
@@ -778,8 +757,6 @@
                     <p class="note">REVISE INSTRUCTIONS & SCRIPTS, THEN RE-RUN AS MANY TIMES AS YOU LIKE.</p>
                 </div>
             </div>
-
-            <!-- Chat Panel -->
             <div id="chat-panel" class="panel">
                 <div class="block">
                     <h2>AI CHAT</h2>
@@ -799,10 +776,19 @@
             </div>
         </main>
     </div>
-
+    <div id="warning-modal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <h2>WARNING: UNAPPLIED CHANGES</h2>
+            <p>This project has unapplied changes from a previous run:</p>
+            <pre id="warning-actions-content"
+                style="background:#000; padding:10px; overflow:auto; max-height:200px; font-family:monospace; font-size:12px;"></pre>
+            <div style="display:flex; gap:10px; margin-top:15px;">
+                <button onclick="clearAndRun()" class="btn-sm" style="background:#a03030; flex:1;">CLEAR & RUN</button>
+                <button onclick="closeWarningModal()" class="btn-sm" style="flex:1;">CANCEL</button>
+            </div>
+        </div>
+    </div>
     <script>
-
-        // Global state
         let currentProjectId = localStorage.getItem('currentProjectId');
         let currentChatId = localStorage.getItem('currentChatId');
         let fileTreeData = [];
@@ -812,80 +798,64 @@
         let detailsSortMode = 'name';
         let filterTreeTimeout;
         let detailsFilterTreeTimeout;
-
-        // --- Unified Queue System ---
-        let unifiedQueue = []; // Holds { type: 'job' | 'chat', data: {...} }
+        let unifiedQueue = [];
         let isProcessingQueue = false;
         let currentTask = null;
-
-        // Queue a job run
+        const activeJobs = {};
+        function load_run_status() {
+            const saved = localStorage.getItem('activeJobs');
+            if (saved) {
+                try { return JSON.parse(saved); } catch (e) { return {}; }
+            }
+            return {};
+        }
+        function saveActiveJobs() {
+            const jobsToSave = {};
+            for (const [jobId, job] of Object.entries(activeJobs)) {
+                if (job.status !== 'completed' && job.status !== 'error') {
+                    jobsToSave[jobId] = job;
+                }
+            }
+            localStorage.setItem('activeJobs', JSON.stringify(jobsToSave));
+        }
+        Object.assign(activeJobs, load_run_status());
         function queueRunProject(projectId) {
             unifiedQueue.push({ type: 'job', data: { projectId } });
             updateStatusDisplay();
             processUnifiedQueue();
         }
-
         function updateStatusDisplay() {
             const statusElement = document.getElementById('run-status');
             if (!statusElement) return;
-
             const lines = [];
             const jobCount = unifiedQueue.filter(t => t.type === 'job').length;
             const chatCount = unifiedQueue.filter(t => t.type === 'chat').length;
-
-            if (jobCount > 0 || chatCount > 0) {
-                lines.push(`Queued: ${jobCount} job(s), ${chatCount} chat(s)`);
-            }
-            if (isProcessingQueue && currentTask) {
-                lines.push(`Processing: ${currentTask.type === 'job' ? 'Job' : 'Chat'}`);
-            }
-            for (const [jobId, job] of Object.entries(activeJobs)) {
-                lines.push(`Job ${jobId}: ${job.status}`);
-            }
+            if (jobCount > 0 || chatCount > 0) lines.push(`Queued: ${jobCount} job(s), ${chatCount} chat(s)`);
+            if (isProcessingQueue && currentTask) lines.push(`Processing: ${currentTask.type === 'job' ? 'Job' : 'Chat'}`);
+            for (const [jobId, job] of Object.entries(activeJobs)) lines.push(`Job ${jobId}: ${job.status}`);
             statusElement.textContent = lines.join('\n');
         }
-
-        // Queue a chat message
         function queueChatMessage(chatId, content, inputElement, chatLog, userMsgElement, assistantMsgElement) {
-            unifiedQueue.push({
-                type: 'chat',
-                data: {
-                    chatId,
-                    content,
-                    inputElement,
-                    chatLog,
-                    userMsgElement,
-                    assistantMsgElement
-                }
-            });
+            unifiedQueue.push({ type: 'chat', data: { chatId, content, inputElement, chatLog, userMsgElement, assistantMsgElement } });
             updateStatusDisplay();
             processUnifiedQueue();
         }
-
-        // Process the unified queue (jobs + chat)
         function processUnifiedQueue() {
             if (isProcessingQueue || unifiedQueue.length === 0) return;
             isProcessingQueue = true;
             currentTask = unifiedQueue.shift();
             updateStatusDisplay();
-
-            if (currentTask.type === 'job') {
-                processJobTask(currentTask);
-            } else if (currentTask.type === 'chat') {
-                processChatTask(currentTask);
-            }
+            if (currentTask.type === 'job') processJobTask(currentTask);
+            else if (currentTask.type === 'chat') processChatTask(currentTask);
         }
-
         function processJobTask(task) {
             const projectId = task.data.projectId;
             updateRunButtonState(projectId, true);
-
             fetch(`/api/projects/${projectId}/run`, { method: 'POST' })
                 .then(response => response.json())
                 .then(data => {
-                    if (data.warning) {
-                        showWarningModal(data.actions_content);
-                    } else {
+                    if (data.warning) showWarningModal(data.actions_content);
+                    else {
                         const jobId = data.job_id;
                         activeJobs[jobId] = { projectId, status: data.status };
                         saveActiveJobs();
@@ -899,28 +869,17 @@
                     if (statusElement) statusElement.textContent = `Error starting job: ${error.message}`;
                     updateRunButtonState(projectId, false);
                 })
-                .finally(() => {
-                    isProcessingQueue = false;
-                    currentTask = null;
-                    processUnifiedQueue();
-                });
+                .finally(() => { isProcessingQueue = false; currentTask = null; processUnifiedQueue(); });
         }
-
         function processChatTask(task) {
             const { chatId, content, inputElement, chatLog, userMsgElement, assistantMsgElement } = task.data;
             inputElement.value = '';
-
-            // Update status to "GENERATING..."
             const statusText = assistantMsgElement.querySelector('.status-text');
             if (statusText) statusText.textContent = 'GENERATING...';
-
             const contentDiv = assistantMsgElement.querySelector('.markdown-content');
             let accumulated = '';
-
             fetch(`/api/chats/${chatId}/messages`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ content })
+                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content })
             })
                 .then(response => {
                     if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
@@ -936,20 +895,15 @@
                                 assistantMsgElement.querySelector('.status-text')?.remove();
                                 contentDiv.innerHTML = renderMarkdown(accumulated);
                                 chatLog.scrollTop = chatLog.scrollHeight;
-                                isProcessingQueue = false;
-                                currentTask = null;
-                                processUnifiedQueue();
+                                isProcessingQueue = false; currentTask = null; processUnifiedQueue();
                                 return;
                             }
                             const text = decoder.decode(value, { stream: true });
                             accumulated += text;
-
-                            // Remove status text and spinner on first token
                             if (accumulated.length > 0) {
                                 assistantMsgElement.querySelector('.status-text')?.remove();
                                 assistantMsgElement.querySelector('.spinner')?.remove();
                             }
-
                             contentDiv.innerHTML = renderMarkdown(accumulated);
                             chatLog.scrollTop = chatLog.scrollHeight;
                             return read();
@@ -963,213 +917,123 @@
                     assistantMsgElement.querySelector('.status-text')?.remove();
                     contentDiv.innerHTML = `<span style="color:red;">Error: ${err.message}</span>`;
                     chatLog.scrollTop = chatLog.scrollHeight;
-                    isProcessingQueue = false;
-                    currentTask = null;
-                    processUnifiedQueue();
+                    isProcessingQueue = false; currentTask = null; processUnifiedQueue();
                 });
         }
-
-        function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
-        }
-
+        function escapeHtml(text) { const div = document.createElement('div'); div.textContent = text; return div.innerHTML; }
         function sendChat() {
             const input = document.getElementById('chat-input');
             const content = input.value.trim();
-            if (!content) {
-                alert('Please enter a message');
-                return;
-            }
-
-            const ensureChat = () => {
-                if (!currentChatId) {
-                    return newChat().then(() => ensureChat());
-                }
-                return Promise.resolve();
-            };
-
+            if (!content) { alert('Please enter a message'); return; }
+            const ensureChat = () => !currentChatId ? newChat().then(() => ensureChat()) : Promise.resolve();
             ensureChat().then(() => {
                 const chatLog = document.getElementById('chat-log');
-                const note = chatLog.querySelector('.note');
-                if (note) note.remove();
-
+                chatLog.querySelector('.note')?.remove();
                 const userMsgElement = document.createElement('div');
                 userMsgElement.className = 'chat-msg user';
                 userMsgElement.innerHTML = `<strong>USER</strong><div class="markdown-content">${escapeHtml(content)}</div>`;
                 chatLog.appendChild(userMsgElement);
-
                 const assistantMsgElement = document.createElement('div');
                 assistantMsgElement.className = 'chat-msg model';
                 assistantMsgElement.innerHTML = `<strong>ASSISTANT</strong><span class="spinner"></span><span class="status-text">QUEUED...</span><div class="markdown-content"></div>`;
                 chatLog.appendChild(assistantMsgElement);
                 chatLog.scrollTop = chatLog.scrollHeight;
-
                 queueChatMessage(currentChatId, content, input, chatLog, userMsgElement, assistantMsgElement);
-            }).catch(err => {
-                console.error('Failed to prepare chat:', err);
-                input.value = content;
-            });
+            }).catch(err => { console.error('Failed to prepare chat:', err); input.value = content; });
         }
-
         function deleteChat(chatId) {
             if (!confirm('Delete this chat?')) return;
-            fetch(`/api/chats/${chatId}`, { method: 'DELETE' })
-                .then(() => {
-                    if (currentChatId === chatId) {
-                        currentChatId = null;
-                        localStorage.removeItem('currentChatId');
-                        newChat();
-                    }
-                    loadChats();
-                });
+            fetch(`/api/chats/${chatId}`, { method: 'DELETE' }).then(() => {
+                if (currentChatId === chatId) { currentChatId = null; localStorage.removeItem('currentChatId'); newChat(); }
+                loadChats();
+            });
         }
-
         function formatSize(bytes) {
             if (bytes === 0) return '0 B';
-            const k = 1024;
-            const sizes = ['B', 'KB', 'MB', 'GB'];
+            const k = 1024, sizes = ['B', 'KB', 'MB', 'GB'];
             const i = Math.floor(Math.log(bytes) / Math.log(k));
             return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
         }
-
         function setSortMode(mode) {
             sortMode = mode;
             document.getElementById('sort-name-btn').style.background = mode === 'name' ? 'var(--grass)' : 'var(--wood)';
             document.getElementById('sort-size-btn').style.background = mode === 'size' ? 'var(--grass)' : 'var(--wood)';
             loadFileTree();
         }
-
         function setDetailsSortMode(mode) {
             detailsSortMode = mode;
             document.getElementById('details-sort-name-btn').style.background = mode === 'name' ? 'var(--grass)' : 'var(--wood)';
             document.getElementById('details-sort-size-btn').style.background = mode === 'size' ? 'var(--grass)' : 'var(--wood)';
             loadDetailsFileTree();
         }
-
-        // Tab switching
         function showTab(tabName) {
-            document.querySelectorAll('.panel').forEach(panel => {
-                panel.classList.add('hidden');
-                panel.classList.remove('active');
-            });
-            document.querySelectorAll('.tab-btn').forEach(btn => {
-                btn.classList.remove('active');
-            });
-
+            document.querySelectorAll('.panel').forEach(panel => { panel.classList.add('hidden'); panel.classList.remove('active'); });
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
             document.getElementById(tabName + '-panel').classList.remove('hidden');
             document.getElementById(tabName + '-panel').classList.add('active');
             event.target.classList.add('active');
-
-            if (tabName === 'projects') {
-                loadProjects();
-            } else if (tabName === 'chat') {
-                if (!currentChatId) {
-                    fetch('/api/chats/auto')
-                        .then(res => res.json())
-                        .then(data => {
-                            currentChatId = data.id;
-                            selectChat(data.id);
-                        })
-                        .catch(err => console.error('Auto chat failed:', err));
-                } else {
-                    loadChats();
-                    selectChat(currentChatId);
-                }
+            if (tabName === 'projects') loadProjects();
+            else if (tabName === 'chat') {
+                if (currentChatId) {
+                    fetch(`/api/chats/${currentChatId}`).then(res => res.ok ? res.json() : Promise.reject())
+                        .then(() => { loadChats(); selectChat(currentChatId); })
+                        .catch(() => { currentChatId = null; localStorage.removeItem('currentChatId'); newChat().then(() => loadChats()); });
+                } else newChat().then(() => loadChats());
             }
         }
-
-
-        // Load projects
         function loadProjects() {
-            fetch('/api/projects')
-                .then(response => response.json())
-                .then(data => {
-                    const projectList = document.getElementById('project-list');
-                    if (!projectList) return;
-                    projectList.innerHTML = '';
-
-                    if (!data || data.length === 0) {
-                        projectList.innerHTML = '<div class="note">NO PROJECTS FOUND.<br>ADD ONE BELOW.</div>';
-                        return;
-                    }
-
-                    data.forEach(project => {
-                        const projectItem = document.createElement('div');
-                        projectItem.className = 'project-item';
-                        projectItem.id = `proj-${project.id}`;
-                        projectItem.onclick = () => selectProject(project.id);
-                        const isRunning = Object.values(activeJobs).some(j => j.projectId === project.id);
-                        projectItem.innerHTML = `
-                            <div class="project-item-header">
-                                <span class="project-item-name">${project.name || 'Untitled'}</span>
-                                <div class="project-item-actions">
-                                    <button class="btn-sm" id="run-btn-${project.id}" onclick="event.stopPropagation(); runProject('${project.id}')" ${isRunning ? 'disabled' : ''}>${isRunning ? '<span class="spinner"></span> Running...' : 'Run'}</button>
-                                    <button class="btn-sm delete" onclick="event.stopPropagation(); deleteProject('${project.id}')">Del</button>
-                                </div>
+            fetch('/api/projects').then(response => response.json()).then(data => {
+                const projectList = document.getElementById('project-list');
+                if (!projectList) return;
+                projectList.innerHTML = '';
+                if (!data || data.length === 0) { projectList.innerHTML = '<div class="note">NO PROJECTS FOUND.<br>ADD ONE BELOW.</div>'; return; }
+                data.forEach(project => {
+                    const projectItem = document.createElement('div');
+                    projectItem.className = 'project-item';
+                    projectItem.id = `proj-${project.id}`;
+                    projectItem.onclick = () => selectProject(project.id);
+                    const isRunning = Object.values(activeJobs).some(j => j.projectId === project.id);
+                    projectItem.innerHTML = `
+                        <div class="project-item-header">
+                            <span class="project-item-name">${project.name || 'Untitled'}</span>
+                            <div class="project-item-actions">
+                                <button class="btn-sm" id="run-btn-${project.id}" onclick="event.stopPropagation(); runProject('${project.id}')" ${isRunning ? 'disabled' : ''}>${isRunning ? '<span class="spinner"></span> Running...' : 'Run'}</button>
+                                <button class="btn-sm delete" onclick="event.stopPropagation(); deleteProject('${project.id}')">Del</button>
                             </div>
-                            <span style="color: #ccc; font-size: 8px;">${project.rootDirectory || ''}</span>
-                        `;
-
-                        projectList.appendChild(projectItem);
-                    });
-                })
-                .catch(err => console.error('Failed to load projects:', err));
+                        </div>
+                        <span style="color: #ccc; font-size: 8px;">${project.rootDirectory || ''}</span>
+                    `;
+                    projectList.appendChild(projectItem);
+                });
+            }).catch(err => console.error('Failed to load projects:', err));
         }
-
-
-
-        // Select a project
         function selectProject(projectId) {
             currentProjectId = projectId;
             localStorage.setItem('currentProjectId', projectId);
-
-            // Hide projects panel with animation
             const projectsPanel = document.getElementById('projects-panel');
             const detailsPanel = document.getElementById('project-details-panel');
-            if (projectsPanel) {
-                projectsPanel.classList.add('hidden');
-                projectsPanel.classList.remove('active');
-            }
-            if (detailsPanel) {
-                detailsPanel.classList.remove('hidden');
-                detailsPanel.classList.add('active');
-            }
-
-            // Load project details
-            fetch(`/api/projects/${projectId}`)
-                .then(response => response.json())
-                .then(project => {
-                    const safeSet = (id, val) => {
-                        const el = document.getElementById(id);
-                        if (el) el.value = val;
-                    };
-                    safeSet('run-project-id', project.id);
-                    const nameEl = document.getElementById('details-project-name');
-                    if (nameEl) nameEl.textContent = project.name;
-                    safeSet('details-root-dir', project.rootDirectory || '');
-                    safeSet('details-patterns-input', project.includePatterns || '');
-                    safeSet('details-patterns-display', project.includePatterns || '');
-                    safeSet('details-instructions', project.instructions || '');
-                    safeSet('details-pre-script', project.preScript || '');
-                    safeSet('details-post-script', project.postScript || '');
-                    const statusEl = document.getElementById('run-status');
-                    if (statusEl) statusEl.textContent = '';
-
-
-                    // Load the file tree if root directory is set
-                    if (project.rootDirectory) {
-                        document.getElementById('details-root-dir').value = project.rootDirectory;
-                        document.getElementById('details-show-selected-only').checked = true;
-                        loadDetailsFileTree();
-                    }
-
-                })
-                .catch(err => console.error('Failed to load project details:', err));
+            if (projectsPanel) { projectsPanel.classList.add('hidden'); projectsPanel.classList.remove('active'); }
+            if (detailsPanel) { detailsPanel.classList.remove('hidden'); detailsPanel.classList.add('active'); }
+            fetch(`/api/projects/${projectId}`).then(response => response.json()).then(project => {
+                const safeSet = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
+                safeSet('run-project-id', project.id);
+                const nameEl = document.getElementById('details-project-name');
+                if (nameEl) nameEl.textContent = project.name;
+                safeSet('details-root-dir', project.rootDirectory || '');
+                safeSet('details-patterns-input', project.includePatterns || '');
+                safeSet('details-patterns-display', project.includePatterns || '');
+                safeSet('details-instructions', project.instructions || '');
+                safeSet('details-pre-script', project.preScript || '');
+                safeSet('details-post-script', project.postScript || '');
+                const statusEl = document.getElementById('run-status');
+                if (statusEl) statusEl.textContent = '';
+                if (project.rootDirectory) {
+                    document.getElementById('details-root-dir').value = project.rootDirectory;
+                    document.getElementById('details-show-selected-only').checked = true;
+                    loadDetailsFileTree();
+                }
+            }).catch(err => console.error('Failed to load project details:', err));
         }
-
-        // Go back to projects
         function goBackToProjects() {
             document.getElementById('project-details-panel').classList.add('hidden');
             document.getElementById('project-details-panel').classList.remove('active');
@@ -1179,177 +1043,95 @@
             currentProjectId = null;
             loadProjects();
         }
-
-
-        // Load file tree
-
         function loadFileTree() {
             const rootPath = document.getElementById('root-path').value;
-            if (!rootPath) {
-                alert('Please enter a root directory first');
-                return;
-            }
-
+            if (!rootPath) { alert('Please enter a root directory first'); return; }
             const loadTreeBtn = document.getElementById('load-tree-btn');
             const loadTreeText = document.getElementById('load-tree-text');
             const loadTreeSpinner = document.getElementById('load-tree-spinner');
             const container = document.getElementById('file-tree-container');
-
-            loadTreeBtn.disabled = true;
-            loadTreeText.style.display = 'none';
-            loadTreeSpinner.style.display = 'inline-block';
+            loadTreeBtn.disabled = true; loadTreeText.style.display = 'none'; loadTreeSpinner.style.display = 'inline-block';
             container.innerHTML = '<span class="spinner" style="display:inline-block; margin:10px;"></span><span style="margin-left: 10px;">Loading files...</span>';
-
-            fetch(`/api/files?path=${encodeURIComponent(rootPath)}`)
-                .then(response => response.json())
-                .then(paths => {
-                    const container = document.getElementById('file-tree-container');
-                    container.innerHTML = '';
-
-                    const sortedPaths = [...paths].sort((a, b) => {
-                        const aIsDir = a.path.endsWith('/');
-                        const bIsDir = b.path.endsWith('/');
-                        if (aIsDir !== bIsDir) return aIsDir ? -1 : 1;
-                        if (sortMode === 'size') {
-                            return (b.size || 0) - (a.size || 0);
-                        }
-                        return a.path.localeCompare(b.path);
-                    });
-
-                    sortedPaths.forEach(item => {
-                        const isDir = item.path.endsWith('/');
-                        const itemElement = document.createElement('div');
-                        itemElement.className = `tree-item ${isDir ? 'dir' : 'file'}`;
-
-                        const checkbox = document.createElement('input');
-                        checkbox.type = 'checkbox';
-                        checkbox.checked = true;
-                        checkbox.onchange = () => updateSelectedPatterns();
-                        checkbox.dataset.path = item.path;
-
-                        const label = document.createElement('label');
-                        label.textContent = item.path;
-                        label.style.marginLeft = '5px';
-                        const sizeLabel = document.createElement('span');
-                        sizeLabel.textContent = ` (${formatSize(item.size)})`;
-                        sizeLabel.style.color = '#888';
-                        sizeLabel.style.fontSize = '11px';
-                        label.appendChild(sizeLabel);
-
-                        itemElement.appendChild(checkbox);
-                        itemElement.appendChild(label);
-                        container.appendChild(itemElement);
-                    });
-
-                    updateSelectedPatterns();
-
-                    loadTreeBtn.disabled = false;
-                    loadTreeText.style.display = 'inline';
-                    loadTreeSpinner.style.display = 'none';
-                    document.getElementById('root-path-hidden').value = rootPath;
-                })
-                .catch(err => {
-                    console.error('Failed to load file tree:', err);
-                    loadTreeBtn.disabled = false;
-                    loadTreeText.style.display = 'inline';
-                    loadTreeSpinner.style.display = 'none';
-                    container.innerHTML = '<div class="note">Failed to load files.</div>';
+            fetch(`/api/files?path=${encodeURIComponent(rootPath)}`).then(response => response.json()).then(paths => {
+                container.innerHTML = '';
+                const sortedPaths = [...paths].sort((a, b) => {
+                    const aIsDir = a.path.endsWith('/'), bIsDir = b.path.endsWith('/');
+                    if (aIsDir !== bIsDir) return aIsDir ? -1 : 1;
+                    if (sortMode === 'size') return (b.size || 0) - (a.size || 0);
+                    return a.path.localeCompare(b.path);
                 });
+                sortedPaths.forEach(item => {
+                    const isDir = item.path.endsWith('/');
+                    const itemElement = document.createElement('div');
+                    itemElement.className = `tree-item ${isDir ? 'dir' : 'file'}`;
+                    const checkbox = document.createElement('input');
+                    checkbox.type = 'checkbox'; checkbox.checked = true; checkbox.onchange = () => updateSelectedPatterns();
+                    checkbox.dataset.path = item.path;
+                    const label = document.createElement('label');
+                    label.textContent = item.path; label.style.marginLeft = '5px';
+                    const sizeLabel = document.createElement('span');
+                    sizeLabel.textContent = ` (${formatSize(item.size)})`; sizeLabel.style.color = '#888'; sizeLabel.style.fontSize = '11px';
+                    label.appendChild(sizeLabel);
+                    itemElement.appendChild(checkbox); itemElement.appendChild(label); container.appendChild(itemElement);
+                });
+                updateSelectedPatterns();
+                loadTreeBtn.disabled = false; loadTreeText.style.display = 'inline'; loadTreeSpinner.style.display = 'none';
+                document.getElementById('root-path-hidden').value = rootPath;
+            }).catch(err => {
+                console.error('Failed to load file tree:', err);
+                loadTreeBtn.disabled = false; loadTreeText.style.display = 'inline'; loadTreeSpinner.style.display = 'none';
+                container.innerHTML = '<div class="note">Failed to load files.</div>';
+            });
         }
-
-
-
-
         function loadDetailsFileTree() {
             const rootPath = document.getElementById('details-root-dir').value;
-            if (!rootPath) {
-                alert('Please enter a root directory first');
-                return;
-            }
-
+            if (!rootPath) { alert('Please enter a root directory first'); return; }
             const loadTreeBtn = document.getElementById('details-load-tree-btn');
             const loadTreeText = document.getElementById('details-load-tree-text');
             const loadTreeSpinner = document.getElementById('details-load-tree-spinner');
             const container = document.getElementById('details-file-tree-container');
-
-            loadTreeBtn.disabled = true;
-            loadTreeText.style.display = 'none';
-            loadTreeSpinner.style.display = 'inline-block';
+            loadTreeBtn.disabled = true; loadTreeText.style.display = 'none'; loadTreeSpinner.style.display = 'inline-block';
             container.innerHTML = '<span class="spinner" style="display:inline-block; margin:10px;"></span><span style="margin-left: 10px;">Loading files...</span>';
-
-            fetch(`/api/files?path=${encodeURIComponent(rootPath)}`)
-                .then(response => response.json())
-                .then(paths => {
-                    const container = document.getElementById('details-file-tree-container');
-                    container.innerHTML = '';
-
-                    const sortedPaths = [...paths].sort((a, b) => {
-                        const aIsDir = a.path.endsWith('/');
-                        const bIsDir = b.path.endsWith('/');
-                        if (aIsDir !== bIsDir) return aIsDir ? -1 : 1;
-                        if (detailsSortMode === 'size') {
-                            return (b.size || 0) - (a.size || 0);
-                        }
-                        return a.path.localeCompare(b.path);
-                    });
-
-                    const showSelectedOnly = document.getElementById('details-show-selected-only').checked;
-                    const searchTerm = document.getElementById('details-tree-search').value.toLowerCase();
-
-                    sortedPaths.forEach(item => {
-                        const isDir = item.path.endsWith('/');
-                        const itemElement = document.createElement('div');
-                        itemElement.className = `tree-item ${isDir ? 'dir' : 'file'}`;
-
-                        const checkbox = document.createElement('input');
-                        checkbox.type = 'checkbox';
-                        const currentPatterns = (document.getElementById('details-patterns-input').value || '').split(',').map(p => p.trim());
-                        checkbox.checked = currentPatterns.includes(item.path) || currentPatterns.length === 0;
-                        checkbox.onchange = () => detailsUpdateSelectedPatterns();
-                        checkbox.dataset.path = item.path;
-
-                        const label = document.createElement('label');
-                        label.textContent = item.path;
-                        label.style.marginLeft = '5px';
-                        const sizeLabel = document.createElement('span');
-                        sizeLabel.textContent = ` (${formatSize(item.size)})`;
-                        sizeLabel.style.color = '#888';
-                        sizeLabel.style.fontSize = '11px';
-                        label.appendChild(sizeLabel);
-
-                        itemElement.appendChild(checkbox);
-                        itemElement.appendChild(label);
-                        container.appendChild(itemElement);
-                    });
-
-                    detailsUpdateSelectedPatterns();
-
-                    loadTreeBtn.disabled = false;
-                    loadTreeText.style.display = 'inline';
-                    loadTreeSpinner.style.display = 'none';
-
-                    detailsFilterTree();
-                })
-                .catch(err => {
-                    console.error('Failed to load details file tree:', err);
-                    loadTreeBtn.disabled = false;
-                    loadTreeText.style.display = 'inline';
-                    loadTreeSpinner.style.display = 'none';
-                    container.innerHTML = '<div class="note">Failed to load files.</div>';
+            fetch(`/api/files?path=${encodeURIComponent(rootPath)}`).then(response => response.json()).then(paths => {
+                container.innerHTML = '';
+                const sortedPaths = [...paths].sort((a, b) => {
+                    const aIsDir = a.path.endsWith('/'), bIsDir = b.path.endsWith('/');
+                    if (aIsDir !== bIsDir) return aIsDir ? -1 : 1;
+                    if (detailsSortMode === 'size') return (b.size || 0) - (a.size || 0);
+                    return a.path.localeCompare(b.path);
                 });
+                sortedPaths.forEach(item => {
+                    const isDir = item.path.endsWith('/');
+                    const itemElement = document.createElement('div');
+                    itemElement.className = `tree-item ${isDir ? 'dir' : 'file'}`;
+                    const checkbox = document.createElement('input');
+                    checkbox.type = 'checkbox';
+                    const currentPatterns = (document.getElementById('details-patterns-input').value || '').split(',').map(p => p.trim());
+                    checkbox.checked = currentPatterns.includes(item.path) || currentPatterns.length === 0;
+                    checkbox.onchange = () => detailsUpdateSelectedPatterns();
+                    checkbox.dataset.path = item.path;
+                    const label = document.createElement('label');
+                    label.textContent = item.path; label.style.marginLeft = '5px';
+                    const sizeLabel = document.createElement('span');
+                    sizeLabel.textContent = ` (${formatSize(item.size)})`; sizeLabel.style.color = '#888'; sizeLabel.style.fontSize = '11px';
+                    label.appendChild(sizeLabel);
+                    itemElement.appendChild(checkbox); itemElement.appendChild(label); container.appendChild(itemElement);
+                });
+                detailsUpdateSelectedPatterns();
+                loadTreeBtn.disabled = false; loadTreeText.style.display = 'inline'; loadTreeSpinner.style.display = 'none';
+                detailsFilterTree();
+            }).catch(err => {
+                console.error('Failed to load details file tree:', err);
+                loadTreeBtn.disabled = false; loadTreeText.style.display = 'inline'; loadTreeSpinner.style.display = 'none';
+                container.innerHTML = '<div class="note">Failed to load files.</div>';
+            });
         }
-
-
-        // Update selected patterns display
         function updateSelectedPatterns() {
             const checkboxes = document.querySelectorAll('#file-tree-container input[type="checkbox"]:checked');
             const patterns = Array.from(checkboxes).map(cb => cb.dataset.path);
             document.getElementById('patterns-display').value = patterns.join(', ');
             document.getElementById('patterns-input').value = patterns.join(',');
         }
-
-
-
         function detailsUpdateSelectedPatterns() {
             const checkboxes = document.querySelectorAll('#details-file-tree-container input[type="checkbox"]:checked');
             const patterns = Array.from(checkboxes).map(cb => cb.dataset.path);
@@ -1358,103 +1140,62 @@
             if (!currentProjectId) return;
             const form = document.getElementById('project-details-form');
             const formData = new FormData(form);
-            fetch(`/api/projects/${currentProjectId}`, {
-                method: 'POST',
-                body: formData
-            }).catch(error => console.error('Auto-save failed:', error));
+            fetch(`/api/projects/${currentProjectId}`, { method: 'POST', body: formData }).catch(error => console.error('Auto-save failed:', error));
         }
-
-
-
         function selectAll() {
-            const showSelectedOnly = document.getElementById('show-selected-only-new').checked;
             document.querySelectorAll('#file-tree-container input[type="checkbox"]').forEach(cb => {
-                if (cb.parentElement.style.display !== 'none') {
-                    cb.checked = true;
-                }
+                if (cb.parentElement.style.display !== 'none') cb.checked = true;
             });
             updateSelectedPatterns();
         }
-
         function deselectAll() {
             document.querySelectorAll('#file-tree-container input[type="checkbox"]').forEach(cb => {
-                if (cb.parentElement.style.display !== 'none') {
-                    cb.checked = false;
-                }
+                if (cb.parentElement.style.display !== 'none') cb.checked = false;
             });
             updateSelectedPatterns();
         }
-
         function detailsSelectAll() {
             document.querySelectorAll('#details-file-tree-container input[type="checkbox"]').forEach(cb => {
-                if (cb.parentElement.style.display !== 'none') {
-                    cb.checked = true;
-                }
+                if (cb.parentElement.style.display !== 'none') cb.checked = true;
             });
             detailsUpdateSelectedPatterns();
         }
-
         function detailsDeselectAll() {
             document.querySelectorAll('#details-file-tree-container input[type="checkbox"]').forEach(cb => {
-                if (cb.parentElement.style.display !== 'none') {
-                    cb.checked = false;
-                }
+                if (cb.parentElement.style.display !== 'none') cb.checked = false;
             });
             detailsUpdateSelectedPatterns();
         }
-
-
-        // Filter file tree
         function filterTree() {
             clearTimeout(filterTreeTimeout);
             filterTreeTimeout = setTimeout(() => {
                 const searchTerm = document.getElementById('tree-search').value.toLowerCase();
                 const showSelectedOnly = document.getElementById('show-selected-only-new').checked;
-                const items = document.querySelectorAll('#file-tree-container .tree-item');
-
-                items.forEach(item => {
+                document.querySelectorAll('#file-tree-container .tree-item').forEach(item => {
                     const checkbox = item.querySelector('input[type="checkbox"]');
                     const text = item.textContent.toLowerCase();
                     const isSelected = checkbox && checkbox.checked;
-
                     const matchesSearch = text.includes(searchTerm);
                     const matchesFilter = !showSelectedOnly || isSelected;
-
-                    if (matchesSearch && matchesFilter) {
-                        item.style.display = '';
-                    } else {
-                        item.style.display = 'none';
-                    }
+                    item.style.display = (matchesSearch && matchesFilter) ? '' : 'none';
                 });
             }, 2000);
         }
-
         function detailsFilterTree() {
             clearTimeout(detailsFilterTreeTimeout);
             detailsFilterTreeTimeout = setTimeout(() => {
                 const searchTerm = document.getElementById('details-tree-search').value.toLowerCase();
                 const showSelectedOnly = document.getElementById('details-show-selected-only').checked;
-                const items = document.querySelectorAll('#details-file-tree-container .tree-item');
-
-                items.forEach(item => {
+                document.querySelectorAll('#details-file-tree-container .tree-item').forEach(item => {
                     const checkbox = item.querySelector('input[type="checkbox"]');
                     const text = item.textContent.toLowerCase();
                     const isSelected = checkbox && checkbox.checked;
-
                     const matchesSearch = text.includes(searchTerm);
                     const matchesFilter = !showSelectedOnly || isSelected;
-
-                    if (matchesSearch && matchesFilter) {
-                        item.style.display = '';
-                    } else {
-                        item.style.display = 'none';
-                    }
+                    item.style.display = (matchesSearch && matchesFilter) ? '' : 'none';
                 });
             }, 2000);
         }
-
-
-        // Auto-save project with debounce
         let autoSaveTimeout = null;
         function autoSaveProject() {
             if (!currentProjectId) return;
@@ -1462,336 +1203,155 @@
             autoSaveTimeout = setTimeout(() => {
                 const form = document.getElementById('project-details-form');
                 const formData = new FormData(form);
-                fetch(`/api/projects/${currentProjectId}`, {
-                    method: 'POST',
-                    body: formData
-                }).catch(error => {
-                    console.error('Auto-save failed:', error);
-                });
+                fetch(`/api/projects/${currentProjectId}`, { method: 'POST', body: formData }).catch(error => console.error('Auto-save failed:', error));
             }, 500);
         }
-
-        // Create new project
         document.getElementById('add-project-form').addEventListener('submit', function (e) {
             e.preventDefault();
-
             const formData = new FormData(this);
-
-            fetch('/api/projects', {
-                method: 'POST',
-                body: formData
-            })
-                .then(response => {
-                    if (!response.ok) throw new Error('Failed to create project');
-                    return response.json();
-                })
+            fetch('/api/projects', { method: 'POST', body: formData })
+                .then(response => response.ok ? response.json() : Promise.reject(new Error('Failed to create project')))
                 .then(data => {
-                    // Clear form
                     this.reset();
                     document.getElementById('file-tree-container').innerHTML = '';
                     document.getElementById('patterns-display').value = '';
-
-                    // Select the new project
                     selectProject(data.id);
                 })
-                .catch(err => {
-                    console.error('Project creation failed:', err);
-                    alert('Failed to create project. Check console for details.');
-                });
+                .catch(err => { console.error('Project creation failed:', err); alert('Failed to create project. Check console for details.'); });
         });
-
-
         function updateRunButtonState(projectId, isLoading) {
             const btn = document.querySelector(`#proj-${projectId} .btn-sm:not(.delete)`);
             const detailBtn = document.getElementById('details-run-btn');
             const listBtn = document.getElementById(`run-btn-${projectId}`);
-
-            if (btn) {
-                btn.disabled = isLoading;
-                if (isLoading) {
-                    btn.innerHTML = '<span class="spinner"></span> Running...';
-                } else {
-                    btn.textContent = 'Run';
-                }
-            }
-            if (detailBtn) {
-                detailBtn.disabled = isLoading;
-                if (isLoading) {
-                    detailBtn.innerHTML = '<span class="run-spinner"></span> Running...';
-                } else {
-                    detailBtn.textContent = 'RUN AI BUILDER';
-                }
-            }
-            if (listBtn) {
-                listBtn.disabled = isLoading;
-                if (isLoading) {
-                    listBtn.innerHTML = '<span class="spinner"></span> Running...';
-                } else {
-                    listBtn.textContent = 'Run';
-                }
-            }
+            if (btn) { btn.disabled = isLoading; btn.innerHTML = isLoading ? '<span class="spinner"></span> Running...' : 'Run'; }
+            if (detailBtn) { detailBtn.disabled = isLoading; detailBtn.innerHTML = isLoading ? '<span class="run-spinner"></span> Running...' : 'RUN AI BUILDER'; }
+            if (listBtn) { listBtn.disabled = isLoading; listBtn.innerHTML = isLoading ? '<span class="spinner"></span> Running...' : 'Run'; }
         }
-
-        function saveActiveJobs() {
-            const jobsToSave = {};
-            for (const [jobId, job] of Object.entries(activeJobs)) {
-                if (job.status !== 'completed' && job.status !== 'error') {
-                    jobsToSave[jobId] = job;
-                }
-            }
-            localStorage.setItem('activeJobs', JSON.stringify(jobsToSave));
-        }
-
-        // Track active jobs: { jobId: { projectId, status, intervalId } }
-        const activeJobs = {};
-
         function pollJobStatus(jobId, intervalId) {
             const job = activeJobs[jobId];
-            if (!job) {
+            if (!job) { clearInterval(intervalId); return; }
+            fetch(`/api/run/${jobId}/status`).then(response => response.json()).then(status => {
+                job.status = status.status; updateStatusDisplay(); saveActiveJobs();
+                if (status.status === 'completed' || status.status === 'error') {
+                    clearInterval(intervalId); delete activeJobs[jobId]; updateRunButtonState(job.projectId, false);
+                    updateStatusDisplay(); saveActiveJobs(); loadProjects();
+                }
+            }).catch(error => {
+                console.error('Error polling job status:', error);
                 clearInterval(intervalId);
-                return;
-            }
-
-            fetch(`/api/run/${jobId}/status`)
-                .then(response => response.json())
-                .then(status => {
-                    job.status = status.status;
-                    updateStatusDisplay();
-                    saveActiveJobs();
-
-                    if (status.status === 'completed' || status.status === 'error') {
-                        clearInterval(intervalId);
-                        delete activeJobs[jobId];
-                        updateRunButtonState(job.projectId, false);
-                        updateStatusDisplay();
-                        saveActiveJobs();
-                        loadProjects();
-                    }
-                })
-                .catch(error => {
-                    console.error('Error polling job status:', error);
-                    clearInterval(intervalId);
-                    if (activeJobs[jobId]) {
-                        delete activeJobs[jobId];
-                        updateRunButtonState(job.projectId, false);
-                        updateStatusDisplay();
-                        saveActiveJobs();
-                    }
-                });
+                if (activeJobs[jobId]) { delete activeJobs[jobId]; updateRunButtonState(job.projectId, false); updateStatusDisplay(); saveActiveJobs(); }
+            });
         }
-
-
-        // Run project
         function runProject(projectId) {
             pendingProjectId = projectId;
-            fetch(`/api/projects/${projectId}/run`, { method: 'POST' })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.warning) {
-                        showWarningModal(data.actions_content);
-                    } else {
-                        queueRunProject(projectId);
-                    }
-                })
-                .catch(error => console.error('Error checking run:', error));
+            fetch(`/api/projects/${projectId}/run`, { method: 'POST' }).then(response => response.json()).then(data => {
+                if (data.warning) showWarningModal(data.actions_content);
+                else queueRunProject(projectId);
+            }).catch(error => console.error('Error checking run:', error));
         }
-
         function showWarningModal(actionsContent) {
             pendingActionsContent = actionsContent;
             document.getElementById('warning-actions-content').textContent = actionsContent;
             document.getElementById('warning-modal').style.display = 'flex';
         }
-
         function closeWarningModal() {
             document.getElementById('warning-modal').style.display = 'none';
-            pendingProjectId = null;
-            pendingActionsContent = null;
+            pendingProjectId = null; pendingActionsContent = null;
         }
-
         function clearAndRun() {
             if (!pendingProjectId) return;
-            fetch(`/api/projects/${pendingProjectId}/clear`, { method: 'POST' })
-                .then(() => {
-                    closeWarningModal();
-                    runProject(pendingProjectId);
-                })
-                .catch(err => console.error('Failed to clear artifacts:', err));
+            fetch(`/api/projects/${pendingProjectId}/clear`, { method: 'POST' }).then(() => {
+                closeWarningModal(); runProject(pendingProjectId);
+            }).catch(err => console.error('Failed to clear artifacts:', err));
         }
-
-
-        // Delete project
         function deleteProject(projectId) {
             if (!confirm('Are you sure you want to delete this project?')) return;
-
-            fetch(`/api/projects/${projectId}`, {
-                method: 'DELETE'
-            })
-                .then(() => {
-                    if (currentProjectId === projectId) {
-                        goBackToProjects();
-                    } else {
-                        loadProjects();
-                    }
-                });
-        }
-
-        // Chat functions
-        function loadChats() {
-            fetch('/api/chats')
-                .then(response => response.json())
-                .then(chats => {
-                    const chatList = document.getElementById('chat-list');
-                    chatList.innerHTML = '';
-
-                    if (chats.length === 0) {
-                        chatList.innerHTML = '<div class="note">NO CHATS FOUND.<br>START A NEW ONE BELOW.</div>';
-                        return;
-                    }
-
-                    chats.forEach(chat => {
-                        const chatItem = document.createElement('div');
-                        chatItem.className = 'chat-item';
-                        chatItem.dataset.chatId = chat.id;
-                        chatItem.onclick = () => selectChat(chat.id);
-                        chatItem.innerHTML = `
-                            <span>${chat.title || 'Unnamed Chat'}</span>
-                            <button class="btn-xs chat-delete" onclick="event.stopPropagation(); deleteChat('${chat.id}')">X</button>
-                        `;
-                        chatList.appendChild(chatItem);
-                    });
-                });
-        }
-
-        function newChat() {
-            return fetch('/api/chats', { method: 'POST' })
-                .then(response => {
-                    if (!response.ok) {
-                        throw new Error(`HTTP error! status: ${response.status}`);
-                    }
-                    return response.json();
-                })
-                .then(chat => {
-                    currentChatId = chat.id;
-                    selectChat(chat.id);
-                })
-                .catch(err => {
-                    console.error('Failed to create chat:', err);
-                    alert('Failed to create chat. Check console for details.');
-                });
-        }
-
-        function selectChat(chatId) {
-            currentChatId = chatId;
-            localStorage.setItem('currentChatId', chatId);
-
-            // Remove active class from all chat items
-            document.querySelectorAll('.chat-item').forEach(item => {
-                item.classList.remove('active');
+            fetch(`/api/projects/${projectId}`, { method: 'DELETE' }).then(() => {
+                if (currentProjectId === projectId) goBackToProjects(); else loadProjects();
             });
-
-            // Add active class to selected chat
-            const selectedItem = document.querySelector(`.chat-item[data-chat-id="${chatId}"]`);
-            if (selectedItem) selectedItem.classList.add('active');
-
-            // Load chat messages
-            fetch(`/api/chats/${chatId}`)
-                .then(response => response.json())
-                .then(chat => {
-                    const chatLog = document.getElementById('chat-log');
-                    chatLog.innerHTML = '';
-
-                    if (!chat.messages || chat.messages.length === 0) {
-                        chatLog.innerHTML = '<div class="note">No messages yet. Start a conversation!</div>';
-                        return;
-                    }
-
-                    chat.messages.forEach(msg => {
-                        const msgElement = document.createElement('div');
-                        msgElement.className = `chat-msg ${msg.role}`;
-
-                        // Render markdown content if applicable
-                        if (msg.content.includes('```') || msg.content.includes('**') || msg.content.includes('*')) {
-                            msgElement.innerHTML = `<strong>${msg.role.toUpperCase()}</strong><div class="markdown-content">${renderMarkdown(msg.content)}</div>`;
-                        } else {
-                            msgElement.innerHTML = `<strong>${msg.role.toUpperCase()}</strong>${msg.content}`;
-                        }
-
-                        chatLog.appendChild(msgElement);
-                    });
-
-                    chatLog.scrollTop = chatLog.scrollHeight;
-                })
-                .catch(err => {
-                    console.error('Failed to load chat:', err);
-                    alert('Failed to load chat. Check console for details.');
-                });
         }
-
-        // Simple markdown renderer
+        function loadChats() {
+            fetch('/api/chats').then(response => response.json()).then(chats => {
+                const chatList = document.getElementById('chat-list');
+                chatList.innerHTML = '';
+                if (chats.length === 0) { chatList.innerHTML = '<div class="note">NO CHATS FOUND.<br>START A NEW ONE BELOW.</div>'; return; }
+                chats.forEach(chat => {
+                    const chatItem = document.createElement('div');
+                    chatItem.className = 'chat-item';
+                    chatItem.dataset.chatId = chat.id;
+                    chatItem.onclick = () => selectChat(chat.id);
+                    chatItem.innerHTML = `<span>${chat.title || 'Unnamed Chat'}</span><button class="btn-xs chat-delete" onclick="event.stopPropagation(); deleteChat('${chat.id}')">X</button>`;
+                    chatList.appendChild(chatItem);
+                });
+                if (currentChatId) {
+                    const currentItem = document.querySelector(`.chat-item[data-chat-id="${currentChatId}"]`);
+                    if (currentItem) currentItem.classList.add('active');
+                }
+            });
+        }
+        function newChat() {
+            return fetch('/api/chats', { method: 'POST' }).then(response => {
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                return response.json();
+            }).then(chat => {
+                currentChatId = chat.id;
+                localStorage.setItem('currentChatId', chat.id);
+                selectChat(chat.id);
+                return chat.id;
+            }).catch(err => { console.error('Failed to create chat:', err); alert('Failed to create chat. Check console for details.'); throw err; });
+        }
+        function selectChat(chatId) {
+            fetch(`/api/chats/${chatId}`).then(response => {
+                if (!response.ok) return newChat().then(() => selectChat(currentChatId));
+                return response.json();
+            }).then(chat => {
+                currentChatId = chatId;
+                localStorage.setItem('currentChatId', chatId);
+                document.querySelectorAll('.chat-item').forEach(item => item.classList.remove('active'));
+                const selectedItem = document.querySelector(`.chat-item[data-chat-id="${chatId}"]`);
+                if (selectedItem) selectedItem.classList.add('active');
+                const chatLog = document.getElementById('chat-log');
+                chatLog.innerHTML = '';
+                if (!chat.messages || chat.messages.length === 0) { chatLog.innerHTML = '<div class="note">No messages yet. Start a conversation!</div>'; return; }
+                chat.messages.forEach(msg => {
+                    const msgElement = document.createElement('div');
+                    msgElement.className = `chat-msg ${msg.role}`;
+                    msgElement.innerHTML = `<strong>${msg.role.toUpperCase()}</strong><div class="markdown-content">${renderMarkdown(msg.content)}</div>`;
+                    chatLog.appendChild(msgElement);
+                });
+                chatLog.scrollTop = chatLog.scrollHeight;
+            }).catch(err => { console.error('Failed to load chat:', err); newChat().then(() => loadChats()); });
+        }
         function renderMarkdown(text) {
-            // Escape HTML first
             let html = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-
-            // Code blocks
             html = html.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>');
-
-            // Inline code
-            html = html.replace(/`([^`]+)`/g, '<code>\$1</code>');
-
-            // Bold
-            html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>\$1</strong>');
-
-            // Italic
-            html = html.replace(/\*([^*]+)\*/g, '<em>\$1</em>');
-
-            // Line breaks
+            html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+            html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+            html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
             html = html.replace(/\n/g, '<br>');
-
             return html;
         }
-
-
-        // Initialize
         document.addEventListener('DOMContentLoaded', () => {
             loadProjects();
-
-            // Restore chat state on refresh
             if (currentChatId) {
-                loadChats();
-                selectChat(currentChatId);
+                fetch(`/api/chats/${currentChatId}`).then(res => res.ok ? res.json() : Promise.reject())
+                    .then(() => { loadChats(); selectChat(currentChatId); })
+                    .catch(() => {
+                        currentChatId = null; localStorage.removeItem('currentChatId');
+                        fetch('/api/chats/auto').then(res => res.json()).then(data => {
+                            currentChatId = data.id; selectChat(data.id);
+                        });
+                    });
             } else {
-                // Auto-create chat if none exist
-                fetch('/api/chats/auto')
-                    .then(res => res.json())
-                    .then(data => {
-                        if (data.created) {
-                            currentChatId = data.id;
-                            selectChat(data.id);
-                        } else {
-                            loadChats();
-                        }
-                    })
-                    .catch(err => console.error('Auto chat failed:', err));
+                fetch('/api/chats/auto').then(res => res.json()).then(data => {
+                    currentChatId = data.id; selectChat(data.id);
+                });
             }
-
-            // Restore active jobs from localStorage
-            const savedJobs = localStorage.getItem('activeJobs');
-            if (savedJobs) {
-                try {
-                    const parsed = JSON.parse(savedJobs);
-                    for (const [jobId, job] of Object.entries(parsed)) {
-                        activeJobs[jobId] = job;
-                        const intervalId = setInterval(() => {
-                            pollJobStatus(jobId, intervalId);
-                        }, 1000);
-                        activeJobs[jobId].intervalId = intervalId;
-                    }
-                } catch (e) {
-                    console.error('Failed to restore active jobs', e);
-                }
+            for (const [jobId, job] of Object.entries(activeJobs)) {
+                const intervalId = setInterval(() => pollJobStatus(jobId, intervalId), 1000);
+                activeJobs[jobId].intervalId = intervalId;
             }
         });
-
     </script>
 </body>
 
