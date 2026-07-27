@@ -4,8 +4,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    
-<title>Portal</title>
+
+    <title>Portal</title>
 
     <style>
         :root {
@@ -506,7 +506,7 @@
             }
         }
 
-        
+
         .spinner {
             display: inline-block;
             width: 16px;
@@ -518,12 +518,32 @@
             margin-right: 8px;
             image-rendering: pixelated;
         }
+
         @keyframes spin-block {
-            0% { transform: rotate(0deg) scale(1); background-color: var(--grass); }
-            25% { transform: rotate(90deg) scale(0.8); background-color: var(--wood); }
-            50% { transform: rotate(180deg) scale(1); background-color: var(--stone); }
-            75% { transform: rotate(270deg) scale(0.8); background-color: var(--sky); }
-            100% { transform: rotate(360deg) scale(1); background-color: var(--grass); }
+            0% {
+                transform: rotate(0deg) scale(1);
+                background-color: var(--grass);
+            }
+
+            25% {
+                transform: rotate(90deg) scale(0.8);
+                background-color: var(--wood);
+            }
+
+            50% {
+                transform: rotate(180deg) scale(1);
+                background-color: var(--stone);
+            }
+
+            75% {
+                transform: rotate(270deg) scale(0.8);
+                background-color: var(--sky);
+            }
+
+            100% {
+                transform: rotate(360deg) scale(1);
+                background-color: var(--grass);
+            }
         }
 
 
@@ -614,6 +634,15 @@
             max-height: 400px;
             overflow: auto;
         }
+
+        .status-text {
+            font-size: 10px;
+            color: #888;
+            margin-left: 8px;
+            font-family: 'Press Start 2P', monospace;
+            display: inline-block;
+            vertical-align: middle;
+        }
     </style>
 </head>
 
@@ -621,7 +650,7 @@
     <div class="app-layout">
         <aside class="sidebar">
             <div class="sidebar-header">
-                
+
                 <h1>PORTAL</h1>
 
             </div>
@@ -660,7 +689,8 @@
                                     id="sort-size-btn">SORT: SIZE</button>
                             </div>
                             <label style="display: flex; align-items: center; gap: 5px; margin: 0; width:200px;">
-                                <input type="checkbox" id="show-selected-only-new" style="width:50px;" onchange="filterTree()">
+                                <input type="checkbox" id="show-selected-only-new" style="width:50px;"
+                                    onchange="filterTree()">
                                 <span style="font-size: 11px;">SHOW SELECTED ONLY</span>
                             </label>
                         </div>
@@ -771,13 +801,11 @@
     </div>
 
     <script>
-        
+
         // Global state
         let currentProjectId = localStorage.getItem('currentProjectId');
         let currentChatId = localStorage.getItem('currentChatId');
         let fileTreeData = [];
-        let runQueue = [];
-        let isRunningQueue = false;
         let pendingProjectId = null;
         let pendingActionsContent = null;
         let sortMode = 'name';
@@ -785,6 +813,218 @@
         let filterTreeTimeout;
         let detailsFilterTreeTimeout;
 
+        // --- Unified Queue System ---
+        let unifiedQueue = []; // Holds { type: 'job' | 'chat', data: {...} }
+        let isProcessingQueue = false;
+        let currentTask = null;
+
+        // Queue a job run
+        function queueRunProject(projectId) {
+            unifiedQueue.push({ type: 'job', data: { projectId } });
+            updateStatusDisplay();
+            processUnifiedQueue();
+        }
+
+        function updateStatusDisplay() {
+            const statusElement = document.getElementById('run-status');
+            if (!statusElement) return;
+
+            const lines = [];
+            const jobCount = unifiedQueue.filter(t => t.type === 'job').length;
+            const chatCount = unifiedQueue.filter(t => t.type === 'chat').length;
+
+            if (jobCount > 0 || chatCount > 0) {
+                lines.push(`Queued: ${jobCount} job(s), ${chatCount} chat(s)`);
+            }
+            if (isProcessingQueue && currentTask) {
+                lines.push(`Processing: ${currentTask.type === 'job' ? 'Job' : 'Chat'}`);
+            }
+            for (const [jobId, job] of Object.entries(activeJobs)) {
+                lines.push(`Job ${jobId}: ${job.status}`);
+            }
+            statusElement.textContent = lines.join('\n');
+        }
+
+        // Queue a chat message
+        function queueChatMessage(chatId, content, inputElement, chatLog, userMsgElement, assistantMsgElement) {
+            unifiedQueue.push({
+                type: 'chat',
+                data: {
+                    chatId,
+                    content,
+                    inputElement,
+                    chatLog,
+                    userMsgElement,
+                    assistantMsgElement
+                }
+            });
+            updateStatusDisplay();
+            processUnifiedQueue();
+        }
+
+        // Process the unified queue (jobs + chat)
+        function processUnifiedQueue() {
+            if (isProcessingQueue || unifiedQueue.length === 0) return;
+            isProcessingQueue = true;
+            currentTask = unifiedQueue.shift();
+            updateStatusDisplay();
+
+            if (currentTask.type === 'job') {
+                processJobTask(currentTask);
+            } else if (currentTask.type === 'chat') {
+                processChatTask(currentTask);
+            }
+        }
+
+        function processJobTask(task) {
+            const projectId = task.data.projectId;
+            updateRunButtonState(projectId, true);
+
+            fetch(`/api/projects/${projectId}/run`, { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.warning) {
+                        showWarningModal(data.actions_content);
+                    } else {
+                        const jobId = data.job_id;
+                        activeJobs[jobId] = { projectId, status: data.status };
+                        saveActiveJobs();
+                        const intervalId = setInterval(() => pollJobStatus(jobId, intervalId), 1000);
+                        activeJobs[jobId].intervalId = intervalId;
+                    }
+                })
+                .catch(error => {
+                    console.error('Error running project:', error);
+                    const statusElement = document.getElementById('run-status');
+                    if (statusElement) statusElement.textContent = `Error starting job: ${error.message}`;
+                    updateRunButtonState(projectId, false);
+                })
+                .finally(() => {
+                    isProcessingQueue = false;
+                    currentTask = null;
+                    processUnifiedQueue();
+                });
+        }
+
+        function processChatTask(task) {
+            const { chatId, content, inputElement, chatLog, userMsgElement, assistantMsgElement } = task.data;
+            inputElement.value = '';
+
+            // Update status to "GENERATING..."
+            const statusText = assistantMsgElement.querySelector('.status-text');
+            if (statusText) statusText.textContent = 'GENERATING...';
+
+            const contentDiv = assistantMsgElement.querySelector('.markdown-content');
+            let accumulated = '';
+
+            fetch(`/api/chats/${chatId}/messages`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content })
+            })
+                .then(response => {
+                    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                    if (!response.body) throw new Error('ReadableStream not supported');
+                    return response.body.getReader();
+                })
+                .then(reader => {
+                    const decoder = new TextDecoder();
+                    function read() {
+                        return reader.read().then(({ done, value }) => {
+                            if (done) {
+                                assistantMsgElement.querySelector('.spinner')?.remove();
+                                assistantMsgElement.querySelector('.status-text')?.remove();
+                                contentDiv.innerHTML = renderMarkdown(accumulated);
+                                chatLog.scrollTop = chatLog.scrollHeight;
+                                isProcessingQueue = false;
+                                currentTask = null;
+                                processUnifiedQueue();
+                                return;
+                            }
+                            const text = decoder.decode(value, { stream: true });
+                            accumulated += text;
+
+                            // Remove status text and spinner on first token
+                            if (accumulated.length > 0) {
+                                assistantMsgElement.querySelector('.status-text')?.remove();
+                                assistantMsgElement.querySelector('.spinner')?.remove();
+                            }
+
+                            contentDiv.innerHTML = renderMarkdown(accumulated);
+                            chatLog.scrollTop = chatLog.scrollHeight;
+                            return read();
+                        });
+                    }
+                    read();
+                })
+                .catch(err => {
+                    console.error('Send failed:', err);
+                    assistantMsgElement.querySelector('.spinner')?.remove();
+                    assistantMsgElement.querySelector('.status-text')?.remove();
+                    contentDiv.innerHTML = `<span style="color:red;">Error: ${err.message}</span>`;
+                    chatLog.scrollTop = chatLog.scrollHeight;
+                    isProcessingQueue = false;
+                    currentTask = null;
+                    processUnifiedQueue();
+                });
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function sendChat() {
+            const input = document.getElementById('chat-input');
+            const content = input.value.trim();
+            if (!content) {
+                alert('Please enter a message');
+                return;
+            }
+
+            const ensureChat = () => {
+                if (!currentChatId) {
+                    return newChat().then(() => ensureChat());
+                }
+                return Promise.resolve();
+            };
+
+            ensureChat().then(() => {
+                const chatLog = document.getElementById('chat-log');
+                const note = chatLog.querySelector('.note');
+                if (note) note.remove();
+
+                const userMsgElement = document.createElement('div');
+                userMsgElement.className = 'chat-msg user';
+                userMsgElement.innerHTML = `<strong>USER</strong><div class="markdown-content">${escapeHtml(content)}</div>`;
+                chatLog.appendChild(userMsgElement);
+
+                const assistantMsgElement = document.createElement('div');
+                assistantMsgElement.className = 'chat-msg model';
+                assistantMsgElement.innerHTML = `<strong>ASSISTANT</strong><span class="spinner"></span><span class="status-text">QUEUED...</span><div class="markdown-content"></div>`;
+                chatLog.appendChild(assistantMsgElement);
+                chatLog.scrollTop = chatLog.scrollHeight;
+
+                queueChatMessage(currentChatId, content, input, chatLog, userMsgElement, assistantMsgElement);
+            }).catch(err => {
+                console.error('Failed to prepare chat:', err);
+                input.value = content;
+            });
+        }
+
+        function deleteChat(chatId) {
+            if (!confirm('Delete this chat?')) return;
+            fetch(`/api/chats/${chatId}`, { method: 'DELETE' })
+                .then(() => {
+                    if (currentChatId === chatId) {
+                        currentChatId = null;
+                        localStorage.removeItem('currentChatId');
+                        newChat();
+                    }
+                    loadChats();
+                });
+        }
 
         function formatSize(bytes) {
             if (bytes === 0) return '0 B';
@@ -840,7 +1080,7 @@
             }
         }
 
-        
+
         // Load projects
         function loadProjects() {
             fetch('/api/projects')
@@ -917,7 +1157,7 @@
                     const statusEl = document.getElementById('run-status');
                     if (statusEl) statusEl.textContent = '';
 
-                    
+
                     // Load the file tree if root directory is set
                     if (project.rootDirectory) {
                         document.getElementById('details-root-dir').value = project.rootDirectory;
@@ -940,9 +1180,9 @@
             loadProjects();
         }
 
-        
+
         // Load file tree
-        
+
         function loadFileTree() {
             const rootPath = document.getElementById('root-path').value;
             if (!rootPath) {
@@ -958,7 +1198,7 @@
             loadTreeBtn.disabled = true;
             loadTreeText.style.display = 'none';
             loadTreeSpinner.style.display = 'inline-block';
-            container.innerHTML = '<div class="spinner" style="display:inline-block; margin:10px;">Loading files...</div>';
+            container.innerHTML = '<span class="spinner" style="display:inline-block; margin:10px;"></span><span style="margin-left: 10px;">Loading files...</span>';
 
             fetch(`/api/files?path=${encodeURIComponent(rootPath)}`)
                 .then(response => response.json())
@@ -1018,8 +1258,8 @@
         }
 
 
-        
-        
+
+
         function loadDetailsFileTree() {
             const rootPath = document.getElementById('details-root-dir').value;
             if (!rootPath) {
@@ -1035,7 +1275,7 @@
             loadTreeBtn.disabled = true;
             loadTreeText.style.display = 'none';
             loadTreeSpinner.style.display = 'inline-block';
-            container.innerHTML = '<div class="spinner" style="display:inline-block; margin:10px;">Loading files...</div>';
+            container.innerHTML = '<span class="spinner" style="display:inline-block; margin:10px;"></span><span style="margin-left: 10px;">Loading files...</span>';
 
             fetch(`/api/files?path=${encodeURIComponent(rootPath)}`)
                 .then(response => response.json())
@@ -1108,8 +1348,8 @@
             document.getElementById('patterns-input').value = patterns.join(',');
         }
 
-        
-        
+
+
         function detailsUpdateSelectedPatterns() {
             const checkboxes = document.querySelectorAll('#details-file-tree-container input[type="checkbox"]:checked');
             const patterns = Array.from(checkboxes).map(cb => cb.dataset.path);
@@ -1163,7 +1403,7 @@
             detailsUpdateSelectedPatterns();
         }
 
-        
+
         // Filter file tree
         function filterTree() {
             clearTimeout(filterTreeTimeout);
@@ -1260,7 +1500,7 @@
                 });
         });
 
-        
+
         function updateRunButtonState(projectId, isLoading) {
             const btn = document.querySelector(`#proj-${projectId} .btn-sm:not(.delete)`);
             const detailBtn = document.getElementById('details-run-btn');
@@ -1305,57 +1545,6 @@
         // Track active jobs: { jobId: { projectId, status, intervalId } }
         const activeJobs = {};
 
-        function queueRunProject(projectId) {
-            runQueue.push(projectId);
-            updateStatusDisplay();
-            processRunQueue();
-        }
-
-        function processRunQueue() {
-            if (isRunningQueue || runQueue.length === 0) return;
-            isRunningQueue = true;
-            const projectId = runQueue.shift();
-            updateStatusDisplay();
-
-            updateRunButtonState(projectId, true);
-            saveActiveJobs();
-
-            fetch(`/api/projects/${projectId}/run`, {
-                method: 'POST'
-            })
-                .then(response => {
-                    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-                    return response.json();
-                })
-                .then(data => {
-                    const jobId = data.job_id;
-                    activeJobs[jobId] = {
-                        projectId: projectId,
-                        status: data.status
-                    };
-                    updateStatusDisplay();
-                    saveActiveJobs();
-
-                    const intervalId = setInterval(() => {
-                        pollJobStatus(jobId, intervalId);
-                    }, 1000);
-                    activeJobs[jobId].intervalId = intervalId;
-                })
-                .catch(error => {
-                    console.error('Error running project:', error);
-                    const statusElement = document.getElementById('run-status');
-                    statusElement.textContent = `Error starting job: ${error.message}`;
-                    updateRunButtonState(projectId, false);
-                    delete activeJobs[Object.keys(activeJobs).find(k => activeJobs[k].projectId === projectId)];
-                    saveActiveJobs();
-                })
-                .finally(() => {
-                    isRunningQueue = false;
-                    processRunQueue();
-                });
-        }
-
-        
         function pollJobStatus(jobId, intervalId) {
             const job = activeJobs[jobId];
             if (!job) {
@@ -1389,23 +1578,6 @@
                         saveActiveJobs();
                     }
                 });
-        }
-
-
-
-        function updateStatusDisplay() {
-            const statusElement = document.getElementById('run-status');
-            const lines = [];
-
-            if (runQueue.length > 0) {
-                lines.push(`Queued: ${runQueue.length} project(s)`);
-            }
-
-            for (const [jobId, job] of Object.entries(activeJobs)) {
-                lines.push(`Job ${jobId}: ${job.status}`);
-            }
-
-            statusElement.textContent = lines.join('\n');
         }
 
 
@@ -1508,8 +1680,6 @@
                 });
         }
 
-
-
         function selectChat(chatId) {
             currentChatId = chatId;
             localStorage.setItem('currentChatId', chatId);
@@ -1557,120 +1727,6 @@
                 });
         }
 
-
-
-        function sendChat() {
-            const input = document.getElementById('chat-input');
-            const content = input.value.trim();
-            if (!content) {
-                alert('Please enter a message');
-                return;
-            }
-
-            if (!currentChatId) {
-                newChat().then(() => {
-                    sendChat();
-                }).catch(err => {
-                    console.error('Failed to create chat:', err);
-                    alert('Failed to create chat. Check console for details.');
-                    input.value = content;
-                });
-                return;
-            }
-
-            const chatLog = document.getElementById('chat-log');
-            // Remove "no messages" note if present
-            const note = chatLog.querySelector('.note');
-            if (note) note.remove();
-
-            // Immediately show user message above
-            const userMsgElement = document.createElement('div');
-            userMsgElement.className = 'chat-msg user';
-            userMsgElement.innerHTML = `<strong>USER</strong><div class="markdown-content">${escapeHtml(content)}</div>`;
-            chatLog.appendChild(userMsgElement);
-            chatLog.scrollTop = chatLog.scrollHeight;
-
-
-            // Immediately show assistant spinner
-            const assistantMsgElement = document.createElement('div');
-            assistantMsgElement.className = 'chat-msg model';
-            assistantMsgElement.innerHTML = `<strong>ASSISTANT</strong><div class="spinner"></div><div class="markdown-content"></div>`;
-            chatLog.appendChild(assistantMsgElement);
-            chatLog.scrollTop = chatLog.scrollHeight;
-
-            // Clear input immediately after sending
-            input.value = '';
-
-            const contentDiv = assistantMsgElement.querySelector('.markdown-content');
-
-            let accumulated = '';
-
-            fetch(`/api/chats/${currentChatId}/messages`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ content })
-            })
-                .then(response => {
-                    if (!response.ok) {
-                        throw new Error(`HTTP error! status: ${response.status}`);
-                    }
-                    if (!response.body) throw new Error('ReadableStream not supported');
-                    return response.body.getReader();
-                })
-                .then(reader => {
-                    const decoder = new TextDecoder();
-                    function read() {
-                        return reader.read().then(({ done, value }) => {
-                            if (done) {
-                                assistantMsgElement.querySelector('.spinner')?.remove();
-                                contentDiv.innerHTML = renderMarkdown(accumulated);
-                                chatLog.scrollTop = chatLog.scrollHeight;
-                                input.value = ''; // Clear input after completion
-                                return;
-                            }
-                            const text = decoder.decode(value, { stream: true });
-                            accumulated += text;
-
-                            if (accumulated.length > 0 && assistantMsgElement.querySelector('.spinner')) {
-                                assistantMsgElement.querySelector('.spinner')?.remove();
-                            }
-
-                            contentDiv.innerHTML = renderMarkdown(accumulated);
-                            chatLog.scrollTop = chatLog.scrollHeight;
-                            return read();
-                        });
-                    }
-                    read();
-                })
-                .catch(err => {
-                    console.error('Send failed:', err);
-                    assistantMsgElement.querySelector('.spinner')?.remove();
-                    contentDiv.innerHTML = `<span style="color:red;">Error: ${err.message}</span>`;
-                    chatLog.scrollTop = chatLog.scrollHeight;
-                    input.value = ''; // Clear input on error too
-                });
-        }
-
-
-        function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
-        }
-
-        function deleteChat(chatId) {
-            if (!confirm('Delete this chat?')) return;
-            fetch(`/api/chats/${chatId}`, { method: 'DELETE' })
-                .then(() => {
-                    if (currentChatId === chatId) {
-                        currentChatId = null;
-                        localStorage.removeItem('currentChatId');
-                        newChat();
-                    }
-                    loadChats();
-                });
-        }
-
         // Simple markdown renderer
         function renderMarkdown(text) {
             // Escape HTML first
@@ -1694,7 +1750,7 @@
             return html;
         }
 
-        
+
         // Initialize
         document.addEventListener('DOMContentLoaded', () => {
             loadProjects();
