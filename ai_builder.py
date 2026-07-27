@@ -339,12 +339,6 @@ class CodeUtility:
                     if path.startswith(pattern_clean + '/') or path == pattern_clean:
                         return mode == "include"
 
-                    
-                    # Exact match or directory prefix match to prevent false substring hits
-                    if path == pattern_clean or path.startswith(pattern_clean + '/') or file_name == pattern_clean:
-                        return mode == "include"
-
-
                 # No pattern matched
                 return mode == "exclude"
         except Exception as e:
