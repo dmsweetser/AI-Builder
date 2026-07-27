@@ -280,10 +280,11 @@ class ActionManager:
             raise
 
 class CodeUtility:
-    def __init__(self, base_dir: str, ai_builder_dir: str):
+    def __init__(self, base_dir: str, ai_builder_dir: str, use_git_diff: bool):
         self.base_dir = base_dir
         self.output_file = os.path.join(ai_builder_dir, "output.txt")
         self.log_file = os.path.join(ai_builder_dir, "utility.log")
+        self.use_git_diff = use_git_diff
 
     def parse_gitignore(self, directory: str) -> List[str]:
         try:
@@ -325,27 +326,55 @@ class CodeUtility:
 
     def process_directory(self, directory: str, parent_rules: List[str], patterns: List[str], mode: str) -> None:
         try:
+            # Normalize parent_rules
             if not isinstance(parent_rules, list):
                 parent_rules = [parent_rules] if parent_rules else []
-            current_rules = self.parse_gitignore(directory)
-            all_rules = parent_rules + current_rules
-            logging.info(f"Processing directory: {directory}")
-            for root, _, files in os.walk(directory):
-                for file in files:
-                    relative_path = os.path.relpath(os.path.join(root, file), self.base_dir)
-                    logging.info(f"Checking file: {relative_path}")
-                    if self.should_process_file(relative_path, all_rules, patterns, mode):
-                        try:
-                            file_path = os.path.join(root, file)
-                            with open(file_path, 'r', encoding='utf-8') as f:
-                                content = f.read()
-                            with open(self.output_file, 'a', encoding='utf-8') as out_file:
-                                out_file.write(f"{chr(10)}### {relative_path}{chr(10)}```{chr(10)}{content}{chr(10)}```{chr(10)}")
-                            logging.info(f"Successfully wrote content from {relative_path} to {self.output_file}")
-                        except Exception as e:
-                            with open(self.output_file, 'a', encoding='utf-8') as out_file:
-                                out_file.write(f"{chr(10)}### {relative_path}{chr(10)}```{chr(10)}CONTENT UNREADABLE / POTENTIAL BINARY{chr(10)}```{chr(10)}")
-                            logging.warning(f"Skipped unreadable file: {relative_path} - Error: {e}")
+
+            # Determine mode: absolute vs relative
+            absolute_mode = not directory
+
+            if absolute_mode:
+                logging.info("Directory is blank — treating patterns as absolute file paths.")
+            else:
+                logging.info(f"Directory provided — treating patterns as relative paths inside: {directory}")
+
+            # Build full paths
+            file_paths = []
+            for p in patterns:
+                full_path = p if absolute_mode else os.path.join(directory, p)
+                file_paths.append(full_path)
+
+            # If directory exists, load gitignore rules
+            all_rules = parent_rules
+            if not absolute_mode:
+                current_rules = self.parse_gitignore(directory)
+                all_rules += current_rules
+
+            # Process each file path directly
+            for full_path in file_paths:
+                relative_path = os.path.relpath(full_path, self.base_dir)
+                logging.info(f"Checking file: {relative_path}")
+
+                # Only apply should_process_file when directory is provided
+                if absolute_mode or self.should_process_file(relative_path, all_rules, patterns, mode):
+                    try:
+                        with open(full_path, 'r', encoding='utf-8') as f:
+                            content = f.read()
+
+                        with open(self.output_file, 'a', encoding='utf-8') as out_file:
+                            out_file.write(
+                                f"\n### {relative_path}\n```\n{content}\n```\n"
+                            )
+
+                        logging.info(f"Successfully wrote content from {relative_path} to {self.output_file}")
+
+                    except Exception as e:
+                        logging.warning(f"Skipped unreadable file: {relative_path} - Error: {e}")
+                        with open(self.output_file, 'a', encoding='utf-8') as out_file:
+                            out_file.write(
+                                f"\n### {relative_path}\n```\nCONTENT UNREADABLE / POTENTIAL BINARY\n```\n"
+                            )
+
         except Exception as e:
             logging.error(f"Error processing directory: {e}")
             raise
@@ -644,7 +673,7 @@ Reply ONLY in the specified format with no commentary. THAT'S AN ORDER, SOLDIER!
                     instructions = file.read()
                 logging.info("Successfully read instructions.txt")
 
-            self.utility = CodeUtility(self.root_directory, self.ai_builder_dir)
+            self.utility = CodeUtility(self.root_directory, self.ai_builder_dir, self.use_git_diff)
             actions_file_path = os.path.join(self.ai_builder_dir, "actions.txt")
 
             for iteration in range(iterations):
