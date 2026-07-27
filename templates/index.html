@@ -450,6 +450,7 @@
             margin-bottom: 10px;
             padding: 8px;
             border: 2px solid #555;
+            position: relative;
         }
 
         .chat-msg.user {
@@ -540,6 +541,7 @@
             border-radius: 4px;
             margin: 8px 0;
             border-left: 3px solid var(--grass);
+            position: relative;
         }
 
         .markdown-content pre {
@@ -644,25 +646,44 @@
             font-size: 12px;
         }
 
-        .file-tree-overlay {
+        .copy-icon {
             position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(0, 0, 0, 0.5);
-            display: none;
-            justify-content: center;
-            align-items: center;
-            z-index: 10;
-            color: #fff;
-            font-family: 'Press Start 2P', monospace;
-            font-size: 12px;
+            top: 5px;
+            right: 5px;
+            background: var(--wood);
+            border: 1px solid #000;
+            padding: 2px 5px;
+            cursor: pointer;
+            font-size: 8px;
+            color: var(--light-text);
+        }
+
+        .copy-icon:hover {
+            background: var(--grass);
+        }
+
+        .history-list {
+            background: var(--list-bg);
+            border: 3px solid #000;
+            max-height: 300px;
+            overflow-y: auto;
+            padding: 10px;
+        }
+
+        .history-item {
+            background: #3a3a3a;
+            padding: 10px;
+            margin: 8px 0;
+            border: 2px solid #000;
+            font-size: 11px;
+            cursor: pointer;
+        }
+
+        .history-item:hover {
+            background: #4a4a4a;
         }
     </style>
 </head>
-
-
 
 <body>
     <div class="app-layout">
@@ -672,6 +693,7 @@
             </div>
             <div class="sidebar-nav">
                 <button class="tab-btn active" onclick="showTab('projects')">PROJECTS</button>
+                <button class="tab-btn" onclick="showTab('history')">JOB HISTORY</button>
                 <button class="tab-btn" onclick="showTab('chat')">CHAT</button>
             </div>
         </aside>
@@ -711,15 +733,11 @@
                         </div>
                         <input type="text" id="tree-search" placeholder="Search files/folders..."
                             oninput="filterTree()">
-
-                        
                         <div id="file-tree-container" style="position: relative;">
                             <div id="file-tree-loading-overlay" class="file-tree-overlay">PROCESSING...</div>
                         </div>
                         <div id="details-file-tree-container" style="position: relative;"></div>
                         <div id="details-file-tree-loading-overlay" class="file-tree-overlay">PROCESSING...</div>
-
-
                         <label>SELECTED PATHS (comma sep)</label>
                         <textarea id="patterns-display" rows="6" onchange="updatePatternsDisplay()"
                             oninput="autoSaveProject()"></textarea>
@@ -818,6 +836,14 @@
                     </div>
                 </div>
             </div>
+            <div id="history-panel" class="panel">
+                <div class="block">
+                    <h2>JOB HISTORY</h2>
+                    <div class="history-list" id="history-list">
+                        <div class="note">LOADING HISTORY...</div>
+                    </div>
+                </div>
+            </div>
         </main>
     </div>
     <div id="warning-modal" class="modal" style="display: none;">
@@ -846,6 +872,8 @@
         let isProcessingQueue = false;
         let currentTask = null;
         const activeJobs = {};
+
+        // Load run status from localStorage
         function load_run_status() {
             const saved = localStorage.getItem('activeJobs');
             if (saved) {
@@ -853,6 +881,8 @@
             }
             return {};
         }
+
+        // Save active jobs to localStorage
         function saveActiveJobs() {
             const jobsToSave = {};
             for (const [jobId, job] of Object.entries(activeJobs)) {
@@ -862,44 +892,77 @@
             }
             localStorage.setItem('activeJobs', JSON.stringify(jobsToSave));
         }
+
+        // Initialize activeJobs
         Object.assign(activeJobs, load_run_status());
+
+        // Queue a project run
         function queueRunProject(projectId) {
             unifiedQueue.push({ type: 'job', data: { projectId } });
             updateStatusDisplay();
             processUnifiedQueue();
         }
+
+        // Update the status display
         function updateStatusDisplay() {
             const statusElement = document.getElementById('run-status');
             if (!statusElement) return;
+
             const lines = [];
             const jobCount = unifiedQueue.filter(t => t.type === 'job').length;
             const chatCount = unifiedQueue.filter(t => t.type === 'chat').length;
-            if (jobCount > 0 || chatCount > 0) lines.push(`Queued: ${jobCount} job(s), ${chatCount} chat(s)`);
-            if (isProcessingQueue && currentTask) lines.push(`Processing: ${currentTask.type === 'job' ? 'Job' : 'Chat'}`);
-            for (const [jobId, job] of Object.entries(activeJobs)) lines.push(`Job ${jobId}: ${job.status}`);
+
+            if (jobCount > 0 || chatCount > 0) {
+                lines.push(`Queued: ${jobCount} job(s), ${chatCount} chat(s)`);
+            }
+
+            if (isProcessingQueue && currentTask) {
+                lines.push(`Processing: ${currentTask.type === 'job' ? 'Job' : 'Chat'}`);
+            }
+
+            for (const [jobId, job] of Object.entries(activeJobs)) {
+                lines.push(`Job ${jobId}: ${job.status}`);
+            }
+
             statusElement.textContent = lines.join('\n');
         }
+
+        // Queue a chat message
         function queueChatMessage(chatId, content, inputElement, chatLog, userMsgElement, assistantMsgElement) {
-            unifiedQueue.push({ type: 'chat', data: { chatId, content, inputElement, chatLog, userMsgElement, assistantMsgElement } });
+            unifiedQueue.push({
+                type: 'chat',
+                data: { chatId, content, inputElement, chatLog, userMsgElement, assistantMsgElement }
+            });
             updateStatusDisplay();
             processUnifiedQueue();
         }
+
+        // Process the unified queue
         function processUnifiedQueue() {
             if (isProcessingQueue || unifiedQueue.length === 0) return;
+
             isProcessingQueue = true;
             currentTask = unifiedQueue.shift();
             updateStatusDisplay();
-            if (currentTask.type === 'job') processJobTask(currentTask);
-            else if (currentTask.type === 'chat') processChatTask(currentTask);
+
+            if (currentTask.type === 'job') {
+                processJobTask(currentTask);
+            } else if (currentTask.type === 'chat') {
+                processChatTask(currentTask);
+            }
         }
+
+        // Process a job task
         function processJobTask(task) {
             const projectId = task.data.projectId;
             updateRunButtonState(projectId, true);
+
             fetch(`/api/projects/${projectId}/run`, { method: 'POST' })
                 .then(response => response.json())
                 .then(data => {
-                    if (data.warning) showWarningModal(data.actions_content);
-                    else {
+                    if (data.warning) {
+                        showWarningModal(data.actions_content, projectId);
+                    } else {
                         const jobId = data.job_id;
                         activeJobs[jobId] = { projectId, status: data.status };
                         saveActiveJobs();
@@ -910,20 +973,32 @@
                 .catch(error => {
                     console.error('Error running project:', error);
                     const statusElement = document.getElementById('run-status');
-                    if (statusElement) statusElement.textContent = `Error starting job: ${error.message}`;
+                    if (statusElement) {
+                        statusElement.textContent = `Error starting job: ${error.message}`;
+                    }
                     updateRunButtonState(projectId, false);
                 })
-                .finally(() => { isProcessingQueue = false; currentTask = null; processUnifiedQueue(); });
+                .finally(() => {
+                    isProcessingQueue = false;
+                    currentTask = null;
+                    processUnifiedQueue();
+                });
         }
+
+        // Process a chat task
         function processChatTask(task) {
             const { chatId, content, inputElement, chatLog, userMsgElement, assistantMsgElement } = task.data;
             inputElement.value = '';
             const statusText = assistantMsgElement.querySelector('.status-text');
             if (statusText) statusText.textContent = 'GENERATING...';
+
             const contentDiv = assistantMsgElement.querySelector('.markdown-content');
             let accumulated = '';
+
             fetch(`/api/chats/${chatId}/messages`, {
-                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content })
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content })
             })
                 .then(response => {
                     if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
@@ -938,8 +1013,11 @@
                                 assistantMsgElement.querySelector('.spinner')?.remove();
                                 assistantMsgElement.querySelector('.status-text')?.remove();
                                 contentDiv.innerHTML = renderMarkdown(accumulated);
+                                addCopyButton(contentDiv);
                                 chatLog.scrollTop = chatLog.scrollHeight;
-                                isProcessingQueue = false; currentTask = null; processUnifiedQueue();
+                                isProcessingQueue = false;
+                                currentTask = null;
+                                processUnifiedQueue();
                                 return;
                             }
                             const text = decoder.decode(value, { stream: true });
@@ -961,122 +1039,218 @@
                     assistantMsgElement.querySelector('.status-text')?.remove();
                     contentDiv.innerHTML = `<span style="color:red;">Error: ${err.message}</span>`;
                     chatLog.scrollTop = chatLog.scrollHeight;
-                    isProcessingQueue = false; currentTask = null; processUnifiedQueue();
+                    isProcessingQueue = false;
+                    currentTask = null;
+                    processUnifiedQueue();
                 });
         }
-        function escapeHtml(text) { const div = document.createElement('div'); div.textContent = text; return div.innerHTML; }
+
+        // Add copy button to markdown content
+        function addCopyButton(element) {
+            const copyButton = document.createElement('button');
+            copyButton.className = 'copy-icon';
+            copyButton.textContent = 'COPY';
+            copyButton.onclick = () => {
+                navigator.clipboard.writeText(element.textContent)
+                    .then(() => {
+                        copyButton.textContent = 'COPIED!';
+                        setTimeout(() => { copyButton.textContent = 'COPY'; }, 2000);
+                    })
+                    .catch(err => console.error('Failed to copy:', err));
+            };
+            element.appendChild(copyButton);
+        }
+
+        // Escape HTML
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Send chat message
         function sendChat() {
             const input = document.getElementById('chat-input');
             const content = input.value.trim();
             if (!content) { alert('Please enter a message'); return; }
+
             const ensureChat = () => !currentChatId ? newChat().then(() => ensureChat()) : Promise.resolve();
             ensureChat().then(() => {
                 const chatLog = document.getElementById('chat-log');
                 chatLog.querySelector('.note')?.remove();
+
                 const userMsgElement = document.createElement('div');
                 userMsgElement.className = 'chat-msg user';
                 userMsgElement.innerHTML = `<strong>USER</strong><div class="markdown-content">${escapeHtml(content)}</div>`;
+                addCopyButton(userMsgElement.querySelector('.markdown-content'));
                 chatLog.appendChild(userMsgElement);
+
                 const assistantMsgElement = document.createElement('div');
                 assistantMsgElement.className = 'chat-msg model';
                 assistantMsgElement.innerHTML = `<strong>ASSISTANT</strong><span class="spinner"></span><span class="status-text">QUEUED...</span><div class="markdown-content"></div>`;
                 chatLog.appendChild(assistantMsgElement);
+
                 chatLog.scrollTop = chatLog.scrollHeight;
                 queueChatMessage(currentChatId, content, input, chatLog, userMsgElement, assistantMsgElement);
             }).catch(err => { console.error('Failed to prepare chat:', err); input.value = content; });
         }
+
+        // Delete chat
         function deleteChat(chatId) {
             if (!confirm('Delete this chat?')) return;
             fetch(`/api/chats/${chatId}`, { method: 'DELETE' }).then(() => {
-                if (currentChatId === chatId) { currentChatId = null; localStorage.removeItem('currentChatId'); newChat(); }
+                if (currentChatId === chatId) {
+                    currentChatId = null;
+                    localStorage.removeItem('currentChatId');
+                    newChat();
+                }
                 loadChats();
             });
         }
+
+        // Format file size
         function formatSize(bytes) {
             if (bytes === 0) return '0 B';
             const k = 1024, sizes = ['B', 'KB', 'MB', 'GB'];
             const i = Math.floor(Math.log(bytes) / Math.log(k));
             return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
         }
+
+        // Set sort mode
         function setSortMode(mode) {
             sortMode = mode;
             document.getElementById('sort-name-btn').style.background = mode === 'name' ? 'var(--grass)' : 'var(--wood)';
             document.getElementById('sort-size-btn').style.background = mode === 'size' ? 'var(--grass)' : 'var(--wood)';
             loadFileTree();
         }
+
+        // Set details sort mode
         function setDetailsSortMode(mode) {
             detailsSortMode = mode;
             document.getElementById('details-sort-name-btn').style.background = mode === 'name' ? 'var(--grass)' : 'var(--wood)';
             document.getElementById('details-sort-size-btn').style.background = mode === 'size' ? 'var(--grass)' : 'var(--wood)';
             loadDetailsFileTree();
         }
+
+        // Show tab
         function showTab(tabName) {
-            document.querySelectorAll('.panel').forEach(panel => { panel.classList.add('hidden'); panel.classList.remove('active'); });
+            document.querySelectorAll('.panel').forEach(panel => {
+                panel.classList.add('hidden');
+                panel.classList.remove('active');
+            });
             document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
             document.getElementById(tabName + '-panel').classList.remove('hidden');
             document.getElementById(tabName + '-panel').classList.add('active');
             event.target.classList.add('active');
+
             if (tabName === 'projects') loadProjects();
             else if (tabName === 'chat') {
                 if (currentChatId) {
-                    fetch(`/api/chats/${currentChatId}`).then(res => res.ok ? res.json() : Promise.reject())
+                    fetch(`/api/chats/${currentChatId}`)
+                        .then(res => res.ok ? res.json() : Promise.reject())
                         .then(() => { loadChats(); selectChat(currentChatId); })
-                        .catch(() => { currentChatId = null; localStorage.removeItem('currentChatId'); newChat().then(() => loadChats()); });
-                } else newChat().then(() => loadChats());
+                        .catch(() => {
+                            currentChatId = null;
+                            localStorage.removeItem('currentChatId');
+                            newChat().then(() => loadChats());
+                        });
+                } else {
+                    newChat().then(() => loadChats());
+                }
+            } else if (tabName === 'history') {
+                loadHistory();
             }
         }
+
+        // Load projects
         function loadProjects() {
-            fetch('/api/projects').then(response => response.json()).then(data => {
-                const projectList = document.getElementById('project-list');
-                if (!projectList) return;
-                projectList.innerHTML = '';
-                if (!data || data.length === 0) { projectList.innerHTML = '<div class="note">NO PROJECTS FOUND.<br>ADD ONE BELOW.</div>'; return; }
-                data.forEach(project => {
-                    const projectItem = document.createElement('div');
-                    projectItem.className = 'project-item';
-                    projectItem.id = `proj-${project.id}`;
-                    projectItem.onclick = () => selectProject(project.id);
-                    const isRunning = Object.values(activeJobs).some(j => j.projectId === project.id);
-                    projectItem.innerHTML = `
-                        <div class="project-item-header">
-                            <span class="project-item-name">${project.name || 'Untitled'}</span>
-                            <div class="project-item-actions">
-                                <button class="btn-sm" id="run-btn-${project.id}" onclick="event.stopPropagation(); runProject('${project.id}')" ${isRunning ? 'disabled' : ''}>${isRunning ? '<span class="spinner"></span> Running...' : 'Run'}</button>
-                                <button class="btn-sm delete" onclick="event.stopPropagation(); deleteProject('${project.id}')">Del</button>
+            fetch('/api/projects')
+                .then(response => response.json())
+                .then(data => {
+                    const projectList = document.getElementById('project-list');
+                    if (!projectList) return;
+
+                    projectList.innerHTML = '';
+                    if (!data || data.length === 0) {
+                        projectList.innerHTML = '<div class="note">NO PROJECTS FOUND.<br>ADD ONE BELOW.</div>';
+                        return;
+                    }
+
+                    data.forEach(project => {
+                        const projectItem = document.createElement('div');
+                        projectItem.className = 'project-item';
+                        projectItem.id = `proj-${project.id}`;
+                        projectItem.onclick = () => selectProject(project.id);
+
+                        const isRunning = Object.values(activeJobs).some(j => j.projectId === project.id);
+                        projectItem.innerHTML = `
+                            <div class="project-item-header">
+                                <span class="project-item-name">${project.name || 'Untitled'}</span>
+                                <div class="project-item-actions">
+                                    <button class="btn-sm" id="run-btn-${project.id}"
+                                        onclick="event.stopPropagation(); runProject('${project.id}')"
+                                        ${isRunning ? 'disabled' : ''}>
+                                        ${isRunning ? '<span class="spinner"></span> Running...' : 'Run'}
+                                    </button>
+                                    <button class="btn-sm delete"
+                                        onclick="event.stopPropagation(); deleteProject('${project.id}')">Del</button>
+                                </div>
                             </div>
-                        </div>
-                        <span style="color: #ccc; font-size: 8px;">${project.rootDirectory || ''}</span>
-                    `;
-                    projectList.appendChild(projectItem);
-                });
-            }).catch(err => console.error('Failed to load projects:', err));
+                            <span style="color: #ccc; font-size: 8px;">${project.rootDirectory || ''}</span>
+                        `;
+                        projectList.appendChild(projectItem);
+                    });
+                })
+                .catch(err => console.error('Failed to load projects:', err));
         }
+
+        // Select project
         function selectProject(projectId) {
             currentProjectId = projectId;
             localStorage.setItem('currentProjectId', projectId);
+
             const projectsPanel = document.getElementById('projects-panel');
             const detailsPanel = document.getElementById('project-details-panel');
-            if (projectsPanel) { projectsPanel.classList.add('hidden'); projectsPanel.classList.remove('active'); }
-            if (detailsPanel) { detailsPanel.classList.remove('hidden'); detailsPanel.classList.add('active'); }
-            fetch(`/api/projects/${projectId}`).then(response => response.json()).then(project => {
-                const safeSet = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
-                safeSet('run-project-id', project.id);
-                const nameEl = document.getElementById('details-project-name');
-                if (nameEl) nameEl.textContent = project.name;
-                safeSet('details-root-dir', project.rootDirectory || '');
-                safeSet('details-patterns-input', project.includePatterns || '');
-                safeSet('details-patterns-display', project.includePatterns || '');
-                safeSet('details-instructions', project.instructions || '');
-                safeSet('details-pre-script', project.preScript || '');
-                safeSet('details-post-script', project.postScript || '');
-                const statusEl = document.getElementById('run-status');
-                if (statusEl) statusEl.textContent = '';
-                if (project.rootDirectory) {
-                    document.getElementById('details-root-dir').value = project.rootDirectory;
-                    document.getElementById('details-show-selected-only').checked = true;
-                }
-            }).catch(err => console.error('Failed to load project details:', err));
+            if (projectsPanel) {
+                projectsPanel.classList.add('hidden');
+                projectsPanel.classList.remove('active');
+            }
+            if (detailsPanel) {
+                detailsPanel.classList.remove('hidden');
+                detailsPanel.classList.add('active');
+            }
+
+            fetch(`/api/projects/${projectId}`)
+                .then(response => response.json())
+                .then(project => {
+                    const safeSet = (id, val) => {
+                        const el = document.getElementById(id);
+                        if (el) el.value = val;
+                    };
+
+                    safeSet('run-project-id', project.id);
+                    const nameEl = document.getElementById('details-project-name');
+                    if (nameEl) nameEl.textContent = project.name;
+
+                    safeSet('details-root-dir', project.rootDirectory || '');
+                    safeSet('details-patterns-input', project.includePatterns || '');
+                    safeSet('details-patterns-display', project.includePatterns || '');
+                    safeSet('details-instructions', project.instructions || '');
+                    safeSet('details-pre-script', project.preScript || '');
+                    safeSet('details-post-script', project.postScript || '');
+
+                    const statusEl = document.getElementById('run-status');
+                    if (statusEl) statusEl.textContent = '';
+
+                    if (project.rootDirectory) {
+                        document.getElementById('details-root-dir').value = project.rootDirectory;
+                        document.getElementById('details-show-selected-only').checked = true;
+                    }
+                })
+                .catch(err => console.error('Failed to load project details:', err));
         }
+
+        // Go back to projects
         function goBackToProjects() {
             document.getElementById('project-details-panel').classList.add('hidden');
             document.getElementById('project-details-panel').classList.remove('active');
@@ -1086,120 +1260,191 @@
             currentProjectId = null;
             loadProjects();
         }
+
+        // Load file tree
         function loadFileTree() {
             const rootPath = document.getElementById('root-path').value;
             if (!rootPath) { alert('Please enter a root directory first'); return; }
+
             const loadTreeBtn = document.getElementById('load-tree-btn');
             const loadTreeText = document.getElementById('load-tree-text');
             const loadTreeSpinner = document.getElementById('load-tree-spinner');
             const container = document.getElementById('file-tree-container');
-            loadTreeBtn.disabled = true; loadTreeText.style.display = 'none'; loadTreeSpinner.style.display = 'inline-block';
+
+            loadTreeBtn.disabled = true;
+            loadTreeText.style.display = 'none';
+            loadTreeSpinner.style.display = 'inline-block';
             container.innerHTML = '<span class="spinner" style="display:inline-block; margin:10px;"></span><span style="margin-left: 10px;">Loading files...</span>';
-            fetch(`/api/files?path=${encodeURIComponent(rootPath)}`).then(response => response.json()).then(paths => {
-                container.innerHTML = '';
-                const sortedPaths = [...paths].sort((a, b) => {
-                    const aIsDir = a.path.endsWith('/'), bIsDir = b.path.endsWith('/');
-                    if (aIsDir !== bIsDir) return aIsDir ? -1 : 1;
-                    if (sortMode === 'size') return (b.size || 0) - (a.size || 0);
-                    return a.path.localeCompare(b.path);
+
+            fetch(`/api/files?path=${encodeURIComponent(rootPath)}`)
+                .then(response => response.json())
+                .then(paths => {
+                    container.innerHTML = '';
+                    const sortedPaths = [...paths].sort((a, b) => {
+                        const aIsDir = a.path.endsWith('/'), bIsDir = b.path.endsWith('/');
+                        if (aIsDir !== bIsDir) return aIsDir ? -1 : 1;
+                        if (sortMode === 'size') return (b.size || 0) - (a.size || 0);
+                        return a.path.localeCompare(b.path);
+                    });
+
+                    sortedPaths.forEach(item => {
+                        const isDir = item.path.endsWith('/');
+                        const itemElement = document.createElement('div');
+                        itemElement.className = `tree-item ${isDir ? 'dir' : 'file'}`;
+
+                        const checkbox = document.createElement('input');
+                        checkbox.type = 'checkbox';
+                        checkbox.checked = true;
+                        checkbox.onchange = () => updateSelectedPatterns();
+                        checkbox.dataset.path = item.path;
+
+                        const label = document.createElement('label');
+                        label.textContent = item.path;
+                        label.style.marginLeft = '5px';
+
+                        const sizeLabel = document.createElement('span');
+                        sizeLabel.textContent = ` (${formatSize(item.size)})`;
+                        sizeLabel.style.color = '#888';
+                        sizeLabel.style.fontSize = '11px';
+
+                        label.appendChild(sizeLabel);
+                        itemElement.appendChild(checkbox);
+                        itemElement.appendChild(label);
+                        container.appendChild(itemElement);
+                    });
+
+                    updateSelectedPatterns();
+                    loadTreeBtn.disabled = false;
+                    loadTreeText.style.display = 'inline';
+                    loadTreeSpinner.style.display = 'none';
+                    document.getElementById('root-path-hidden').value = rootPath;
+                })
+                .catch(err => {
+                    console.error('Failed to load file tree:', err);
+                    loadTreeBtn.disabled = false;
+                    loadTreeText.style.display = 'inline';
+                    loadTreeSpinner.style.display = 'none';
+                    container.innerHTML = '<div class="note">Failed to load files.</div>';
                 });
-                sortedPaths.forEach(item => {
-                    const isDir = item.path.endsWith('/');
-                    const itemElement = document.createElement('div');
-                    itemElement.className = `tree-item ${isDir ? 'dir' : 'file'}`;
-                    const checkbox = document.createElement('input');
-                    checkbox.type = 'checkbox'; checkbox.checked = true; checkbox.onchange = () => updateSelectedPatterns();
-                    checkbox.dataset.path = item.path;
-                    const label = document.createElement('label');
-                    label.textContent = item.path; label.style.marginLeft = '5px';
-                    const sizeLabel = document.createElement('span');
-                    sizeLabel.textContent = ` (${formatSize(item.size)})`; sizeLabel.style.color = '#888'; sizeLabel.style.fontSize = '11px';
-                    label.appendChild(sizeLabel);
-                    itemElement.appendChild(checkbox); itemElement.appendChild(label); container.appendChild(itemElement);
-                });
-                updateSelectedPatterns();
-                loadTreeBtn.disabled = false; loadTreeText.style.display = 'inline'; loadTreeSpinner.style.display = 'none';
-                document.getElementById('root-path-hidden').value = rootPath;
-            }).catch(err => {
-                console.error('Failed to load file tree:', err);
-                loadTreeBtn.disabled = false; loadTreeText.style.display = 'inline'; loadTreeSpinner.style.display = 'none';
-                container.innerHTML = '<div class="note">Failed to load files.</div>';
-            });
         }
+
+        // Load details file tree
         function loadDetailsFileTree() {
             const rootPath = document.getElementById('details-root-dir').value;
             if (!rootPath) { alert('Please enter a root directory first'); return; }
+
             const loadTreeBtn = document.getElementById('details-load-tree-btn');
             const loadTreeText = document.getElementById('details-load-tree-text');
             const loadTreeSpinner = document.getElementById('details-load-tree-spinner');
             const container = document.getElementById('details-file-tree-container');
-            loadTreeBtn.disabled = true; loadTreeText.style.display = 'none'; loadTreeSpinner.style.display = 'inline-block';
+
+            loadTreeBtn.disabled = true;
+            loadTreeText.style.display = 'none';
+            loadTreeSpinner.style.display = 'inline-block';
             container.innerHTML = '<span class="spinner" style="display:inline-block; margin:10px;"></span><span style="margin-left: 10px;">Loading files...</span>';
-            fetch(`/api/files?path=${encodeURIComponent(rootPath)}`).then(response => response.json()).then(paths => {
-                container.innerHTML = '';
-                const sortedPaths = [...paths].sort((a, b) => {
-                    const aIsDir = a.path.endsWith('/'), bIsDir = b.path.endsWith('/');
-                    if (aIsDir !== bIsDir) return aIsDir ? -1 : 1;
-                    if (detailsSortMode === 'size') return (b.size || 0) - (a.size || 0);
-                    return a.path.localeCompare(b.path);
+
+            fetch(`/api/files?path=${encodeURIComponent(rootPath)}`)
+                .then(response => response.json())
+                .then(paths => {
+                    container.innerHTML = '';
+                    const sortedPaths = [...paths].sort((a, b) => {
+                        const aIsDir = a.path.endsWith('/'), bIsDir = b.path.endsWith('/');
+                        if (aIsDir !== bIsDir) return aIsDir ? -1 : 1;
+                        if (detailsSortMode === 'size') return (b.size || 0) - (a.size || 0);
+                        return a.path.localeCompare(b.path);
+                    });
+
+                    sortedPaths.forEach(item => {
+                        const isDir = item.path.endsWith('/');
+                        const itemElement = document.createElement('div');
+                        itemElement.className = `tree-item ${isDir ? 'dir' : 'file'}`;
+
+                        const checkbox = document.createElement('input');
+                        checkbox.type = 'checkbox';
+
+                        const currentPatterns = (document.getElementById('details-patterns-input').value || '').split(',').map(p => p.trim());
+                        checkbox.checked = currentPatterns.includes(item.path) || currentPatterns.length === 0;
+                        checkbox.onchange = () => detailsUpdateSelectedPatterns();
+                        checkbox.dataset.path = item.path;
+
+                        const label = document.createElement('label');
+                        label.textContent = item.path;
+                        label.style.marginLeft = '5px';
+
+                        const sizeLabel = document.createElement('span');
+                        sizeLabel.textContent = ` (${formatSize(item.size)})`;
+                        sizeLabel.style.color = '#888';
+                        sizeLabel.style.fontSize = '11px';
+
+                        label.appendChild(sizeLabel);
+                        itemElement.appendChild(checkbox);
+                        itemElement.appendChild(label);
+                        container.appendChild(itemElement);
+                    });
+
+                    detailsUpdateSelectedPatterns();
+                    loadTreeBtn.disabled = false;
+                    loadTreeText.style.display = 'inline';
+                    loadTreeSpinner.style.display = 'none';
+                    detailsFilterTree();
+                })
+                .catch(err => {
+                    console.error('Failed to load details file tree:', err);
+                    loadTreeBtn.disabled = false;
+                    loadTreeText.style.display = 'inline';
+                    loadTreeSpinner.style.display = 'none';
+                    container.innerHTML = '<div class="note">Failed to load files.</div>';
                 });
-                sortedPaths.forEach(item => {
-                    const isDir = item.path.endsWith('/');
-                    const itemElement = document.createElement('div');
-                    itemElement.className = `tree-item ${isDir ? 'dir' : 'file'}`;
-                    const checkbox = document.createElement('input');
-                    checkbox.type = 'checkbox';
-                    const currentPatterns = (document.getElementById('details-patterns-input').value || '').split(',').map(p => p.trim());
-                    checkbox.checked = currentPatterns.includes(item.path) || currentPatterns.length === 0;
-                    checkbox.onchange = () => detailsUpdateSelectedPatterns();
-                    checkbox.dataset.path = item.path;
-                    const label = document.createElement('label');
-                    label.textContent = item.path; label.style.marginLeft = '5px';
-                    const sizeLabel = document.createElement('span');
-                    sizeLabel.textContent = ` (${formatSize(item.size)})`; sizeLabel.style.color = '#888'; sizeLabel.style.fontSize = '11px';
-                    label.appendChild(sizeLabel);
-                    itemElement.appendChild(checkbox); itemElement.appendChild(label); container.appendChild(itemElement);
-                });
-                detailsUpdateSelectedPatterns();
-                loadTreeBtn.disabled = false; loadTreeText.style.display = 'inline'; loadTreeSpinner.style.display = 'none';
-                detailsFilterTree();
-            }).catch(err => {
-                console.error('Failed to load details file tree:', err);
-                loadTreeBtn.disabled = false; loadTreeText.style.display = 'inline'; loadTreeSpinner.style.display = 'none';
-                container.innerHTML = '<div class="note">Failed to load files.</div>';
-            });
         }
+
+        // Update selected patterns
         function updateSelectedPatterns() {
             const checkboxes = document.querySelectorAll('#file-tree-container input[type="checkbox"]:checked');
             const patterns = Array.from(checkboxes).map(cb => cb.dataset.path);
             document.getElementById('patterns-display').value = patterns.join(',');
             document.getElementById('patterns-input').value = patterns.join(',');
         }
+
+        // Update patterns display
         function updatePatternsDisplay() {
-            document.getElementById('patterns-input').value = document.getElementById('patterns-display').value
+            document.getElementById('patterns-input').value = document.getElementById('patterns-display').value;
         }
+
+        // Update details patterns display
         function updateDetailsPatternsDisplay() {
-            document.getElementById('details-patterns-input').value = document.getElementById('details-patterns-display').value
+            document.getElementById('details-patterns-input').value = document.getElementById('details-patterns-display').value;
         }
+
+        // Details update selected patterns
         function detailsUpdateSelectedPatterns() {
             const checkboxes = document.querySelectorAll('#details-file-tree-container input[type="checkbox"]:checked');
             const patterns = Array.from(checkboxes).map(cb => cb.dataset.path);
             document.getElementById('details-patterns-display').value = patterns.join(',');
             document.getElementById('details-patterns-input').value = patterns.join(',');
+
             if (!currentProjectId) return;
+
             const form = document.getElementById('project-details-form');
             const formData = new FormData(form);
-            fetch(`/api/projects/${currentProjectId}`, { method: 'POST', body: formData }).catch(error => console.error('Auto-save failed:', error));
+            fetch(`/api/projects/${currentProjectId}`, {
+                method: 'POST',
+                body: formData
+            }).catch(error => console.error('Auto-save failed:', error));
         }
-        
+
+        // Show tree overlay
         function showTreeOverlay(id) {
             const overlay = document.getElementById(id + '-loading-overlay');
             if (overlay) overlay.style.display = 'flex';
         }
+
+        // Hide tree overlay
         function hideTreeOverlay(id) {
             const overlay = document.getElementById(id + '-loading-overlay');
             if (overlay) overlay.style.display = 'none';
         }
+
+        // Select all
         function selectAll() {
             showTreeOverlay('file-tree');
             document.querySelectorAll('#file-tree-container input[type="checkbox"]').forEach(cb => {
@@ -1208,6 +1453,8 @@
             updateSelectedPatterns();
             hideTreeOverlay('file-tree');
         }
+
+        // Deselect all
         function deselectAll() {
             showTreeOverlay('file-tree');
             document.querySelectorAll('#file-tree-container input[type="checkbox"]').forEach(cb => {
@@ -1216,6 +1463,8 @@
             updateSelectedPatterns();
             hideTreeOverlay('file-tree');
         }
+
+        // Details select all
         function detailsSelectAll() {
             showTreeOverlay('details-file-tree');
             document.querySelectorAll('#details-file-tree-container input[type="checkbox"]').forEach(cb => {
@@ -1224,6 +1473,8 @@
             detailsUpdateSelectedPatterns();
             hideTreeOverlay('details-file-tree');
         }
+
+        // Details deselect all
         function detailsDeselectAll() {
             showTreeOverlay('details-file-tree');
             document.querySelectorAll('#details-file-tree-container input[type="checkbox"]').forEach(cb => {
@@ -1232,12 +1483,15 @@
             detailsUpdateSelectedPatterns();
             hideTreeOverlay('details-file-tree');
         }
+
+        // Filter tree
         function filterTree() {
             clearTimeout(filterTreeTimeout);
             showTreeOverlay('file-tree');
             filterTreeTimeout = setTimeout(() => {
                 const searchTerm = document.getElementById('tree-search').value.toLowerCase();
                 const showSelectedOnly = document.getElementById('show-selected-only-new').checked;
+
                 document.querySelectorAll('#file-tree-container .tree-item').forEach(item => {
                     const checkbox = item.querySelector('input[type="checkbox"]');
                     const text = item.textContent.toLowerCase();
@@ -1246,15 +1500,19 @@
                     const matchesFilter = !showSelectedOnly || isSelected;
                     item.style.display = (matchesSearch && matchesFilter) ? '' : 'none';
                 });
+
                 hideTreeOverlay('file-tree');
-            }, 2000);
+            }, 200);
         }
+
+        // Details filter tree
         function detailsFilterTree() {
             clearTimeout(detailsFilterTreeTimeout);
             showTreeOverlay('details-file-tree');
             detailsFilterTreeTimeout = setTimeout(() => {
                 const searchTerm = document.getElementById('details-tree-search').value.toLowerCase();
                 const showSelectedOnly = document.getElementById('details-show-selected-only').checked;
+
                 document.querySelectorAll('#details-file-tree-container .tree-item').forEach(item => {
                     const checkbox = item.querySelector('input[type="checkbox"]');
                     const text = item.textContent.toLowerCase();
@@ -1263,10 +1521,12 @@
                     const matchesFilter = !showSelectedOnly || isSelected;
                     item.style.display = (matchesSearch && matchesFilter) ? '' : 'none';
                 });
+
                 hideTreeOverlay('details-file-tree');
-            }, 2000);
+            }, 200);
         }
 
+        // Auto-save project
         let autoSaveTimeout = null;
         function autoSaveProject() {
             if (!currentProjectId) return;
@@ -1274,9 +1534,14 @@
             autoSaveTimeout = setTimeout(() => {
                 const form = document.getElementById('project-details-form');
                 const formData = new FormData(form);
-                fetch(`/api/projects/${currentProjectId}`, { method: 'POST', body: formData }).catch(error => console.error('Auto-save failed:', error));
+                fetch(`/api/projects/${currentProjectId}`, {
+                    method: 'POST',
+                    body: formData
+                }).catch(error => console.error('Auto-save failed:', error));
             }, 500);
         }
+
+        // Add project form submission
         document.getElementById('add-project-form').addEventListener('submit', function (e) {
             e.preventDefault();
             const formData = new FormData(this);
@@ -1288,111 +1553,205 @@
                     document.getElementById('patterns-display').value = '';
                     selectProject(data.id);
                 })
-                .catch(err => { console.error('Project creation failed:', err); alert('Failed to create project. Check console for details.'); });
+                .catch(err => {
+                    console.error('Project creation failed:', err);
+                    alert('Failed to create project. Check console for details.');
+                });
         });
+
+        // Update run button state
         function updateRunButtonState(projectId, isLoading) {
             const btn = document.querySelector(`#proj-${projectId} .btn-sm:not(.delete)`);
             const detailBtn = document.getElementById('details-run-btn');
             const listBtn = document.getElementById(`run-btn-${projectId}`);
-            if (btn) { btn.disabled = isLoading; btn.innerHTML = isLoading ? '<span class="spinner"></span> Running...' : 'Run'; }
-            if (detailBtn) { detailBtn.disabled = isLoading; detailBtn.innerHTML = isLoading ? '<span class="run-spinner"></span> Running...' : 'RUN AI BUILDER'; }
-            if (listBtn) { listBtn.disabled = isLoading; listBtn.innerHTML = isLoading ? '<span class="spinner"></span> Running...' : 'Run'; }
+
+            if (btn) {
+                btn.disabled = isLoading;
+                btn.innerHTML = isLoading ? '<span class="spinner"></span> Running...' : 'Run';
+            }
+            if (detailBtn) {
+                detailBtn.disabled = isLoading;
+                detailBtn.innerHTML = isLoading ? '<span class="run-spinner"></span> Running...' : 'RUN AI BUILDER';
+            }
+            if (listBtn) {
+                listBtn.disabled = isLoading;
+                listBtn.innerHTML = isLoading ? '<span class="spinner"></span> Running...' : 'Run';
+            }
         }
+
+        // Poll job status
         function pollJobStatus(jobId, intervalId) {
             const job = activeJobs[jobId];
             if (!job) { clearInterval(intervalId); return; }
-            fetch(`/api/run/${jobId}/status`).then(response => response.json()).then(status => {
-                job.status = status.status; updateStatusDisplay(); saveActiveJobs();
-                if (status.status === 'completed' || status.status === 'error') {
-                    clearInterval(intervalId); delete activeJobs[jobId]; updateRunButtonState(job.projectId, false);
-                    updateStatusDisplay(); saveActiveJobs(); loadProjects();
-                }
-            }).catch(error => {
-                console.error('Error polling job status:', error);
-                clearInterval(intervalId);
-                if (activeJobs[jobId]) { delete activeJobs[jobId]; updateRunButtonState(job.projectId, false); updateStatusDisplay(); saveActiveJobs(); }
-            });
+
+            fetch(`/api/run/${jobId}/status`)
+                .then(response => response.json())
+                .then(status => {
+                    job.status = status.status;
+                    updateStatusDisplay();
+                    saveActiveJobs();
+
+                    if (status.status === 'completed' || status.status === 'error') {
+                        clearInterval(intervalId);
+                        delete activeJobs[jobId];
+                        updateRunButtonState(job.projectId, false);
+                        updateStatusDisplay();
+                        saveActiveJobs();
+                        loadProjects();
+                        loadHistory();
+                    }
+                })
+                .catch(error => {
+                    console.error('Error polling job status:', error);
+                    clearInterval(intervalId);
+                    if (activeJobs[jobId]) {
+                        delete activeJobs[jobId];
+                        updateRunButtonState(job.projectId, false);
+                        updateStatusDisplay();
+                        saveActiveJobs();
+                    }
+                });
         }
+
+        // Run project
         function runProject(projectId) {
             pendingProjectId = projectId;
-            fetch(`/api/projects/${projectId}/run`, { method: 'POST' }).then(response => response.json()).then(data => {
-                if (data.warning) showWarningModal(data.actions_content);
-                else queueRunProject(projectId);
-            }).catch(error => console.error('Error checking run:', error));
+            fetch(`/api/projects/${projectId}/run`, { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.warning) {
+                        showWarningModal(data.actions_content, projectId);
+                    } else {
+                        queueRunProject(projectId);
+                    }
+                })
+                .catch(error => console.error('Error checking run:', error));
         }
-        function showWarningModal(actionsContent) {
+
+        // Show warning modal
+        function showWarningModal(actionsContent, projectId) {
             pendingActionsContent = actionsContent;
+            pendingProjectId = projectId;
             document.getElementById('warning-actions-content').textContent = actionsContent;
             document.getElementById('warning-modal').style.display = 'flex';
         }
+
+        // Close warning modal
         function closeWarningModal() {
             document.getElementById('warning-modal').style.display = 'none';
-            pendingProjectId = null; pendingActionsContent = null;
+            pendingProjectId = null;
+            pendingActionsContent = null;
         }
+
+        // Clear and run
         function clearAndRun() {
             if (!pendingProjectId) return;
-            fetch(`/api/projects/${pendingProjectId}/clear`, { method: 'POST' }).then(() => {
-                closeWarningModal(); runProject(pendingProjectId);
-            }).catch(err => console.error('Failed to clear artifacts:', err));
+            fetch(`/api/projects/${pendingProjectId}/clear`, { method: 'POST' })
+                .then(() => {
+                    closeWarningModal();
+                    runProject(pendingProjectId);
+                })
+                .catch(err => console.error('Failed to clear artifacts:', err));
         }
+
+        // Delete project
         function deleteProject(projectId) {
             if (!confirm('Are you sure you want to delete this project?')) return;
-            fetch(`/api/projects/${projectId}`, { method: 'DELETE' }).then(() => {
-                if (currentProjectId === projectId) goBackToProjects(); else loadProjects();
-            });
+            fetch(`/api/projects/${projectId}`, { method: 'DELETE' })
+                .then(() => {
+                    if (currentProjectId === projectId) {
+                        goBackToProjects();
+                    } else {
+                        loadProjects();
+                    }
+                });
         }
+
+        // Load chats
         function loadChats() {
-            fetch('/api/chats').then(response => response.json()).then(chats => {
-                const chatList = document.getElementById('chat-list');
-                chatList.innerHTML = '';
-                if (chats.length === 0) { chatList.innerHTML = '<div class="note">NO CHATS FOUND.<br>START A NEW ONE BELOW.</div>'; return; }
-                chats.forEach(chat => {
-                    const chatItem = document.createElement('div');
-                    chatItem.className = 'chat-item';
-                    chatItem.dataset.chatId = chat.id;
-                    chatItem.onclick = () => selectChat(chat.id);
-                    chatItem.innerHTML = `<span>${chat.title || 'Unnamed Chat'}</span><button class="btn-xs chat-delete" onclick="event.stopPropagation(); deleteChat('${chat.id}')">X</button>`;
-                    chatList.appendChild(chatItem);
+            fetch('/api/chats')
+                .then(response => response.json())
+                .then(chats => {
+                    const chatList = document.getElementById('chat-list');
+                    chatList.innerHTML = '';
+                    if (chats.length === 0) {
+                        chatList.innerHTML = '<div class="note">NO CHATS FOUND.<br>START A NEW ONE BELOW.</div>';
+                        return;
+                    }
+
+                    chats.forEach(chat => {
+                        const chatItem = document.createElement('div');
+                        chatItem.className = 'chat-item';
+                        chatItem.dataset.chatId = chat.id;
+                        chatItem.onclick = () => selectChat(chat.id);
+                        chatItem.innerHTML = `<span>${chat.title || 'Unnamed Chat'}</span><button class="btn-xs chat-delete" onclick="event.stopPropagation(); deleteChat('${chat.id}')">X</button>`;
+                        chatList.appendChild(chatItem);
+                    });
+
+                    if (currentChatId) {
+                        const currentItem = document.querySelector(`.chat-item[data-chat-id="${currentChatId}"]`);
+                        if (currentItem) currentItem.classList.add('active');
+                    }
                 });
-                if (currentChatId) {
-                    const currentItem = document.querySelector(`.chat-item[data-chat-id="${currentChatId}"]`);
-                    if (currentItem) currentItem.classList.add('active');
-                }
-            });
         }
+
+        // New chat
         function newChat() {
-            return fetch('/api/chats', { method: 'POST' }).then(response => {
-                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-                return response.json();
-            }).then(chat => {
-                currentChatId = chat.id;
-                localStorage.setItem('currentChatId', chat.id);
-                selectChat(chat.id);
-                return chat.id;
-            }).catch(err => { console.error('Failed to create chat:', err); alert('Failed to create chat. Check console for details.'); throw err; });
-        }
-        function selectChat(chatId) {
-            fetch(`/api/chats/${chatId}`).then(response => {
-                if (!response.ok) return newChat().then(() => selectChat(currentChatId));
-                return response.json();
-            }).then(chat => {
-                currentChatId = chatId;
-                localStorage.setItem('currentChatId', chatId);
-                document.querySelectorAll('.chat-item').forEach(item => item.classList.remove('active'));
-                const selectedItem = document.querySelector(`.chat-item[data-chat-id="${chatId}"]`);
-                if (selectedItem) selectedItem.classList.add('active');
-                const chatLog = document.getElementById('chat-log');
-                chatLog.innerHTML = '';
-                if (!chat.messages || chat.messages.length === 0) { chatLog.innerHTML = '<div class="note">No messages yet. Start a conversation!</div>'; return; }
-                chat.messages.forEach(msg => {
-                    const msgElement = document.createElement('div');
-                    msgElement.className = `chat-msg ${msg.role}`;
-                    msgElement.innerHTML = `<strong>${msg.role.toUpperCase()}</strong><div class="markdown-content">${renderMarkdown(msg.content)}</div>`;
-                    chatLog.appendChild(msgElement);
+            return fetch('/api/chats', { method: 'POST' })
+                .then(response => {
+                    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                    return response.json();
+                })
+                .then(chat => {
+                    currentChatId = chat.id;
+                    localStorage.setItem('currentChatId', chat.id);
+                    selectChat(chat.id);
+                    return chat.id;
+                })
+                .catch(err => {
+                    console.error('Failed to create chat:', err);
+                    alert('Failed to create chat. Check console for details.');
+                    throw err;
                 });
-                chatLog.scrollTop = chatLog.scrollHeight;
-            }).catch(err => { console.error('Failed to load chat:', err); newChat().then(() => loadChats()); });
         }
+
+        // Select chat
+        function selectChat(chatId) {
+            fetch(`/api/chats/${chatId}`)
+                .then(response => {
+                    if (!response.ok) return newChat().then(() => selectChat(currentChatId));
+                    return response.json();
+                })
+                .then(chat => {
+                    currentChatId = chatId;
+                    localStorage.setItem('currentChatId', chatId);
+                    document.querySelectorAll('.chat-item').forEach(item => item.classList.remove('active'));
+                    const selectedItem = document.querySelector(`.chat-item[data-chat-id="${chatId}"]`);
+                    if (selectedItem) selectedItem.classList.add('active');
+
+                    const chatLog = document.getElementById('chat-log');
+                    chatLog.innerHTML = '';
+                    if (!chat.messages || chat.messages.length === 0) {
+                        chatLog.innerHTML = '<div class="note">No messages yet. Start a conversation!</div>';
+                        return;
+                    }
+
+                    chat.messages.forEach(msg => {
+                        const msgElement = document.createElement('div');
+                        msgElement.className = `chat-msg ${msg.role}`;
+                        msgElement.innerHTML = `<strong>${msg.role.toUpperCase()}</strong><div class="markdown-content">${renderMarkdown(msg.content)}</div>`;
+                        addCopyButton(msgElement.querySelector('.markdown-content'));
+                        chatLog.appendChild(msgElement);
+                    });
+                    chatLog.scrollTop = chatLog.scrollHeight;
+                })
+                .catch(err => {
+                    console.error('Failed to load chat:', err);
+                    newChat().then(() => loadChats());
+                });
+        }
+
+        // Render markdown
         function renderMarkdown(text) {
             let html = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
             html = html.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>');
@@ -1402,22 +1761,63 @@
             html = html.replace(/\n/g, '<br>');
             return html;
         }
+
+        // Load history
+        function loadHistory() {
+            fetch('/api/history')
+                .then(response => response.json())
+                .then(history => {
+                    const historyList = document.getElementById('history-list');
+                    historyList.innerHTML = '';
+                    if (!history || history.length === 0) {
+                        historyList.innerHTML = '<div class="note">NO HISTORY FOUND.</div>';
+                        return;
+                    }
+
+                    history.forEach(item => {
+                        const historyItem = document.createElement('div');
+                        historyItem.className = 'history-item';
+                        historyItem.innerHTML = `
+                            <strong>${item.project_name || 'Unknown Project'}</strong><br>
+                            <span style="color: #ccc;">${new Date(item.timestamp).toLocaleString()}</span><br>
+                            <span style="color: #aaa;">Status: ${item.status}</span>
+                        `;
+                        historyList.appendChild(historyItem);
+                    });
+                })
+                .catch(err => {
+                    console.error('Failed to load history:', err);
+                    document.getElementById('history-list').innerHTML = '<div class="note">Failed to load history.</div>';
+                });
+        }
+
+        // Initialize
         document.addEventListener('DOMContentLoaded', () => {
             loadProjects();
             if (currentChatId) {
-                fetch(`/api/chats/${currentChatId}`).then(res => res.ok ? res.json() : Promise.reject())
+                fetch(`/api/chats/${currentChatId}`)
+                    .then(res => res.ok ? res.json() : Promise.reject())
                     .then(() => { loadChats(); selectChat(currentChatId); })
                     .catch(() => {
-                        currentChatId = null; localStorage.removeItem('currentChatId');
-                        fetch('/api/chats/auto').then(res => res.json()).then(data => {
-                            currentChatId = data.id; selectChat(data.id);
-                        });
+                        currentChatId = null;
+                        localStorage.removeItem('currentChatId');
+                        fetch('/api/chats/auto')
+                            .then(res => res.json())
+                            .then(data => {
+                                currentChatId = data.id;
+                                selectChat(data.id);
+                            });
                     });
             } else {
-                fetch('/api/chats/auto').then(res => res.json()).then(data => {
-                    currentChatId = data.id; selectChat(data.id);
-                });
+                fetch('/api/chats/auto')
+                    .then(res => res.json())
+                    .then(data => {
+                        currentChatId = data.id;
+                        selectChat(data.id);
+                    });
             }
+
+            // Restore active jobs polling
             for (const [jobId, job] of Object.entries(activeJobs)) {
                 const intervalId = setInterval(() => pollJobStatus(jobId, intervalId), 1000);
                 activeJobs[jobId].intervalId = intervalId;

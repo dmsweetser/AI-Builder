@@ -7,6 +7,7 @@ import platform
 import queue
 import threading
 import shutil
+from datetime import datetime
 from flask import Flask, Response, request, jsonify, render_template
 
 from ai_builder import AIBuilder
@@ -18,8 +19,10 @@ from azure.core.credentials import AzureKeyCredential
 app = Flask(__name__)
 
 STATUS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aib_instance", "run_status.json")
+HISTORY_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aib_instance", "job_history.json")
 run_queue = queue.Queue()
 run_status = {}
+job_history = []
 
 def load_run_status():
     global run_status
@@ -39,7 +42,26 @@ def save_run_status():
     except Exception:
         pass
 
+def load_job_history():
+    global job_history
+    if os.path.exists(HISTORY_FILE):
+        try:
+            with open(HISTORY_FILE, 'r') as f:
+                job_history = json.load(f)
+        except Exception:
+            job_history = []
+    else:
+        job_history = []
+
+def save_job_history():
+    try:
+        with open(HISTORY_FILE, 'w') as f:
+            json.dump(job_history, f, indent=2)
+    except Exception:
+        pass
+
 load_run_status()
+load_job_history()
 
 def worker():
     while True:
@@ -48,17 +70,51 @@ def worker():
         job_id = job['job_id']
         run_status[job_id] = {'status': 'running', 'project_id': pid}
         save_run_status()
+
+        # Record job start in history
         project, _ = get_project(pid)
+        job_history.append({
+            "job_id": job_id,
+            "project_id": pid,
+            "project_name": project.get("name", "Unknown") if project else "Unknown",
+            "status": "running",
+            "project_data": project,
+            "timestamp": datetime.now().isoformat()
+        })
+        save_job_history()
+
         if project:
             try:
                 ai = AIBuilder(project)
                 ai.run()
                 run_status[job_id] = {'status': 'completed', 'project_id': pid}
+                # Update history
+                for item in job_history:
+                    if item["job_id"] == job_id:
+                        item["status"] = "completed"
+                        item["end_timestamp"] = datetime.now().isoformat()
+                        break
             except Exception as e:
                 run_status[job_id] = {'status': 'error', 'message': str(e), 'project_id': pid}
+                # Update history
+                for item in job_history:
+                    if item["job_id"] == job_id:
+                        item["status"] = "error"
+                        item["error"] = str(e)
+                        item["end_timestamp"] = datetime.now().isoformat()
+                        break
         else:
             run_status[job_id] = {'status': 'error', 'message': 'Project not found', 'project_id': pid}
+            # Update history
+            for item in job_history:
+                if item["job_id"] == job_id:
+                    item["status"] = "error"
+                    item["error"] = "Project not found"
+                    item["end_timestamp"] = datetime.now().isoformat()
+                    break
+
         save_run_status()
+        save_job_history()
         run_queue.task_done()
         time.sleep(3)
 
@@ -168,9 +224,12 @@ def api_run_project(pid):
 
     # Clear output directory
     output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aib_instance", "output", pid)
-    if os.path.exists(output_dir):
-        shutil.rmtree(output_dir)
-    os.makedirs(output_dir, exist_ok=True)
+    try:
+        if os.path.exists(output_dir):
+            shutil.rmtree(output_dir)
+        os.makedirs(output_dir, exist_ok=True)
+    except:
+        pass
 
     # Check for unapplied changes
     actions_file = os.path.join(output_dir, "actions.txt")
@@ -239,6 +298,10 @@ def api_files():
     except Exception as e:
         return jsonify({"error": str(e)}), 400
 
+@app.route("/api/history", methods=["GET"])
+def api_get_history():
+    return jsonify(job_history)
+
 # ---------- Chat Routes ----------
 @app.route("/api/chats", methods=["GET"])
 def api_list_chats():
@@ -299,6 +362,7 @@ def api_send_message(chat_id):
         # Prevent duplicate user messages
         if chat_data["messages"] and chat_data["messages"][-1].get("role") == "user" and chat_data["messages"][-1].get("content") == message:
             chat_data["messages"].pop()
+
         chat_data["messages"].append({"role": "user", "content": message})
         with open(chat_path, "w", encoding="utf-8") as f:
             json.dump(chat_data, f, indent=2)
