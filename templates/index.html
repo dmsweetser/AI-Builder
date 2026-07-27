@@ -679,7 +679,7 @@
                             oninput="filterTree()">
                         <div id="file-tree-container"></div>
                         <label>SELECTED PATHS (comma sep)</label>
-                        <textarea id="patterns-display" rows="6" readonly></textarea>
+                        <textarea id="patterns-display" rows="6" onchange="updatePatternsDisplay()" oninput="autoSaveProject()"></textarea>
                         <input type="hidden" name="rootDirectory" id="root-path-hidden" required>
                         <input type="hidden" name="includePatterns" id="patterns-input">
                         <input type="hidden" name="iterations" value="1">
@@ -723,7 +723,8 @@
                                 oninput="detailsFilterTree()">
                             <div id="details-file-tree-container"></div>
                             <label>SELECTED PATHS (comma sep)</label>
-                            <textarea id="details-patterns-display" rows="6" readonly></textarea>
+                            <textarea id="details-patterns-display" rows="6"
+                                onchange="updateDetailsPatternsDisplay()" oninput="autoSaveProject()"></textarea>
                             <input type="hidden" name="includePatterns" id="details-patterns-input">
                         </div>
                         <div>
@@ -1030,7 +1031,6 @@
                 if (project.rootDirectory) {
                     document.getElementById('details-root-dir').value = project.rootDirectory;
                     document.getElementById('details-show-selected-only').checked = true;
-                    loadDetailsFileTree();
                 }
             }).catch(err => console.error('Failed to load project details:', err));
         }
@@ -1129,13 +1129,19 @@
         function updateSelectedPatterns() {
             const checkboxes = document.querySelectorAll('#file-tree-container input[type="checkbox"]:checked');
             const patterns = Array.from(checkboxes).map(cb => cb.dataset.path);
-            document.getElementById('patterns-display').value = patterns.join(', ');
+            document.getElementById('patterns-display').value = patterns.join(',');
             document.getElementById('patterns-input').value = patterns.join(',');
+        }
+        function updatePatternsDisplay() {
+            document.getElementById('patterns-input').value = document.getElementById('patterns-display').value
+        }
+        function updateDetailsPatternsDisplay() {
+            document.getElementById('details-patterns-input').value = document.getElementById('details-patterns-display').value
         }
         function detailsUpdateSelectedPatterns() {
             const checkboxes = document.querySelectorAll('#details-file-tree-container input[type="checkbox"]:checked');
             const patterns = Array.from(checkboxes).map(cb => cb.dataset.path);
-            document.getElementById('details-patterns-display').value = patterns.join(', ');
+            document.getElementById('details-patterns-display').value = patterns.join(',');
             document.getElementById('details-patterns-input').value = patterns.join(',');
             if (!currentProjectId) return;
             const form = document.getElementById('project-details-form');
