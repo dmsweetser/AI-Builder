@@ -712,9 +712,13 @@
                         <input type="text" id="tree-search" placeholder="Search files/folders..."
                             oninput="filterTree()">
 
+                        
                         <div id="file-tree-container" style="position: relative;">
                             <div id="file-tree-loading-overlay" class="file-tree-overlay">PROCESSING...</div>
                         </div>
+                        <div id="details-file-tree-container" style="position: relative;"></div>
+                        <div id="details-file-tree-loading-overlay" class="file-tree-overlay">PROCESSING...</div>
+
 
                         <label>SELECTED PATHS (comma sep)</label>
                         <textarea id="patterns-display" rows="6" onchange="updatePatternsDisplay()"
@@ -1187,32 +1191,50 @@
             const formData = new FormData(form);
             fetch(`/api/projects/${currentProjectId}`, { method: 'POST', body: formData }).catch(error => console.error('Auto-save failed:', error));
         }
+        
+        function showTreeOverlay(id) {
+            const overlay = document.getElementById(id + '-loading-overlay');
+            if (overlay) overlay.style.display = 'flex';
+        }
+        function hideTreeOverlay(id) {
+            const overlay = document.getElementById(id + '-loading-overlay');
+            if (overlay) overlay.style.display = 'none';
+        }
         function selectAll() {
+            showTreeOverlay('file-tree');
             document.querySelectorAll('#file-tree-container input[type="checkbox"]').forEach(cb => {
                 if (cb.parentElement.style.display !== 'none') cb.checked = true;
             });
             updateSelectedPatterns();
+            hideTreeOverlay('file-tree');
         }
         function deselectAll() {
+            showTreeOverlay('file-tree');
             document.querySelectorAll('#file-tree-container input[type="checkbox"]').forEach(cb => {
                 if (cb.parentElement.style.display !== 'none') cb.checked = false;
             });
             updateSelectedPatterns();
+            hideTreeOverlay('file-tree');
         }
         function detailsSelectAll() {
+            showTreeOverlay('details-file-tree');
             document.querySelectorAll('#details-file-tree-container input[type="checkbox"]').forEach(cb => {
                 if (cb.parentElement.style.display !== 'none') cb.checked = true;
             });
             detailsUpdateSelectedPatterns();
+            hideTreeOverlay('details-file-tree');
         }
         function detailsDeselectAll() {
+            showTreeOverlay('details-file-tree');
             document.querySelectorAll('#details-file-tree-container input[type="checkbox"]').forEach(cb => {
                 if (cb.parentElement.style.display !== 'none') cb.checked = false;
             });
             detailsUpdateSelectedPatterns();
+            hideTreeOverlay('details-file-tree');
         }
         function filterTree() {
             clearTimeout(filterTreeTimeout);
+            showTreeOverlay('file-tree');
             filterTreeTimeout = setTimeout(() => {
                 const searchTerm = document.getElementById('tree-search').value.toLowerCase();
                 const showSelectedOnly = document.getElementById('show-selected-only-new').checked;
@@ -1224,10 +1246,12 @@
                     const matchesFilter = !showSelectedOnly || isSelected;
                     item.style.display = (matchesSearch && matchesFilter) ? '' : 'none';
                 });
+                hideTreeOverlay('file-tree');
             }, 2000);
         }
         function detailsFilterTree() {
             clearTimeout(detailsFilterTreeTimeout);
+            showTreeOverlay('details-file-tree');
             detailsFilterTreeTimeout = setTimeout(() => {
                 const searchTerm = document.getElementById('details-tree-search').value.toLowerCase();
                 const showSelectedOnly = document.getElementById('details-show-selected-only').checked;
@@ -1239,8 +1263,10 @@
                     const matchesFilter = !showSelectedOnly || isSelected;
                     item.style.display = (matchesSearch && matchesFilter) ? '' : 'none';
                 });
+                hideTreeOverlay('details-file-tree');
             }, 2000);
         }
+
         let autoSaveTimeout = null;
         function autoSaveProject() {
             if (!currentProjectId) return;

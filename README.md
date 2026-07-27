@@ -1,16 +1,17 @@
+
 # AI Builder
 
-AI Builder is a sophisticated tool designed to automate code modifications based on predefined instructions. It processes directories, applies changes to files, and can utilize either a local or cloud-based language model to generate modifications. The tool is highly configurable and provides extensive logging to track changes and errors.
+AI Builder is a sophisticated tool designed to automate code modifications based on predefined instructions. It features a modern web UI for project management, visual file tree selection, and integrated AI chat. The tool processes directories, applies changes to files, and can utilize either a local or cloud-based language model to generate modifications.
 
 ## Features
 
-- **Directory Processing**: Process directories and apply changes to files based on specified patterns.
-- **Environment Configuration**: Use environment variables to configure behavior and settings.
-- **Model Flexibility**: Optionally use a local language model or connect to a cloud-based model for generating modifications.
+- **Web UI Interface**: Manage projects, select files visually, and configure AI instructions through a responsive dashboard.
+- **Environment Configuration**: Use environment variables to configure model endpoints, paths, and execution behavior.
+- **Model Flexibility**: Seamlessly switch between local GGUF models or cloud-based Azure AI Foundry endpoints.
+- **Integrated Chat**: Built-in AI chat interface for iterative prompt refinement and debugging.
 - **Comprehensive Logging**: Detailed logging for tracking changes, errors, and execution flow.
 - **Backup and Restore**: Automatic backup of files before modifications with the ability to restore in case of errors.
 - **Pre and Post Scripts**: Execute custom PowerShell scripts before and after processing.
-- **Configuration Management**: Use XML-based configuration files for easy setup and customization.
 - **Dry Run Mode**: Option to generate changes without applying them, useful for testing and validation.
 
 ## Installation
@@ -41,22 +42,35 @@ AI Builder is a sophisticated tool designed to automate code modifications based
 
 ## Usage
 
-1. **Run the AI Builder**:
+1. **Start the Web UI**:
    ```sh
-   python ai_builder.py
+   python ui.py
    ```
+   Open your browser and navigate to `http://localhost:5000`.
 
-   The tool will process the directories and apply the necessary changes based on the instructions provided in the `instructions.txt` file.
+2. **Create a Project**:
+   - Enter a project name and root directory.
+   - Click **LOAD TREE** to browse and select files/folders.
+   - Use **SELECT ALL** / **DESELECT ALL** to quickly toggle selections.
+   - Provide AI instructions, pre/post scripts, and iteration settings.
+   - Click **CREATE PROJECT**.
 
-2. **Configuration**:
-   The tool uses a `user_config.xml` file for configuration. You can provide a `base_config.xml` file, which will be copied to `user_config.xml` if it exists. Otherwise, a default configuration will be created.
+3. **Run AI Builder**:
+   - Select your project from the dashboard.
+   - Review or modify instructions and scripts.
+   - Click **RUN AI BUILDER** to execute the automation pipeline.
+   - Monitor progress and view logs directly in the UI.
 
-   Example `base_config.xml`:
+4. **Configuration**:
+   Project settings are stored in `aib_instance/projects.json`. The tool automatically reads `base_config.xml` if present, but all core behavior is now managed through the UI and `.env` file.
+
+   Example `base_config.xml` (optional fallback):
    ```xml
    <?xml version="1.0" encoding="UTF-8"?>
    <config>
        <iterations>1</iterations>
        <mode>exclude</mode>
+       <git_diff_command>git diff --name-only</git_diff_command>
        <patterns>
            <pattern>package-lock.json</pattern>
            <pattern>output.txt</pattern>
@@ -75,11 +89,12 @@ AI Builder is a sophisticated tool designed to automate code modifications based
    </config>
    ```
 
-3. **Pre and Post Scripts**:
-   Ensure you have `pre.ps1` and `post.ps1` scripts in the root directory for any pre-processing or post-processing tasks.
+5. **Pre and Post Scripts**:
+   Ensure you have `pre.ps1` and `post.ps1` scripts in the root directory for any pre-processing or post-processing tasks. These can be configured per-project in the UI.
 
-4. **Instructions File**:
-   Provide an `instructions.txt` file with the desired modifications and instructions for the AI Builder.
+6. **Instructions File**:
+   Instructions are now entered directly in the project details panel. The legacy `instructions.txt` file is no longer required for UI mode.
+
 
 ## Environment Variables
 
