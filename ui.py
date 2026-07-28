@@ -8,7 +8,7 @@ import queue
 import threading
 import shutil
 from datetime import datetime
-from flask import Flask, Response, request, jsonify, render_template
+from flask import Flask, Response, request, jsonify, render_template, send_from_directory
 
 from ai_builder import AIBuilder
 from config import Config
@@ -498,6 +498,11 @@ def api_auto_chat():
             json.dump({"id": chat_id, "messages": []}, f)
         return jsonify({"created": True, "id": chat_id})
     return jsonify({"created": False, "id": chats[-1]})
+
+@app.route('/favicon.ico')
+def favicon():
+    return send_from_directory(os.path.join(app.root_path, 'static'),
+                               'favicon.ico', mimetype='image/vnd.microsoft.icon')
 
 if __name__ == "__main__":
     app.run(port=5000, debug=True, threaded=True)
