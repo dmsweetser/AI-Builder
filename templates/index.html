@@ -966,7 +966,7 @@
                         const jobId = data.job_id;
                         activeJobs[jobId] = { projectId, status: data.status };
                         saveActiveJobs();
-                        const intervalId = setInterval(() => pollJobStatus(jobId, intervalId), 1000);
+                        const intervalId = setInterval(() => pollJobStatus(jobId, intervalId), 5000);
                         activeJobs[jobId].intervalId = intervalId;
                     }
                 })
@@ -1163,6 +1163,7 @@
         }
 
         // Load projects
+        
         function loadProjects() {
             fetch('/api/projects')
                 .then(response => response.json())
@@ -1183,14 +1184,17 @@
                         projectItem.onclick = () => selectProject(project.id);
 
                         const isRunning = Object.values(activeJobs).some(j => j.projectId === project.id);
+                        const btnText = isRunning ? '<span class="spinner"></span> Running...' : 'Run';
+                        const btnDisabled = isRunning ? 'disabled' : '';
+
                         projectItem.innerHTML = `
                             <div class="project-item-header">
                                 <span class="project-item-name">${project.name || 'Untitled'}</span>
                                 <div class="project-item-actions">
                                     <button class="btn-sm" id="run-btn-${project.id}"
                                         onclick="event.stopPropagation(); runProject('${project.id}')"
-                                        ${isRunning ? 'disabled' : ''}>
-                                        ${isRunning ? '<span class="spinner"></span> Running...' : 'Run'}
+                                        ${btnDisabled}>
+                                        ${btnText}
                                     </button>
                                     <button class="btn-sm delete"
                                         onclick="event.stopPropagation(); deleteProject('${project.id}')">Del</button>
@@ -1203,6 +1207,7 @@
                 })
                 .catch(err => console.error('Failed to load projects:', err));
         }
+
 
         // Select project
         function selectProject(projectId) {
@@ -1562,7 +1567,7 @@
         // Update run button state
         function updateRunButtonState(projectId, isLoading) {
             const btn = document.querySelector(`#proj-${projectId} .btn-sm:not(.delete)`);
-            const detailBtn = document.getElementById('details-run-btn');
+            const detailBtn = document.getElementById(`details-run-btn`);
             const listBtn = document.getElementById(`run-btn-${projectId}`);
 
             if (btn) {
@@ -1763,6 +1768,7 @@
         }
 
         // Load history
+        
         function loadHistory() {
             fetch('/api/history')
                 .then(response => response.json())
@@ -1777,11 +1783,23 @@
                     history.forEach(item => {
                         const historyItem = document.createElement('div');
                         historyItem.className = 'history-item';
+                        historyItem.style.cursor = 'pointer';
                         historyItem.innerHTML = `
                             <strong>${item.project_name || 'Unknown Project'}</strong><br>
                             <span style="color: #ccc;">${new Date(item.timestamp).toLocaleString()}</span><br>
                             <span style="color: #aaa;">Status: ${item.status}</span>
+                            <div class="history-details" style="display:none; margin-top:8px; padding:8px; background:#2a2a2a; border:1px solid #555; font-size:11px;">
+                                <div><strong>Job ID:</strong> ${item.job_id}</div>
+                                <div><strong>Project ID:</strong> ${item.project_id}</div>
+                                <div><strong>Instructions:</strong> ${item.instructions}</div>
+                                ${item.error ? `<div style="color:#f55;"><strong>Error:</strong> ${item.error}</div>` : ''}
+                                ${item.end_timestamp ? `<div><strong>Ended:</strong> ${new Date(item.end_timestamp).toLocaleString()}</div>` : ''}
+                            </div>
                         `;
+                        historyItem.onclick = function() {
+                            const details = this.querySelector('.history-details');
+                            details.style.display = details.style.display === 'none' ? 'block' : 'none';
+                        };
                         historyList.appendChild(historyItem);
                     });
                 })
@@ -1790,6 +1808,7 @@
                     document.getElementById('history-list').innerHTML = '<div class="note">Failed to load history.</div>';
                 });
         }
+
 
         // Initialize
         document.addEventListener('DOMContentLoaded', () => {
@@ -1819,7 +1838,7 @@
 
             // Restore active jobs polling
             for (const [jobId, job] of Object.entries(activeJobs)) {
-                const intervalId = setInterval(() => pollJobStatus(jobId, intervalId), 1000);
+                const intervalId = setInterval(() => pollJobStatus(jobId, intervalId), 5000);
                 activeJobs[jobId].intervalId = intervalId;
             }
         });

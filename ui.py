@@ -63,6 +63,7 @@ def save_job_history():
 load_run_status()
 load_job_history()
 
+
 def worker():
     while True:
         job = run_queue.get()
@@ -78,7 +79,7 @@ def worker():
             "project_id": pid,
             "project_name": project.get("name", "Unknown") if project else "Unknown",
             "status": "running",
-            "project_data": project,
+            "instructions": project.get("instructions", ""),
             "timestamp": datetime.now().isoformat()
         })
         save_job_history()
@@ -94,6 +95,26 @@ def worker():
                         item["status"] = "completed"
                         item["end_timestamp"] = datetime.now().isoformat()
                         break
+                # Auto-add newly created/modified files to project patterns
+                root_dir = project.get("rootDirectory", "")
+                if root_dir and os.path.isdir(root_dir):
+                    old_patterns = [p.strip() for p in project.get("includePatterns", "").split(",") if p.strip()]
+                    new_patterns = []
+                    for root, dirs, files in os.walk(root_dir):
+                        for f in files:
+                            rel_path = os.path.relpath(os.path.join(root, f), root_dir)
+                            if rel_path not in old_patterns:
+                                new_patterns.append(rel_path)
+                    if new_patterns:
+                        existing_patterns = project.get("includePatterns", "")
+                        combined = existing_patterns + ("," if existing_patterns else "") + ",".join(new_patterns)
+                        project["includePatterns"] = combined
+                        projects = load_projects()
+                        for i, p in enumerate(projects):
+                            if p["id"] == pid:
+                                projects[i] = project
+                                break
+                        save_projects(projects)
             except Exception as e:
                 run_status[job_id] = {'status': 'error', 'message': str(e), 'project_id': pid}
                 # Update history
@@ -117,6 +138,7 @@ def worker():
         save_job_history()
         run_queue.task_done()
         time.sleep(3)
+
 
 threading.Thread(target=worker, daemon=True).start()
 
@@ -300,7 +322,8 @@ def api_files():
 
 @app.route("/api/history", methods=["GET"])
 def api_get_history():
-    return jsonify(job_history)
+    current_job_history = sorted(job_history, key=lambda x: x["timestamp"], reverse=True)
+    return jsonify(current_job_history)
 
 # ---------- Chat Routes ----------
 @app.route("/api/chats", methods=["GET"])

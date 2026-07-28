@@ -170,6 +170,7 @@ class FileModifier:
             logging.error(f"Error applying modifications: {e}")
             raise
 
+    
     @staticmethod
     def _apply_action(filepath: str, action: Dict[str, Any]) -> bool:
         try:
@@ -178,8 +179,9 @@ class FileModifier:
                 os.makedirs(os.path.dirname(filepath), exist_ok=True)
 
             if action_type == 'create_file':
+                content_to_write = FileParser._safe_join(action['file_content']).strip()
                 with open(filepath, 'w', encoding='utf-8') as f:
-                    f.write(FileParser._safe_join(action['file_content']))
+                    f.write(content_to_write)
                 logging.info(f"Created/Replaced: {filepath}")
                 return True
             elif action_type == 'remove_file':
@@ -195,8 +197,9 @@ class FileModifier:
                     dir_path = os.path.dirname(filepath)
                     if dir_path:
                         os.makedirs(dir_path, exist_ok=True)
+                    content_to_write = FileParser._safe_join(action['file_content']).strip()
                     with open(filepath, 'w', encoding='utf-8') as f:
-                        f.write(FileParser._safe_join(action['file_content']))
+                        f.write(content_to_write)
                     logging.info(f"Replaced entire content of: {filepath}")
                     return True
                 except Exception as e:
@@ -209,12 +212,14 @@ class FileModifier:
             logging.error(f"Error applying action: {e}")
             raise
 
+
+    
     @staticmethod
     def _replace_section(filepath: str, original_content: str, new_content: List[str]) -> bool:
         try:
             with open(filepath, 'r', encoding='utf-8') as f:
                 content = f.read()
-            new_section_str = FileParser._safe_join(new_content)
+            new_section_str = FileParser._safe_join(new_content).strip()
             normalized_original = original_content.replace(f"{chr(13)}{chr(10)}", f"{chr(10)}").strip()
             normalized_content = content.replace(f"{chr(13)}{chr(10)}", f"{chr(10)}")
             match_original = f"{chr(10)}".join([line.strip() for line in normalized_original.split(f"{chr(10)}") if line.strip()])
@@ -231,6 +236,7 @@ class FileModifier:
         except Exception as e:
             logging.error(f"Error replacing section: {e}")
             raise
+
 
 class ActionManager:
     @staticmethod
