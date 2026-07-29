@@ -165,6 +165,14 @@
             background: #a03030;
         }
 
+        .btn-sm.archive {
+            background: #808000;
+        }
+
+        .btn-sm.stop {
+            background: #a03030;
+        }
+
         .btn-sm:hover {
             transform: translate(-1px, -1px);
             box-shadow: 2px 2px 0px #000;
@@ -683,6 +691,27 @@
         .history-item:hover {
             background: #4a4a4a;
         }
+
+        .drop-zone {
+            border: 2px dashed #555;
+            padding: 10px;
+            margin: 10px 0;
+            text-align: center;
+            font-size: 12px;
+            color: #888;
+        }
+
+        .drop-zone.highlight {
+            border-color: var(--grass);
+            background: rgba(92, 138, 59, 0.1);
+        }
+
+        .archived-toggle {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 10px;
+        }
     </style>
 </head>
 
@@ -701,19 +730,24 @@
         </aside>
         <main class="main-content">
             <div id="projects-panel" class="panel active">
-                <div class="sidebar-section">
+                <div class="block">
+                    <div class="archived-toggle">
+                        <input type="checkbox" id="show-archived" onchange="loadProjects()">
+                        <label for="show-archived" style="font-size: 12px; margin: 0;">SHOW ARCHIVED</label>
+                    </div>
                     <h2>PROJECT LIST</h2>
                     <div class="project-list" id="project-list">
                         <div class="note">LOADING PROJECTS...</div>
                     </div>
                 </div>
-                <div class="sidebar-section">
+                <div class="block">
                     <h2>ADD PROJECT</h2>
                     <form id="add-project-form">
                         <label>PROJECT NAME</label>
                         <input name="name" id="add-project-name" required placeholder="My Cool Project">
                         <label>ROOT DIRECTORY (OPTIONAL IF ALL SELECTED FILE PATHS ARE ABSOLUTE)</label>
-                        <input type="text" id="root-path" placeholder="e.g., /home/user/project">
+                        <input type="text" id="root-path" placeholder="e.g., /home/user/project"
+                            onchange="confirmRootPathChange()">
                         <div class="selector-controls">
                             <button type="button" id="load-tree-btn" onclick="loadFileTree()">
                                 <span id="load-tree-text">LOAD TREE</span>
@@ -733,13 +767,14 @@
                                 <span style="font-size: 11px;">SHOW SELECTED ONLY</span>
                             </label>
                         </div>
+                        <div class="drop-zone" id="patterns-drop-zone">
+                            DRAG & DROP FILES HERE TO ADD THEIR PATHS
+                        </div>
                         <input type="text" id="tree-search" placeholder="Search files/folders..."
                             oninput="filterTree()">
                         <div id="file-tree-container" style="position: relative;">
                             <div id="file-tree-loading-overlay" class="file-tree-overlay">PROCESSING...</div>
                         </div>
-                        <div id="details-file-tree-container" style="position: relative;"></div>
-                        <div id="details-file-tree-loading-overlay" class="file-tree-overlay">PROCESSING...</div>
                         <label>SELECTED PATHS (comma sep)</label>
                         <textarea id="patterns-display" rows="6" onchange="updatePatternsDisplay()"
                             oninput="autoSaveProject()"></textarea>
@@ -759,7 +794,7 @@
                         <input type="hidden" name="id" id="run-project-id">
                         <div>
                             <label>1. PROJECT LOCATION (OPTIONAL IF ALL SELECTED FILE PATHS ARE ABSOLUTE)</label>
-                            <input name="rootDirectory" id="details-root-dir">
+                            <input name="rootDirectory" id="details-root-dir" onchange="confirmDetailsRootPathChange()">
                         </div>
                         <div style="margin-top: 15px;">
                             <label>2. INCLUDED FILES/FOLDERS</label>
@@ -781,6 +816,9 @@
                                         onchange="detailsFilterTree()">
                                     <span style="font-size: 11px;">SHOW SELECTED ONLY</span>
                                 </label>
+                            </div>
+                            <div class="drop-zone" id="details-patterns-drop-zone">
+                                DRAG & DROP FILES HERE TO ADD THEIR PATHS
                             </div>
                             <input type="text" id="details-tree-search" placeholder="Search files/folders..."
                                 oninput="detailsFilterTree()">
@@ -812,6 +850,9 @@
                             <button type="button" id="details-run-btn"
                                 onclick="runProject(document.getElementById('run-project-id').value)"
                                 style="flex: 3;">RUN AI BUILDER</button>
+                            <button type="button" id="details-stop-btn"
+                                onclick="stopProject(document.getElementById('run-project-id').value)"
+                                style="flex: 1; background:#a03030; display: none;">STOP</button>
                             <button type="button"
                                 onclick="deleteProject(document.getElementById('run-project-id').value)"
                                 style="flex: 1; background:#a03030;">DELETE PROJECT</button>
@@ -830,11 +871,15 @@
                         <button type="button" onclick="newChat()" class="btn-sm" style="flex:1">+ NEW CHAT</button>
                     </div>
                     <div id="chat-list"></div>
-                    <div id="chat-log"></div>
-                    <div class="chat-controls">
+                    <div id="chat-log" style="display: none;">
+                        <div class="note">SELECT A CHAT TO BEGIN</div>
+                    </div>
+                    <div class="chat-controls" style="display: none;" id="chat-controls-container">
                         <textarea id="chat-input" placeholder="Type your message..."
-                            onkeydown="if(event.key==='Enter' && !event.shiftKey) { event.preventDefault(); sendChat(); }"></textarea>
-                        <button type="button" onclick="sendChat()" class="btn-sm">SEND</button>
+                            onkeydown="if(event.key==='Enter' && !event.shiftKey) { event.preventDefault(); sendChat(); }"
+                            disabled></textarea>
+                        <button type="button" onclick="sendChat()" class="btn-sm" id="send-chat-btn"
+                            disabled>SEND</button>
                     </div>
                 </div>
             </div>
@@ -860,7 +905,19 @@
             </div>
         </div>
     </div>
+    <div id="confirm-clear-modal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <h2>CLEAR SELECTED PATHS?</h2>
+            <p>Changing the root directory will clear the selected paths. Do you want to proceed?</p>
+            <div style="display:flex; gap:10px; margin-top:15px;">
+                <button onclick="confirmClearPaths(true)" class="btn-sm" style="background:#a03030; flex:1;">CLEAR
+                    PATHS</button>
+                <button onclick="confirmClearPaths(false)" class="btn-sm" style="flex:1;">KEEP PATHS</button>
+            </div>
+        </div>
+    </div>
     <script>
+        // Global state
         let currentProjectId = localStorage.getItem('currentProjectId');
         let currentChatId = localStorage.getItem('currentChatId');
         let fileTreeData = [];
@@ -873,7 +930,9 @@
         let unifiedQueue = [];
         let isProcessingQueue = false;
         let currentTask = null;
-        const activeJobs = {};
+        let activeJobs = {};
+        let projectRunStates = {}; // Track run state per project
+        let pendingRootPathChange = null;
 
         // Load run status from localStorage
         function load_run_status() {
@@ -1104,7 +1163,10 @@
                 if (currentChatId === chatId) {
                     currentChatId = null;
                     localStorage.removeItem('currentChatId');
-                    newChat();
+                    const chatLog = document.getElementById('chat-log');
+                    chatLog.innerHTML = '<div class="note">SELECT A CHAT TO BEGIN</div>';
+                    chatLog.style.display = 'none';
+                    document.getElementById('chat-controls-container').style.display = 'none';
                 }
                 loadChats();
             });
@@ -1165,8 +1227,8 @@
         }
 
         // Load projects
-        
         function loadProjects() {
+            const showArchived = document.getElementById('show-archived').checked;
             fetch('/api/projects')
                 .then(response => response.json())
                 .then(data => {
@@ -1179,15 +1241,26 @@
                         return;
                     }
 
-                    data.forEach(project => {
+                    // Filter projects based on archived status
+                    const filteredProjects = showArchived ? data : data.filter(p => !p.isArchived);
+
+                    if (filteredProjects.length === 0) {
+                        projectList.innerHTML = '<div class="note">NO PROJECTS FOUND.<br>ADD ONE BELOW.</div>';
+                        return;
+                    }
+
+                    filteredProjects.forEach(project => {
                         const projectItem = document.createElement('div');
                         projectItem.className = 'project-item';
                         projectItem.id = `proj-${project.id}`;
                         projectItem.onclick = () => selectProject(project.id);
 
-                        const isRunning = Object.values(activeJobs).some(j => j.projectId === project.id);
+                        const isRunning = projectRunStates[project.id] || Object.values(activeJobs).some(j => j.projectId === project.id);
                         const btnText = isRunning ? '<span class="spinner"></span> Running...' : 'Run';
                         const btnDisabled = isRunning ? 'disabled' : '';
+
+                        const archiveBtnText = project.isArchived ? 'UNARCHIVE' : 'ARCHIVE';
+                        const archiveBtnAction = project.isArchived ? `unarchiveProject('${project.id}')` : `archiveProject('${project.id}')`;
 
                         projectItem.innerHTML = `
                             <div class="project-item-header">
@@ -1197,6 +1270,15 @@
                                         onclick="event.stopPropagation(); runProject('${project.id}')"
                                         ${btnDisabled}>
                                         ${btnText}
+                                    </button>
+                                    <button class="btn-sm stop" id="stop-btn-${project.id}"
+                                        onclick="event.stopPropagation(); stopProject('${project.id}')"
+                                        style="display: ${isRunning ? 'inline-block' : 'none'};">
+                                        STOP
+                                    </button>
+                                    <button class="btn-sm archive"
+                                        onclick="event.stopPropagation(); ${archiveBtnAction}">
+                                        ${archiveBtnText}
                                     </button>
                                     <button class="btn-sm delete"
                                         onclick="event.stopPropagation(); deleteProject('${project.id}')">Del</button>
@@ -1210,6 +1292,30 @@
                 .catch(err => console.error('Failed to load projects:', err));
         }
 
+        // Archive project
+        function archiveProject(projectId) {
+            fetch(`/api/projects/${projectId}/archive`, { method: 'POST' })
+                .then(() => loadProjects())
+                .catch(err => console.error('Failed to archive project:', err));
+        }
+
+        // Unarchive project
+        function unarchiveProject(projectId) {
+            fetch(`/api/projects/${projectId}/unarchive`, { method: 'POST' })
+                .then(() => loadProjects())
+                .catch(err => console.error('Failed to unarchive project:', err));
+        }
+
+        // Stop project
+        function stopProject(projectId) {
+            fetch(`/api/projects/${projectId}/stop`, { method: 'POST' })
+                .then(() => {
+                    projectRunStates[projectId] = false;
+                    updateRunButtonState(projectId, false);
+                    loadProjects();
+                })
+                .catch(err => console.error('Failed to stop project:', err));
+        }
 
         // Select project
         function selectProject(projectId) {
@@ -1249,10 +1355,17 @@
                     const statusEl = document.getElementById('run-status');
                     if (statusEl) statusEl.textContent = '';
 
+                    // Set up drag and drop for details
+                    setupDetailsDragAndDrop();
+
                     if (project.rootDirectory) {
                         document.getElementById('details-root-dir').value = project.rootDirectory;
                         document.getElementById('details-show-selected-only').checked = true;
                     }
+
+                    // Update run/stop button visibility
+                    const isRunning = projectRunStates[projectId] || Object.values(activeJobs).some(j => j.projectId === projectId);
+                    updateRunButtonState(projectId, isRunning);
                 })
                 .catch(err => console.error('Failed to load project details:', err));
         }
@@ -1283,7 +1396,10 @@
             loadTreeSpinner.style.display = 'inline-block';
             container.innerHTML = '<span class="spinner" style="display:inline-block; margin:10px;"></span><span style="margin-left: 10px;">Loading files...</span>';
 
-            fetch(`/api/files?path=${encodeURIComponent(rootPath)}`)
+            // Use relative path if provided, otherwise use absolute
+            const pathToUse = rootPath.startsWith('/') || rootPath.match(/^[a-zA-Z]:\\/) ? rootPath : `./${rootPath}`;
+
+            fetch(`/api/files?path=${encodeURIComponent(pathToUse)}`)
                 .then(response => response.json())
                 .then(paths => {
                     container.innerHTML = '';
@@ -1350,7 +1466,10 @@
             loadTreeSpinner.style.display = 'inline-block';
             container.innerHTML = '<span class="spinner" style="display:inline-block; margin:10px;"></span><span style="margin-left: 10px;">Loading files...</span>';
 
-            fetch(`/api/files?path=${encodeURIComponent(rootPath)}`)
+            // Use relative path if provided, otherwise use absolute
+            const pathToUse = rootPath.startsWith('/') || rootPath.match(/^[a-zA-Z]:\\/) ? rootPath : `./${rootPath}`;
+
+            fetch(`/api/files?path=${encodeURIComponent(pathToUse)}`)
                 .then(response => response.json())
                 .then(paths => {
                     container.innerHTML = '';
@@ -1568,21 +1687,28 @@
 
         // Update run button state
         function updateRunButtonState(projectId, isLoading) {
-            const btn = document.querySelector(`#proj-${projectId} .btn-sm:not(.delete)`);
-            const detailBtn = document.getElementById(`details-run-btn`);
-            const listBtn = document.getElementById(`run-btn-${projectId}`);
+            projectRunStates[projectId] = isLoading;
 
-            if (btn) {
-                btn.disabled = isLoading;
-                btn.innerHTML = isLoading ? '<span class="spinner"></span> Running...' : 'Run';
-            }
-            if (detailBtn) {
-                detailBtn.disabled = isLoading;
-                detailBtn.innerHTML = isLoading ? '<span class="run-spinner"></span> Running...' : 'RUN AI BUILDER';
-            }
+            // Update project list button
+            const listBtn = document.getElementById(`run-btn-${projectId}`);
+            const stopListBtn = document.getElementById(`stop-btn-${projectId}`);
             if (listBtn) {
                 listBtn.disabled = isLoading;
                 listBtn.innerHTML = isLoading ? '<span class="spinner"></span> Running...' : 'Run';
+            }
+            if (stopListBtn) {
+                stopListBtn.style.display = isLoading ? 'inline-block' : 'none';
+            }
+
+            // Update details panel buttons
+            const detailBtn = document.getElementById('details-run-btn');
+            const detailStopBtn = document.getElementById('details-stop-btn');
+            if (detailBtn && currentProjectId === projectId) {
+                detailBtn.disabled = isLoading;
+                detailBtn.innerHTML = isLoading ? '<span class="run-spinner"></span> Running...' : 'RUN AI BUILDER';
+            }
+            if (detailStopBtn && currentProjectId === projectId) {
+                detailStopBtn.style.display = isLoading ? 'inline-block' : 'none';
             }
         }
 
@@ -1598,7 +1724,7 @@
                     updateStatusDisplay();
                     saveActiveJobs();
 
-                    if (status.status === 'completed' || status.status === 'error') {
+                    if (status.status === 'completed' || status.status === 'error' || status.status === 'stopped') {
                         clearInterval(intervalId);
                         delete activeJobs[jobId];
                         updateRunButtonState(job.projectId, false);
@@ -1679,19 +1805,34 @@
             fetch('/api/chats')
                 .then(response => response.json())
                 .then(chats => {
+                    // Sort chats by timestamp (newest first)
+                    const sortedChats = chats.sort((a, b) => {
+                        const timeA = a.timestamp || a.id;
+                        const timeB = b.timestamp || b.id;
+                        return new Date(timeB) - new Date(timeA);
+                    });
+
                     const chatList = document.getElementById('chat-list');
                     chatList.innerHTML = '';
-                    if (chats.length === 0) {
+                    if (sortedChats.length === 0) {
                         chatList.innerHTML = '<div class="note">NO CHATS FOUND.<br>START A NEW ONE BELOW.</div>';
                         return;
                     }
 
-                    chats.forEach(chat => {
+                    sortedChats.forEach(chat => {
                         const chatItem = document.createElement('div');
                         chatItem.className = 'chat-item';
                         chatItem.dataset.chatId = chat.id;
                         chatItem.onclick = () => selectChat(chat.id);
-                        chatItem.innerHTML = `<span>${chat.title || 'Unnamed Chat'}</span><button class="btn-xs chat-delete" onclick="event.stopPropagation(); deleteChat('${chat.id}')">X</button>`;
+
+                        // Format title with timestamp if available
+                        let displayTitle = chat.title || 'Unnamed Chat';
+                        if (chat.timestamp) {
+                            const date = new Date(chat.timestamp);
+                            displayTitle = `${date.toLocaleString()} - ${displayTitle}`;
+                        }
+
+                        chatItem.innerHTML = `<span>${displayTitle}</span><button class="btn-xs chat-delete" onclick="event.stopPropagation(); deleteChat('${chat.id}')">X</button>`;
                         chatList.appendChild(chatItem);
                     });
 
@@ -1704,7 +1845,11 @@
 
         // New chat
         function newChat() {
-            return fetch('/api/chats', { method: 'POST' })
+            return fetch('/api/chats', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ timestamp: new Date().toISOString() })
+            })
                 .then(response => {
                     if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
                     return response.json();
@@ -1724,19 +1869,29 @@
 
         // Select chat
         function selectChat(chatId) {
+            currentChatId = chatId;
+            localStorage.setItem('currentChatId', chatId);
+
             fetch(`/api/chats/${chatId}`)
                 .then(response => {
                     if (!response.ok) return newChat().then(() => selectChat(currentChatId));
                     return response.json();
                 })
                 .then(chat => {
-                    currentChatId = chatId;
-                    localStorage.setItem('currentChatId', chatId);
                     document.querySelectorAll('.chat-item').forEach(item => item.classList.remove('active'));
                     const selectedItem = document.querySelector(`.chat-item[data-chat-id="${chatId}"]`);
                     if (selectedItem) selectedItem.classList.add('active');
 
                     const chatLog = document.getElementById('chat-log');
+                    const chatControls = document.getElementById('chat-controls-container');
+                    const chatInput = document.getElementById('chat-input');
+                    const sendBtn = document.getElementById('send-chat-btn');
+
+                    chatLog.style.display = 'block';
+                    chatControls.style.display = 'flex';
+                    chatInput.disabled = false;
+                    sendBtn.disabled = false;
+
                     chatLog.innerHTML = '';
                     if (!chat.messages || chat.messages.length === 0) {
                         chatLog.innerHTML = '<div class="note">No messages yet. Start a conversation!</div>';
@@ -1770,7 +1925,6 @@
         }
 
         // Load history
-        
         function loadHistory() {
             fetch('/api/history')
                 .then(response => response.json())
@@ -1798,7 +1952,7 @@
                                 ${item.end_timestamp ? `<div><strong>Ended:</strong> ${new Date(item.end_timestamp).toLocaleString()}</div>` : ''}
                             </div>
                         `;
-                        historyItem.onclick = function() {
+                        historyItem.onclick = function () {
                             const details = this.querySelector('.history-details');
                             details.style.display = details.style.display === 'none' ? 'block' : 'none';
                         };
@@ -1811,9 +1965,157 @@
                 });
         }
 
+        // Confirm before clearing selected paths when changing root directory
+        function confirmRootPathChange() {
+            const newRootPath = document.getElementById('root-path').value;
+            const patternsDisplay = document.getElementById('patterns-display').value.trim();
+
+            if (patternsDisplay && newRootPath !== pendingRootPathChange) {
+                pendingRootPathChange = newRootPath;
+                document.getElementById('confirm-clear-modal').style.display = 'flex';
+                // Revert the change temporarily until user confirms
+                document.getElementById('root-path').value = '';
+            }
+        }
+
+        // Confirm before clearing selected paths when changing details root directory
+        function confirmDetailsRootPathChange() {
+            const newRootPath = document.getElementById('details-root-dir').value;
+            const patternsDisplay = document.getElementById('details-patterns-display').value.trim();
+
+            if (patternsDisplay && newRootPath !== pendingRootPathChange) {
+                pendingRootPathChange = newRootPath;
+                document.getElementById('confirm-clear-modal').style.display = 'flex';
+                // Revert the change temporarily until user confirms
+                document.getElementById('details-root-dir').value = '';
+            }
+        }
+
+        // Handle confirmation for clearing paths
+        function confirmClearPaths(shouldClear) {
+            document.getElementById('confirm-clear-modal').style.display = 'none';
+
+            if (shouldClear) {
+                // Clear the patterns display
+                const patternsDisplay = document.getElementById('patterns-display');
+                const detailsPatternsDisplay = document.getElementById('details-patterns-display');
+                if (patternsDisplay) patternsDisplay.value = '';
+                if (detailsPatternsDisplay) detailsPatternsDisplay.value = '';
+
+                // Update the hidden inputs
+                document.getElementById('patterns-input').value = '';
+                document.getElementById('details-patterns-input').value = '';
+
+                // Restore the new root path
+                if (pendingRootPathChange) {
+                    const rootPathInput = document.getElementById('root-path');
+                    const detailsRootPathInput = document.getElementById('details-root-dir');
+                    if (rootPathInput.value === '') rootPathInput.value = pendingRootPathChange;
+                    if (detailsRootPathInput.value === '') detailsRootPathInput.value = pendingRootPathChange;
+                }
+            } else {
+                // Revert the root path change
+                const rootPathInput = document.getElementById('root-path');
+                const detailsRootPathInput = document.getElementById('details-root-dir');
+                if (rootPathInput.value === '') rootPathInput.value = '';
+                if (detailsRootPathInput.value === '') detailsRootPathInput.value = '';
+            }
+
+            pendingRootPathChange = null;
+        }
+
+        // Set up drag and drop for patterns
+        function setupDragAndDrop() {
+            const dropZone = document.getElementById('patterns-drop-zone');
+            const textarea = document.getElementById('patterns-display');
+
+            if (!dropZone || !textarea) return;
+
+            dropZone.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                dropZone.classList.add('highlight');
+            });
+
+            dropZone.addEventListener('dragleave', () => {
+                dropZone.classList.remove('highlight');
+            });
+
+            dropZone.addEventListener('drop', (e) => {
+                e.preventDefault();
+                dropZone.classList.remove('highlight');
+
+                const items = e.dataTransfer.items;
+                let paths = [];
+
+                for (let i = 0; i < items.length; i++) {
+                    const item = items[i];
+                    if (item.kind === 'file') {
+                        const file = item.getAsFile();
+                        paths.push(file.path || file.name);
+                    }
+                }
+
+                if (paths.length > 0) {
+                    const currentValue = textarea.value;
+                    const newPaths = paths.join(',');
+                    textarea.value = currentValue ? `${currentValue},${newPaths}` : newPaths;
+                    updatePatternsDisplay();
+                }
+            });
+        }
+
+        // Set up drag and drop for details patterns
+        function setupDetailsDragAndDrop() {
+            const dropZone = document.getElementById('details-patterns-drop-zone');
+            const textarea = document.getElementById('details-patterns-display');
+
+            if (!dropZone || !textarea) return;
+
+            dropZone.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                dropZone.classList.add('highlight');
+            });
+
+            dropZone.addEventListener('dragleave', () => {
+                dropZone.classList.remove('highlight');
+            });
+
+            dropZone.addEventListener('drop', (e) => {
+                e.preventDefault();
+                dropZone.classList.remove('highlight');
+
+                const items = e.dataTransfer.items;
+                let paths = [];
+
+                for (let i = 0; i < items.length; i++) {
+                    const item = items[i];
+                    if (item.kind === 'file') {
+                        const file = item.getAsFile();
+                        // Get relative path if root directory is set
+                        const rootDir = document.getElementById('details-root-dir').value;
+                        if (file.path && rootDir) {
+                            // This is a simplified approach - in a real Electron app, you'd use path.relative
+                            paths.push(file.path.replace(rootDir, '').replace(/^[\\/]/, ''));
+                        } else {
+                            paths.push(file.path || file.name);
+                        }
+                    }
+                }
+
+                if (paths.length > 0) {
+                    const currentValue = textarea.value;
+                    const newPaths = paths.join(',');
+                    textarea.value = currentValue ? `${currentValue},${newPaths}` : newPaths;
+                    updateDetailsPatternsDisplay();
+                }
+            });
+        }
 
         // Initialize
         document.addEventListener('DOMContentLoaded', () => {
+            // Set up drag and drop for add project form
+            setupDragAndDrop();
+
             loadProjects();
             if (currentChatId) {
                 fetch(`/api/chats/${currentChatId}`)

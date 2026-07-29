@@ -23,6 +23,7 @@ HISTORY_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aib_ins
 run_queue = queue.Queue()
 run_status = {}
 job_history = []
+active_jobs = {}  # Track active jobs for stopping
 
 def load_run_status():
     global run_status
@@ -63,13 +64,15 @@ def save_job_history():
 load_run_status()
 load_job_history()
 
-
 def worker():
     while True:
         job = run_queue.get()
+        if job is None:
+            break
         pid = job['pid']
         job_id = job['job_id']
         run_status[job_id] = {'status': 'running', 'project_id': pid}
+        active_jobs[job_id] = {'pid': pid, 'status': 'running'}
         save_run_status()
 
         # Record job start in history
@@ -89,6 +92,8 @@ def worker():
                 ai = AIBuilder(project)
                 ai.run()
                 run_status[job_id] = {'status': 'completed', 'project_id': pid}
+                if job_id in active_jobs:
+                    active_jobs[job_id]['status'] = 'completed'
                 # Update history
                 for item in job_history:
                     if item["job_id"] == job_id:
@@ -117,6 +122,8 @@ def worker():
                         save_projects(projects)
             except Exception as e:
                 run_status[job_id] = {'status': 'error', 'message': str(e), 'project_id': pid}
+                if job_id in active_jobs:
+                    active_jobs[job_id]['status'] = 'error'
                 # Update history
                 for item in job_history:
                     if item["job_id"] == job_id:
@@ -126,6 +133,8 @@ def worker():
                         break
         else:
             run_status[job_id] = {'status': 'error', 'message': 'Project not found', 'project_id': pid}
+            if job_id in active_jobs:
+                active_jobs[job_id]['status'] = 'error'
             # Update history
             for item in job_history:
                 if item["job_id"] == job_id:
@@ -136,9 +145,10 @@ def worker():
 
         save_run_status()
         save_job_history()
+        if job_id in active_jobs:
+            del active_jobs[job_id]
         run_queue.task_done()
         time.sleep(3)
-
 
 threading.Thread(target=worker, daemon=True).start()
 
@@ -202,7 +212,8 @@ def api_create_project():
         "instructions": request.form.get("instructions", ""),
         "preScript": request.form.get("preScript", ""),
         "postScript": request.form.get("postScript", ""),
-        "mode": request.form.get("mode", "include")
+        "mode": request.form.get("mode", "include"),
+        "isArchived": False  # Default to not archived
     }
 
     projects.append(project)
@@ -229,6 +240,26 @@ def api_update_project(pid):
 
     save_projects(projects)
     return jsonify({"status": "saved", "project": project})
+
+@app.route("/api/projects/<pid>/archive", methods=["POST"])
+def api_archive_project(pid):
+    projects = load_projects()
+    for project in projects:
+        if project["id"] == pid:
+            project["isArchived"] = True
+            break
+    save_projects(projects)
+    return jsonify({"status": "archived"})
+
+@app.route("/api/projects/<pid>/unarchive", methods=["POST"])
+def api_unarchive_project(pid):
+    projects = load_projects()
+    for project in projects:
+        if project["id"] == pid:
+            project["isArchived"] = False
+            break
+    save_projects(projects)
+    return jsonify({"status": "unarchived"})
 
 @app.route("/api/projects/<pid>/run", methods=["POST"])
 def api_run_project(pid):
@@ -272,9 +303,31 @@ def api_run_project(pid):
     # Queue the job
     job_id = str(uuid.uuid4())
     run_status[job_id] = {'status': 'queued', 'project_id': pid}
+    active_jobs[job_id] = {'pid': pid, 'status': 'queued'}
     save_run_status()
     run_queue.put({'pid': pid, 'job_id': job_id})
     return jsonify({"status": "queued", "job_id": job_id})
+
+@app.route("/api/projects/<pid>/stop", methods=["POST"])
+def api_stop_project(pid):
+    # Find and stop all jobs for this project
+    jobs_to_stop = [job_id for job_id, job in active_jobs.items() if job.get('pid') == pid]
+
+    for job_id in jobs_to_stop:
+        if job_id in active_jobs:
+            active_jobs[job_id]['status'] = 'stopped'
+        if job_id in run_status:
+            run_status[job_id]['status'] = 'stopped'
+
+    # Update job history
+    for item in job_history:
+        if item["project_id"] == pid and item["status"] == "running":
+            item["status"] = "stopped"
+            item["end_timestamp"] = datetime.now().isoformat()
+
+    save_run_status()
+    save_job_history()
+    return jsonify({"status": "stopped", "stopped_jobs": jobs_to_stop})
 
 @app.route("/api/projects/<pid>/clear", methods=["POST"])
 def api_clear_project_artifacts(pid):
@@ -304,6 +357,15 @@ def api_delete_project(pid):
 def api_files():
     path = request.args.get("path", ".")
     try:
+        # Resolve relative paths
+        if not os.path.isabs(path):
+            # Handle both Unix and Windows relative paths
+            if path.startswith('./') or path.startswith('.\\'):
+                path = os.path.abspath(path)
+            else:
+                # Assume it's relative to current working directory
+                path = os.path.abspath(os.path.join(os.getcwd(), path))
+
         if not os.path.exists(path):
             return jsonify({"error": f"Path does not exist: {path}"}), 400
 
@@ -338,12 +400,16 @@ def api_list_chats():
                         data = json.load(f)
                         first_message = data.get("messages", [{}])[0] if data.get("messages") else {}
                         title = first_message.get("content", "New Chat")[:30]
+                        timestamp = data.get("timestamp", data.get("id", ""))
                         chats.append({
                             "id": data.get("id", fname.replace(".json", "")),
-                            "title": title
+                            "title": title,
+                            "timestamp": timestamp
                         })
                 except Exception as e:
                     print(f"Error reading chat file {fname}: {e}")
+    # Sort by timestamp (newest first)
+    chats.sort(key=lambda x: x.get("timestamp", x.get("id", "")), reverse=True)
     return jsonify(chats)
 
 @app.route("/api/chats", methods=["POST"])
@@ -351,9 +417,10 @@ def api_create_chat():
     os.makedirs(CHATS_DIR, exist_ok=True)
     chat_id = str(uuid.uuid4())
     chat_path = os.path.join(CHATS_DIR, f"{chat_id}.json")
+    timestamp = request.json.get("timestamp", datetime.now().isoformat()) if request.json else datetime.now().isoformat()
     with open(chat_path, "w", encoding="utf-8") as f:
-        json.dump({"id": chat_id, "messages": []}, f)
-    return jsonify({"id": chat_id})
+        json.dump({"id": chat_id, "messages": [], "timestamp": timestamp}, f)
+    return jsonify({"id": chat_id, "timestamp": timestamp})
 
 @app.route("/api/chats/<chat_id>", methods=["GET"])
 def api_get_chat(chat_id):
@@ -495,7 +562,7 @@ def api_auto_chat():
         chat_id = str(uuid.uuid4())
         chat_path = os.path.join(CHATS_DIR, f"{chat_id}.json")
         with open(chat_path, "w", encoding="utf-8") as f:
-            json.dump({"id": chat_id, "messages": []}, f)
+            json.dump({"id": chat_id, "messages": [], "timestamp": datetime.now().isoformat()}, f)
         return jsonify({"created": True, "id": chat_id})
     return jsonify({"created": False, "id": chats[-1]})
 
