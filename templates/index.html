@@ -85,8 +85,10 @@
             animation: spin-block 10s steps(50) infinite;
             cursor: grab;
             user-select: none;
-            position: absolute;
-            z-index: 1000;
+            position: fixed !important;
+            z-index: 9999 !important;
+            left: 8px;
+            top: 8px;
             image-rendering: pixelated;
         }
 
@@ -867,10 +869,9 @@
                             <input name="rootDirectory" id="details-root-dir" onchange="confirmDetailsRootPathChange()">
                         </div>
                         <div style="margin-top: 15px;">
-                            <label>2. INCLUDED FILES/FOLDERS
-                                <button type="button" id="refresh-paths-btn" class="btn-sm" onclick="refreshSelectedPaths()" style="margin-left: 10px; vertical-align: middle;">REFRESH PATHS</button>
-                            </label>
+                            <label>2. INCLUDED FILES/FOLDERS</label>
                             <div class="selector-controls">
+                                <button type="button" id="refresh-paths-btn" class="btn-sm" onclick="refreshSelectedPaths()">REFRESH PATHS</button>
                                 <button type="button" id="details-load-tree-btn" onclick="loadDetailsFileTree()">
                                     <span id="details-load-tree-text">LOAD TREE</span>
                                     <span id="details-load-tree-spinner" class="spinner" style="display: none;"></span>
@@ -2300,8 +2301,8 @@
             logoElement = document.getElementById('draggable-logo');
             if (!logoElement) return;
 
-            // Position the logo absolutely within the sidebar
-            logoElement.style.position = 'absolute';
+            // Position the logo absolutely within the viewport
+            logoElement.style.position = 'fixed';
             logoElement.style.left = '8px';
             logoElement.style.top = '8px';
 
@@ -2453,12 +2454,7 @@
                         stream.getTracks().forEach(track => track.stop());
                     };
 
-                    // Auto-stop after 60 seconds
-                    setTimeout(() => {
-                        if (isRecording) {
-                            stopRecording(sttBtn);
-                        }
-                    }, 60000);
+                    // REMOVED: Auto-stop after 60 seconds
                 })
                 .catch(err => {
                     console.error('Error accessing microphone:', err);
