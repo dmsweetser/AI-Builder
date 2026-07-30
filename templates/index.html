@@ -795,6 +795,7 @@
                         PROJECTS</button>
                     <h2>INTERVIEW - <span id="details-project-name"></span></h2>
                     <form id="project-details-form">
+                        <input type="hidden" name="name" id="details-project-name-form">
                         <input type="hidden" name="id" id="run-project-id">
                         <div>
                             <label>1. PROJECT LOCATION (OPTIONAL IF ALL SELECTED FILE PATHS ARE ABSOLUTE)</label>
@@ -1363,6 +1364,8 @@
                     safeSet('run-project-id', project.id);
                     const nameEl = document.getElementById('details-project-name');
                     if (nameEl) nameEl.textContent = project.name;
+                    const nameFormEl = document.getElementById('details-project-name-form');
+                    if (nameFormEl) nameFormEl.value = project.name;
 
                     safeSet('details-root-dir', project.rootDirectory || '');
                     safeSet('details-patterns-input', project.includePatterns || '');
