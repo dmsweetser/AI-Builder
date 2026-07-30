@@ -657,14 +657,17 @@
 
         .copy-icon {
             position: absolute;
-            top: 5px;
+            bottom: 2px;
             right: 5px;
             background: var(--wood);
             border: 1px solid #000;
-            padding: 2px 5px;
+            padding: 4px 8px;
             cursor: pointer;
-            font-size: 8px;
+            font-size: 10px;
             color: var(--light-text);
+            z-index: 10;
+            border-radius: 3px;
+            width: 60px;
         }
 
         .copy-icon:hover {
@@ -731,9 +734,10 @@
         <main class="main-content">
             <div id="projects-panel" class="panel active">
                 <div class="block">
-                    <div class="archived-toggle">
-                        <input type="checkbox" id="show-archived" onchange="loadProjects()">
-                        <label for="show-archived" style="font-size: 12px; margin: 0;">SHOW ARCHIVED</label>
+                    <div class="archived-toggle"
+                        style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
+                        <button type="button" id="show-archived-btn" class="btn-sm" onclick="toggleArchived()"
+                            style="flex: 0 0 auto;">SHOW ARCHIVED</button>
                     </div>
                     <h2>PROJECT LIST</h2>
                     <div class="project-list" id="project-list">
@@ -933,6 +937,7 @@
         let activeJobs = {};
         let projectRunStates = {}; // Track run state per project
         let pendingRootPathChange = null;
+        let showArchived = false;
 
         // Load run status from localStorage
         function load_run_status() {
@@ -1180,6 +1185,12 @@
             return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
         }
 
+        function toggleArchived() {
+            showArchived = !showArchived;
+            document.getElementById('show-archived-btn').textContent = showArchived ? 'HIDE ARCHIVED' : 'SHOW ARCHIVED';
+            loadProjects();
+        }
+
         // Set sort mode
         function setSortMode(mode) {
             sortMode = mode;
@@ -1228,7 +1239,6 @@
 
         // Load projects
         function loadProjects() {
-            const showArchived = document.getElementById('show-archived').checked;
             fetch('/api/projects')
                 .then(response => response.json())
                 .then(data => {
@@ -1309,8 +1319,17 @@
         // Stop project
         function stopProject(projectId) {
             fetch(`/api/projects/${projectId}/stop`, { method: 'POST' })
-                .then(() => {
+                .then(response => response.json())
+                .then(data => {
                     projectRunStates[projectId] = false;
+                    if (data.stopped_jobs) {
+                        data.stopped_jobs.forEach(jobId => {
+                            if (activeJobs[jobId] && activeJobs[jobId].intervalId) {
+                                clearInterval(activeJobs[jobId].intervalId);
+                                delete activeJobs[jobId];
+                            }
+                        });
+                    }
                     updateRunButtonState(projectId, false);
                     loadProjects();
                 })
@@ -1858,6 +1877,7 @@
                     currentChatId = chat.id;
                     localStorage.setItem('currentChatId', chat.id);
                     selectChat(chat.id);
+                    loadChats();
                     return chat.id;
                 })
                 .catch(err => {
