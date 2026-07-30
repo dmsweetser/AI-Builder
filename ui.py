@@ -358,21 +358,16 @@ def api_run_project(pid):
 
 @app.route("/api/projects/<pid>/stop", methods=["POST"])
 def api_stop_project(pid):
-    # Find and stop all jobs for this project
     jobs_to_stop = [job_id for job_id, job in active_jobs.items() if job.get('pid') == pid]
-
     for job_id in jobs_to_stop:
         if job_id in active_jobs:
-            active_jobs[job_id]['status'] = 'stopped'
+            del active_jobs[job_id]  # Remove entirely
         if job_id in run_status:
-            run_status[job_id]['status'] = 'stopped'
-
-    # Update job history
+            del run_status[job_id]  # Remove entirely
     for item in job_history:
         if item["project_id"] == pid and item["status"] == "running":
             item["status"] = "stopped"
             item["end_timestamp"] = datetime.now().isoformat()
-
     save_job_history()
     return jsonify({"status": "stopped", "stopped_jobs": jobs_to_stop})
 
