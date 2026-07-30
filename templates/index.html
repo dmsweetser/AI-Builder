@@ -725,13 +725,6 @@
             background: rgba(92, 138, 59, 0.1);
         }
 
-        .archived-toggle {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            margin-bottom: 10px;
-        }
-
         .warning {
             color: #ff6b6b;
             font-weight: bold;
@@ -754,11 +747,8 @@
         <main class="main-content">
             <div id="projects-panel" class="panel active">
                 <div class="block">
-                    <div class="archived-toggle">
-                        <button type="button" id="show-archived-btn" class="btn-sm" onclick="toggleArchived()"
-                            style="flex: 0 0 auto;">SHOW ARCHIVED</button>
-                    </div>
-                    <h2>PROJECT LIST</h2>
+                    <h2>PROJECT LIST<button type="button" id="show-archived-btn" class="btn-sm" onclick="toggleArchived()"
+                            style="float:right; width:150px;">SHOW ARCHIVED</button></h2>
                     <div class="project-list" id="project-list">
                         <div class="note">LOADING PROJECTS...</div>
                     </div>
