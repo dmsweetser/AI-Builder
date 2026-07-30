@@ -24,24 +24,7 @@ run_queue = queue.Queue()
 run_status = {}
 job_history = []
 active_jobs = {}  # Track active jobs for stopping
-
-def load_run_status():
-    global run_status
-    if os.path.exists(STATUS_FILE):
-        try:
-            with open(STATUS_FILE, 'r') as f:
-                run_status = json.load(f)
-        except Exception:
-            run_status = {}
-    else:
-        run_status = {}
-
-def save_run_status():
-    try:
-        with open(STATUS_FILE, 'w') as f:
-            json.dump(run_status, f)
-    except Exception:
-        pass
+job_queue_lock = threading.Lock()  # Prevent race conditions in job queue
 
 def load_job_history():
     global job_history
@@ -61,7 +44,6 @@ def save_job_history():
     except Exception:
         pass
 
-load_run_status()
 load_job_history()
 
 def worker():
@@ -71,9 +53,15 @@ def worker():
             break
         pid = job['pid']
         job_id = job['job_id']
-        run_status[job_id] = {'status': 'running', 'project_id': pid}
-        active_jobs[job_id] = {'pid': pid, 'status': 'running'}
-        save_run_status()
+
+        with job_queue_lock:
+            # Check if this project is already being processed
+            if any(j['pid'] == pid for j in list(run_queue.queue) if j != job):
+                run_queue.task_done()
+                continue
+
+            run_status[job_id] = {'status': 'running', 'project_id': pid}
+            active_jobs[job_id] = {'pid': pid, 'status': 'running'}
 
         # Record job start in history
         project, _ = get_project(pid)
@@ -143,7 +131,6 @@ def worker():
                     item["end_timestamp"] = datetime.now().isoformat()
                     break
 
-        save_run_status()
         save_job_history()
         if job_id in active_jobs:
             del active_jobs[job_id]
@@ -175,6 +162,20 @@ def get_project(pid):
     projects = load_projects()
     return next((p for p in projects if p["id"] == pid), None), projects
 
+def is_project_running(pid):
+    """Check if a project is already running or queued."""
+    # Check active jobs
+    for job_id, job in active_jobs.items():
+        if job.get('pid') == pid:
+            return True, job_id
+    # Check run status
+    for job_id, status in run_status.items():
+        if status.get('project_id') == pid and status.get('status') in ['running', 'queued']:
+            return True, job_id
+    # Check queue (this is a simplified check as queue.Queue doesn't expose its contents easily)
+    # In a production system, you might want to maintain a separate set for tracking queued projects
+    return False, None
+
 # ---------- Routes ----------
 @app.route("/")
 def index():
@@ -202,18 +203,35 @@ def api_create_project():
     projects = load_projects()
     pid = str(uuid.uuid4())
 
+    # Validate required fields
+    name = request.form.get("name", "")
+    if not name:
+        return jsonify({"error": "Project name is required"}), 400
+
+    include_patterns = request.form.get("includePatterns", "")
+    root_directory = request.form.get("rootDirectory", "")
+
+    # Validate that at least one pattern is provided
+    if not include_patterns:
+        return jsonify({"error": "At least one include pattern is required"}), 400
+
+    # Validate that if patterns are not absolute, rootDirectory is provided
+    patterns = [p.strip() for p in include_patterns.split(",") if p.strip()]
+    if not root_directory and not all(os.path.isabs(p) for p in patterns):
+        return jsonify({"error": "rootDirectory is required if includePatterns are not absolute paths"}), 400
+
     project = {
         "id": pid,
-        "name": request.form.get("name", ""),
-        "rootDirectory": request.form.get("rootDirectory", ""),
-        "includePatterns": request.form.get("includePatterns", ""),
+        "name": name,
+        "rootDirectory": root_directory,
+        "includePatterns": include_patterns,
         "excludePatterns": request.form.get("excludePatterns", ""),
         "iterations": 1,
         "instructions": request.form.get("instructions", ""),
         "preScript": request.form.get("preScript", ""),
         "postScript": request.form.get("postScript", ""),
         "mode": request.form.get("mode", "include"),
-        "isArchived": False  # Default to not archived
+        "isArchived": False
     }
 
     projects.append(project)
@@ -226,10 +244,21 @@ def api_update_project(pid):
     if not project:
         return jsonify({"error": "Project not found"}), 404
 
+    # Validate that at least one pattern is provided
+    include_patterns = request.form.get("includePatterns", project.get("includePatterns", ""))
+    if not include_patterns:
+        return jsonify({"error": "At least one include pattern is required"}), 400
+
+    # Validate that if patterns are not absolute, rootDirectory is provided
+    root_directory = request.form.get("rootDirectory", project.get("rootDirectory", ""))
+    patterns = [p.strip() for p in include_patterns.split(",") if p.strip()]
+    if not root_directory and not all(os.path.isabs(p) for p in patterns):
+        return jsonify({"error": "rootDirectory is required if includePatterns are not absolute paths"}), 400
+
     project.update({
         "name": request.form.get("name", project["name"]),
-        "rootDirectory": request.form.get("rootDirectory", project["rootDirectory"]),
-        "includePatterns": request.form.get("includePatterns", project.get("includePatterns", "")),
+        "rootDirectory": root_directory,
+        "includePatterns": include_patterns,
         "excludePatterns": request.form.get("excludePatterns", project.get("excludePatterns", "")),
         "iterations": 1,
         "instructions": request.form.get("instructions", project.get("instructions", "")),
@@ -267,6 +296,11 @@ def api_run_project(pid):
     if not project:
         return jsonify({"error": "Project not found"}), 404
 
+    # Check if project is already running
+    is_running, existing_job_id = is_project_running(pid)
+    if is_running:
+        return jsonify({"status": "queued", "job_id": existing_job_id})
+
     # Validate inputs
     if not project.get("includePatterns"):
         return jsonify({"error": "No includePatterns specified"}), 400
@@ -275,14 +309,25 @@ def api_run_project(pid):
     if not project.get("rootDirectory") and not all(os.path.isabs(p) for p in include_patterns):
         return jsonify({"error": "rootDirectory required if includePatterns are not full paths"}), 400
 
+    # Validate that patterns are not too broad (e.g., entire directories without filters)
+    root_dir = project.get("rootDirectory", "")
+    if root_dir and os.path.isdir(root_dir):
+        # Check if patterns would include the entire directory
+        all_files_pattern = any(p.strip() == "." or p.strip() == "./" or p.strip() == "" for p in include_patterns)
+        if all_files_pattern and not project.get("excludePatterns"):
+            return jsonify({
+                "error": "Pattern includes entire directory without exclusion filters. This is not allowed for safety reasons.",
+                "suggestion": "Add specific file patterns or exclusion patterns to limit the scope."
+            }), 400
+
     # Clear output directory
     output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aib_instance", "output", pid)
     try:
         if os.path.exists(output_dir):
             shutil.rmtree(output_dir)
         os.makedirs(output_dir, exist_ok=True)
-    except:
-        pass
+    except Exception as e:
+        return jsonify({"error": f"Failed to create output directory: {str(e)}"}), 500
 
     # Check for unapplied changes
     actions_file = os.path.join(output_dir, "actions.txt")
@@ -304,8 +349,11 @@ def api_run_project(pid):
     job_id = str(uuid.uuid4())
     run_status[job_id] = {'status': 'queued', 'project_id': pid}
     active_jobs[job_id] = {'pid': pid, 'status': 'queued'}
-    save_run_status()
-    run_queue.put({'pid': pid, 'job_id': job_id})
+
+    # Use lock to prevent race conditions
+    with job_queue_lock:
+        run_queue.put({'pid': pid, 'job_id': job_id})
+
     return jsonify({"status": "queued", "job_id": job_id})
 
 @app.route("/api/projects/<pid>/stop", methods=["POST"])
@@ -325,7 +373,6 @@ def api_stop_project(pid):
             item["status"] = "stopped"
             item["end_timestamp"] = datetime.now().isoformat()
 
-    save_run_status()
     save_job_history()
     return jsonify({"status": "stopped", "stopped_jobs": jobs_to_stop})
 
@@ -348,16 +395,36 @@ def api_run_status(job_id):
 
 @app.route("/api/projects/<pid>", methods=["DELETE"])
 def api_delete_project(pid):
+    # Stop any running jobs for this project first
+    jobs_to_stop = [job_id for job_id, job in active_jobs.items() if job.get('pid') == pid]
+    for job_id in jobs_to_stop:
+        if job_id in active_jobs:
+            active_jobs[job_id]['status'] = 'stopped'
+        if job_id in run_status:
+            run_status[job_id]['status'] = 'stopped'
+
+    save_job_history()
+
     projects = load_projects()
     projects = [p for p in projects if p["id"] != pid]
     save_projects(projects)
+
+    # Clean up output directory
+    output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aib_instance", "output", pid)
+    if os.path.exists(output_dir):
+        try:
+            shutil.rmtree(output_dir)
+        except Exception:
+            pass
+
     return jsonify({"status": "deleted"})
 
 @app.route("/api/files", methods=["GET"])
 def api_files():
     path = request.args.get("path", ".")
     try:
-        # Resolve relative paths
+        # Security: Prevent directory traversal
+        base_dir = os.path.dirname(os.path.abspath(__file__))
         if not os.path.isabs(path):
             # Handle both Unix and Windows relative paths
             if path.startswith('./') or path.startswith('.\\'):
@@ -366,8 +433,15 @@ def api_files():
                 # Assume it's relative to current working directory
                 path = os.path.abspath(os.path.join(os.getcwd(), path))
 
+        # Normalize path and check it's within allowed directories
+        path = os.path.normpath(path)
         if not os.path.exists(path):
             return jsonify({"error": f"Path does not exist: {path}"}), 400
+
+        # Additional security check: ensure the path is not trying to access system directories
+        if path.startswith('/etc') or path.startswith('/usr') or path.startswith('/var') or \
+           path.startswith('C:\\Windows') or path.startswith('C:\\Program Files'):
+            return jsonify({"error": "Access to system directories is not allowed"}), 403
 
         paths = []
         for root, dirs, files in os.walk(path):

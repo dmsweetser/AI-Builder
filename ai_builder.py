@@ -137,40 +137,75 @@ class FileParser:
 
 class FileModifier:
     @staticmethod
+    def _sanitize_path(filepath: str, root_directory: str) -> str:
+        """Sanitize file path to prevent directory traversal."""
+        if not root_directory:
+            return filepath
+
+        # Join with root directory
+        full_path = os.path.join(root_directory, filepath)
+        # Normalize the path (resolves '..' and '.')
+        full_path = os.path.normpath(full_path)
+
+        # Check if the normalized path is still within the root directory
+        root_dir = os.path.normpath(root_directory)
+        if not full_path.startswith(root_dir + os.sep) and full_path != root_dir:
+            raise ValueError(f"Path traversal detected: {filepath} resolves to {full_path} which is outside {root_dir}")
+
+        return full_path
+
+    @staticmethod
     def apply_modifications(changes: List[Dict[str, Any]], root_directory: str, dry_run: bool = False) -> List[Dict[str, Any]]:
         try:
             incomplete_actions = []
+            processed_files = set()  # Track processed files to avoid duplicates
+
             for change in changes:
                 filepath = change['file']
-                filepath = os.path.join(root_directory, filepath) if root_directory else filepath
-                backup_filepath = f"{filepath}.bak"
-                logging.info(f"Processing file: {filepath}")
-                if not dry_run:
-                    try:
-                        if os.path.exists(filepath):
-                            shutil.copy2(filepath, backup_filepath)
-                            logging.info(f"Created backup: {backup_filepath}")
-                    except Exception as e:
-                        logging.error(f"Could not back up file: {filepath}: {e}")
-                for action in change['actions']:
-                    try:
-                        if dry_run:
-                            logging.info(f"Dry run: Would apply action {action['action']} to {filepath}")
-                        else:
-                            if not FileModifier._apply_action(filepath, action):
-                                incomplete_actions.append({'file': filepath, 'action': action})
-                    except Exception as e:
-                        logging.error(f"Error applying modifications to {filepath}: {e}")
-                        incomplete_actions.append({'file': filepath, 'action': action})
-                        if not dry_run and os.path.exists(backup_filepath):
-                            shutil.copy2(backup_filepath, filepath)
-                            logging.info(f"Restored backup for {filepath}")
+                try:
+                    # Sanitize the path to prevent directory traversal
+                    full_path = FileModifier._sanitize_path(filepath, root_directory) if root_directory else filepath
+
+                    # Skip if we've already processed this file in this batch
+                    if full_path in processed_files:
+                        logging.warning(f"Skipping duplicate file in batch: {full_path}")
+                        continue
+                    processed_files.add(full_path)
+
+                    logging.info(f"Processing file: {full_path}")
+                    if not dry_run:
+                        try:
+                            backup_filepath = f"{full_path}.bak"
+                            if os.path.exists(full_path):
+                                shutil.copy2(full_path, backup_filepath)
+                                logging.info(f"Created backup: {backup_filepath}")
+                        except Exception as e:
+                            logging.error(f"Could not back up file: {full_path}: {e}")
+
+                    for action in change['actions']:
+                        try:
+                            if dry_run:
+                                logging.info(f"Dry run: Would apply action {action['action']} to {full_path}")
+                            else:
+                                if not FileModifier._apply_action(full_path, action):
+                                    incomplete_actions.append({'file': full_path, 'action': action})
+                        except Exception as e:
+                            logging.error(f"Error applying modifications to {full_path}: {e}")
+                            incomplete_actions.append({'file': full_path, 'action': action})
+                            if not dry_run and os.path.exists(backup_filepath):
+                                try:
+                                    shutil.copy2(backup_filepath, full_path)
+                                    logging.info(f"Restored backup for {full_path}")
+                                except Exception as restore_err:
+                                    logging.error(f"Failed to restore backup for {full_path}: {restore_err}")
+                except Exception as e:
+                    logging.error(f"Error processing change for file {filepath}: {e}")
+                    incomplete_actions.append({'file': filepath, 'action': {'error': str(e)}})
             return incomplete_actions
         except Exception as e:
             logging.error(f"Error applying modifications: {e}")
             raise
 
-    
     @staticmethod
     def _apply_action(filepath: str, action: Dict[str, Any]) -> bool:
         try:
@@ -185,12 +220,16 @@ class FileModifier:
                 logging.info(f"Created/Replaced: {filepath}")
                 return True
             elif action_type == 'remove_file':
-                if os.path.isfile(filepath) and not "pre.ps1" in filepath and not "post.ps1" in filepath:
+                # Safety check: don't remove script files or backup files
+                if os.path.isfile(filepath) and not any(
+                    forbidden in filepath.lower()
+                    for forbidden in ['pre.ps1', 'post.ps1', '.bak', '.backup']
+                ):
                     os.remove(filepath)
                     logging.info(f"Removed: {filepath}")
                     return True
                 else:
-                    logging.warning(f"File not found: {filepath}")
+                    logging.warning(f"Refusing to remove protected file: {filepath}")
                     return False
             elif action_type == 'replace_file':
                 try:
@@ -212,18 +251,26 @@ class FileModifier:
             logging.error(f"Error applying action: {e}")
             raise
 
-
-    
     @staticmethod
     def _replace_section(filepath: str, original_content: str, new_content: List[str]) -> bool:
         try:
+            if not os.path.exists(filepath):
+                logging.warning(f"File does not exist for section replacement: {filepath}")
+                return False
+
             with open(filepath, 'r', encoding='utf-8') as f:
                 content = f.read()
+
             new_section_str = FileParser._safe_join(new_content).strip()
+
+            # Normalize line endings for comparison
             normalized_original = original_content.replace(f"{chr(13)}{chr(10)}", f"{chr(10)}").strip()
             normalized_content = content.replace(f"{chr(13)}{chr(10)}", f"{chr(10)}")
+
+            # Create comparison versions with normalized whitespace
             match_original = f"{chr(10)}".join([line.strip() for line in normalized_original.split(f"{chr(10)}") if line.strip()])
             match_content = f"{chr(10)}".join([line.strip() for line in normalized_content.split(f"{chr(10)}") if line.strip()])
+
             if match_original in match_content:
                 modified_content = content.replace(original_content.strip(), new_section_str)
                 with open(filepath, 'w', encoding='utf-8') as f:
@@ -232,11 +279,18 @@ class FileModifier:
                 return True
             else:
                 logging.warning(f"Original content not found in: {filepath}")
+                # Try a more flexible match (case-insensitive, whitespace-agnostic)
+                if original_content.strip().lower().replace(" ", "").replace("\t", "") in \
+                   content.lower().replace(" ", "").replace("\t", ""):
+                    modified_content = content.replace(original_content.strip(), new_section_str)
+                    with open(filepath, 'w', encoding='utf-8') as f:
+                        f.write(modified_content)
+                    logging.info(f"Replaced section in: {filepath} (flexible match)")
+                    return True
                 return False
         except Exception as e:
             logging.error(f"Error replacing section: {e}")
             raise
-
 
 class ActionManager:
     @staticmethod
@@ -291,6 +345,7 @@ class CodeUtility:
         self.output_file = os.path.join(ai_builder_dir, "output.txt")
         self.log_file = os.path.join(ai_builder_dir, "utility.log")
         self.use_git_diff = use_git_diff
+        self.processed_files = set()  # Track processed files to avoid duplicates
 
     def parse_gitignore(self, directory: str) -> List[str]:
         try:
@@ -318,12 +373,21 @@ class CodeUtility:
                 file_name = os.path.basename(path)
                 if not patterns:
                     return mode == "include"
-                normalized_patterns = [p.rstrip('/') for p in patterns]
+
+                # Normalize patterns and path for comparison
+                normalized_patterns = [p.rstrip('/').rstrip('\\') for p in patterns]
+                normalized_path = path.rstrip('/').rstrip('\\')
+
                 for pattern in normalized_patterns:
-                    pattern_clean = pattern.rstrip('/')
-                    if pattern_clean == path or pattern_clean == path.rstrip('/'):
+                    pattern_clean = pattern.rstrip('/').rstrip('\\')
+                    # Exact match
+                    if pattern_clean == normalized_path:
                         return mode == "include"
-                    if path.startswith(pattern_clean + '/') or path == pattern_clean:
+                    # Directory match
+                    if normalized_path.startswith(pattern_clean + '/') or normalized_path.startswith(pattern_clean + '\\'):
+                        return mode == "include"
+                    # File in directory
+                    if pattern_clean in normalized_path.split(os.sep):
                         return mode == "include"
                 return mode == "exclude"
         except Exception as e:
@@ -347,33 +411,57 @@ class CodeUtility:
             # Build full paths
             file_paths = []
             for p in patterns:
-                full_path = p if absolute_mode else os.path.join(directory, p)
+                if absolute_mode:
+                    full_path = p
+                else:
+                    full_path = os.path.join(directory, p)
+
+                # Normalize path and check for directory traversal
+                full_path = os.path.normpath(full_path)
+                if directory:
+                    directory = os.path.normpath(directory)
+                    if not full_path.startswith(directory + os.sep) and full_path != directory:
+                        logging.warning(f"Skipping path that would traverse outside root directory: {p}")
+                        continue
+
                 file_paths.append(full_path)
 
             # If directory exists, load gitignore rules
             all_rules = parent_rules
-            if not absolute_mode:
+            if not absolute_mode and directory:
                 current_rules = self.parse_gitignore(directory)
                 all_rules += current_rules
 
             # Process each file path directly
             for full_path in file_paths:
-                relative_path = os.path.relpath(full_path, self.base_dir)
+                if full_path in self.processed_files:
+                    logging.info(f"Skipping already processed file: {full_path}")
+                    continue
+
+                self.processed_files.add(full_path)
+
+                if absolute_mode:
+                    relative_path = full_path
+                else:
+                    relative_path = os.path.relpath(full_path, self.base_dir)
+
                 logging.info(f"Checking file: {relative_path}")
 
                 # Only apply should_process_file when directory is provided
                 if absolute_mode or self.should_process_file(relative_path, all_rules, patterns, mode):
                     try:
-                        with open(full_path, 'r', encoding='utf-8') as f:
-                            content = f.read()
+                        if os.path.isfile(full_path):
+                            with open(full_path, 'r', encoding='utf-8') as f:
+                                content = f.read()
 
-                        with open(self.output_file, 'a', encoding='utf-8') as out_file:
-                            out_file.write(
-                                f"\n### {relative_path}\n```\n{content}\n```\n"
-                            )
+                            with open(self.output_file, 'a', encoding='utf-8') as out_file:
+                                out_file.write(
+                                    f"\n### {relative_path}\n```\n{content}\n```\n"
+                                )
 
-                        logging.info(f"Successfully wrote content from {relative_path} to {self.output_file}")
-
+                            logging.info(f"Successfully wrote content from {relative_path} to {self.output_file}")
+                        else:
+                            logging.warning(f"Path is not a file, skipping: {full_path}")
                     except Exception as e:
                         logging.warning(f"Skipped unreadable file: {relative_path} - Error: {e}")
                         with open(self.output_file, 'a', encoding='utf-8') as out_file:
@@ -389,7 +477,12 @@ class CodeUtility:
         try:
             if os.path.exists(self.output_file):
                 os.remove(self.output_file)
+
             for rel_path in diff_files:
+                if rel_path in self.processed_files:
+                    continue
+                self.processed_files.add(rel_path)
+
                 abs_path = os.path.join(self.base_dir, rel_path) if self.base_dir else rel_path
                 if not os.path.isfile(abs_path):
                     continue
@@ -445,7 +538,8 @@ class AIBuilder:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
-                check=True
+                check=True,
+                cwd=self.root_directory if self.root_directory else None
             )
             return [line.strip() for line in result.stdout.splitlines() if line.strip()]
         except Exception as e:
@@ -462,22 +556,30 @@ class AIBuilder:
                 )
                 if not script_content.strip():
                     return
+
+                # Security: Prevent path traversal in script paths
                 temp_script_path = os.path.join(self.ai_builder_dir, f"{script_name}_{uuid.uuid4().hex}.ps1")
                 with open(temp_script_path, "w", encoding='utf-8') as f:
                     f.write(script_content)
+
                 powershell = "powershell" if platform.system() == "Windows" else "pwsh"
-                subprocess.run([powershell, "-File", temp_script_path], check=True)
+                subprocess.run([powershell, "-File", temp_script_path], check=True, cwd=self.root_directory)
                 logging.info(f"Successfully executed {script_name} (clean mode)")
                 os.remove(temp_script_path)
             else:
                 script_path = os.path.join(os.getcwd(), script_name)
                 if not os.path.exists(script_path):
                     raise FileNotFoundError(f"Script {script_name} not found.")
+
+                # Security: Check script path is within allowed directories
+                if not script_path.startswith(os.getcwd()):
+                    raise ValueError(f"Script path {script_path} is outside current working directory")
+
                 if platform.system() == "Windows":
                     powershell = "powershell"
                 else:
                     powershell = "pwsh"
-                subprocess.run([powershell, "-File", script_path], check=True)
+                subprocess.run([powershell, "-File", script_path], check=True, cwd=self.root_directory)
                 logging.info(f"Successfully executed {script_name}")
         except subprocess.CalledProcessError as e:
             logging.error(f"Failed to execute {script_name}: {e}")
@@ -505,8 +607,9 @@ class AIBuilder:
             # Process each file path directly
             for full_path in file_paths:
                 try:
-                    os.remove(full_path)
-                    logging.info(f"Removed backup file: {full_path}")
+                    if os.path.exists(full_path):
+                        os.remove(full_path)
+                        logging.info(f"Removed backup file: {full_path}")
                 except Exception as e:
                     logging.error(f"Error removing backup file {full_path}: {e}")
 
@@ -581,10 +684,17 @@ Reply ONLY in the specified format with no commentary. THAT'S AN ORDER, SOLDIER!
             llama_binary = Config.get_llama_binary_path()
             if not os.path.isfile(llama_binary):
                 raise FileNotFoundError(f"llama binary not found at: {llama_binary}")
+
             ticks = int(time.time() * 1000)
             filename = os.path.join(self.ai_builder_dir, f"aibuilder_prompt_{ticks}.txt")
+
+            # Security: Ensure the prompt file is within our directory
+            if not os.path.dirname(filename).startswith(self.ai_builder_dir):
+                raise ValueError("Prompt file path is outside allowed directory")
+
             with open(filename, "w", encoding='utf-8') as f:
                 f.write(prompt)
+
             cmd = [
                 llama_binary,
                 "-m", model_path,
@@ -599,6 +709,7 @@ Reply ONLY in the specified format with no commentary. THAT'S AN ORDER, SOLDIER!
                 "--no-display-prompt",
                 "-st"
             ]
+
             process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
@@ -606,6 +717,7 @@ Reply ONLY in the specified format with no commentary. THAT'S AN ORDER, SOLDIER!
                 text=True,
                 bufsize=1
             )
+
             current_iteration = 0
             while True:
                 token = process.stdout.read(1)
@@ -613,10 +725,15 @@ Reply ONLY in the specified format with no commentary. THAT'S AN ORDER, SOLDIER!
                     with open(self.response_file, 'w', encoding='utf-8') as response_log:
                         response_log.write(response_content)
                 if not token:
-                    os.remove(filename)
+                    if os.path.exists(filename):
+                        try:
+                            os.remove(filename)
+                        except Exception as e:
+                            logging.error(f"Failed to remove temporary prompt file: {e}")
                     break
                 response_content += token
                 current_iteration += 1
+
             process.wait()
         else:
             endpoint = Config.get_endpoint()
@@ -626,6 +743,7 @@ Reply ONLY in the specified format with no commentary. THAT'S AN ORDER, SOLDIER!
             if not all([endpoint, model_name, api_key]):
                 logging.error("Missing one or more required environment variables: ENDPOINT, MODEL_NAME, API_KEY")
                 raise ValueError("Missing required environment variables.")
+
             client = ChatCompletionsClient(
                 endpoint=endpoint,
                 credential=AzureKeyCredential(api_key),
@@ -656,6 +774,7 @@ Reply ONLY in the specified format with no commentary. THAT'S AN ORDER, SOLDIER!
                         break
             finally:
                 response.close()
+
         logging.info("Successfully obtained response from client.")
         return response_content
 
@@ -669,6 +788,14 @@ Reply ONLY in the specified format with no commentary. THAT'S AN ORDER, SOLDIER!
                 raw_exclude = self.project_config.get("excludePatterns", "")
                 exclude_patterns = [p.strip() for p in raw_exclude.split(",") if p.strip()] if isinstance(raw_exclude, str) else (raw_exclude if isinstance(raw_exclude, list) else [])
                 instructions = self.project_config.get("instructions", "")
+
+                # Validate patterns are not too broad
+                if self.root_directory and os.path.isdir(self.root_directory):
+                    for pattern in patterns:
+                        full_path = os.path.join(self.root_directory, pattern)
+                        full_path = os.path.normpath(full_path)
+                        if not full_path.startswith(os.path.normpath(self.root_directory)):
+                            raise ValueError(f"Pattern {pattern} would access files outside the root directory")
 
                 # If patterns are full paths, use them directly
                 if self.root_directory is None or all(os.path.isabs(p) for p in patterns):

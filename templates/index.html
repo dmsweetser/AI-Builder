@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
-    <title>PORTAL</title>
+    <title>Portal</title>
     <style>
         :root {
             --dirt: #8B4513;
@@ -514,6 +514,22 @@
             image-rendering: pixelated;
         }
 
+        .logo-spinner {
+            display: inline-block;
+            width: 150px;
+            height: 150px;
+            font-size: 30px;
+            text-align: center;
+            padding-top: 50px;
+            background-color: var(--grass);
+            border: 2px solid #000;
+            box-shadow: 8px 8px 0px #000;
+            animation: spin-block 10s steps(50) infinite;
+            margin-left: 8px;
+            margin-top: 8px;
+            image-rendering: pixelated;
+        }
+
         @keyframes spin-block {
             0% {
                 transform: rotate(0deg) scale(1);
@@ -715,6 +731,11 @@
             gap: 8px;
             margin-bottom: 10px;
         }
+
+        .warning {
+            color: #ff6b6b;
+            font-weight: bold;
+        }
     </style>
 </head>
 
@@ -722,8 +743,7 @@
     <div class="app-layout">
         <aside class="sidebar">
             <div class="sidebar-header">
-                <h1>AI BUILDER</h1>
-                <h1>PORTAL</h1>
+                <span class="logo-spinner">Portal</span>
             </div>
             <div class="sidebar-nav">
                 <button class="tab-btn active" onclick="showTab('projects')">PROJECTS</button>
@@ -734,8 +754,7 @@
         <main class="main-content">
             <div id="projects-panel" class="panel active">
                 <div class="block">
-                    <div class="archived-toggle"
-                        style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
+                    <div class="archived-toggle">
                         <button type="button" id="show-archived-btn" class="btn-sm" onclick="toggleArchived()"
                             style="flex: 0 0 auto;">SHOW ARCHIVED</button>
                     </div>
@@ -779,9 +798,9 @@
                         <div id="file-tree-container" style="position: relative;">
                             <div id="file-tree-loading-overlay" class="file-tree-overlay">PROCESSING...</div>
                         </div>
-                        <label>SELECTED PATHS (comma sep)</label>
+                        <label>SELECTED PATHS (comma separated)</label>
                         <textarea id="patterns-display" rows="6" onchange="updatePatternsDisplay()"
-                            oninput="autoSaveProject()"></textarea>
+                            onblur="autoSaveProject()"></textarea>
                         <input type="hidden" name="rootDirectory" id="root-path-hidden">
                         <input type="hidden" name="includePatterns" id="patterns-input">
                         <input type="hidden" name="iterations" value="1">
@@ -828,9 +847,9 @@
                             <input type="text" id="details-tree-search" placeholder="Search files/folders..."
                                 oninput="detailsFilterTree()">
                             <div id="details-file-tree-container"></div>
-                            <label>SELECTED PATHS (comma sep)</label>
+                            <label>SELECTED PATHS (comma separated)</label>
                             <textarea id="details-patterns-display" rows="6" onchange="updateDetailsPatternsDisplay()"
-                                oninput="autoSaveProject()"></textarea>
+                                onblur="autoSaveProject()"></textarea>
                             <input type="hidden" name="includePatterns" id="details-patterns-input">
                         </div>
                         <div>
@@ -910,14 +929,15 @@
             </div>
         </div>
     </div>
-    <div id="confirm-clear-modal" class="modal" style="display: none;">
+    <div id="root-path-confirmation-modal" class="modal" style="display: none;">
         <div class="modal-content">
-            <h2>CLEAR SELECTED PATHS?</h2>
-            <p>Changing the root directory will clear the selected paths. Do you want to proceed?</p>
+            <h2>CONFIRM ROOT DIRECTORY CHANGE</h2>
+            <p id="root-path-confirmation-text">Are you sure you want to change the root directory? This will clear all
+                selected file paths.</p>
             <div style="display:flex; gap:10px; margin-top:15px;">
-                <button onclick="confirmClearPaths(true)" class="btn-sm" style="background:#a03030; flex:1;">CLEAR
-                    PATHS</button>
-                <button onclick="confirmClearPaths(false)" class="btn-sm" style="flex:1;">KEEP PATHS</button>
+                <button onclick="confirmRootPathChangeProceed()" class="btn-sm" style="background:#a03030; flex:1;">YES,
+                    CLEAR PATHS</button>
+                <button onclick="cancelRootPathChange()" class="btn-sm" style="flex:1;">CANCEL</button>
             </div>
         </div>
     </div>
@@ -933,12 +953,15 @@
         let filterTreeTimeout;
         let detailsFilterTreeTimeout;
         let unifiedQueue = [];
+        let unifiedQueueInterval = null;
         let isProcessingQueue = false;
         let currentTask = null;
         let activeJobs = {};
-        let projectRunStates = {}; // Track run state per project
+        let projectRunStates = {};
         let pendingRootPathChange = null;
         let showArchived = false;
+        let pendingRootPath = null;
+        let pendingRootPathElementId = null;
 
         // Load run status from localStorage
         function load_run_status() {
@@ -953,7 +976,7 @@
         function saveActiveJobs() {
             const jobsToSave = {};
             for (const [jobId, job] of Object.entries(activeJobs)) {
-                if (job.status !== 'completed' && job.status !== 'error') {
+                if (job.status !== 'completed' && job.status !== 'error' && job.status !== 'stopped') {
                     jobsToSave[jobId] = job;
                 }
             }
@@ -963,8 +986,30 @@
         // Initialize activeJobs
         Object.assign(activeJobs, load_run_status());
 
+        // Check if project is already running or queued
+        function isProjectRunningOrQueued(projectId) {
+            // Check active jobs
+            for (const jobId in activeJobs) {
+                if (activeJobs[jobId].projectId === projectId) {
+                    return true;
+                }
+            }
+            // Check unified queue
+            for (const task of unifiedQueue) {
+                if (task.type === 'job' && task.data.projectId === projectId) {
+                    return true;
+                }
+            }
+            // Check project run states
+            return projectRunStates[projectId] === true;
+        }
+
         // Queue a project run
         function queueRunProject(projectId) {
+            if (isProjectRunningOrQueued(projectId)) {
+                console.log(`Project ${projectId} is already running or queued. Ignoring duplicate request.`);
+                return;
+            }
             unifiedQueue.push({ type: 'job', data: { projectId } });
             updateStatusDisplay();
             processUnifiedQueue();
@@ -988,7 +1033,7 @@
             }
 
             for (const [jobId, job] of Object.entries(activeJobs)) {
-                lines.push(`Job ${jobId}: ${job.status}`);
+                lines.push(`Job ${jobId}: ${job.status} (Project: ${job.projectId})`);
             }
 
             statusElement.textContent = lines.join('\n');
@@ -1006,17 +1051,23 @@
 
         // Process the unified queue
         function processUnifiedQueue() {
-            if (isProcessingQueue || unifiedQueue.length === 0) return;
-
-            isProcessingQueue = true;
-            currentTask = unifiedQueue.shift();
-            updateStatusDisplay();
-
-            if (currentTask.type === 'job') {
-                processJobTask(currentTask);
-            } else if (currentTask.type === 'chat') {
-                processChatTask(currentTask);
+            if (unifiedQueueInterval != null) {
+                clearInterval(unifiedQueueInterval);
             }
+            unifiedQueueInterval = setInterval(() => {
+                if (isProcessingQueue || unifiedQueue.length === 0) return;
+
+                isProcessingQueue = true;
+                currentTask = unifiedQueue.shift();
+                updateStatusDisplay();
+
+                if (currentTask.type === 'job') {
+                    processJobTask(currentTask);
+                } else if (currentTask.type === 'chat') {
+                    processChatTask(currentTask);
+                }
+            }, 500)
+
         }
 
         // Process a job task
@@ -1029,13 +1080,24 @@
                 .then(data => {
                     if (data.warning) {
                         showWarningModal(data.actions_content, projectId);
-                    } else {
-                        const jobId = data.job_id;
-                        activeJobs[jobId] = { projectId, status: data.status };
-                        saveActiveJobs();
-                        const intervalId = setInterval(() => pollJobStatus(jobId, intervalId), 5000);
-                        activeJobs[jobId].intervalId = intervalId;
+                        return; // Exit early if there's a warning
                     }
+
+                    // --- Add validation for job_id ---
+                    if (!data.job_id) {
+                        throw new Error('No job_id returned from API');
+                    }
+
+                    const jobId = data.job_id;
+                    activeJobs[jobId] = {
+                        projectId,
+                        status: data.status,
+                        intervalId: setInterval(
+                            () => pollJobStatus(jobId, activeJobs[jobId].intervalId),
+                            5000
+                        )
+                    };
+                    saveActiveJobs();
                 })
                 .catch(error => {
                     console.error('Error running project:', error);
@@ -1266,9 +1328,7 @@
                         projectItem.id = `proj-${project.id}`;
                         projectItem.onclick = () => selectProject(project.id);
 
-                        const isRunning = projectRunStates[project.id] || Object.values(activeJobs).some(j => j.projectId === project.id);
-                        const btnText = isRunning ? '<span class="spinner"></span> Running...' : 'Run';
-                        const btnDisabled = isRunning ? 'disabled' : '';
+                        const isRunning = isProjectRunningOrQueued(project.id);
 
                         const archiveBtnText = project.isArchived ? 'UNARCHIVE' : 'ARCHIVE';
                         const archiveBtnAction = project.isArchived ? `unarchiveProject('${project.id}')` : `archiveProject('${project.id}')`;
@@ -1279,8 +1339,8 @@
                                 <div class="project-item-actions">
                                     <button class="btn-sm" id="run-btn-${project.id}"
                                         onclick="event.stopPropagation(); runProject('${project.id}')"
-                                        ${btnDisabled}>
-                                        ${btnText}
+                                        ${isRunning ? 'disabled' : ''}>
+                                        ${isRunning ? '<span class="spinner"></span> RUNNING...' : 'RUN'}
                                     </button>
                                     <button class="btn-sm stop" id="stop-btn-${project.id}"
                                         onclick="event.stopPropagation(); stopProject('${project.id}')"
@@ -1292,7 +1352,7 @@
                                         ${archiveBtnText}
                                     </button>
                                     <button class="btn-sm delete"
-                                        onclick="event.stopPropagation(); deleteProject('${project.id}')">Del</button>
+                                        onclick="event.stopPropagation(); deleteProject('${project.id}')">DEL</button>
                                 </div>
                             </div>
                             <span style="color: #ccc; font-size: 8px;">${project.rootDirectory || ''}</span>
@@ -1380,13 +1440,8 @@
                     // Set up drag and drop for details
                     setupDetailsDragAndDrop();
 
-                    if (project.rootDirectory) {
-                        document.getElementById('details-root-dir').value = project.rootDirectory;
-                        document.getElementById('details-show-selected-only').checked = true;
-                    }
-
                     // Update run/stop button visibility
-                    const isRunning = projectRunStates[projectId] || Object.values(activeJobs).some(j => j.projectId === projectId);
+                    const isRunning = isProjectRunningOrQueued(projectId);
                     updateRunButtonState(projectId, isRunning);
                 })
                 .catch(err => console.error('Failed to load project details:', err));
@@ -1439,7 +1494,8 @@
 
                         const checkbox = document.createElement('input');
                         checkbox.type = 'checkbox';
-                        checkbox.checked = true;
+                        // DEFAULT TO UNCHECKED FOR SAFETY
+                        checkbox.checked = false;
                         checkbox.onchange = () => updateSelectedPatterns();
                         checkbox.dataset.path = item.path;
 
@@ -1469,7 +1525,7 @@
                     loadTreeBtn.disabled = false;
                     loadTreeText.style.display = 'inline';
                     loadTreeSpinner.style.display = 'none';
-                    container.innerHTML = '<div class="note">Failed to load files.</div>';
+                    container.innerHTML = '<div class="note warning">Failed to load files. Check path and try again.</div>';
                 });
         }
 
@@ -1502,6 +1558,9 @@
                         return a.path.localeCompare(b.path);
                     });
 
+                    // Get current patterns to preserve selections
+                    const currentPatterns = (document.getElementById('details-patterns-input').value || '').split(',').map(p => p.trim());
+
                     sortedPaths.forEach(item => {
                         const isDir = item.path.endsWith('/');
                         const itemElement = document.createElement('div');
@@ -1509,9 +1568,8 @@
 
                         const checkbox = document.createElement('input');
                         checkbox.type = 'checkbox';
-
-                        const currentPatterns = (document.getElementById('details-patterns-input').value || '').split(',').map(p => p.trim());
-                        checkbox.checked = currentPatterns.includes(item.path) || currentPatterns.length === 0;
+                        // Only check if this path is in the current patterns
+                        checkbox.checked = currentPatterns.includes(item.path);
                         checkbox.onchange = () => detailsUpdateSelectedPatterns();
                         checkbox.dataset.path = item.path;
 
@@ -1541,7 +1599,7 @@
                     loadTreeBtn.disabled = false;
                     loadTreeText.style.display = 'inline';
                     loadTreeSpinner.style.display = 'none';
-                    container.innerHTML = '<div class="note">Failed to load files.</div>';
+                    container.innerHTML = '<div class="note warning">Failed to load files. Check path and try again.</div>';
                 });
         }
 
@@ -1596,7 +1654,7 @@
         function selectAll() {
             showTreeOverlay('file-tree');
             document.querySelectorAll('#file-tree-container input[type="checkbox"]').forEach(cb => {
-                if (cb.parentElement.style.display !== 'none') cb.checked = true;
+                cb.checked = true;
             });
             updateSelectedPatterns();
             hideTreeOverlay('file-tree');
@@ -1606,7 +1664,7 @@
         function deselectAll() {
             showTreeOverlay('file-tree');
             document.querySelectorAll('#file-tree-container input[type="checkbox"]').forEach(cb => {
-                if (cb.parentElement.style.display !== 'none') cb.checked = false;
+                cb.checked = false;
             });
             updateSelectedPatterns();
             hideTreeOverlay('file-tree');
@@ -1616,7 +1674,7 @@
         function detailsSelectAll() {
             showTreeOverlay('details-file-tree');
             document.querySelectorAll('#details-file-tree-container input[type="checkbox"]').forEach(cb => {
-                if (cb.parentElement.style.display !== 'none') cb.checked = true;
+                cb.checked = true;
             });
             detailsUpdateSelectedPatterns();
             hideTreeOverlay('details-file-tree');
@@ -1626,7 +1684,7 @@
         function detailsDeselectAll() {
             showTreeOverlay('details-file-tree');
             document.querySelectorAll('#details-file-tree-container input[type="checkbox"]').forEach(cb => {
-                if (cb.parentElement.style.display !== 'none') cb.checked = false;
+                cb.checked = false;
             });
             detailsUpdateSelectedPatterns();
             hideTreeOverlay('details-file-tree');
@@ -1644,7 +1702,7 @@
                     const checkbox = item.querySelector('input[type="checkbox"]');
                     const text = item.textContent.toLowerCase();
                     const isSelected = checkbox && checkbox.checked;
-                    const matchesSearch = text.includes(searchTerm);
+                    const matchesSearch = !searchTerm || text.includes(searchTerm);
                     const matchesFilter = !showSelectedOnly || isSelected;
                     item.style.display = (matchesSearch && matchesFilter) ? '' : 'none';
                 });
@@ -1665,7 +1723,7 @@
                     const checkbox = item.querySelector('input[type="checkbox"]');
                     const text = item.textContent.toLowerCase();
                     const isSelected = checkbox && checkbox.checked;
-                    const matchesSearch = text.includes(searchTerm);
+                    const matchesSearch = !searchTerm || text.includes(searchTerm);
                     const matchesFilter = !showSelectedOnly || isSelected;
                     item.style.display = (matchesSearch && matchesFilter) ? '' : 'none';
                 });
@@ -1693,6 +1751,14 @@
         document.getElementById('add-project-form').addEventListener('submit', function (e) {
             e.preventDefault();
             const formData = new FormData(this);
+            const includePatterns = formData.get('includePatterns');
+
+            // Validate that at least one pattern is selected
+            if (!includePatterns || !includePatterns.trim()) {
+                alert('Please select at least one file or folder to include in the project.');
+                return;
+            }
+
             fetch('/api/projects', { method: 'POST', body: formData })
                 .then(response => response.ok ? response.json() : Promise.reject(new Error('Failed to create project')))
                 .then(data => {
@@ -1716,7 +1782,7 @@
             const stopListBtn = document.getElementById(`stop-btn-${projectId}`);
             if (listBtn) {
                 listBtn.disabled = isLoading;
-                listBtn.innerHTML = isLoading ? '<span class="spinner"></span> Running...' : 'Run';
+                listBtn.innerHTML = isLoading ? '<span class="spinner"></span> RUNNING...' : 'RUN';
             }
             if (stopListBtn) {
                 stopListBtn.style.display = isLoading ? 'inline-block' : 'none';
@@ -1727,7 +1793,7 @@
             const detailStopBtn = document.getElementById('details-stop-btn');
             if (detailBtn && currentProjectId === projectId) {
                 detailBtn.disabled = isLoading;
-                detailBtn.innerHTML = isLoading ? '<span class="run-spinner"></span> Running...' : 'RUN AI BUILDER';
+                detailBtn.innerHTML = isLoading ? '<span class="run-spinner"></span> RUNNING...' : 'RUN AI BUILDER';
             }
             if (detailStopBtn && currentProjectId === projectId) {
                 detailStopBtn.style.display = isLoading ? 'inline-block' : 'none';
@@ -1770,6 +1836,11 @@
 
         // Run project
         function runProject(projectId) {
+            if (isProjectRunningOrQueued(projectId)) {
+                alert('This project is already running or queued. Please wait for it to complete.');
+                return;
+            }
+
             pendingProjectId = projectId;
             fetch(`/api/projects/${projectId}/run`, { method: 'POST' })
                 .then(response => response.json())
@@ -1993,9 +2064,12 @@
             const newRootPath = document.getElementById('root-path').value;
             const patternsDisplay = document.getElementById('patterns-display').value.trim();
 
-            if (patternsDisplay && newRootPath !== pendingRootPathChange) {
-                pendingRootPathChange = newRootPath;
-                document.getElementById('confirm-clear-modal').style.display = 'flex';
+            if (patternsDisplay) {
+                pendingRootPath = newRootPath;
+                pendingRootPathElementId = 'root-path';
+                document.getElementById('root-path-confirmation-text').textContent =
+                    'Are you sure you want to change the root directory? This will clear all selected file paths.';
+                document.getElementById('root-path-confirmation-modal').style.display = 'flex';
                 // Revert the change temporarily until user confirms
                 document.getElementById('root-path').value = '';
             }
@@ -2006,45 +2080,43 @@
             const newRootPath = document.getElementById('details-root-dir').value;
             const patternsDisplay = document.getElementById('details-patterns-display').value.trim();
 
-            if (patternsDisplay && newRootPath !== pendingRootPathChange) {
-                pendingRootPathChange = newRootPath;
-                document.getElementById('confirm-clear-modal').style.display = 'flex';
+            if (patternsDisplay) {
+                pendingRootPath = newRootPath;
+                pendingRootPathElementId = 'details-root-dir';
+                document.getElementById('root-path-confirmation-text').textContent =
+                    'Are you sure you want to change the root directory? This will clear all selected file paths.';
+                document.getElementById('root-path-confirmation-modal').style.display = 'flex';
                 // Revert the change temporarily until user confirms
                 document.getElementById('details-root-dir').value = '';
             }
         }
 
-        // Handle confirmation for clearing paths
-        function confirmClearPaths(shouldClear) {
-            document.getElementById('confirm-clear-modal').style.display = 'none';
+        // Handle confirmation for changing root path
+        function confirmRootPathChangeProceed() {
+            document.getElementById('root-path-confirmation-modal').style.display = 'none';
 
-            if (shouldClear) {
+            if (pendingRootPath && pendingRootPathElementId) {
                 // Clear the patterns display
-                const patternsDisplay = document.getElementById('patterns-display');
-                const detailsPatternsDisplay = document.getElementById('details-patterns-display');
-                if (patternsDisplay) patternsDisplay.value = '';
-                if (detailsPatternsDisplay) detailsPatternsDisplay.value = '';
-
-                // Update the hidden inputs
-                document.getElementById('patterns-input').value = '';
-                document.getElementById('details-patterns-input').value = '';
-
-                // Restore the new root path
-                if (pendingRootPathChange) {
-                    const rootPathInput = document.getElementById('root-path');
-                    const detailsRootPathInput = document.getElementById('details-root-dir');
-                    if (rootPathInput.value === '') rootPathInput.value = pendingRootPathChange;
-                    if (detailsRootPathInput.value === '') detailsRootPathInput.value = pendingRootPathChange;
+                if (pendingRootPathElementId === 'root-path') {
+                    document.getElementById('patterns-display').value = '';
+                    document.getElementById('patterns-input').value = '';
+                    document.getElementById('root-path').value = pendingRootPath;
+                } else if (pendingRootPathElementId === 'details-root-dir') {
+                    document.getElementById('details-patterns-display').value = '';
+                    document.getElementById('details-patterns-input').value = '';
+                    document.getElementById('details-root-dir').value = pendingRootPath;
                 }
-            } else {
-                // Revert the root path change
-                const rootPathInput = document.getElementById('root-path');
-                const detailsRootPathInput = document.getElementById('details-root-dir');
-                if (rootPathInput.value === '') rootPathInput.value = '';
-                if (detailsRootPathInput.value === '') detailsRootPathInput.value = '';
             }
 
-            pendingRootPathChange = null;
+            pendingRootPath = null;
+            pendingRootPathElementId = null;
+        }
+
+        // Cancel root path change
+        function cancelRootPathChange() {
+            document.getElementById('root-path-confirmation-modal').style.display = 'none';
+            pendingRootPath = null;
+            pendingRootPathElementId = null;
         }
 
         // Set up drag and drop for patterns
