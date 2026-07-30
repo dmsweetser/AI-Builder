@@ -88,26 +88,6 @@ def worker():
                         item["status"] = "completed"
                         item["end_timestamp"] = datetime.now().isoformat()
                         break
-                # Auto-add newly created/modified files to project patterns
-                root_dir = project.get("rootDirectory", "")
-                if root_dir and os.path.isdir(root_dir):
-                    old_patterns = [p.strip() for p in project.get("includePatterns", "").split(",") if p.strip()]
-                    new_patterns = []
-                    for root, dirs, files in os.walk(root_dir):
-                        for f in files:
-                            rel_path = os.path.relpath(os.path.join(root, f), root_dir)
-                            if rel_path not in old_patterns:
-                                new_patterns.append(rel_path)
-                    if new_patterns:
-                        existing_patterns = project.get("includePatterns", "")
-                        combined = existing_patterns + ("," if existing_patterns else "") + ",".join(new_patterns)
-                        project["includePatterns"] = combined
-                        projects = load_projects()
-                        for i, p in enumerate(projects):
-                            if p["id"] == pid:
-                                projects[i] = project
-                                break
-                        save_projects(projects)
             except Exception as e:
                 run_status[job_id] = {'status': 'error', 'message': str(e), 'project_id': pid}
                 if job_id in active_jobs:
