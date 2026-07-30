@@ -1,5 +1,6 @@
 import os
 import json
+import tempfile
 import uuid
 import time
 import subprocess
@@ -23,8 +24,8 @@ HISTORY_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aib_ins
 run_queue = queue.Queue()
 run_status = {}
 job_history = []
-active_jobs = {}  # Track active jobs for stopping
-job_queue_lock = threading.Lock()  # Prevent race conditions in job queue
+active_jobs = {}
+job_queue_lock = threading.Lock()
 
 def load_job_history():
     global job_history
@@ -39,6 +40,7 @@ def load_job_history():
 
 def save_job_history():
     try:
+        os.makedirs(os.path.dirname(HISTORY_FILE), exist_ok=True)
         with open(HISTORY_FILE, 'w') as f:
             json.dump(job_history, f, indent=2)
     except Exception:
@@ -55,7 +57,6 @@ def worker():
         job_id = job['job_id']
 
         with job_queue_lock:
-            # Check if this project is already being processed
             if any(j['pid'] == pid for j in list(run_queue.queue) if j != job):
                 run_queue.task_done()
                 continue
@@ -63,7 +64,6 @@ def worker():
             run_status[job_id] = {'status': 'running', 'project_id': pid}
             active_jobs[job_id] = {'pid': pid, 'status': 'running'}
 
-        # Record job start in history
         project, _ = get_project(pid)
         job_history.append({
             "job_id": job_id,
@@ -82,7 +82,6 @@ def worker():
                 run_status[job_id] = {'status': 'completed', 'project_id': pid}
                 if job_id in active_jobs:
                     active_jobs[job_id]['status'] = 'completed'
-                # Update history
                 for item in job_history:
                     if item["job_id"] == job_id:
                         item["status"] = "completed"
@@ -92,7 +91,6 @@ def worker():
                 run_status[job_id] = {'status': 'error', 'message': str(e), 'project_id': pid}
                 if job_id in active_jobs:
                     active_jobs[job_id]['status'] = 'error'
-                # Update history
                 for item in job_history:
                     if item["job_id"] == job_id:
                         item["status"] = "error"
@@ -103,7 +101,6 @@ def worker():
             run_status[job_id] = {'status': 'error', 'message': 'Project not found', 'project_id': pid}
             if job_id in active_jobs:
                 active_jobs[job_id]['status'] = 'error'
-            # Update history
             for item in job_history:
                 if item["job_id"] == job_id:
                     item["status"] = "error"
@@ -122,7 +119,6 @@ threading.Thread(target=worker, daemon=True).start()
 PROJECTS_FILE = "aib_instance/projects.json"
 CHATS_DIR = "aib_instance/chats"
 
-# Ensure required directories exist on startup
 os.makedirs(CHATS_DIR, exist_ok=True)
 os.makedirs(os.path.dirname(PROJECTS_FILE), exist_ok=True)
 
@@ -143,17 +139,12 @@ def get_project(pid):
     return next((p for p in projects if p["id"] == pid), None), projects
 
 def is_project_running(pid):
-    """Check if a project is already running or queued."""
-    # Check active jobs
     for job_id, job in active_jobs.items():
         if job.get('pid') == pid:
             return True, job_id
-    # Check run status
     for job_id, status in run_status.items():
         if status.get('project_id') == pid and status.get('status') in ['running', 'queued']:
             return True, job_id
-    # Check queue (this is a simplified check as queue.Queue doesn't expose its contents easily)
-    # In a production system, you might want to maintain a separate set for tracking queued projects
     return False, None
 
 # ---------- Routes ----------
@@ -173,7 +164,6 @@ def api_get_project(pid):
     if not project:
         return jsonify({"error": "Project not found"}), 404
     project.pop("modelConfig", None)
-    # Ensure includePatterns is always a string for frontend compatibility
     if not isinstance(project.get("includePatterns"), str):
         project["includePatterns"] = ""
     return jsonify(project)
@@ -183,7 +173,6 @@ def api_create_project():
     projects = load_projects()
     pid = str(uuid.uuid4())
 
-    # Validate required fields
     name = request.form.get("name", "")
     if not name:
         return jsonify({"error": "Project name is required"}), 400
@@ -191,11 +180,9 @@ def api_create_project():
     include_patterns = request.form.get("includePatterns", "")
     root_directory = request.form.get("rootDirectory", "")
 
-    # Validate that at least one pattern is provided
     if not include_patterns:
         return jsonify({"error": "At least one include pattern is required"}), 400
 
-    # Validate that if patterns are not absolute, rootDirectory is provided
     patterns = [p.strip() for p in include_patterns.split(",") if p.strip()]
     if not root_directory and not all(os.path.isabs(p) for p in patterns):
         return jsonify({"error": "rootDirectory is required if includePatterns are not absolute paths"}), 400
@@ -224,12 +211,10 @@ def api_update_project(pid):
     if not project:
         return jsonify({"error": "Project not found"}), 404
 
-    # Validate that at least one pattern is provided
     include_patterns = request.form.get("includePatterns", project.get("includePatterns", ""))
     if not include_patterns:
         return jsonify({"error": "At least one include pattern is required"}), 400
 
-    # Validate that if patterns are not absolute, rootDirectory is provided
     root_directory = request.form.get("rootDirectory", project.get("rootDirectory", ""))
     patterns = [p.strip() for p in include_patterns.split(",") if p.strip()]
     if not root_directory and not all(os.path.isabs(p) for p in patterns):
@@ -276,12 +261,10 @@ def api_run_project(pid):
     if not project:
         return jsonify({"error": "Project not found"}), 404
 
-    # Check if project is already running
     is_running, existing_job_id = is_project_running(pid)
     if is_running:
         return jsonify({"status": "queued", "job_id": existing_job_id})
 
-    # Validate inputs
     if not project.get("includePatterns"):
         return jsonify({"error": "No includePatterns specified"}), 400
 
@@ -289,10 +272,8 @@ def api_run_project(pid):
     if not project.get("rootDirectory") and not all(os.path.isabs(p) for p in include_patterns):
         return jsonify({"error": "rootDirectory required if includePatterns are not full paths"}), 400
 
-    # Validate that patterns are not too broad (e.g., entire directories without filters)
     root_dir = project.get("rootDirectory", "")
     if root_dir and os.path.isdir(root_dir):
-        # Check if patterns would include the entire directory
         all_files_pattern = any(p.strip() == "." or p.strip() == "./" or p.strip() == "" for p in include_patterns)
         if all_files_pattern and not project.get("excludePatterns"):
             return jsonify({
@@ -300,7 +281,6 @@ def api_run_project(pid):
                 "suggestion": "Add specific file patterns or exclusion patterns to limit the scope."
             }), 400
 
-    # Clear output directory
     output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aib_instance", "output", pid)
     try:
         if os.path.exists(output_dir):
@@ -309,7 +289,6 @@ def api_run_project(pid):
     except Exception as e:
         return jsonify({"error": f"Failed to create output directory: {str(e)}"}), 500
 
-    # Check for unapplied changes
     actions_file = os.path.join(output_dir, "actions.txt")
     warning_content = None
     if os.path.exists(actions_file):
@@ -325,12 +304,10 @@ def api_run_project(pid):
             "message": "Existing unapplied changes found. Review or clear them before running."
         })
 
-    # Queue the job
     job_id = str(uuid.uuid4())
     run_status[job_id] = {'status': 'queued', 'project_id': pid}
     active_jobs[job_id] = {'pid': pid, 'status': 'queued'}
 
-    # Use lock to prevent race conditions
     with job_queue_lock:
         run_queue.put({'pid': pid, 'job_id': job_id})
 
@@ -341,9 +318,9 @@ def api_stop_project(pid):
     jobs_to_stop = [job_id for job_id, job in active_jobs.items() if job.get('pid') == pid]
     for job_id in jobs_to_stop:
         if job_id in active_jobs:
-            del active_jobs[job_id]  # Remove entirely
+            del active_jobs[job_id]
         if job_id in run_status:
-            del run_status[job_id]  # Remove entirely
+            del run_status[job_id]
     for item in job_history:
         if item["project_id"] == pid and item["status"] == "running":
             item["status"] = "stopped"
@@ -370,7 +347,6 @@ def api_run_status(job_id):
 
 @app.route("/api/projects/<pid>", methods=["DELETE"])
 def api_delete_project(pid):
-    # Stop any running jobs for this project first
     jobs_to_stop = [job_id for job_id, job in active_jobs.items() if job.get('pid') == pid]
     for job_id in jobs_to_stop:
         if job_id in active_jobs:
@@ -384,7 +360,6 @@ def api_delete_project(pid):
     projects = [p for p in projects if p["id"] != pid]
     save_projects(projects)
 
-    # Clean up output directory
     output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aib_instance", "output", pid)
     if os.path.exists(output_dir):
         try:
@@ -398,22 +373,17 @@ def api_delete_project(pid):
 def api_files():
     path = request.args.get("path", ".")
     try:
-        # Security: Prevent directory traversal
         base_dir = os.path.dirname(os.path.abspath(__file__))
         if not os.path.isabs(path):
-            # Handle both Unix and Windows relative paths
             if path.startswith('./') or path.startswith('.\\'):
                 path = os.path.abspath(path)
             else:
-                # Assume it's relative to current working directory
                 path = os.path.abspath(os.path.join(os.getcwd(), path))
 
-        # Normalize path and check it's within allowed directories
         path = os.path.normpath(path)
         if not os.path.exists(path):
             return jsonify({"error": f"Path does not exist: {path}"}), 400
 
-        # Additional security check: ensure the path is not trying to access system directories
         if path.startswith('/etc') or path.startswith('/usr') or path.startswith('/var') or \
            path.startswith('C:\\Windows') or path.startswith('C:\\Program Files'):
             return jsonify({"error": "Access to system directories is not allowed"}), 403
@@ -436,6 +406,85 @@ def api_get_history():
     current_job_history = sorted(job_history, key=lambda x: x["timestamp"], reverse=True)
     return jsonify(current_job_history)
 
+# ---------- NEW ENDPOINTS ----------
+
+@app.route("/api/job-status", methods=["GET"])
+def api_job_status():
+    """Return current job statuses from the server."""
+    return jsonify({
+        "activeJobs": active_jobs,
+        "runStatus": run_status
+    })
+
+@app.route("/api/projects/<pid>/output-files", methods=["GET"])
+def api_get_output_files(pid):
+    """Get list of files created in the output directory for a project."""
+    output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aib_instance", "output", pid)
+    if not os.path.exists(output_dir):
+        return jsonify({"files": []})
+
+    try:
+        files = []
+        for root, dirs, filenames in os.walk(output_dir):
+            for filename in filenames:
+                # Skip log files and other metadata
+                if filename.endswith(('.txt', '.log', '.json')):
+                    continue
+                # Get full path and make it absolute
+                full_path = os.path.join(root, filename)
+                # Convert to forward slashes for consistency
+                full_path = full_path.replace('\\', '/')
+                files.append(full_path)
+        return jsonify({"files": files})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/stt", methods=["POST"])
+def api_stt():
+    """
+    Speech-to-Text endpoint using Whisper (offline).
+    Requires: pip install whisper
+    On first run, this will download the tiny model (~75MB).
+    """
+    if 'audio' not in request.files:
+        return jsonify({"error": "No audio file provided"}), 400
+
+    audio_file = request.files['audio']
+    if audio_file.filename == '':
+        return jsonify({"error": "Empty audio file"}), 400
+
+    try:
+        # Save the audio file temporarily
+        with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as temp_audio:
+            temp_audio_path = temp_audio.name
+            audio_file.save(temp_audio_path)
+
+        # Use Whisper for transcription
+        try:
+            import whisper
+        except ImportError:
+            return jsonify({
+                "error": "Whisper not installed. Install with: pip install whisper"
+            }), 500
+
+        try:
+            # Load the tiny model (fastest, ~75MB)
+            model = whisper.load_model("tiny")
+            result = model.transcribe(temp_audio_path)
+            text = result['text']
+            return jsonify({"transcription": text})
+        except Exception as e:
+            return jsonify({"error": f"Whisper error: {str(e)}"}), 500
+        finally:
+            # Clean up temp file
+            try:
+                os.unlink(temp_audio_path)
+            except Exception:
+                pass
+
+    except Exception as e:
+        return jsonify({"error": f"Error processing audio: {str(e)}"}), 500
+
 # ---------- Chat Routes ----------
 @app.route("/api/chats", methods=["GET"])
 def api_list_chats():
@@ -457,7 +506,6 @@ def api_list_chats():
                         })
                 except Exception as e:
                     print(f"Error reading chat file {fname}: {e}")
-    # Sort by timestamp (newest first)
     chats.sort(key=lambda x: x.get("timestamp", x.get("id", "")), reverse=True)
     return jsonify(chats)
 
@@ -498,7 +546,6 @@ def api_send_message(chat_id):
         with open(chat_path, "r", encoding="utf-8") as f:
             chat_data = json.load(f)
 
-        # Prevent duplicate user messages
         if chat_data["messages"] and chat_data["messages"][-1].get("role") == "user" and chat_data["messages"][-1].get("content") == message:
             chat_data["messages"].pop()
 

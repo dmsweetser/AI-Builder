@@ -14,7 +14,6 @@ from azure.ai.inference.models import SystemMessage, UserMessage
 from azure.core.credentials import AzureKeyCredential
 from config import Config
 
-# Load environment variables from .env file
 load_dotenv()
 
 LINE_DELIMITER = f"<<<AI_BUILDER_LINE_DELIMITER_{uuid.uuid4().hex}>>>"
@@ -142,12 +141,9 @@ class FileModifier:
         if not root_directory:
             return filepath
 
-        # Join with root directory
         full_path = os.path.join(root_directory, filepath)
-        # Normalize the path (resolves '..' and '.')
         full_path = os.path.normpath(full_path)
 
-        # Check if the normalized path is still within the root directory
         root_dir = os.path.normpath(root_directory)
         if not full_path.startswith(root_dir + os.sep) and full_path != root_dir:
             raise ValueError(f"Path traversal detected: {filepath} resolves to {full_path} which is outside {root_dir}")
@@ -155,18 +151,17 @@ class FileModifier:
         return full_path
 
     @staticmethod
-    def apply_modifications(changes: List[Dict[str, Any]], root_directory: str, dry_run: bool = False) -> List[Dict[str, Any]]:
+    def apply_modifications(changes: List[Dict[str, Any]], root_directory: str, dry_run: bool = False, output_dir: str = None) -> List[Dict[str, Any]]:
         try:
             incomplete_actions = []
-            processed_files = set()  # Track processed files to avoid duplicates
+            processed_files = set()
+            created_files = []  # Track newly created files
 
             for change in changes:
                 filepath = change['file']
                 try:
-                    # Sanitize the path to prevent directory traversal
                     full_path = FileModifier._sanitize_path(filepath, root_directory) if root_directory else filepath
 
-                    # Skip if we've already processed this file in this batch
                     if full_path in processed_files:
                         logging.warning(f"Skipping duplicate file in batch: {full_path}")
                         continue
@@ -179,6 +174,9 @@ class FileModifier:
                             if os.path.exists(full_path):
                                 shutil.copy2(full_path, backup_filepath)
                                 logging.info(f"Created backup: {backup_filepath}")
+                            else:
+                                # File doesn't exist - will be created
+                                created_files.append(full_path)
                         except Exception as e:
                             logging.error(f"Could not back up file: {full_path}: {e}")
 
@@ -187,6 +185,10 @@ class FileModifier:
                             if dry_run:
                                 logging.info(f"Dry run: Would apply action {action['action']} to {full_path}")
                             else:
+                                if action['action'] == 'create_file':
+                                    # This is a new file creation
+                                    if full_path not in created_files:
+                                        created_files.append(full_path)
                                 if not FileModifier._apply_action(full_path, action):
                                     incomplete_actions.append({'file': full_path, 'action': action})
                         except Exception as e:
@@ -201,6 +203,18 @@ class FileModifier:
                 except Exception as e:
                     logging.error(f"Error processing change for file {filepath}: {e}")
                     incomplete_actions.append({'file': filepath, 'action': {'error': str(e)}})
+
+            # Save created files list to output directory
+            if created_files and output_dir and not dry_run:
+                try:
+                    created_files_path = os.path.join(output_dir, "created_files.txt")
+                    with open(created_files_path, 'w', encoding='utf-8') as f:
+                        for file_path in created_files:
+                            f.write(f"{file_path}\n")
+                    logging.info(f"Saved created files list to {created_files_path}")
+                except Exception as e:
+                    logging.error(f"Error saving created files list: {e}")
+
             return incomplete_actions
         except Exception as e:
             logging.error(f"Error applying modifications: {e}")
@@ -220,7 +234,6 @@ class FileModifier:
                 logging.info(f"Created/Replaced: {filepath}")
                 return True
             elif action_type == 'remove_file':
-                # Safety check: don't remove script files or backup files
                 if os.path.isfile(filepath) and not any(
                     forbidden in filepath.lower()
                     for forbidden in ['pre.ps1', 'post.ps1', '.bak', '.backup']
@@ -263,11 +276,9 @@ class FileModifier:
 
             new_section_str = FileParser._safe_join(new_content).strip()
 
-            # Normalize line endings for comparison
             normalized_original = original_content.replace(f"{chr(13)}{chr(10)}", f"{chr(10)}").strip()
             normalized_content = content.replace(f"{chr(13)}{chr(10)}", f"{chr(10)}")
 
-            # Create comparison versions with normalized whitespace
             match_original = f"{chr(10)}".join([line.strip() for line in normalized_original.split(f"{chr(10)}") if line.strip()])
             match_content = f"{chr(10)}".join([line.strip() for line in normalized_content.split(f"{chr(10)}") if line.strip()])
 
@@ -279,7 +290,6 @@ class FileModifier:
                 return True
             else:
                 logging.warning(f"Original content not found in: {filepath}")
-                # Try a more flexible match (case-insensitive, whitespace-agnostic)
                 if original_content.strip().lower().replace(" ", "").replace("\t", "") in \
                    content.lower().replace(" ", "").replace("\t", ""):
                     modified_content = content.replace(original_content.strip(), new_section_str)
@@ -345,7 +355,7 @@ class CodeUtility:
         self.output_file = os.path.join(ai_builder_dir, "output.txt")
         self.log_file = os.path.join(ai_builder_dir, "utility.log")
         self.use_git_diff = use_git_diff
-        self.processed_files = set()  # Track processed files to avoid duplicates
+        self.processed_files = set()
 
     def parse_gitignore(self, directory: str) -> List[str]:
         try:
@@ -374,19 +384,15 @@ class CodeUtility:
                 if not patterns:
                     return mode == "include"
 
-                # Normalize patterns and path for comparison
                 normalized_patterns = [p.rstrip('/').rstrip('\\') for p in patterns]
                 normalized_path = path.rstrip('/').rstrip('\\')
 
                 for pattern in normalized_patterns:
                     pattern_clean = pattern.rstrip('/').rstrip('\\')
-                    # Exact match
                     if pattern_clean == normalized_path:
                         return mode == "include"
-                    # Directory match
                     if normalized_path.startswith(pattern_clean + '/') or normalized_path.startswith(pattern_clean + '\\'):
                         return mode == "include"
-                    # File in directory
                     if pattern_clean in normalized_path.split(os.sep):
                         return mode == "include"
                 return mode == "exclude"
@@ -396,11 +402,9 @@ class CodeUtility:
 
     def process_directory(self, directory: str, parent_rules: List[str], patterns: List[str], mode: str) -> None:
         try:
-            # Normalize parent_rules
             if not isinstance(parent_rules, list):
                 parent_rules = [parent_rules] if parent_rules else []
 
-            # Determine mode: absolute vs relative
             absolute_mode = not directory
 
             if absolute_mode:
@@ -408,7 +412,6 @@ class CodeUtility:
             else:
                 logging.info(f"Directory provided — treating patterns as relative paths inside: {directory}")
 
-            # Build full paths
             file_paths = []
             for p in patterns:
                 if absolute_mode:
@@ -416,7 +419,6 @@ class CodeUtility:
                 else:
                     full_path = os.path.join(directory, p)
 
-                # Normalize path and check for directory traversal
                 full_path = os.path.normpath(full_path)
                 if directory:
                     directory = os.path.normpath(directory)
@@ -426,13 +428,11 @@ class CodeUtility:
 
                 file_paths.append(full_path)
 
-            # If directory exists, load gitignore rules
             all_rules = parent_rules
             if not absolute_mode and directory:
                 current_rules = self.parse_gitignore(directory)
                 all_rules += current_rules
 
-            # Process each file path directly
             for full_path in file_paths:
                 if full_path in self.processed_files:
                     logging.info(f"Skipping already processed file: {full_path}")
@@ -447,7 +447,6 @@ class CodeUtility:
 
                 logging.info(f"Checking file: {relative_path}")
 
-                # Only apply should_process_file when directory is provided
                 if absolute_mode or self.should_process_file(relative_path, all_rules, patterns, mode):
                     try:
                         if os.path.isfile(full_path):
@@ -557,7 +556,6 @@ class AIBuilder:
                 if not script_content.strip():
                     return
 
-                # Security: Prevent path traversal in script paths
                 temp_script_path = os.path.join(self.ai_builder_dir, f"{script_name}_{uuid.uuid4().hex}.ps1")
                 with open(temp_script_path, "w", encoding='utf-8') as f:
                     f.write(script_content)
@@ -571,7 +569,6 @@ class AIBuilder:
                 if not os.path.exists(script_path):
                     raise FileNotFoundError(f"Script {script_name} not found.")
 
-                # Security: Check script path is within allowed directories
                 if not script_path.startswith(os.getcwd()):
                     raise ValueError(f"Script path {script_path} is outside current working directory")
 
@@ -590,7 +587,6 @@ class AIBuilder:
 
     def cleanup_bak_files(self, directory: str, patterns: List[str]) -> None:
         try:
-            # Determine mode: absolute vs relative
             absolute_mode = not directory
 
             if absolute_mode:
@@ -598,13 +594,11 @@ class AIBuilder:
             else:
                 logging.info(f"Directory provided — treating patterns as relative .bak paths inside: {directory}")
 
-            # Build full paths
             file_paths = []
             for p in patterns:
                 full_path = p if absolute_mode else os.path.join(directory, p)
                 file_paths.append(full_path + ".bak")
 
-            # Process each file path directly
             for full_path in file_paths:
                 try:
                     if os.path.exists(full_path):
@@ -688,7 +682,6 @@ Reply ONLY in the specified format with no commentary. THAT'S AN ORDER, SOLDIER!
             ticks = int(time.time() * 1000)
             filename = os.path.join(self.ai_builder_dir, f"aibuilder_prompt_{ticks}.txt")
 
-            # Security: Ensure the prompt file is within our directory
             if not os.path.dirname(filename).startswith(self.ai_builder_dir):
                 raise ValueError("Prompt file path is outside allowed directory")
 
@@ -789,7 +782,6 @@ Reply ONLY in the specified format with no commentary. THAT'S AN ORDER, SOLDIER!
                 exclude_patterns = [p.strip() for p in raw_exclude.split(",") if p.strip()] if isinstance(raw_exclude, str) else (raw_exclude if isinstance(raw_exclude, list) else [])
                 instructions = self.project_config.get("instructions", "")
 
-                # Validate patterns are not too broad
                 if self.root_directory and os.path.isdir(self.root_directory):
                     for pattern in patterns:
                         full_path = os.path.join(self.root_directory, pattern)
@@ -797,11 +789,9 @@ Reply ONLY in the specified format with no commentary. THAT'S AN ORDER, SOLDIER!
                         if not full_path.startswith(os.path.normpath(self.root_directory)):
                             raise ValueError(f"Pattern {pattern} would access files outside the root directory")
 
-                # If patterns are full paths, use them directly
                 if self.root_directory is None or all(os.path.isabs(p) for p in patterns):
                     diff_files = patterns
                 else:
-                    # Otherwise, resolve relative to rootDirectory
                     diff_files = [os.path.join(self.root_directory, p) for p in patterns]
             else:
                 base_config_path = os.path.join("base_config.xml")
@@ -861,7 +851,13 @@ Reply ONLY in the specified format with no commentary. THAT'S AN ORDER, SOLDIER!
 
                     if not Config.generate_but_do_not_apply():
                         changes = FileParser.parse_custom_format(response_content)
-                        incomplete_actions = FileModifier.apply_modifications(changes, self.root_directory, dry_run=False)
+                        # Pass output_dir to track created files
+                        incomplete_actions = FileModifier.apply_modifications(
+                            changes,
+                            self.root_directory,
+                            dry_run=False,
+                            output_dir=self.ai_builder_dir
+                        )
                         ActionManager.save_actions(incomplete_actions, actions_file_path)
 
                 except Exception as e:

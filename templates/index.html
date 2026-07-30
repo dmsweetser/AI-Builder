@@ -55,6 +55,12 @@
             overflow-y: auto;
             padding: 15px;
             gap: 10px;
+            position: relative;
+        }
+
+        .sidebar-header {
+            height: 140px; /* Space for draggable logo */
+            position: relative;
         }
 
         .sidebar-header h1 {
@@ -63,6 +69,29 @@
             text-shadow: 2px 2px 0px #000;
             margin: 0 0 10px 0;
             font-size: 18px;
+        }
+
+        /* Draggable logo (air hockey puck) */
+        .logo-spinner {
+            display: inline-block;
+            width: 120px;
+            height: 120px;
+            font-size: 24px;
+            text-align: center;
+            padding-top: 40px;
+            background-color: var(--grass);
+            border: 2px solid #000;
+            box-shadow: 8px 8px 0px #000;
+            animation: spin-block 10s steps(50) infinite;
+            cursor: grab;
+            user-select: none;
+            position: absolute;
+            z-index: 1000;
+            image-rendering: pixelated;
+        }
+
+        .logo-spinner:active {
+            cursor: grabbing;
         }
 
         .sidebar-nav {
@@ -515,19 +544,7 @@
         }
 
         .logo-spinner {
-            display: inline-block;
-            width: 150px;
-            height: 150px;
-            font-size: 30px;
-            text-align: center;
-            padding-top: 50px;
-            background-color: var(--grass);
-            border: 2px solid #000;
-            box-shadow: 8px 8px 0px #000;
             animation: spin-block 10s steps(50) infinite;
-            margin-left: 8px;
-            margin-top: 8px;
-            image-rendering: pixelated;
         }
 
         @keyframes spin-block {
@@ -729,6 +746,45 @@
             color: #ff6b6b;
             font-weight: bold;
         }
+
+        /* STT Button Styles */
+        .stt-btn {
+            background: var(--sky);
+            color: #000;
+            padding: 8px 12px;
+            border: 2px solid #000;
+            cursor: pointer;
+            font-family: 'Press Start 2P', monospace;
+            font-size: 10px;
+            margin-left: 10px;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            vertical-align: middle;
+        }
+
+        .stt-btn:hover {
+            background: #aaddff;
+        }
+
+        .stt-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .recording-indicator {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            background-color: red;
+            border-radius: 50%;
+            animation: pulse 1s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
     </style>
 </head>
 
@@ -736,7 +792,7 @@
     <div class="app-layout">
         <aside class="sidebar">
             <div class="sidebar-header">
-                <span class="logo-spinner">Portal</span>
+                <span class="logo-spinner" id="draggable-logo">Portal</span>
             </div>
             <div class="sidebar-nav">
                 <button class="tab-btn active" onclick="showTab('projects')">PROJECTS</button>
@@ -781,7 +837,7 @@
                             </label>
                         </div>
                         <div class="drop-zone" id="patterns-drop-zone">
-                            DRAG & DROP FILES HERE TO ADD THEIR PATHS
+                            DRAG & DROP FILES HERE TO ADD THEIR ABSOLUTE PATHS
                         </div>
                         <input type="text" id="tree-search" placeholder="Search files/folders..."
                             oninput="filterTree()">
@@ -811,7 +867,9 @@
                             <input name="rootDirectory" id="details-root-dir" onchange="confirmDetailsRootPathChange()">
                         </div>
                         <div style="margin-top: 15px;">
-                            <label>2. INCLUDED FILES/FOLDERS</label>
+                            <label>2. INCLUDED FILES/FOLDERS
+                                <button type="button" id="refresh-paths-btn" class="btn-sm" onclick="refreshSelectedPaths()" style="margin-left: 10px; vertical-align: middle;">REFRESH PATHS</button>
+                            </label>
                             <div class="selector-controls">
                                 <button type="button" id="details-load-tree-btn" onclick="loadDetailsFileTree()">
                                     <span id="details-load-tree-text">LOAD TREE</span>
@@ -832,7 +890,7 @@
                                 </label>
                             </div>
                             <div class="drop-zone" id="details-patterns-drop-zone">
-                                DRAG & DROP FILES HERE TO ADD THEIR PATHS
+                                DRAG & DROP FILES HERE TO ADD THEIR ABSOLUTE PATHS
                             </div>
                             <input type="text" id="details-tree-search" placeholder="Search files/folders..."
                                 oninput="detailsFilterTree()">
@@ -843,7 +901,11 @@
                             <input type="hidden" name="includePatterns" id="details-patterns-input">
                         </div>
                         <div>
-                            <label>3. INSTRUCTIONS FOR AI BUILDER</label>
+                            <label>3. INSTRUCTIONS FOR AI BUILDER
+                                <button type="button" id="stt-btn" class="stt-btn" onclick="startSTT()">
+                                    <span>STT (WHISPER)</span>
+                                </button>
+                            </label>
                             <textarea name="instructions" id="details-instructions" rows="8"
                                 oninput="autoSaveProject()"></textarea>
                         </div>
@@ -953,28 +1015,45 @@
         let pendingRootPath = null;
         let pendingRootPathElementId = null;
 
-        // Load run status from localStorage
+        // Air hockey puck state
+        let logoElement = null;
+        let isDragging = false;
+        let startX, startY, initialX, initialY;
+        let velocityX = 0, velocityY = 0;
+        let friction = 0.98;
+        let bounceFactor = 0.8;
+        let logoX = 8, logoY = 8;
+        let animationId = null;
+
+        // STT state
+        let isRecording = false;
+        let mediaRecorder;
+        let audioChunks = [];
+
+        // Initialize activeJobs from backend (replaces localStorage)
+        function loadActiveJobsFromBackend() {
+            fetch('/api/job-status')
+                .then(response => response.json())
+                .then(data => {
+                    activeJobs = data.activeJobs || {};
+                    run_status = data.runStatus || {};
+                    updateStatusDisplay();
+                })
+                .catch(err => console.error('Failed to load active jobs:', err));
+        }
+
+        // Load run status from backend (no longer uses localStorage)
         function load_run_status() {
-            const saved = localStorage.getItem('activeJobs');
-            if (saved) {
-                try { return JSON.parse(saved); } catch (e) { return {}; }
-            }
             return {};
         }
 
-        // Save active jobs to localStorage
+        // Save active jobs to backend (no longer uses localStorage)
         function saveActiveJobs() {
-            const jobsToSave = {};
-            for (const [jobId, job] of Object.entries(activeJobs)) {
-                if (job.status !== 'completed' && job.status !== 'error' && job.status !== 'stopped') {
-                    jobsToSave[jobId] = job;
-                }
-            }
-            localStorage.setItem('activeJobs', JSON.stringify(jobsToSave));
+            // No-op: Job state is now managed by backend
         }
 
         // Initialize activeJobs
-        Object.assign(activeJobs, load_run_status());
+        loadActiveJobsFromBackend();
 
         // Check if project is already running or queued
         function isProjectRunningOrQueued(projectId) {
@@ -1057,7 +1136,6 @@
                     processChatTask(currentTask);
                 }
             }, 500)
-
         }
 
         // Process a job task
@@ -1070,10 +1148,9 @@
                 .then(data => {
                     if (data.warning) {
                         showWarningModal(data.actions_content, projectId);
-                        return; // Exit early if there's a warning
+                        return;
                     }
 
-                    // --- Add validation for job_id ---
                     if (!data.job_id) {
                         throw new Error('No job_id returned from API');
                     }
@@ -1087,7 +1164,6 @@
                             5000
                         )
                     };
-                    saveActiveJobs();
                 })
                 .catch(error => {
                     console.error('Error running project:', error);
@@ -1304,7 +1380,6 @@
                         return;
                     }
 
-                    // Filter projects based on archived status
                     const filteredProjects = showArchived ? data : data.filter(p => !p.isArchived);
 
                     if (filteredProjects.length === 0) {
@@ -1383,6 +1458,7 @@
                     }
                     updateRunButtonState(projectId, false);
                     loadProjects();
+                    loadActiveJobsFromBackend(); // Refresh job status from backend
                 })
                 .catch(err => console.error('Failed to stop project:', err));
         }
@@ -1427,10 +1503,8 @@
                     const statusEl = document.getElementById('run-status');
                     if (statusEl) statusEl.textContent = '';
 
-                    // Set up drag and drop for details
                     setupDetailsDragAndDrop();
 
-                    // Update run/stop button visibility
                     const isRunning = isProjectRunningOrQueued(projectId);
                     updateRunButtonState(projectId, isRunning);
                 })
@@ -1463,7 +1537,6 @@
             loadTreeSpinner.style.display = 'inline-block';
             container.innerHTML = '<span class="spinner" style="display:inline-block; margin:10px;"></span><span style="margin-left: 10px;">Loading files...</span>';
 
-            // Use relative path if provided, otherwise use absolute
             const pathToUse = rootPath.startsWith('/') || rootPath.match(/^[a-zA-Z]:\\/) ? rootPath : `./${rootPath}`;
 
             fetch(`/api/files?path=${encodeURIComponent(pathToUse)}`)
@@ -1484,7 +1557,6 @@
 
                         const checkbox = document.createElement('input');
                         checkbox.type = 'checkbox';
-                        // DEFAULT TO UNCHECKED FOR SAFETY
                         checkbox.checked = false;
                         checkbox.onchange = () => updateSelectedPatterns();
                         checkbox.dataset.path = item.path;
@@ -1534,7 +1606,6 @@
             loadTreeSpinner.style.display = 'inline-block';
             container.innerHTML = '<span class="spinner" style="display:inline-block; margin:10px;"></span><span style="margin-left: 10px;">Loading files...</span>';
 
-            // Use relative path if provided, otherwise use absolute
             const pathToUse = rootPath.startsWith('/') || rootPath.match(/^[a-zA-Z]:\\/) ? rootPath : `./${rootPath}`;
 
             fetch(`/api/files?path=${encodeURIComponent(pathToUse)}`)
@@ -1548,7 +1619,6 @@
                         return a.path.localeCompare(b.path);
                     });
 
-                    // Get current patterns to preserve selections
                     const currentPatterns = (document.getElementById('details-patterns-input').value || '').split(',').map(p => p.trim());
 
                     sortedPaths.forEach(item => {
@@ -1558,7 +1628,6 @@
 
                         const checkbox = document.createElement('input');
                         checkbox.type = 'checkbox';
-                        // Only check if this path is in the current patterns
                         checkbox.checked = currentPatterns.includes(item.path);
                         checkbox.onchange = () => detailsUpdateSelectedPatterns();
                         checkbox.dataset.path = item.path;
@@ -1743,7 +1812,6 @@
             const formData = new FormData(this);
             const includePatterns = formData.get('includePatterns');
 
-            // Validate that at least one pattern is selected
             if (!includePatterns || !includePatterns.trim()) {
                 alert('Please select at least one file or folder to include in the project.');
                 return;
@@ -1767,7 +1835,6 @@
         function updateRunButtonState(projectId, isLoading) {
             projectRunStates[projectId] = isLoading;
 
-            // Update project list button
             const listBtn = document.getElementById(`run-btn-${projectId}`);
             const stopListBtn = document.getElementById(`stop-btn-${projectId}`);
             if (listBtn) {
@@ -1778,7 +1845,6 @@
                 stopListBtn.style.display = isLoading ? 'inline-block' : 'none';
             }
 
-            // Update details panel buttons
             const detailBtn = document.getElementById('details-run-btn');
             const detailStopBtn = document.getElementById('details-stop-btn');
             if (detailBtn && currentProjectId === projectId) {
@@ -1810,6 +1876,10 @@
                         saveActiveJobs();
                         loadProjects();
                         loadHistory();
+                        // Refresh selected paths after job completes
+                        if (currentProjectId === job.projectId) {
+                            refreshSelectedPaths();
+                        }
                     }
                 })
                 .catch(error => {
@@ -1888,7 +1958,6 @@
             fetch('/api/chats')
                 .then(response => response.json())
                 .then(chats => {
-                    // Sort chats by timestamp (newest first)
                     const sortedChats = chats.sort((a, b) => {
                         const timeA = a.timestamp || a.id;
                         const timeB = b.timestamp || b.id;
@@ -1908,7 +1977,6 @@
                         chatItem.dataset.chatId = chat.id;
                         chatItem.onclick = () => selectChat(chat.id);
 
-                        // Format title with timestamp if available
                         let displayTitle = chat.title || 'Unnamed Chat';
                         if (chat.timestamp) {
                             const date = new Date(chat.timestamp);
@@ -2060,7 +2128,6 @@
                 document.getElementById('root-path-confirmation-text').textContent =
                     'Are you sure you want to change the root directory? This will clear all selected file paths.';
                 document.getElementById('root-path-confirmation-modal').style.display = 'flex';
-                // Revert the change temporarily until user confirms
                 document.getElementById('root-path').value = '';
             }
         }
@@ -2076,7 +2143,6 @@
                 document.getElementById('root-path-confirmation-text').textContent =
                     'Are you sure you want to change the root directory? This will clear all selected file paths.';
                 document.getElementById('root-path-confirmation-modal').style.display = 'flex';
-                // Revert the change temporarily until user confirms
                 document.getElementById('details-root-dir').value = '';
             }
         }
@@ -2086,7 +2152,6 @@
             document.getElementById('root-path-confirmation-modal').style.display = 'none';
 
             if (pendingRootPath && pendingRootPathElementId) {
-                // Clear the patterns display
                 if (pendingRootPathElementId === 'root-path') {
                     document.getElementById('patterns-display').value = '';
                     document.getElementById('patterns-input').value = '';
@@ -2109,7 +2174,7 @@
             pendingRootPathElementId = null;
         }
 
-        // Set up drag and drop for patterns
+        // Set up drag and drop for patterns - NOW USES ABSOLUTE PATHS
         function setupDragAndDrop() {
             const dropZone = document.getElementById('patterns-drop-zone');
             const textarea = document.getElementById('patterns-display');
@@ -2136,7 +2201,13 @@
                     const item = items[i];
                     if (item.kind === 'file') {
                         const file = item.getAsFile();
-                        paths.push(file.path || file.name);
+                        // Use absolute path (Electron provides file.path)
+                        if (file.path) {
+                            paths.push(file.path);
+                        } else {
+                            // Fallback for browser (filename only)
+                            paths.push(file.name);
+                        }
                     }
                 }
 
@@ -2149,7 +2220,7 @@
             });
         }
 
-        // Set up drag and drop for details patterns
+        // Set up drag and drop for details patterns - NOW USES ABSOLUTE PATHS
         function setupDetailsDragAndDrop() {
             const dropZone = document.getElementById('details-patterns-drop-zone');
             const textarea = document.getElementById('details-patterns-display');
@@ -2176,13 +2247,12 @@
                     const item = items[i];
                     if (item.kind === 'file') {
                         const file = item.getAsFile();
-                        // Get relative path if root directory is set
-                        const rootDir = document.getElementById('details-root-dir').value;
-                        if (file.path && rootDir) {
-                            // This is a simplified approach - in a real Electron app, you'd use path.relative
-                            paths.push(file.path.replace(rootDir, '').replace(/^[\\/]/, ''));
+                        // Use absolute path directly
+                        if (file.path) {
+                            paths.push(file.path);
                         } else {
-                            paths.push(file.path || file.name);
+                            // Fallback for browser
+                            paths.push(file.name);
                         }
                     }
                 }
@@ -2196,8 +2266,258 @@
             });
         }
 
+        // Refresh selected paths by fetching newly created files from the project's output directory
+        function refreshSelectedPaths() {
+            const projectId = document.getElementById('run-project-id')?.value;
+            if (!projectId) return;
+
+            fetch(`/api/projects/${projectId}/output-files`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.files && data.files.length > 0) {
+                        const textarea = document.getElementById('details-patterns-display');
+                        const input = document.getElementById('details-patterns-input');
+                        if (textarea && input) {
+                            const currentValue = textarea.value;
+                            // Only add files that aren't already in the list
+                            const currentFiles = currentValue ? currentValue.split(',').map(f => f.trim()) : [];
+                            const newFiles = data.files.filter(f => !currentFiles.includes(f));
+
+                            if (newFiles.length > 0) {
+                                const newValue = currentValue ? `${currentValue},${newFiles.join(',')}` : newFiles.join(',');
+                                textarea.value = newValue;
+                                input.value = newValue;
+                                detailsUpdateSelectedPatterns();
+                            }
+                        }
+                    }
+                })
+                .catch(err => console.error('Failed to refresh selected paths:', err));
+        }
+
+        // --- AIR HOCKEY PUCK LOGIC ---
+        function initAirHockeyPuck() {
+            logoElement = document.getElementById('draggable-logo');
+            if (!logoElement) return;
+
+            // Position the logo absolutely within the sidebar
+            logoElement.style.position = 'absolute';
+            logoElement.style.left = '8px';
+            logoElement.style.top = '8px';
+
+            // Event listeners for dragging
+            logoElement.addEventListener('mousedown', startDrag);
+
+            // Animation loop
+            animatePuck();
+        }
+
+        function startDrag(e) {
+            isDragging = true;
+            startX = e.clientX;
+            startY = e.clientY;
+            initialX = logoX;
+            initialY = logoY;
+            logoElement.style.cursor = 'grabbing';
+            e.preventDefault();
+
+            // Add temporary event listeners for dragging
+            document.addEventListener('mousemove', drag);
+            document.addEventListener('mouseup', endDrag);
+        }
+
+        function drag(e) {
+            if (!isDragging) return;
+            const dx = e.clientX - startX;
+            const dy = e.clientY - startY;
+            logoX = initialX + dx;
+            logoY = initialY + dy;
+            updateLogoPosition();
+        }
+
+        function endDrag(e) {
+            if (!isDragging) return;
+            isDragging = false;
+            logoElement.style.cursor = 'grab';
+
+            // Calculate velocity based on mouse movement
+            const dx = e.clientX - startX;
+            const dy = e.clientY - startY;
+            velocityX = dx * 0.3; // Adjust sensitivity
+            velocityY = dy * 0.3;
+
+            // Remove temporary event listeners
+            document.removeEventListener('mousemove', drag);
+            document.removeEventListener('mouseup', endDrag);
+        }
+
+        function updateLogoPosition() {
+            if (!logoElement) return;
+
+            // Get viewport bounds
+            const viewportWidth = window.innerWidth;
+            const viewportHeight = window.innerHeight;
+            const logoWidth = logoElement.offsetWidth;
+            const logoHeight = logoElement.offsetHeight;
+
+            // Constrain to viewport
+            logoX = Math.max(0, Math.min(logoX, viewportWidth - logoWidth));
+            logoY = Math.max(0, Math.min(logoY, viewportHeight - logoHeight));
+
+            logoElement.style.left = `${logoX}px`;
+            logoElement.style.top = `${logoY}px`;
+        }
+
+        function animatePuck() {
+            if (!logoElement) {
+                animationId = requestAnimationFrame(animatePuck);
+                return;
+            }
+
+            // Apply velocity
+            logoX += velocityX;
+            logoY += velocityY;
+
+            // Apply friction
+            velocityX *= friction;
+            velocityY *= friction;
+
+            // Stop if velocity is negligible
+            if (Math.abs(velocityX) < 0.1 && Math.abs(velocityY) < 0.1) {
+                velocityX = 0;
+                velocityY = 0;
+            }
+
+            // Get viewport bounds
+            const viewportWidth = window.innerWidth;
+            const viewportHeight = window.innerHeight;
+            const logoWidth = logoElement.offsetWidth;
+            const logoHeight = logoElement.offsetHeight;
+
+            // Check for collisions with edges and bounce
+            if (logoX < 0) {
+                logoX = 0;
+                velocityX = -velocityX * bounceFactor;
+            } else if (logoX + logoWidth > viewportWidth) {
+                logoX = viewportWidth - logoWidth;
+                velocityX = -velocityX * bounceFactor;
+            }
+
+            if (logoY < 0) {
+                logoY = 0;
+                velocityY = -velocityY * bounceFactor;
+            } else if (logoY + logoHeight > viewportHeight) {
+                logoY = viewportHeight - logoHeight;
+                velocityY = -velocityY * bounceFactor;
+            }
+
+            // Update position
+            updateLogoPosition();
+
+            // Continue animation
+            animationId = requestAnimationFrame(animatePuck);
+        }
+
+        // --- STT (WHISPER) LOGIC ---
+        function startSTT() {
+            const sttBtn = document.getElementById('stt-btn');
+            if (isRecording) {
+                stopRecording(sttBtn);
+                return;
+            }
+
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                alert('Audio recording not supported in your browser. Try Chrome or Edge.');
+                return;
+            }
+
+            isRecording = true;
+            audioChunks = [];
+
+            // Update button to show recording state
+            sttBtn.innerHTML = '<span class="recording-indicator"></span><span>RECORDING...</span>';
+            sttBtn.disabled = true;
+
+            navigator.mediaDevices.getUserMedia({ audio: true })
+                .then(stream => {
+                    mediaRecorder = new MediaRecorder(stream);
+                    mediaRecorder.start();
+
+                    mediaRecorder.ondataavailable = event => {
+                        audioChunks.push(event.data);
+                    };
+
+                    mediaRecorder.onstop = () => {
+                        const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+                        sendAudioToServer(audioBlob, sttBtn);
+                        stream.getTracks().forEach(track => track.stop());
+                    };
+
+                    // Auto-stop after 60 seconds
+                    setTimeout(() => {
+                        if (isRecording) {
+                            stopRecording(sttBtn);
+                        }
+                    }, 60000);
+                })
+                .catch(err => {
+                    console.error('Error accessing microphone:', err);
+                    alert('Could not access microphone. Please check permissions.');
+                    isRecording = false;
+                    sttBtn.innerHTML = '<span>STT (WHISPER)</span>';
+                    sttBtn.disabled = false;
+                });
+        }
+
+        function stopRecording(sttBtn) {
+            if (mediaRecorder && isRecording) {
+                mediaRecorder.stop();
+                isRecording = false;
+                sttBtn.innerHTML = '<span class="spinner"></span><span>PROCESSING...</span>';
+            }
+        }
+
+        function sendAudioToServer(audioBlob, sttBtn) {
+            const formData = new FormData();
+            formData.append('audio', audioBlob, 'recording.wav');
+
+            fetch('/api/stt', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (data.transcription) {
+                    const instructionsTextarea = document.getElementById('details-instructions');
+                    if (instructionsTextarea) {
+                        const currentValue = instructionsTextarea.value;
+                        instructionsTextarea.value = currentValue
+                            ? `${currentValue}\n\n${data.transcription}`
+                            : data.transcription;
+                        autoSaveProject();
+                    }
+                }
+                sttBtn.innerHTML = '<span>STT (WHISPER)</span>';
+                sttBtn.disabled = false;
+            })
+            .catch(error => {
+                console.error('Error processing audio:', error);
+                alert('Error processing audio. Check console for details.');
+                sttBtn.innerHTML = '<span>STT (WHISPER)</span>';
+                sttBtn.disabled = false;
+            });
+        }
+
         // Initialize
         document.addEventListener('DOMContentLoaded', () => {
+            // Initialize air hockey puck
+            initAirHockeyPuck();
+
             // Set up drag and drop for add project form
             setupDragAndDrop();
 
@@ -2225,13 +2545,9 @@
                     });
             }
 
-            // Restore active jobs polling
-            for (const [jobId, job] of Object.entries(activeJobs)) {
-                const intervalId = setInterval(() => pollJobStatus(jobId, intervalId), 5000);
-                activeJobs[jobId].intervalId = intervalId;
-            }
+            // Poll for job status updates from backend
+            setInterval(loadActiveJobsFromBackend, 10000);
         });
     </script>
 </body>
-
 </html>
