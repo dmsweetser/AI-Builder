@@ -162,23 +162,21 @@ class FileModifier:
                 try:
                     full_path = FileModifier._sanitize_path(filepath, root_directory) if root_directory else filepath
 
-                    if full_path in processed_files:
-                        logging.warning(f"Skipping duplicate file in batch: {full_path}")
-                        continue
-                    processed_files.add(full_path)
-
                     logging.info(f"Processing file: {full_path}")
-                    if not dry_run:
-                        try:
-                            backup_filepath = f"{full_path}.bak"
-                            if os.path.exists(full_path):
-                                shutil.copy2(full_path, backup_filepath)
-                                logging.info(f"Created backup: {backup_filepath}")
-                            else:
-                                # File doesn't exist - will be created
-                                created_files.append(full_path)
-                        except Exception as e:
-                            logging.error(f"Could not back up file: {full_path}: {e}")
+
+                    if full_path not in processed_files:
+                        processed_files.add(full_path)
+                        if not dry_run:
+                            try:
+                                backup_filepath = f"{full_path}.bak"
+                                if os.path.exists(full_path):
+                                    shutil.copy2(full_path, backup_filepath)
+                                    logging.info(f"Created backup: {backup_filepath}")
+                                else:
+                                    # File doesn't exist - will be created
+                                    created_files.append(full_path)
+                            except Exception as e:
+                                logging.error(f"Could not back up file: {full_path}: {e}")
 
                     for action in change['actions']:
                         try:
@@ -789,10 +787,20 @@ Reply ONLY in the specified format with no commentary. THAT'S AN ORDER, SOLDIER!
                         if not full_path.startswith(os.path.normpath(self.root_directory)):
                             raise ValueError(f"Pattern {pattern} would access files outside the root directory")
 
-                if self.root_directory is None or all(os.path.isabs(p) for p in patterns):
-                    diff_files = patterns
-                else:
-                    diff_files = [os.path.join(self.root_directory, p) for p in patterns]
+                diff_files = []
+                for p in patterns:
+                    p = p.strip()
+                    if os.path.isabs(p):
+                        diff_files.append(p)
+                    elif self.root_directory:
+                        full_path = os.path.join(self.root_directory, p)
+                        full_path = os.path.normpath(full_path)
+                        if full_path.startswith(os.path.normpath(self.root_directory)):
+                            diff_files.append(full_path)
+                        else:
+                            logging.warning(f"Pattern {p} would access files outside the root directory")
+                    else:
+                        logging.warning(f"Skipping relative pattern without rootDirectory: {p}")
             else:
                 base_config_path = os.path.join("base_config.xml")
                 user_config_path = os.path.join(self.ai_builder_dir, "user_config.xml")

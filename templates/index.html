@@ -1079,6 +1079,11 @@
                     activeJobs = data.activeJobs || {};
                     run_status = data.runStatus || {};
                     updateStatusDisplay();
+                    
+                    // Sync UI running states with backend
+                    for (const [jobId, job] of Object.entries(activeJobs)) {
+                        updateRunButtonState(job.projectId, job.status === 'running');
+                    }
                 })
                 .catch(err => console.error('Failed to load active jobs:', err));
         }
@@ -1905,19 +1910,18 @@
             fetch(`/api/run/${jobId}/status`)
                 .then(response => response.json())
                 .then(status => {
+                    if (!status || !status.status) return;
+                    
                     job.status = status.status;
                     updateStatusDisplay();
-                    saveActiveJobs();
 
-                    if (status.status === 'completed' || status.status === 'error' || status.status === 'stopped') {
+                    if (['completed', 'error', 'stopped'].includes(status.status)) {
                         clearInterval(intervalId);
                         delete activeJobs[jobId];
                         updateRunButtonState(job.projectId, false);
                         updateStatusDisplay();
-                        saveActiveJobs();
                         loadProjects();
                         loadHistory();
-                        // Refresh selected paths after job completes
                         if (currentProjectId === job.projectId) {
                             refreshSelectedPaths();
                         }
@@ -1930,7 +1934,6 @@
                         delete activeJobs[jobId];
                         updateRunButtonState(job.projectId, false);
                         updateStatusDisplay();
-                        saveActiveJobs();
                     }
                 });
         }
@@ -1942,17 +1945,31 @@
                 return;
             }
 
-            pendingProjectId = projectId;
+            updateRunButtonState(projectId, true);
             fetch(`/api/projects/${projectId}/run`, { method: 'POST' })
                 .then(response => response.json())
                 .then(data => {
                     if (data.warning) {
                         showWarningModal(data.actions_content, projectId);
+                        updateRunButtonState(projectId, false);
+                    } else if (data.job_id) {
+                        activeJobs[data.job_id] = {
+                            projectId,
+                            status: data.status,
+                            intervalId: setInterval(
+                                () => pollJobStatus(data.job_id, activeJobs[data.job_id].intervalId),
+                                3000
+                            )
+                        };
+                        updateStatusDisplay();
                     } else {
-                        queueRunProject(projectId);
+                        throw new Error('No job_id returned from API');
                     }
                 })
-                .catch(error => console.error('Error checking run:', error));
+                .catch(error => {
+                    console.error('Error running project:', error);
+                    updateRunButtonState(projectId, false);
+                });
         }
 
         // Show warning modal
@@ -2341,15 +2358,11 @@
             logoElement = document.getElementById('draggable-logo');
             if (!logoElement) return;
 
-            // Position the logo absolutely within the viewport
             logoElement.style.position = 'fixed';
             logoElement.style.left = '8px';
             logoElement.style.top = '8px';
 
-            // Event listeners for dragging
             logoElement.addEventListener('mousedown', startDrag);
-
-            // Animation loop
             animatePuck();
         }
 
@@ -2362,11 +2375,9 @@
             logoElement.style.cursor = 'grabbing';
             e.preventDefault();
 
-            // Show goal zone when dragging starts
             const goalZone = document.getElementById('goal-zone');
             if (goalZone) goalZone.style.display = 'block';
 
-            // Add temporary event listeners for dragging
             document.addEventListener('mousemove', drag);
             document.addEventListener('mouseup', endDrag);
         }
@@ -2385,20 +2396,24 @@
             isDragging = false;
             logoElement.style.cursor = 'grab';
 
-            // Calculate velocity based on mouse movement
             const dx = e.clientX - startX;
             const dy = e.clientY - startY;
-            velocityX = dx * 0.3; // Adjust sensitivity
+            velocityX = dx * 0.3;
             velocityY = dy * 0.3;
 
-            // Remove temporary event listeners
             document.removeEventListener('mousemove', drag);
             document.removeEventListener('mouseup', endDrag);
+
+            const goalZone = document.getElementById('goal-zone');
+            if (goalZone) goalZone.style.display = 'none';
         }
 
         function checkGoalZone() {
             const goalZone = document.getElementById('goal-zone');
             if (!goalZone || goalZone.style.display === 'none') return;
+
+            // Only trigger win if naturally landed (low velocity)
+            if (Math.abs(velocityX) > 0.5 || Math.abs(velocityY) > 0.5) return;
 
             const gx = 8, gy = 8, gw = 120, gh = 120;
             const logoW = 120, logoH = 120;
@@ -2407,32 +2422,34 @@
 
             if (logoCenterX >= gx && logoCenterX <= gx + gw &&
                 logoCenterY >= gy && logoCenterY <= gy + gh) {
-                document.getElementById('win-message').style.display = 'block';
+                document.getElementById('win-message').style.display = 'flex';
                 goalZone.style.display = 'none';
                 logoX = 8;
                 logoY = 8;
                 velocityX = 0;
                 velocityY = 0;
+                
+                // Auto-hide after 3 seconds, or click to dismiss
+                const winMsg = document.getElementById('win-message');
+                winMsg.onclick = () => { winMsg.style.display = 'none'; };
+                setTimeout(() => { winMsg.style.display = 'none'; }, 3000);
             }
         }
 
         function updateLogoPosition() {
             if (!logoElement) return;
 
-            // Get viewport bounds
             const viewportWidth = window.innerWidth;
             const viewportHeight = window.innerHeight;
             const logoWidth = logoElement.offsetWidth;
             const logoHeight = logoElement.offsetHeight;
 
-            // Constrain to viewport
             logoX = Math.max(0, Math.min(logoX, viewportWidth - logoWidth));
             logoY = Math.max(0, Math.min(logoY, viewportHeight - logoHeight));
 
             logoElement.style.left = `${logoX}px`;
             logoElement.style.top = `${logoY}px`;
 
-            // Check for goal zone collision
             checkGoalZone();
         }
 
@@ -2442,27 +2459,22 @@
                 return;
             }
 
-            // Apply velocity
             logoX += velocityX;
             logoY += velocityY;
 
-            // Apply friction
             velocityX *= friction;
             velocityY *= friction;
 
-            // Stop if velocity is negligible
             if (Math.abs(velocityX) < 0.1 && Math.abs(velocityY) < 0.1) {
                 velocityX = 0;
                 velocityY = 0;
             }
 
-            // Get viewport bounds
             const viewportWidth = window.innerWidth;
             const viewportHeight = window.innerHeight;
             const logoWidth = logoElement.offsetWidth;
             const logoHeight = logoElement.offsetHeight;
 
-            // Check for collisions with edges and bounce
             if (logoX < 0) {
                 logoX = 0;
                 velocityX = -velocityX * bounceFactor;
@@ -2479,10 +2491,7 @@
                 velocityY = -velocityY * bounceFactor;
             }
 
-            // Update position
             updateLogoPosition();
-
-            // Continue animation
             animationId = requestAnimationFrame(animatePuck);
         }
 

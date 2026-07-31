@@ -185,7 +185,7 @@ def api_create_project():
 
     patterns = [p.strip() for p in include_patterns.split(",") if p.strip()]
     if not root_directory and not all(os.path.isabs(p) for p in patterns):
-        return jsonify({"error": "rootDirectory is required if includePatterns are not absolute paths"}), 400
+        return jsonify({"error": "rootDirectory is required if includePatterns contain relative paths"}), 400
 
     project = {
         "id": pid,
@@ -218,7 +218,7 @@ def api_update_project(pid):
     root_directory = request.form.get("rootDirectory", project.get("rootDirectory", ""))
     patterns = [p.strip() for p in include_patterns.split(",") if p.strip()]
     if not root_directory and not all(os.path.isabs(p) for p in patterns):
-        return jsonify({"error": "rootDirectory is required if includePatterns are not absolute paths"}), 400
+        return jsonify({"error": "rootDirectory is required if includePatterns contain relative paths"}), 400
 
     project.update({
         "name": request.form.get("name", project["name"]),
@@ -270,7 +270,7 @@ def api_run_project(pid):
 
     include_patterns = [p.strip() for p in project["includePatterns"].split(",") if p.strip()]
     if not project.get("rootDirectory") and not all(os.path.isabs(p) for p in include_patterns):
-        return jsonify({"error": "rootDirectory required if includePatterns are not full paths"}), 400
+        return jsonify({"error": "rootDirectory required if includePatterns contain relative paths"}), 400
 
     root_dir = project.get("rootDirectory", "")
     if root_dir and os.path.isdir(root_dir):
