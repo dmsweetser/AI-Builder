@@ -59,7 +59,8 @@
         }
 
         .sidebar-header {
-            height: 140px; /* Space for draggable logo */
+            height: 140px;
+            /* Space for draggable logo */
             position: relative;
         }
 
@@ -784,13 +785,51 @@
         }
 
         @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.5;
+            }
+        }
+
+        .goal-zone {
+            position: fixed;
+            left: 8px;
+            top: 8px;
+            width: 120px;
+            height: 120px;
+            border: 3px dashed var(--grass);
+            background: rgba(92, 138, 59, 0.1);
+            z-index: 9998;
+            pointer-events: none;
+            display: none;
+        }
+
+        #win-message {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: var(--grass);
+            color: #fff;
+            padding: 20px;
+            border: 4px solid #000;
+            font-family: 'Press Start 2P', monospace;
+            z-index: 10000;
+            text-align: center;
+            box-shadow: 8px 8px 0px #000;
         }
     </style>
 </head>
 
 <body>
+    <div class="goal-zone" id="goal-zone"></div>
+    <div id="win-message">🏆 YOU WON! 🏆<br>LOGO RETURNED TO GOAL!</div>
     <div class="app-layout">
         <aside class="sidebar">
             <div class="sidebar-header">
@@ -805,8 +844,8 @@
         <main class="main-content">
             <div id="projects-panel" class="panel active">
                 <div class="block">
-                    <h2>PROJECT LIST<button type="button" id="show-archived-btn" class="btn-sm" onclick="toggleArchived()"
-                            style="float:right; width:150px;">SHOW ARCHIVED</button></h2>
+                    <h2>PROJECT LIST<button type="button" id="show-archived-btn" class="btn-sm"
+                            onclick="toggleArchived()" style="float:right; width:150px;">SHOW ARCHIVED</button></h2>
                     <div class="project-list" id="project-list">
                         <div class="note">LOADING PROJECTS...</div>
                     </div>
@@ -871,7 +910,8 @@
                         <div style="margin-top: 15px;">
                             <label>2. INCLUDED FILES/FOLDERS</label>
                             <div class="selector-controls">
-                                <button type="button" id="refresh-paths-btn" class="btn-sm" onclick="refreshSelectedPaths()">REFRESH PATHS</button>
+                                <button type="button" id="refresh-paths-btn" class="btn-sm"
+                                    onclick="refreshSelectedPaths()">REFRESH PATHS</button>
                                 <button type="button" id="details-load-tree-btn" onclick="loadDetailsFileTree()">
                                     <span id="details-load-tree-text">LOAD TREE</span>
                                     <span id="details-load-tree-spinner" class="spinner" style="display: none;"></span>
@@ -2322,6 +2362,10 @@
             logoElement.style.cursor = 'grabbing';
             e.preventDefault();
 
+            // Show goal zone when dragging starts
+            const goalZone = document.getElementById('goal-zone');
+            if (goalZone) goalZone.style.display = 'block';
+
             // Add temporary event listeners for dragging
             document.addEventListener('mousemove', drag);
             document.addEventListener('mouseup', endDrag);
@@ -2352,6 +2396,26 @@
             document.removeEventListener('mouseup', endDrag);
         }
 
+        function checkGoalZone() {
+            const goalZone = document.getElementById('goal-zone');
+            if (!goalZone || goalZone.style.display === 'none') return;
+
+            const gx = 8, gy = 8, gw = 120, gh = 120;
+            const logoW = 120, logoH = 120;
+            const logoCenterX = logoX + logoW / 2;
+            const logoCenterY = logoY + logoH / 2;
+
+            if (logoCenterX >= gx && logoCenterX <= gx + gw &&
+                logoCenterY >= gy && logoCenterY <= gy + gh) {
+                document.getElementById('win-message').style.display = 'block';
+                goalZone.style.display = 'none';
+                logoX = 8;
+                logoY = 8;
+                velocityX = 0;
+                velocityY = 0;
+            }
+        }
+
         function updateLogoPosition() {
             if (!logoElement) return;
 
@@ -2367,6 +2431,9 @@
 
             logoElement.style.left = `${logoX}px`;
             logoElement.style.top = `${logoY}px`;
+
+            // Check for goal zone collision
+            checkGoalZone();
         }
 
         function animatePuck() {
@@ -2481,32 +2548,32 @@
                 method: 'POST',
                 body: formData
             })
-            .then(response => {
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
-                return response.json();
-            })
-            .then(data => {
-                if (data.transcription) {
-                    const instructionsTextarea = document.getElementById('details-instructions');
-                    if (instructionsTextarea) {
-                        const currentValue = instructionsTextarea.value;
-                        instructionsTextarea.value = currentValue
-                            ? `${currentValue}\n\n${data.transcription}`
-                            : data.transcription;
-                        autoSaveProject();
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
                     }
-                }
-                sttBtn.innerHTML = '<span>STT (WHISPER)</span>';
-                sttBtn.disabled = false;
-            })
-            .catch(error => {
-                console.error('Error processing audio:', error);
-                alert('Error processing audio. Check console for details.');
-                sttBtn.innerHTML = '<span>STT (WHISPER)</span>';
-                sttBtn.disabled = false;
-            });
+                    return response.json();
+                })
+                .then(data => {
+                    if (data.transcription) {
+                        const instructionsTextarea = document.getElementById('details-instructions');
+                        if (instructionsTextarea) {
+                            const currentValue = instructionsTextarea.value;
+                            instructionsTextarea.value = currentValue
+                                ? `${currentValue}\n\n${data.transcription}`
+                                : data.transcription;
+                            autoSaveProject();
+                        }
+                    }
+                    sttBtn.innerHTML = '<span>STT (WHISPER)</span>';
+                    sttBtn.disabled = false;
+                })
+                .catch(error => {
+                    console.error('Error processing audio:', error);
+                    alert('Error processing audio. Check console for details.');
+                    sttBtn.innerHTML = '<span>STT (WHISPER)</span>';
+                    sttBtn.disabled = false;
+                });
         }
 
         // Initialize
@@ -2546,4 +2613,5 @@
         });
     </script>
 </body>
+
 </html>
