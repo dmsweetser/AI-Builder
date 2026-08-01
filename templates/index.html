@@ -766,6 +766,8 @@
             background: var(--sky);
             color: #000;
             padding: 8px 12px;
+            margin-bottom:12px;
+            margin-left:12px;
             border: 2px solid #000;
             cursor: pointer;
             font-family: 'Press Start 2P', monospace;
@@ -2473,7 +2475,7 @@
                     };
 
                     mediaRecorder.onstop = () => {
-                        const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+                        const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
                         sendAudioToServer(audioBlob, sttBtn);
                         stream.getTracks().forEach(track => track.stop());
                     };

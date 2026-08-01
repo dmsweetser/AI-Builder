@@ -465,7 +465,7 @@ def api_stt():
         return jsonify({"error": "Empty audio file"}), 400
 
     try:
-        with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as temp_audio:
+        with tempfile.NamedTemporaryFile(suffix='.webm', delete=False) as temp_audio:
             temp_audio_path = temp_audio.name
             audio_file.save(temp_audio_path)
 
