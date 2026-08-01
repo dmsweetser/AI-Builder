@@ -177,9 +177,11 @@ def api_create_project():
     if not name:
         return jsonify({"error": "Project name is required"}), 400
 
-    include_patterns = request.form.get("includePatterns", "")
     root_directory = request.form.get("rootDirectory", "")
+    if not root_directory:  # <-- REQUIRE ROOT DIRECTORY
+        return jsonify({"error": "Root directory is required"}), 400
 
+    include_patterns = request.form.get("includePatterns", "")
     if not include_patterns:
         return jsonify({"error": "At least one include pattern is required"}), 400
 
@@ -216,11 +218,13 @@ def api_update_project(pid):
     if not project:
         return jsonify({"error": "Project not found"}), 404
 
+    root_directory = request.form.get("rootDirectory", project.get("rootDirectory", ""))
+    if not root_directory:  # <-- REQUIRE ROOT DIRECTORY
+        return jsonify({"error": "Root directory is required"}), 400
+
     include_patterns = request.form.get("includePatterns", project.get("includePatterns", ""))
     if not include_patterns:
         return jsonify({"error": "At least one include pattern is required"}), 400
-
-    root_directory = request.form.get("rootDirectory", project.get("rootDirectory", ""))
 
     # Same logic as create - allow absolute paths even if rootDirectory is set
     patterns = [p.strip() for p in include_patterns.split(",") if p.strip()]
@@ -452,11 +456,6 @@ def api_get_output_files(pid):
 
 @app.route("/api/stt", methods=["POST"])
 def api_stt():
-    """
-    Speech-to-Text endpoint using Whisper (offline).
-    Requires: pip install whisper
-    On first run, this will download the tiny model (~75MB).
-    """
     if 'audio' not in request.files:
         return jsonify({"error": "No audio file provided"}), 400
 
@@ -465,7 +464,8 @@ def api_stt():
         return jsonify({"error": "Empty audio file"}), 400
 
     try:
-        with tempfile.NamedTemporaryFile(suffix='.webm', delete=False) as temp_audio:
+        # Use .wav instead of .webm
+        with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as temp_audio:
             temp_audio_path = temp_audio.name
             audio_file.save(temp_audio_path)
 
@@ -477,15 +477,18 @@ def api_stt():
             }), 500
 
         try:
+            # Load the model once (avoid re-downloading)
             model = whisper.load_model("tiny")
-            result = model.transcribe(temp_audio_path)
+            # Transcribe with FP32 (explicitly avoid FP16)
+            result = model.transcribe(temp_audio_path, fp16=False)
             text = result['text']
             return jsonify({"transcription": text})
         except Exception as e:
             return jsonify({"error": f"Whisper error: {str(e)}"}), 500
         finally:
             try:
-                os.unlink(temp_audio_path)
+                if os.path.exists(temp_audio_path):
+                    os.unlink(temp_audio_path)
             except Exception:
                 pass
 

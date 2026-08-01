@@ -766,8 +766,8 @@
             background: var(--sky);
             color: #000;
             padding: 8px 12px;
-            margin-bottom:12px;
-            margin-left:12px;
+            margin-bottom: 12px;
+            margin-left: 12px;
             border: 2px solid #000;
             cursor: pointer;
             font-family: 'Press Start 2P', monospace;
@@ -864,7 +864,7 @@
             font-size: 10px;
             cursor: pointer;
             border: 1px solid #000;
-            width:50px;
+            width: 50px;
         }
 
         .path-item .remove-btn:hover {
@@ -925,8 +925,8 @@
                         <label>PROJECT NAME</label>
                         <input name="name" id="add-project-name" required placeholder="My Cool Project">
                         <label>ROOT DIRECTORY (OPTIONAL)</label>
-                        <input type="text" id="root-path" placeholder="e.g., /home/user/project"
-                            onchange="confirmRootPathChange()">
+                        <input type="text" name="rootDirectory" id="root-path" placeholder="e.g., /home/user/project"
+                            onchange="confirmRootPathChange()" required>
                         <div class="selector-controls">
                             <button type="button" id="load-tree-btn" onclick="loadFileTree()">
                                 <span id="load-tree-text">LOAD TREE</span>
@@ -957,7 +957,6 @@
                             <input type="text" id="new-path-input" placeholder="Add file path...">
                             <button type="button" onclick="addNewPath()" class="btn-sm">ADD</button>
                         </div>
-                        <input type="hidden" name="rootDirectory" id="root-path-hidden">
                         <input type="hidden" name="includePatterns" id="patterns-input">
                         <input type="hidden" name="iterations" value="1">
                         <button type="submit">CREATE PROJECT</button>
@@ -974,8 +973,9 @@
                         <input type="hidden" name="name" id="details-project-name-form">
                         <input type="hidden" name="id" id="run-project-id">
                         <div>
-                            <label>1. PROJECT LOCATION (OPTIONAL)</label>
-                            <input name="rootDirectory" id="details-root-dir" onchange="confirmDetailsRootPathChange()">
+                            <label>1. PROJECT LOCATION</label>
+                            <input name="rootDirectory" id="details-root-dir" onchange="confirmDetailsRootPathChange()"
+                                required>
                         </div>
                         <div style="margin-top: 15px;">
                             <label>2. INCLUDED FILES/FOLDERS</label>
@@ -1021,24 +1021,14 @@
                         </div>
                         <div class="form-grid">
                             <div>
-                                <label>4. PRE-SCRIPT
-                                    <div class="script-disabled-note" id="pre-script-disabled-note"
-                                        style="display: none;">
-                                        Set PROJECT LOCATION to enable
-                                    </div>
-                                </label>
-                                <textarea name="preScript" id="details-pre-script" rows="4" oninput="autoSaveProject()"
-                                    disabled></textarea>
+                                <label>4. PRE-SCRIPT </label>
+                                <textarea name="preScript" id="details-pre-script" rows="4"
+                                    oninput="autoSaveProject()"></textarea>
                             </div>
                             <div>
-                                <label>5. POST-SCRIPT
-                                    <div class="script-disabled-note" id="post-script-disabled-note"
-                                        style="display: none;">
-                                        Set PROJECT LOCATION to enable
-                                    </div>
-                                </label>
+                                <label>5. POST-SCRIPT </label>
                                 <textarea name="postScript" id="details-post-script" rows="4"
-                                    oninput="autoSaveProject()" disabled></textarea>
+                                    oninput="autoSaveProject()"></textarea>
                             </div>
                         </div>
                         <input type="hidden" name="iterations" value="1">
@@ -1689,14 +1679,6 @@
                     const rootDir = project.rootDirectory || '';
                     safeSet('details-root-dir', rootDir);
 
-                    // Enable/disable scripts based on root directory
-                    const preScriptDisabled = !rootDir;
-                    const postScriptDisabled = !rootDir;
-                    document.getElementById('details-pre-script').disabled = preScriptDisabled;
-                    document.getElementById('details-post-script').disabled = postScriptDisabled;
-                    document.getElementById('pre-script-disabled-note').style.display = preScriptDisabled ? 'block' : 'none';
-                    document.getElementById('post-script-disabled-note').style.display = postScriptDisabled ? 'block' : 'none';
-
                     // Set selected paths
                     const patterns = project.includePatterns ? project.includePatterns.split(',').map(p => p.trim()) : [];
                     const container = document.getElementById('details-selected-paths-container');
@@ -1805,7 +1787,6 @@
                     loadTreeBtn.disabled = false;
                     loadTreeText.style.display = 'inline';
                     loadTreeSpinner.style.display = 'none';
-                    document.getElementById('root-path-hidden').value = rootPath;
                 })
                 .catch(err => {
                     console.error('Failed to load file tree:', err);
@@ -2338,39 +2319,21 @@
         // Confirm before clearing selected paths when changing root directory
         function confirmRootPathChange() {
             const newRootPath = document.getElementById('root-path').value;
-            const container = document.getElementById('selected-paths-container');
-
-            if (container && container.children.length > 0) {
-                pendingRootPath = newRootPath;
-                pendingRootPathElementId = 'root-path';
-                document.getElementById('root-path-confirmation-text').textContent =
-                    'Are you sure you want to change the root directory? This will clear all selected file paths.';
-                document.getElementById('root-path-confirmation-modal').style.display = 'flex';
+            if (!newRootPath) {
+                alert('Root directory is required.');
                 document.getElementById('root-path').value = '';
             }
+            autoSaveProject();
         }
 
         // Confirm before clearing selected paths when changing details root directory
         function confirmDetailsRootPathChange() {
             const newRootPath = document.getElementById('details-root-dir').value;
-            const container = document.getElementById('details-selected-paths-container');
-
-            if (container && container.children.length > 0) {
-                pendingRootPath = newRootPath;
-                pendingRootPathElementId = 'details-root-dir';
-                document.getElementById('root-path-confirmation-text').textContent =
-                    'Are you sure you want to change the root directory? This will clear all selected file paths.';
-                document.getElementById('root-path-confirmation-modal').style.display = 'flex';
+            if (!newRootPath) {
+                alert('Root directory is required.');
                 document.getElementById('details-root-dir').value = '';
-            } else {
-                // Enable/disable scripts based on root directory
-                const preScriptDisabled = !newRootPath;
-                const postScriptDisabled = !newRootPath;
-                document.getElementById('details-pre-script').disabled = preScriptDisabled;
-                document.getElementById('details-post-script').disabled = postScriptDisabled;
-                document.getElementById('pre-script-disabled-note').style.display = preScriptDisabled ? 'block' : 'none';
-                document.getElementById('post-script-disabled-note').style.display = postScriptDisabled ? 'block' : 'none';
             }
+            autoSaveProject();
         }
 
         // Handle confirmation for changing root path
@@ -2475,7 +2438,7 @@
                     };
 
                     mediaRecorder.onstop = () => {
-                        const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                        const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
                         sendAudioToServer(audioBlob, sttBtn);
                         stream.getTracks().forEach(track => track.stop());
                     };
