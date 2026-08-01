@@ -57,6 +57,11 @@ def worker():
         job_id = job['job_id']
 
         with job_queue_lock:
+            # Check if job was cancelled while queued
+            if run_status.get(job_id, {}).get('status') == 'stopped':
+                run_queue.task_done()
+                continue
+
             if any(j['pid'] == pid for j in list(run_queue.queue) if j != job):
                 run_queue.task_done()
                 continue
@@ -75,47 +80,47 @@ def worker():
         })
         save_job_history()
 
-        if project:
-            try:
-                ai = AIBuilder(project)
-                ai.run()
-                run_status[job_id] = {'status': 'completed', 'project_id': pid}
-                if job_id in active_jobs:
-                    active_jobs[job_id]['status'] = 'completed'
-                for item in job_history:
-                    if item["job_id"] == job_id:
-                        item["status"] = "completed"
-                        item["end_timestamp"] = datetime.now().isoformat()
-                        break
-            except Exception as e:
-                run_status[job_id] = {'status': 'error', 'message': str(e), 'project_id': pid}
+        try:
+            if project:
+                try:
+                    ai = AIBuilder(project)
+                    ai.run()
+                    run_status[job_id] = {'status': 'completed', 'project_id': pid}
+                    if job_id in active_jobs:
+                        active_jobs[job_id]['status'] = 'completed'
+                    for item in job_history:
+                        if item["job_id"] == job_id:
+                            item["status"] = "completed"
+                            item["end_timestamp"] = datetime.now().isoformat()
+                            break
+                except Exception as e:
+                    run_status[job_id] = {'status': 'error', 'message': str(e), 'project_id': pid}
+                    if job_id in active_jobs:
+                        active_jobs[job_id]['status'] = 'error'
+                    for item in job_history:
+                        if item["job_id"] == job_id:
+                            item["status"] = "error"
+                            item["error"] = str(e)
+                            item["end_timestamp"] = datetime.now().isoformat()
+                            break
+            else:
+                run_status[job_id] = {'status': 'error', 'message': 'Project not found', 'project_id': pid}
                 if job_id in active_jobs:
                     active_jobs[job_id]['status'] = 'error'
                 for item in job_history:
                     if item["job_id"] == job_id:
                         item["status"] = "error"
-                        item["error"] = str(e)
+                        item["error"] = "Project not found"
                         item["end_timestamp"] = datetime.now().isoformat()
                         break
-        else:
-            run_status[job_id] = {'status': 'error', 'message': 'Project not found', 'project_id': pid}
+        finally:
+            save_job_history()
             if job_id in active_jobs:
-                active_jobs[job_id]['status'] = 'error'
-            for item in job_history:
-                if item["job_id"] == job_id:
-                    item["status"] = "error"
-                    item["error"] = "Project not found"
-                    item["end_timestamp"] = datetime.now().isoformat()
-                    break
-
-        save_job_history()
-        if job_id in active_jobs:
-            del active_jobs[job_id]
-        # Clean up run_status to prevent memory leaks and stale state queries
-        if job_id in run_status:
-            del run_status[job_id]
-        run_queue.task_done()
-        time.sleep(3)
+                del active_jobs[job_id]
+            if job_id in run_status:
+                del run_status[job_id]
+            run_queue.task_done()
+            time.sleep(3)
 
 threading.Thread(target=worker, daemon=True).start()
 
@@ -142,6 +147,14 @@ def get_project(pid):
     return next((p for p in projects if p["id"] == pid), None), projects
 
 def is_project_running(pid):
+    # Clean up stale entries for this project before checking
+    for jid in list(run_status.keys()):
+        if run_status[jid].get('project_id') == pid and run_status[jid].get('status') not in ['running', 'queued']:
+            del run_status[jid]
+    for jid in list(active_jobs.keys()):
+        if active_jobs[jid].get('pid') == pid and active_jobs[jid].get('status') not in ['running', 'queued']:
+            del active_jobs[jid]
+
     for job_id, job in active_jobs.items():
         if job.get('pid') == pid:
             return True, job_id
@@ -278,6 +291,14 @@ def api_run_project(pid):
     if not project:
         return jsonify({"error": "Project not found"}), 404
 
+    # Clean up any stale entries for this project before checking
+    for jid in list(run_status.keys()):
+        if run_status[jid].get('project_id') == pid and run_status[jid].get('status') not in ['running', 'queued']:
+            del run_status[jid]
+    for jid in list(active_jobs.keys()):
+        if active_jobs[jid].get('pid') == pid and active_jobs[jid].get('status') not in ['running', 'queued']:
+            del active_jobs[jid]
+
     is_running, existing_job_id = is_project_running(pid)
     if is_running:
         return jsonify({"status": "queued", "job_id": existing_job_id})
@@ -343,12 +364,20 @@ def api_stop_project(pid):
             del active_jobs[job_id]
         if job_id in run_status:
             run_status[job_id]['status'] = 'stopped'
+            
+    # Also cancel queued jobs
+    queued_jobs = [job_id for job_id, status in run_status.items() if status.get('project_id') == pid and status.get('status') == 'queued']
+    for job_id in queued_jobs:
+        run_status[job_id]['status'] = 'stopped'
+        if job_id in active_jobs:
+            del active_jobs[job_id]
+            
     for item in job_history:
-        if item["project_id"] == pid and item["status"] == "running":
+        if item["project_id"] == pid and item["status"] in ["running", "queued"]:
             item["status"] = "stopped"
             item["end_timestamp"] = datetime.now().isoformat()
     save_job_history()
-    return jsonify({"status": "stopped", "stopped_jobs": jobs_to_stop})
+    return jsonify({"status": "stopped", "stopped_jobs": list(set(jobs_to_stop + queued_jobs))})
 
 @app.route("/api/projects/<pid>/clear", methods=["POST"])
 def api_clear_project_artifacts(pid):
@@ -463,14 +492,13 @@ def api_stt():
         return jsonify({"error": "No audio file provided"}), 400
 
     audio_file = request.files['audio']
-    if audio_file.filename == '':
-        return jsonify({"error": "Empty audio file"}), 400
+    if not audio_file or audio_file.filename == '' or audio_file.size == 0:
+        return jsonify({"error": "Empty or zero-byte audio file"}), 400
 
     try:
-        # Use .wav instead of .webm
-        with tempfile.NamedTemporaryFile(suffix='.webm', delete=False) as temp_audio:
-            temp_audio_path = temp_audio.name
-            audio_file.save(temp_audio_path)
+        # Save to temp file
+        temp_audio_path = tempfile.mkstemp(suffix='.wav')
+        audio_file.save(temp_audio_path)
 
         try:
             import whisper
