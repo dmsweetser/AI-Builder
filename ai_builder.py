@@ -138,6 +138,9 @@ class FileModifier:
     @staticmethod
     def _sanitize_path(filepath: str, root_directory: str) -> str:
         """Sanitize file path to prevent directory traversal."""
+        if os.path.isabs(filepath):
+            return filepath  # Absolute paths are allowed as-is
+
         if not root_directory:
             return filepath
 
@@ -155,12 +158,12 @@ class FileModifier:
         try:
             incomplete_actions = []
             processed_files = set()
-            created_files = []  # Track newly created files
+            created_files = []
 
             for change in changes:
                 filepath = change['file']
                 try:
-                    full_path = FileModifier._sanitize_path(filepath, root_directory) if root_directory else filepath
+                    full_path = FileModifier._sanitize_path(filepath, root_directory) if not os.path.isabs(filepath) else filepath
 
                     logging.info(f"Processing file: {full_path}")
 
@@ -173,7 +176,6 @@ class FileModifier:
                                     shutil.copy2(full_path, backup_filepath)
                                     logging.info(f"Created backup: {backup_filepath}")
                                 else:
-                                    # File doesn't exist - will be created
                                     created_files.append(full_path)
                             except Exception as e:
                                 logging.error(f"Could not back up file: {full_path}: {e}")
@@ -184,7 +186,6 @@ class FileModifier:
                                 logging.info(f"Dry run: Would apply action {action['action']} to {full_path}")
                             else:
                                 if action['action'] == 'create_file':
-                                    # This is a new file creation
                                     if full_path not in created_files:
                                         created_files.append(full_path)
                                 if not FileModifier._apply_action(full_path, action):
@@ -202,7 +203,6 @@ class FileModifier:
                     logging.error(f"Error processing change for file {filepath}: {e}")
                     incomplete_actions.append({'file': filepath, 'action': {'error': str(e)}})
 
-            # Save created files list to output directory
             if created_files and output_dir and not dry_run:
                 try:
                     created_files_path = os.path.join(output_dir, "created_files.txt")
@@ -780,13 +780,7 @@ Reply ONLY in the specified format with no commentary. THAT'S AN ORDER, SOLDIER!
                 exclude_patterns = [p.strip() for p in raw_exclude.split(",") if p.strip()] if isinstance(raw_exclude, str) else (raw_exclude if isinstance(raw_exclude, list) else [])
                 instructions = self.project_config.get("instructions", "")
 
-                if self.root_directory and os.path.isdir(self.root_directory):
-                    for pattern in patterns:
-                        full_path = os.path.join(self.root_directory, pattern)
-                        full_path = os.path.normpath(full_path)
-                        if not full_path.startswith(os.path.normpath(self.root_directory)):
-                            raise ValueError(f"Pattern {pattern} would access files outside the root directory")
-
+                # Handle both absolute and relative paths
                 diff_files = []
                 for p in patterns:
                     p = p.strip()
@@ -794,13 +788,10 @@ Reply ONLY in the specified format with no commentary. THAT'S AN ORDER, SOLDIER!
                         diff_files.append(p)
                     elif self.root_directory:
                         full_path = os.path.join(self.root_directory, p)
-                        full_path = os.path.normpath(full_path)
-                        if full_path.startswith(os.path.normpath(self.root_directory)):
-                            diff_files.append(full_path)
-                        else:
-                            logging.warning(f"Pattern {p} would access files outside the root directory")
+                        diff_files.append(full_path)
                     else:
-                        logging.warning(f"Skipping relative pattern without rootDirectory: {p}")
+                        # If no root directory, treat as absolute (user responsibility)
+                        diff_files.append(p)
             else:
                 base_config_path = os.path.join("base_config.xml")
                 user_config_path = os.path.join(self.ai_builder_dir, "user_config.xml")
@@ -870,12 +861,24 @@ Reply ONLY in the specified format with no commentary. THAT'S AN ORDER, SOLDIER!
 
                 except Exception as e:
                     logging.error(f"An error occurred: {str(e)}", exc_info=True)
+                    # Save error to actions.txt for UI display
+                    try:
+                        with open(actions_file_path, 'w', encoding='utf-8') as f:
+                            f.write(f"ERROR: {str(e)}\n")
+                    except Exception as save_err:
+                        logging.error(f"Failed to save error to actions.txt: {save_err}")
 
                 self.run_pre_post_scripts("post.ps1")
                 self.cleanup_bak_files(self.root_directory, patterns)
 
         except Exception as e:
             logging.error(f"An error occurred during execution: {str(e)}", exc_info=True)
+            # Save error to actions.txt for UI display
+            try:
+                with open(actions_file_path, 'w', encoding='utf-8') as f:
+                    f.write(f"FATAL ERROR: {str(e)}\n")
+            except Exception:
+                pass
 
 if __name__ == "__main__":
     IS_LEGACY = True

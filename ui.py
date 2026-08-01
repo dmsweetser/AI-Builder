@@ -183,9 +183,14 @@ def api_create_project():
     if not include_patterns:
         return jsonify({"error": "At least one include pattern is required"}), 400
 
+    # Allow absolute paths even if rootDirectory is set
+    # Only require rootDirectory if there are relative paths and no absolute paths
     patterns = [p.strip() for p in include_patterns.split(",") if p.strip()]
-    if not root_directory and not all(os.path.isabs(p) for p in patterns):
-        return jsonify({"error": "rootDirectory is required if includePatterns contain relative paths"}), 400
+    has_absolute = any(os.path.isabs(p) for p in patterns)
+    has_relative = any(not os.path.isabs(p) for p in patterns)
+
+    if has_relative and not root_directory and not has_absolute:
+        return jsonify({"error": "rootDirectory is required if includePatterns contain relative paths and no absolute paths"}), 400
 
     project = {
         "id": pid,
@@ -216,9 +221,14 @@ def api_update_project(pid):
         return jsonify({"error": "At least one include pattern is required"}), 400
 
     root_directory = request.form.get("rootDirectory", project.get("rootDirectory", ""))
+
+    # Same logic as create - allow absolute paths even if rootDirectory is set
     patterns = [p.strip() for p in include_patterns.split(",") if p.strip()]
-    if not root_directory and not all(os.path.isabs(p) for p in patterns):
-        return jsonify({"error": "rootDirectory is required if includePatterns contain relative paths"}), 400
+    has_absolute = any(os.path.isabs(p) for p in patterns)
+    has_relative = any(not os.path.isabs(p) for p in patterns)
+
+    if has_relative and not root_directory and not has_absolute:
+        return jsonify({"error": "rootDirectory is required if includePatterns contain relative paths and no absolute paths"}), 400
 
     project.update({
         "name": request.form.get("name", project["name"]),
@@ -269,8 +279,13 @@ def api_run_project(pid):
         return jsonify({"error": "No includePatterns specified"}), 400
 
     include_patterns = [p.strip() for p in project["includePatterns"].split(",") if p.strip()]
-    if not project.get("rootDirectory") and not all(os.path.isabs(p) for p in include_patterns):
-        return jsonify({"error": "rootDirectory required if includePatterns contain relative paths"}), 400
+
+    # Only validate rootDirectory if there are relative paths with no absolute paths
+    has_absolute = any(os.path.isabs(p) for p in include_patterns)
+    has_relative = any(not os.path.isabs(p) for p in include_patterns)
+
+    if has_relative and not project.get("rootDirectory") and not has_absolute:
+        return jsonify({"error": "rootDirectory required if includePatterns contain relative paths and no absolute paths"}), 400
 
     root_dir = project.get("rootDirectory", "")
     if root_dir and os.path.isdir(root_dir):
@@ -320,7 +335,7 @@ def api_stop_project(pid):
         if job_id in active_jobs:
             del active_jobs[job_id]
         if job_id in run_status:
-            del run_status[job_id]
+            run_status[job_id]['status'] = 'stopped'
     for item in job_history:
         if item["project_id"] == pid and item["status"] == "running":
             item["status"] = "stopped"
@@ -407,12 +422,11 @@ def api_get_history():
     return jsonify(current_job_history)
 
 # ---------- NEW ENDPOINTS ----------
-
 @app.route("/api/job-status", methods=["GET"])
 def api_job_status():
     """Return current job statuses from the server."""
     return jsonify({
-        "activeJobs": active_jobs,
+        "activeJobs": {k: {"projectId": v.get("pid"), "status": v.get("status", "unknown")} for k, v in active_jobs.items()},
         "runStatus": run_status
     })
 
@@ -427,12 +441,9 @@ def api_get_output_files(pid):
         files = []
         for root, dirs, filenames in os.walk(output_dir):
             for filename in filenames:
-                # Skip log files and other metadata
                 if filename.endswith(('.txt', '.log', '.json')):
                     continue
-                # Get full path and make it absolute
                 full_path = os.path.join(root, filename)
-                # Convert to forward slashes for consistency
                 full_path = full_path.replace('\\', '/')
                 files.append(full_path)
         return jsonify({"files": files})
@@ -454,12 +465,10 @@ def api_stt():
         return jsonify({"error": "Empty audio file"}), 400
 
     try:
-        # Save the audio file temporarily
         with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as temp_audio:
             temp_audio_path = temp_audio.name
             audio_file.save(temp_audio_path)
 
-        # Use Whisper for transcription
         try:
             import whisper
         except ImportError:
@@ -468,7 +477,6 @@ def api_stt():
             }), 500
 
         try:
-            # Load the tiny model (fastest, ~75MB)
             model = whisper.load_model("tiny")
             result = model.transcribe(temp_audio_path)
             text = result['text']
@@ -476,7 +484,6 @@ def api_stt():
         except Exception as e:
             return jsonify({"error": f"Whisper error: {str(e)}"}), 500
         finally:
-            # Clean up temp file
             try:
                 os.unlink(temp_audio_path)
             except Exception:
