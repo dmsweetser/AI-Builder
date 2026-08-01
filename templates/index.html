@@ -77,12 +77,15 @@
             align-items: center;
             position: fixed !important;
             z-index: 9999 !important;
-            left: 8px;
-            top: 8px;
+            left: 40px;
+            top: 40px;
         }
 
         .logo-spinner {
             display: inline-block;
+            top: 40px;
+            left: 40px;
+            position: fixed;
             width: 120px;
             height: 120px;
             font-size: 24px;
@@ -330,19 +333,18 @@
         .flex-row {
             display: flex;
             gap: 10px;
-            align-items: flex-start;
+            align-items: center;
         }
 
-        .flex-row>input,
-        .flex-row>textarea {
+        .flex-row input[type="text"] {
             flex: 1;
-            margin-top: 5px;
+            margin-top: 0;
         }
 
-        .flex-row>button {
-            flex: 0 0 auto;
-            margin-top: 5px;
-            padding: 10px 15px;
+        .flex-row button {
+            flex: 0 0 60px;
+            margin-top: 0;
+            padding: 5px 10px;
         }
 
         .chat-controls {
@@ -807,8 +809,8 @@
 
         .goal-zone {
             position: fixed;
-            left: 8px;
-            top: 8px;
+            left: 40px;
+            top: 40px;
             width: 120px;
             height: 120px;
             border: 3px dashed var(--grass);
@@ -860,6 +862,7 @@
             font-size: 10px;
             cursor: pointer;
             border: 1px solid #000;
+            width:50px;
         }
 
         .path-item .remove-btn:hover {
@@ -869,7 +872,7 @@
         .fling-counter {
             position: fixed;
             top: 135px;
-            left: 8px;
+            left: 65px;
             background: rgba(0, 0, 0, 0.7);
             padding: 2px 6px;
             font-size: 10px;
@@ -895,7 +898,7 @@
         <aside class="sidebar">
             <div class="sidebar-header">
                 <div class="logo-container">
-                    <span class="logo-spinner" id="draggable-logo" alt="the flinginator">Portal</span>
+                    <span class="logo-spinner" id="draggable-logo" alt="The Finginator">Portal</span>
                     <div class="fling-me-text">fling me</div>
                 </div>
             </div>
@@ -975,8 +978,6 @@
                         <div style="margin-top: 15px;">
                             <label>2. INCLUDED FILES/FOLDERS</label>
                             <div class="selector-controls">
-                                <button type="button" id="refresh-paths-btn" class="btn-sm"
-                                    onclick="refreshSelectedPaths()">REFRESH PATHS</button>
                                 <button type="button" id="details-load-tree-btn" onclick="loadDetailsFileTree()">
                                     <span id="details-load-tree-text">LOAD TREE</span>
                                     <span id="details-load-tree-spinner" class="spinner" style="display: none;"></span>
@@ -1139,7 +1140,7 @@
         let velocityX = 0, velocityY = 0;
         let friction = 0.98;
         let bounceFactor = 0.8;
-        let logoX = 8, logoY = 8;
+        let logoX = 40, logoY = 40;
         let animationId = null;
         let flingCount = 0;
         let hasFlung = false;
@@ -2460,9 +2461,7 @@
             isRecording = true;
             audioChunks = [];
 
-            // Update button to show recording state
-            sttBtn.innerHTML = '<span class="recording-indicator"></span><span>RECORDING...</span>';
-            sttBtn.disabled = true;
+            sttBtn.innerHTML = '<span class="recording-indicator"></span><span>STOP RECORDING</span>';
 
             navigator.mediaDevices.getUserMedia({ audio: true })
                 .then(stream => {
@@ -2478,13 +2477,17 @@
                         sendAudioToServer(audioBlob, sttBtn);
                         stream.getTracks().forEach(track => track.stop());
                     };
+
+                    mediaRecorder.onerror = (e) => {
+                        console.error('MediaRecorder error:', e);
+                        stopRecording(sttBtn);
+                    };
                 })
                 .catch(err => {
                     console.error('Error accessing microphone:', err);
                     alert('Could not access microphone. Please check permissions.');
                     isRecording = false;
                     sttBtn.innerHTML = '<span>STT (WHISPER)</span>';
-                    sttBtn.disabled = false;
                 });
         }
 
@@ -2493,6 +2496,7 @@
                 mediaRecorder.stop();
                 isRecording = false;
                 sttBtn.innerHTML = '<span class="spinner"></span><span>PROCESSING...</span>';
+                sttBtn.disabled = true;
             }
         }
 
@@ -2520,6 +2524,8 @@
                                 : data.transcription;
                             autoSaveProject();
                         }
+                    } else if (data.error) {
+                        alert(`STT Error: ${data.error}`);
                     }
                     sttBtn.innerHTML = '<span>STT (WHISPER)</span>';
                     sttBtn.disabled = false;
@@ -2538,8 +2544,8 @@
             if (!logoElement) return;
 
             logoElement.style.position = 'fixed';
-            logoElement.style.left = '8px';
-            logoElement.style.top = '8px';
+            logoElement.style.left = '40px';
+            logoElement.style.top = '40px';
 
             logoElement.addEventListener('mousedown', startDrag);
             logoElement.addEventListener('contextmenu', resetLogoPosition);
@@ -2548,8 +2554,8 @@
 
         function resetLogoPosition(e) {
             e.preventDefault();
-            logoX = 8;
-            logoY = 8;
+            logoX = 40;
+            logoY = 40;
             velocityX = 0;
             velocityY = 0;
             flingCount = 0;
@@ -2571,6 +2577,13 @@
             initialY = logoY;
             logoElement.style.cursor = 'grabbing';
             e.preventDefault();
+
+            // Add event listeners for dragging (re-add them each time)
+            document.addEventListener('mousemove', drag);
+            document.addEventListener('mouseup', endDrag);
+
+            const goalZone = document.getElementById('goal-zone');
+            if (goalZone) goalZone.style.display = 'block';
         }
 
         function drag(e) {
@@ -2616,7 +2629,7 @@
             // Only trigger win if velocity is low (not just dragged in)
             if (Math.abs(velocityX) > 0.5 || Math.abs(velocityY) > 0.5) return;
 
-            const gx = 8, gy = 8, gw = 120, gh = 120;
+            const gx = 40, gy = 40, gw = 120, gh = 120;
             const logoW = 120, logoH = 120;
             const logoCenterX = logoX + logoW / 2;
             const logoCenterY = logoY + logoH / 2;
@@ -2626,8 +2639,8 @@
                 document.getElementById('win-message').style.display = 'flex';
                 document.getElementById('win-fling-count').textContent = `IN ${flingCount} FLINGS`;
                 goalZone.style.display = 'none';
-                logoX = 8;
-                logoY = 8;
+                logoX = 40;
+                logoY = 40;
                 velocityX = 0;
                 velocityY = 0;
 
