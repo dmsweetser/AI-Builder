@@ -465,7 +465,7 @@ def api_stt():
 
     try:
         # Use .wav instead of .webm
-        with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as temp_audio:
+        with tempfile.NamedTemporaryFile(suffix='.webm', delete=False) as temp_audio:
             temp_audio_path = temp_audio.name
             audio_file.save(temp_audio_path)
 
@@ -478,7 +478,7 @@ def api_stt():
 
         try:
             # Load the model once (avoid re-downloading)
-            model = whisper.load_model("tiny")
+            model = whisper.load_model("large")
             # Transcribe with FP32 (explicitly avoid FP16)
             result = model.transcribe(temp_audio_path, fp16=False)
             text = result['text']

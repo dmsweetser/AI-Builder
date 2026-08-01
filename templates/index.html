@@ -2438,7 +2438,7 @@
                     };
 
                     mediaRecorder.onstop = () => {
-                        const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+                        const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
                         sendAudioToServer(audioBlob, sttBtn);
                         stream.getTracks().forEach(track => track.stop());
                     };
