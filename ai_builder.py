@@ -163,7 +163,8 @@ class FileModifier:
             for change in changes:
                 filepath = change['file']
                 try:
-                    full_path = FileModifier._sanitize_path(filepath, root_directory) if not os.path.isabs(filepath) else filepath
+                    # Use _sanitize_path only if the path is not absolute
+                    full_path = filepath if os.path.isabs(filepath) else FileModifier._sanitize_path(filepath, root_directory)
 
                     logging.info(f"Processing file: {full_path}")
 
@@ -403,7 +404,7 @@ class CodeUtility:
             if not isinstance(parent_rules, list):
                 parent_rules = [parent_rules] if parent_rules else []
 
-            absolute_mode = not directory
+            absolute_mode = not directory  # If directory is blank, treat patterns as absolute
 
             if absolute_mode:
                 logging.info("Directory is blank — treating patterns as absolute file paths.")
@@ -412,13 +413,15 @@ class CodeUtility:
 
             file_paths = []
             for p in patterns:
-                if absolute_mode:
-                    full_path = p
+                p = p.strip()
+                if absolute_mode or os.path.isabs(p):
+                    full_path = p  # Treat as absolute
                 else:
-                    full_path = os.path.join(directory, p)
+                    full_path = os.path.join(directory, p)  # Treat as relative
 
                 full_path = os.path.normpath(full_path)
-                if directory:
+
+                if directory and not absolute_mode:
                     directory = os.path.normpath(directory)
                     if not full_path.startswith(directory + os.sep) and full_path != directory:
                         logging.warning(f"Skipping path that would traverse outside root directory: {p}")
@@ -594,7 +597,11 @@ class AIBuilder:
 
             file_paths = []
             for p in patterns:
-                full_path = p if absolute_mode else os.path.join(directory, p)
+                p = p.strip()
+                if absolute_mode or os.path.isabs(p):
+                    full_path = p  # Treat as absolute
+                else:
+                    full_path = os.path.join(directory, p)  # Treat as relative
                 file_paths.append(full_path + ".bak")
 
             for full_path in file_paths:
@@ -785,7 +792,7 @@ Reply ONLY in the specified format with no commentary. THAT'S AN ORDER, SOLDIER!
                 for p in patterns:
                     p = p.strip()
                     if os.path.isabs(p):
-                        diff_files.append(p)
+                        diff_files.append(p)  # Use absolute path as-is
                     elif self.root_directory:
                         full_path = os.path.join(self.root_directory, p)
                         diff_files.append(full_path)
