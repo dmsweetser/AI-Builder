@@ -154,17 +154,53 @@ class FileModifier:
         return full_path
 
     @staticmethod
-    def apply_modifications(changes: List[Dict[str, Any]], root_directory: str, dry_run: bool = False, output_dir: str = None) -> List[Dict[str, Any]]:
+    def apply_modifications(
+        changes: List[Dict[str, Any]],
+        root_directory: str,
+        dry_run: bool = False,
+        output_dir: str = None,
+        scope_paths: List[str] = None
+    ) -> List[Dict[str, Any]]:
         try:
             incomplete_actions = []
             processed_files = set()
             created_files = []
 
+            # Normalize scope paths for comparison
+            normalized_scope_paths = []
+            if scope_paths:
+                for scope_path in scope_paths:
+                    normalized_scope_path = os.path.normpath(scope_path)
+                    normalized_scope_paths.append(normalized_scope_path)
+
             for change in changes:
                 filepath = change['file']
                 try:
-                    # Use _sanitize_path only if the path is not absolute
-                    full_path = filepath if os.path.isabs(filepath) else FileModifier._sanitize_path(filepath, root_directory)
+                    # Normalize the LLM output file path
+                    normalized_filepath = os.path.normpath(filepath)
+
+                    # Check if the filepath is already absolute
+                    if os.path.isabs(normalized_filepath):
+                        full_path = normalized_filepath
+                    else:
+                        # If not absolute, check if it is contained within any scope path
+                        full_path = None
+                        for scope_path in normalized_scope_paths:
+                            # Check if the normalized filepath is contained within the scope path
+                            if normalized_filepath.startswith(scope_path + os.sep) or normalized_filepath == scope_path:
+                                full_path = os.path.join(scope_path, normalized_filepath)
+                                break
+                            # Check if the scope path is a parent directory of the filepath
+                            elif normalized_filepath.startswith(scope_path):
+                                full_path = normalized_filepath
+                                break
+
+                        # If not contained in any scope path, fall back to root_directory
+                        if full_path is None:
+                            full_path = FileModifier._sanitize_path(filepath, root_directory)
+
+                    # Ensure the full path is normalized
+                    full_path = os.path.normpath(full_path)
 
                     logging.info(f"Processing file: {full_path}")
 
@@ -786,7 +822,6 @@ Reply ONLY in the specified format with no commentary. THAT'S AN ORDER, SOLDIER!
                 iterations = self.project_config.get("iterations", 1)
                 mode = self.project_config.get("mode", "include")
                 raw_patterns = self.project_config.get("includePatterns", "")
-                # Split patterns by comma and strip whitespace
                 patterns = [p.strip() for p in raw_patterns.split(",") if p.strip()] if isinstance(raw_patterns, str) else (raw_patterns if isinstance(raw_patterns, list) else [])
                 raw_exclude = self.project_config.get("excludePatterns", "")
                 exclude_patterns = [p.strip() for p in raw_exclude.split(",") if p.strip()] if isinstance(raw_exclude, str) else (raw_exclude if isinstance(raw_exclude, list) else [])
@@ -799,7 +834,6 @@ Reply ONLY in the specified format with no commentary. THAT'S AN ORDER, SOLDIER!
                     if os.path.isabs(p):
                         diff_files.append(p)  # Use absolute path as-is
                     elif self.root_directory:
-                        # Join relative path with root_directory
                         full_path = os.path.join(self.root_directory, p)
                         diff_files.append(full_path)
                     else:
@@ -844,7 +878,7 @@ Reply ONLY in the specified format with no commentary. THAT'S AN ORDER, SOLDIER!
                                 logging.info("No files in git diff, falling back to directory walk.")
                                 self.utility.process_directory(self.root_directory, exclude_patterns, patterns, mode)
                         else:
-                            # Pass diff_files directly to process_directory
+                            # Pass diff_files directly to process_directory with empty directory
                             self.utility.process_directory("", exclude_patterns, diff_files, mode)
 
                         if not os.path.exists(self.utility.output_file):
@@ -864,12 +898,13 @@ Reply ONLY in the specified format with no commentary. THAT'S AN ORDER, SOLDIER!
 
                     if not Config.generate_but_do_not_apply():
                         changes = FileParser.parse_custom_format(response_content)
-                        # Pass output_dir to track created files
+                        # Pass diff_files as scope_paths to handle LLM output variances
                         incomplete_actions = FileModifier.apply_modifications(
                             changes,
                             self.root_directory,
                             dry_run=False,
-                            output_dir=self.ai_builder_dir
+                            output_dir=self.ai_builder_dir,
+                            scope_paths=diff_files
                         )
                         ActionManager.save_actions(incomplete_actions, actions_file_path)
 
