@@ -414,13 +414,17 @@ class CodeUtility:
             file_paths = []
             for p in patterns:
                 p = p.strip()
-                if absolute_mode or os.path.isabs(p):
-                    full_path = p  # Treat as absolute
+                # Check if the path is absolute
+                if os.path.isabs(p):
+                    full_path = p  # Use absolute path as-is
+                elif absolute_mode:
+                    full_path = p  # Treat as absolute (only if directory is blank)
                 else:
                     full_path = os.path.join(directory, p)  # Treat as relative
 
                 full_path = os.path.normpath(full_path)
 
+                # Validate that the path does not traverse outside the root directory
                 if directory and not absolute_mode:
                     directory = os.path.normpath(directory)
                     if not full_path.startswith(directory + os.sep) and full_path != directory:
@@ -782,6 +786,7 @@ Reply ONLY in the specified format with no commentary. THAT'S AN ORDER, SOLDIER!
                 iterations = self.project_config.get("iterations", 1)
                 mode = self.project_config.get("mode", "include")
                 raw_patterns = self.project_config.get("includePatterns", "")
+                # Split patterns by comma and strip whitespace
                 patterns = [p.strip() for p in raw_patterns.split(",") if p.strip()] if isinstance(raw_patterns, str) else (raw_patterns if isinstance(raw_patterns, list) else [])
                 raw_exclude = self.project_config.get("excludePatterns", "")
                 exclude_patterns = [p.strip() for p in raw_exclude.split(",") if p.strip()] if isinstance(raw_exclude, str) else (raw_exclude if isinstance(raw_exclude, list) else [])
@@ -794,6 +799,7 @@ Reply ONLY in the specified format with no commentary. THAT'S AN ORDER, SOLDIER!
                     if os.path.isabs(p):
                         diff_files.append(p)  # Use absolute path as-is
                     elif self.root_directory:
+                        # Join relative path with root_directory
                         full_path = os.path.join(self.root_directory, p)
                         diff_files.append(full_path)
                     else:
@@ -838,7 +844,8 @@ Reply ONLY in the specified format with no commentary. THAT'S AN ORDER, SOLDIER!
                                 logging.info("No files in git diff, falling back to directory walk.")
                                 self.utility.process_directory(self.root_directory, exclude_patterns, patterns, mode)
                         else:
-                            self.utility.process_directory(self.root_directory, exclude_patterns, patterns, mode)
+                            # Pass diff_files directly to process_directory
+                            self.utility.process_directory("", exclude_patterns, diff_files, mode)
 
                         if not os.path.exists(self.utility.output_file):
                             logging.warning("output.txt was not created by process_directory.")
