@@ -1148,17 +1148,32 @@
             fetch('/api/job-status')
                 .then(response => response.json())
                 .then(data => {
-                    activeJobs = data.activeJobs || {};
-                    run_status = data.runStatus || {};
+                    const backendActiveJobs = data.activeJobs || {};
+                    const backendRunStatus = data.runStatus || {};
+
+                    // Merge updates instead of replacing to preserve frontend intervalIds
+                    for (const [jobId, job] of Object.entries(backendActiveJobs)) {
+                        if (activeJobs[jobId]) {
+                            activeJobs[jobId].status = job.status;
+                            activeJobs[jobId].projectId = job.projectId;
+                        } else {
+                            activeJobs[jobId] = job;
+                        }
+                    }
+                    // Remove jobs that are no longer tracked by backend
+                    for (const jobId of Object.keys(activeJobs)) {
+                        if (!backendActiveJobs[jobId]) {
+                            clearInterval(activeJobs[jobId].intervalId);
+                            delete activeJobs[jobId];
+                        }
+                    }
+
+                    run_status = backendRunStatus;
                     updateStatusDisplay();
 
                     // Sync UI running states with backend
                     for (const [jobId, job] of Object.entries(activeJobs)) {
-                        if (job.status === 'running') {
-                            updateRunButtonState(job.projectId, true);
-                        } else {
-                            updateRunButtonState(job.projectId, false);
-                        }
+                        updateRunButtonState(job.projectId, job.status === 'running');
                     }
 
                     // Also check all projects to see if they should be running
@@ -1245,9 +1260,9 @@
         }
 
         // Poll job status
-        function pollJobStatus(jobId, intervalId) {
+        function pollJobStatus(jobId) {
             const job = activeJobs[jobId];
-            if (!job) { clearInterval(intervalId); return; }
+            if (!job) return;
 
             fetch(`/api/run/${jobId}/status`)
                 .then(response => response.json())
@@ -1258,7 +1273,7 @@
                     updateStatusDisplay();
 
                     if (['completed', 'error', 'stopped'].includes(status.status)) {
-                        clearInterval(intervalId);
+                        clearInterval(job.intervalId);
                         delete activeJobs[jobId];
                         updateRunButtonState(job.projectId, false);
                         updateStatusDisplay();
@@ -1274,12 +1289,10 @@
                 })
                 .catch(error => {
                     console.error('Error polling job status:', error);
-                    clearInterval(intervalId);
-                    if (activeJobs[jobId]) {
-                        delete activeJobs[jobId];
-                        updateRunButtonState(job.projectId, false);
-                        updateStatusDisplay();
-                    }
+                    clearInterval(job.intervalId);
+                    delete activeJobs[jobId];
+                    updateRunButtonState(job.projectId, false);
+                    updateStatusDisplay();
                 });
         }
 
@@ -1342,7 +1355,7 @@
                             projectId,
                             status: data.status,
                             intervalId: setInterval(
-                                () => pollJobStatus(data.job_id, activeJobs[data.job_id].intervalId),
+                                () => pollJobStatus(data.job_id),
                                 3000
                             )
                         };

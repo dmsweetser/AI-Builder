@@ -111,6 +111,9 @@ def worker():
         save_job_history()
         if job_id in active_jobs:
             del active_jobs[job_id]
+        # Clean up run_status to prevent memory leaks and stale state queries
+        if job_id in run_status:
+            del run_status[job_id]
         run_queue.task_done()
         time.sleep(3)
 
