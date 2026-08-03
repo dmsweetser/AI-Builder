@@ -4,4 +4,3 @@ azure-identity
 azure-ai-inference
 dotenv
 flask
-openai-whisper

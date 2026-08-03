@@ -753,41 +753,6 @@
             font-weight: bold;
         }
 
-        .stt-btn {
-            background: var(--sky);
-            color: #000;
-            padding: 8px 12px;
-            margin-bottom: 12px;
-            margin-left: 12px;
-            border: 2px solid #000;
-            cursor: pointer;
-            font-family: 'Press Start 2P', monospace;
-            font-size: 10px;
-            display: inline-flex;
-            align-items: center;
-            gap: 5px;
-            vertical-align: middle;
-            width: 150px;
-        }
-
-        .stt-btn:hover {
-            background: #aaddff;
-        }
-
-        .stt-btn:disabled {
-            opacity: 0.6;
-            cursor: not-allowed;
-        }
-
-        .recording-indicator {
-            display: inline-block;
-            width: 8px;
-            height: 8px;
-            background-color: red;
-            border-radius: 50%;
-            animation: pulse 1s infinite;
-        }
-
         @keyframes pulse {
 
             0%,
@@ -1003,9 +968,6 @@
                         <div>
                             <label style="display: flex; align-items: center; gap: 5px;">
                                 <span>3. INSTRUCTIONS FOR AI BUILDER</span>
-                                <button type="button" id="stt-btn" class="stt-btn" onclick="toggleSTT()">
-                                    <span>STT (WHISPER)</span>
-                                </button>
                             </label>
                             <textarea name="instructions" id="details-instructions" rows="8"
                                 oninput="autoSaveProject()"></textarea>
@@ -1128,11 +1090,6 @@
         let flingCount = 0;
         let hasFlung = false;
         let goalZoneVisible = false;
-
-        // STT state
-        let isRecording = false;
-        let mediaRecorder;
-        let audioChunks = [];
 
         // Initialize activeJobs from backend
         function loadActiveJobsFromBackend() {
@@ -2413,100 +2370,6 @@
             // Drag and drop removed as per requirements
         }
 
-        // STT (WHISPER) functionality
-        function toggleSTT() {
-            const sttBtn = document.getElementById('stt-btn');
-
-            if (isRecording) {
-                stopRecording(sttBtn);
-                return;
-            }
-
-            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-                alert('Audio recording not supported in your browser. Try Chrome or Edge.');
-                return;
-            }
-
-            isRecording = true;
-            audioChunks = [];
-
-            sttBtn.innerHTML = '<span class="recording-indicator"></span><span>STOP RECORDING</span>';
-
-            navigator.mediaDevices.getUserMedia({ audio: true })
-                .then(stream => {
-                    mediaRecorder = new MediaRecorder(stream);
-                    mediaRecorder.start();
-
-                    mediaRecorder.ondataavailable = event => {
-                        audioChunks.push(event.data);
-                    };
-
-                    mediaRecorder.onstop = () => {
-                        const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-                        sendAudioToServer(audioBlob, sttBtn);
-                        stream.getTracks().forEach(track => track.stop());
-                    };
-
-                    mediaRecorder.onerror = (e) => {
-                        console.error('MediaRecorder error:', e);
-                        stopRecording(sttBtn);
-                    };
-                })
-                .catch(err => {
-                    console.error('Error accessing microphone:', err);
-                    alert('Could not access microphone. Please check permissions.');
-                    isRecording = false;
-                    sttBtn.innerHTML = '<span>STT (WHISPER)</span>';
-                });
-        }
-
-        function stopRecording(sttBtn) {
-            if (mediaRecorder && isRecording) {
-                mediaRecorder.stop();
-                isRecording = false;
-                sttBtn.innerHTML = '<span class="spinner"></span><span>PROCESSING...</span>';
-                sttBtn.disabled = true;
-            }
-        }
-
-        function sendAudioToServer(audioBlob, sttBtn) {
-            const formData = new FormData();
-            formData.append('audio', audioBlob, 'recording.wav');
-
-            fetch('/api/stt', {
-                method: 'POST',
-                body: formData
-            })
-                .then(response => {
-                    if (!response.ok) {
-                        throw new Error(`HTTP error! status: ${response.status}`);
-                    }
-                    return response.json();
-                })
-                .then(data => {
-                    if (data.transcription) {
-                        const instructionsTextarea = document.getElementById('details-instructions');
-                        if (instructionsTextarea) {
-                            const currentValue = instructionsTextarea.value;
-                            instructionsTextarea.value = currentValue
-                                ? `${currentValue}\n\n${data.transcription}`
-                                : data.transcription;
-                            autoSaveProject();
-                        }
-                    } else if (data.error) {
-                        alert(`STT Error: ${data.error}`);
-                    }
-                    sttBtn.innerHTML = '<span>STT (WHISPER)</span>';
-                    sttBtn.disabled = false;
-                })
-                .catch(error => {
-                    console.error('Error processing audio:', error);
-                    alert('Error processing audio. Check console for details.');
-                    sttBtn.innerHTML = '<span>STT (WHISPER)</span>';
-                    sttBtn.disabled = false;
-                });
-        }
-
         // --- AIR HOCKEY PUCK LOGIC ---
         function initAirHockeyPuck() {
             logoElement = document.getElementById('draggable-logo');
@@ -2749,6 +2612,7 @@
                 .then(data => {
                     loadProjects(); // Refresh the project list
                     this.reset();   // Clear the form
+                    selectProject(data.id); // Auto-navigate to the new project
                 })
                 .catch(error => {
                     alert(`Failed to create project: ${error.message}`);

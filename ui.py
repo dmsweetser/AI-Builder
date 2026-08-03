@@ -490,62 +490,6 @@ def api_get_output_files(pid):
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-@app.route("/api/stt", methods=["POST"])
-def api_stt():
-    if 'audio' not in request.files:
-        return jsonify({"error": "No audio file provided"}), 400
-
-    audio_file = request.files['audio']
-    if not audio_file or audio_file.filename == '':
-        return jsonify({"error": "Empty audio file"}), 400
-
-    try:
-        # Save to temp file (ensure directory exists)
-        temp_dir = tempfile.mkdtemp()
-        temp_audio_path = os.path.join(temp_dir, 'recording.webm')
-        audio_file.save(temp_audio_path)
-
-        # Check if file is valid (non-empty)
-        if os.path.getsize(temp_audio_path) == 0:
-            return jsonify({"error": "Recorded audio is empty. Try again with a longer recording."}), 400
-
-        # Convert WebM to WAV using FFmpeg (required for Whisper compatibility)
-        temp_wav_path = os.path.join(temp_dir, 'recording.wav')
-        try:
-            subprocess.run([
-                'ffmpeg', '-y', '-i', temp_audio_path,
-                '-acodec', 'pcm_s16le', '-ac', '1', '-ar', '16000',
-                temp_wav_path
-            ], check=True, capture_output=True, timeout=30)
-        except subprocess.TimeoutExpired:
-            return jsonify({"error": "FFmpeg conversion timed out. Check FFmpeg installation."}), 500
-        except subprocess.CalledProcessError as e:
-            return jsonify({"error": f"FFmpeg error: {e.stderr.decode() if e.stderr else 'Unknown'}"}), 500
-
-        try:
-            import whisper
-            model = whisper.load_model("tiny")
-        except ImportError:
-            return jsonify({"error": "Whisper not installed. Run: pip install whisper"}), 500
-
-        # Transcribe
-        try:
-            result = model.transcribe(temp_wav_path, fp16=False)
-            text = result.get('text', '').strip()
-            return jsonify({"transcription": text})
-        except Exception as e:
-            return jsonify({"error": f"Whisper transcription failed: {str(e)}"}), 500
-
-    except Exception as e:
-        return jsonify({"error": f"Server error: {str(e)}"}), 500
-    finally:
-        # Clean up temp files
-        try:
-            if 'temp_dir' in locals():
-                shutil.rmtree(temp_dir, ignore_errors=True)
-        except Exception:
-            pass
-
 # ---------- Chat Routes ----------
 @app.route("/api/chats", methods=["GET"])
 def api_list_chats():
