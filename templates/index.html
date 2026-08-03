@@ -1098,15 +1098,12 @@
                 .then(data => {
                     const backendActiveJobs = data.activeJobs || {};
                     const backendRunStatus = data.runStatus || {};
-                    const sortedJobs = data.sortedJobs || [];
 
                     // Merge updates instead of replacing to preserve frontend intervalIds
                     for (const [jobId, job] of Object.entries(backendActiveJobs)) {
                         if (activeJobs[jobId]) {
                             activeJobs[jobId].status = job.status;
                             activeJobs[jobId].projectId = job.projectId;
-                            activeJobs[jobId].projectName = job.projectName || activeJobs[jobId].projectName;
-                            activeJobs[jobId].queueOrder = job.queueOrder;
                         } else {
                             activeJobs[jobId] = job;
                         }
@@ -1178,11 +1175,8 @@
                 lines.push(`Queued: ${jobCount} | Running: ${runningCount}`);
             }
 
-            // Sort by queue order
-            const sortedJobs = Object.entries(activeJobs).sort((a, b) => (a[1].queueOrder || 0) - (b[1].queueOrder || 0));
-            for (const [jobId, job] of sortedJobs) {
-                const name = job.projectName || `Project ${job.projectId.substring(0, 8)}...`;
-                lines.push(`Job ${jobId}: ${job.status} (${name})`);
+            for (const [jobId, job] of Object.entries(activeJobs)) {
+                lines.push(`Job ${jobId}: ${job.status} (Project: ${job.projectId})`);
             }
 
             statusElement.textContent = lines.join('\n');
