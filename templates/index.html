@@ -885,13 +885,14 @@
 <body>
     <div class="goal-zone" id="goal-zone"></div>
     <div class="fling-counter" id="fling-counter">FLINGS: 0</div>
-    <div id="win-message">🏆 YOU WON! THE PUCK MADE IT INTO THE GOAL&nbsp;<span id="win-fling-count">IN 0 FLINGS</span> 🏆
+    <div id="win-message">🏆&nbsp;YOU WON&nbsp;<span id="win-fling-count">IN 0 FLINGS</span>&nbsp;🏆
     </div>
     <div class="app-layout">
         <aside class="sidebar">
             <div class="sidebar-header">
                 <div class="logo-container">
-                    <span class="logo-spinner" id="draggable-logo" alt="The Puck">Portal<br/><span style="font-size:9px !important">[FLING ME]</span></span>
+                    <span class="logo-spinner" id="draggable-logo" alt="The Puck">Portal<br /><span
+                            style="font-size:9px !important">[FLING ME]</span></span>
                 </div>
             </div>
             <div class="sidebar-nav">
@@ -2718,6 +2719,40 @@
 
             // Poll for job status updates from backend
             setInterval(loadActiveJobsFromBackend, 10000);
+        });
+
+        // Add this to the <script> tag in index.html
+        document.getElementById('add-project-form').addEventListener('submit', function (e) {
+            e.preventDefault();
+            const name = document.getElementById('add-project-name').value.trim();
+            const rootDir = document.getElementById('root-path').value.trim();
+            const patternsInput = document.getElementById('patterns-input').value.trim();
+
+            if (!name || !rootDir || !patternsInput) {
+                alert('ERROR: Project Name, Root Directory, and Include Patterns are REQUIRED.');
+                return;
+            }
+
+            const formData = new FormData(this);
+            fetch('/api/projects', {
+                method: 'POST',
+                body: formData
+            })
+                .then(response => {
+                    if (!response.ok) {
+                        return response.json().then(err => {
+                            throw new Error(err.error || 'Unknown error');
+                        });
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    loadProjects(); // Refresh the project list
+                    this.reset();   // Clear the form
+                })
+                .catch(error => {
+                    alert(`Failed to create project: ${error.message}`);
+                });
         });
     </script>
 </body>

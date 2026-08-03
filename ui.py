@@ -62,10 +62,6 @@ def worker():
                 run_queue.task_done()
                 continue
 
-            if any(j['pid'] == pid for j in list(run_queue.queue) if j != job):
-                run_queue.task_done()
-                continue
-
             run_status[job_id] = {'status': 'running', 'project_id': pid}
             active_jobs[job_id] = {'pid': pid, 'status': 'running'}
 
@@ -147,20 +143,28 @@ def get_project(pid):
     return next((p for p in projects if p["id"] == pid), None), projects
 
 def is_project_running(pid):
-    # Clean up stale entries for this project before checking
-    for jid in list(run_status.keys()):
-        if run_status[jid].get('project_id') == pid and run_status[jid].get('status') not in ['running', 'queued']:
-            del run_status[jid]
-    for jid in list(active_jobs.keys()):
-        if active_jobs[jid].get('pid') == pid and active_jobs[jid].get('status') not in ['running', 'queued']:
-            del active_jobs[jid]
+    # Clean up stale entries for this project
+    stale_job_ids = []
+    for jid, job in active_jobs.items():
+        if job.get('pid') == pid and job.get('status') not in ['running', 'queued']:
+            stale_job_ids.append(jid)
+    for jid in stale_job_ids:
+        del active_jobs[jid]
 
+    for jid, status in run_status.items():
+        if status.get('project_id') == pid and status.get('status') not in ['running', 'queued']:
+            del run_status[jid]
+
+    # Check active jobs
     for job_id, job in active_jobs.items():
-        if job.get('pid') == pid:
+        if job.get('pid') == pid and job.get('status') in ['running', 'queued']:
             return True, job_id
+
+    # Check run_status
     for job_id, status in run_status.items():
         if status.get('project_id') == pid and status.get('status') in ['running', 'queued']:
             return True, job_id
+
     return False, None
 
 # ---------- Routes ----------
@@ -291,17 +295,17 @@ def api_run_project(pid):
     if not project:
         return jsonify({"error": "Project not found"}), 404
 
-    # Clean up any stale entries for this project before checking
-    for jid in list(run_status.keys()):
-        if run_status[jid].get('project_id') == pid and run_status[jid].get('status') not in ['running', 'queued']:
-            del run_status[jid]
+    # Force-clear ALL stale jobs for this project (critical fix)
     for jid in list(active_jobs.keys()):
-        if active_jobs[jid].get('pid') == pid and active_jobs[jid].get('status') not in ['running', 'queued']:
+        if active_jobs[jid].get('pid') == pid:
             del active_jobs[jid]
+    for jid in list(run_status.keys()):
+        if run_status[jid].get('project_id') == pid:
+            del run_status[jid]
 
     is_running, existing_job_id = is_project_running(pid)
     if is_running:
-        return jsonify({"status": "queued", "job_id": existing_job_id})
+        return jsonify({"status": "already_running", "job_id": existing_job_id})
 
     if not project.get("includePatterns"):
         return jsonify({"error": "No includePatterns specified"}), 400
@@ -492,39 +496,55 @@ def api_stt():
         return jsonify({"error": "No audio file provided"}), 400
 
     audio_file = request.files['audio']
-    if not audio_file or audio_file.filename == '' or audio_file.size == 0:
-        return jsonify({"error": "Empty or zero-byte audio file"}), 400
+    if not audio_file or audio_file.filename == '':
+        return jsonify({"error": "Empty audio file"}), 400
 
     try:
-        # Save to temp file
-        temp_audio_path = tempfile.mkstemp(suffix='.wav')
+        # Save to temp file (ensure directory exists)
+        temp_dir = tempfile.mkdtemp()
+        temp_audio_path = os.path.join(temp_dir, 'recording.webm')
         audio_file.save(temp_audio_path)
+
+        # Check if file is valid (non-empty)
+        if os.path.getsize(temp_audio_path) == 0:
+            return jsonify({"error": "Recorded audio is empty. Try again with a longer recording."}), 400
+
+        # Convert WebM to WAV using FFmpeg (required for Whisper compatibility)
+        temp_wav_path = os.path.join(temp_dir, 'recording.wav')
+        try:
+            subprocess.run([
+                'ffmpeg', '-y', '-i', temp_audio_path,
+                '-acodec', 'pcm_s16le', '-ac', '1', '-ar', '16000',
+                temp_wav_path
+            ], check=True, capture_output=True, timeout=30)
+        except subprocess.TimeoutExpired:
+            return jsonify({"error": "FFmpeg conversion timed out. Check FFmpeg installation."}), 500
+        except subprocess.CalledProcessError as e:
+            return jsonify({"error": f"FFmpeg error: {e.stderr.decode() if e.stderr else 'Unknown'}"}), 500
 
         try:
             import whisper
+            model = whisper.load_model("tiny")
         except ImportError:
-            return jsonify({
-                "error": "Whisper not installed. Install with: pip install whisper"
-            }), 500
+            return jsonify({"error": "Whisper not installed. Run: pip install whisper"}), 500
 
+        # Transcribe
         try:
-            # Load the model once (avoid re-downloading)
-            model = whisper.load_model("large")
-            # Transcribe with FP32 (explicitly avoid FP16)
-            result = model.transcribe(temp_audio_path, fp16=False)
-            text = result['text']
+            result = model.transcribe(temp_wav_path, fp16=False)
+            text = result.get('text', '').strip()
             return jsonify({"transcription": text})
         except Exception as e:
-            return jsonify({"error": f"Whisper error: {str(e)}"}), 500
-        finally:
-            try:
-                if os.path.exists(temp_audio_path):
-                    os.unlink(temp_audio_path)
-            except Exception:
-                pass
+            return jsonify({"error": f"Whisper transcription failed: {str(e)}"}), 500
 
     except Exception as e:
-        return jsonify({"error": f"Error processing audio: {str(e)}"}), 500
+        return jsonify({"error": f"Server error: {str(e)}"}), 500
+    finally:
+        # Clean up temp files
+        try:
+            if 'temp_dir' in locals():
+                shutil.rmtree(temp_dir, ignore_errors=True)
+        except Exception:
+            pass
 
 # ---------- Chat Routes ----------
 @app.route("/api/chats", methods=["GET"])
