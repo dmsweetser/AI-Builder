@@ -303,10 +303,6 @@ def api_run_project(pid):
         if run_status[jid].get('project_id') == pid:
             del run_status[jid]
 
-    is_running, existing_job_id = is_project_running(pid)
-    if is_running:
-        return jsonify({"status": "already_running", "job_id": existing_job_id})
-
     if not project.get("includePatterns"):
         return jsonify({"error": "No includePatterns specified"}), 400
 
