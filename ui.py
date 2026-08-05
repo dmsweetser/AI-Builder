@@ -84,31 +84,40 @@ def worker():
                     run_status[job_id] = {'status': 'completed', 'project_id': pid}
                     if job_id in active_jobs:
                         active_jobs[job_id]['status'] = 'completed'
-                    for item in job_history:
-                        if item["job_id"] == job_id:
-                            item["status"] = "completed"
-                            item["end_timestamp"] = datetime.now().isoformat()
-                            break
+                    job_history.append({
+                                "job_id": job_id,
+                                "project_id": pid,
+                                "project_name": project.get("name", "Unknown") if project else "Unknown",
+                                "status": "completed",
+                                "instructions": project.get("instructions", ""),
+                                "timestamp": datetime.now().isoformat()
+                            })
                 except Exception as e:
                     run_status[job_id] = {'status': 'error', 'message': str(e), 'project_id': pid}
                     if job_id in active_jobs:
                         active_jobs[job_id]['status'] = 'error'
-                    for item in job_history:
-                        if item["job_id"] == job_id:
-                            item["status"] = "error"
-                            item["error"] = str(e)
-                            item["end_timestamp"] = datetime.now().isoformat()
-                            break
+                    job_history.append({
+                                "job_id": job_id,
+                                "project_id": pid,
+                                "project_name": project.get("name", "Unknown") if project else "Unknown",
+                                "status": "error",
+                                "error": str(e),
+                                "instructions": project.get("instructions", ""),
+                                "timestamp": datetime.now().isoformat()
+                            })
             else:
                 run_status[job_id] = {'status': 'error', 'message': 'Project not found', 'project_id': pid}
                 if job_id in active_jobs:
                     active_jobs[job_id]['status'] = 'error'
-                for item in job_history:
-                    if item["job_id"] == job_id:
-                        item["status"] = "error"
-                        item["error"] = "Project not found"
-                        item["end_timestamp"] = datetime.now().isoformat()
-                        break
+                job_history.append({
+                            "job_id": job_id,
+                            "project_id": pid,
+                            "project_name": project.get("name", "Unknown") if project else "Unknown",
+                            "status": "error",
+                            "error": "Project not found",
+                            "instructions": project.get("instructions", ""),
+                            "timestamp": datetime.now().isoformat()
+                        })
         finally:
             save_job_history()
             if job_id in active_jobs:
@@ -365,11 +374,15 @@ def api_stop_project(pid):
         run_status[job_id]['status'] = 'stopped'
         if job_id in active_jobs:
             del active_jobs[job_id]
-            
-    for item in job_history:
-        if item["project_id"] == pid and item["status"] in ["running", "queued"]:
-            item["status"] = "stopped"
-            item["end_timestamp"] = datetime.now().isoformat()
+    project, _ = get_project(pid)
+    job_history.append({
+        "job_id": job_id,
+        "project_id": pid,
+        "project_name": project.get("name", "Unknown") if project else "Unknown",
+        "status": "stopped",
+        "instructions": project.get("instructions", ""),
+        "timestamp": datetime.now().isoformat()
+    })
     save_job_history()
     return jsonify({"status": "stopped", "stopped_jobs": list(set(jobs_to_stop + queued_jobs))})
 

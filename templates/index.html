@@ -1200,6 +1200,8 @@
             const job = activeJobs[jobId];
             if (!job) return;
 
+            loadHistory();
+
             fetch(`/api/run/${jobId}/status`)
                 .then(response => response.json())
                 .then(status => {
@@ -1214,7 +1216,7 @@
                         updateRunButtonState(job.projectId, false);
                         updateStatusDisplay();
                         loadProjects();
-                        loadHistory();
+
                     }
                 })
                 .catch(error => {
@@ -1243,7 +1245,7 @@
                             status: data.status,
                             intervalId: setInterval(
                                 () => pollJobStatus(data.job_id),
-                                3000
+                                5000
                             )
                         };
                         updateStatusDisplay();
