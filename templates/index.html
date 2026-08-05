@@ -1547,6 +1547,9 @@
                     const nameFormEl = document.getElementById('details-project-name-form');
                     if (nameFormEl) nameFormEl.value = project.name;
 
+                    const fileListContainer = document.getElementById('details-file-tree-container');
+                    fileListContainer.innerHTML = '';
+
                     const rootDir = project.rootDirectory || '';
                     safeSet('details-root-dir', rootDir);
 
