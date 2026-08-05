@@ -338,6 +338,14 @@ def api_run_project(pid):
     active_jobs[job_id] = {'pid': pid, 'status': 'queued'}
 
     with job_queue_lock:
+        job_history.append({
+            "job_id": job_id,
+            "project_id": pid,
+            "project_name": project.get("name", "Unknown") if project else "Unknown",
+            "status": "queued",
+            "instructions": project.get("instructions", ""),
+            "timestamp": datetime.now().isoformat()
+        })
         run_queue.put({'pid': pid, 'job_id': job_id})
 
     return jsonify({"status": "queued", "job_id": job_id})
