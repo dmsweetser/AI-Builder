@@ -79,7 +79,7 @@ def worker():
         try:
             if project:
                 try:
-                    ai = AIBuilder(project)
+                    ai = AIBuilder(job_id, project)
                     ai.run()
                     run_status[job_id] = {'status': 'completed', 'project_id': pid}
                     if job_id in active_jobs:
@@ -324,7 +324,9 @@ def api_run_project(pid):
                 "suggestion": "Add specific file patterns or exclusion patterns to limit the scope."
             }), 400
 
-    output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aib_instance", "output", pid)
+    job_id = str(uuid.uuid4())
+    output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aib_instance", "output", job_id)
+
     try:
         if os.path.exists(output_dir):
             shutil.rmtree(output_dir)
@@ -332,22 +334,6 @@ def api_run_project(pid):
     except Exception as e:
         return jsonify({"error": f"Failed to create output directory: {str(e)}"}), 500
 
-    actions_file = os.path.join(output_dir, "actions.txt")
-    warning_content = None
-    if os.path.exists(actions_file):
-        with open(actions_file, "r", encoding="utf-8") as f:
-            content = f.read().strip()
-            if content:
-                warning_content = content
-
-    if warning_content:
-        return jsonify({
-            "warning": True,
-            "actions_content": warning_content,
-            "message": "Existing unapplied changes found. Review or clear them before running."
-        })
-
-    job_id = str(uuid.uuid4())
     run_status[job_id] = {'status': 'queued', 'project_id': pid}
     active_jobs[job_id] = {'pid': pid, 'status': 'queued'}
 
@@ -379,18 +365,6 @@ def api_stop_project(pid):
     save_job_history()
     return jsonify({"status": "stopped", "stopped_jobs": list(set(jobs_to_stop + queued_jobs))})
 
-@app.route("/api/projects/<pid>/clear", methods=["POST"])
-def api_clear_project_artifacts(pid):
-    output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aib_instance", "output", pid)
-    for fname in ["output.txt", "modifications.txt", "current_response.txt", "log.txt", "actions.txt"]:
-        fpath = os.path.join(output_dir, fname)
-        if os.path.exists(fpath):
-            try:
-                os.remove(fpath)
-            except Exception:
-                pass
-    return jsonify({"status": "cleared"})
-
 @app.route("/api/run/<job_id>/status", methods=["GET"])
 def api_run_status(job_id):
     status = run_status.get(job_id, {'status': 'unknown'})
@@ -410,14 +384,6 @@ def api_delete_project(pid):
     projects = load_projects()
     projects = [p for p in projects if p["id"] != pid]
     save_projects(projects)
-
-    output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aib_instance", "output", pid)
-    if os.path.exists(output_dir):
-        try:
-            shutil.rmtree(output_dir)
-        except Exception:
-            pass
-
     return jsonify({"status": "deleted"})
 
 @app.route("/api/files", methods=["GET"])
@@ -465,26 +431,6 @@ def api_job_status():
         "activeJobs": {k: {"projectId": v.get("pid"), "status": v.get("status", "unknown")} for k, v in active_jobs.items()},
         "runStatus": run_status
     })
-
-@app.route("/api/projects/<pid>/output-files", methods=["GET"])
-def api_get_output_files(pid):
-    """Get list of files created in the output directory for a project."""
-    output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aib_instance", "output", pid)
-    if not os.path.exists(output_dir):
-        return jsonify({"files": []})
-
-    try:
-        files = []
-        for root, dirs, filenames in os.walk(output_dir):
-            for filename in filenames:
-                if filename.endswith(('.txt', '.log', '.json')):
-                    continue
-                full_path = os.path.join(root, filename)
-                full_path = full_path.replace('\\', '/')
-                files.append(full_path)
-        return jsonify({"files": files})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
 
 # ---------- Chat Routes ----------
 @app.route("/api/chats", methods=["GET"])

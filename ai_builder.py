@@ -538,7 +538,7 @@ class CodeUtility:
             raise
 
 class AIBuilder:
-    def __init__(self, project_config: Dict[str, Any] = None):
+    def __init__(self, job_id : str, project_config: Dict[str, Any] = None):
         self.project_config = project_config
         self.clean_mode = project_config is not None
         self.use_git_diff = False
@@ -549,7 +549,7 @@ class AIBuilder:
                 os.path.dirname(os.path.abspath(__file__)),
                 "aib_instance",
                 "output",
-                project_config["id"]
+                job_id
             )
             if not self.root_directory:
                 logging.warning("No rootDirectory provided. Assuming includePatterns are full paths.")

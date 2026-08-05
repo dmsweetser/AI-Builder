@@ -1032,18 +1032,6 @@
             </div>
         </main>
     </div>
-    <div id="warning-modal" class="modal" style="display: none;">
-        <div class="modal-content">
-            <h2>WARNING: UNAPPLIED CHANGES</h2>
-            <p>This project has unapplied changes from a previous run:</p>
-            <pre id="warning-actions-content"
-                style="background:#000; padding:10px; overflow:auto; max-height:200px; font-family:monospace; font-size:12px;"></pre>
-            <div style="display:flex; gap:10px; margin-top:15px;">
-                <button onclick="clearAndRun()" class="btn-sm" style="background:#a03030; flex:1;">CLEAR & RUN</button>
-                <button onclick="closeWarningModal()" class="btn-sm" style="flex:1;">CANCEL</button>
-            </div>
-        </div>
-    </div>
     <div id="root-path-confirmation-modal" class="modal" style="display: none;">
         <div class="modal-content">
             <h2>CONFIRM ROOT DIRECTORY CHANGE</h2>
@@ -1227,12 +1215,6 @@
                         updateStatusDisplay();
                         loadProjects();
                         loadHistory();
-
-                        // Refresh selected paths and check for errors
-                        if (currentProjectId === job.projectId) {
-                            refreshSelectedPaths();
-                            checkForProjectErrors(job.projectId);
-                        }
                     }
                 })
                 .catch(error => {
@@ -1241,46 +1223,6 @@
                     delete activeJobs[jobId];
                     updateRunButtonState(job.projectId, false);
                     updateStatusDisplay();
-                });
-        }
-
-        // Check for project errors and actions.txt content
-        function checkForProjectErrors(projectId) {
-            fetch(`/api/projects/${projectId}/output-files`)
-                .then(response => response.json())
-                .then(data => {
-                    const actionsFile = data.files.find(f => f.includes('actions.txt'));
-                    if (actionsFile) {
-                        fetch(`/api/files?path=${encodeURIComponent(actionsFile)}`)
-                            .then(response => response.json())
-                            .then(files => {
-                                if (files && files.length > 0) {
-                                    const errorDisplay = document.getElementById('project-error-display');
-                                    if (errorDisplay) {
-                                        errorDisplay.style.display = 'block';
-                                        errorDisplay.innerHTML = '<strong>UNAPPLIED CHANGES:</strong><br>' +
-                                            files[0].content || 'Could not read actions.txt';
-                                    }
-                                }
-                            });
-                    }
-                });
-
-            // Also check job history for errors
-            fetch('/api/history')
-                .then(response => response.json())
-                .then(history => {
-                    const projectJobs = history.filter(item => item.project_id === projectId);
-                    const errorJobs = projectJobs.filter(item => item.status === 'error');
-                    if (errorJobs.length > 0) {
-                        const errorDisplay = document.getElementById('project-error-display');
-                        if (errorDisplay) {
-                            errorDisplay.style.display = 'block';
-                            const latestError = errorJobs[0];
-                            errorDisplay.innerHTML = `<strong>ERROR:</strong> ${latestError.error || 'Unknown error'}<br>
-                                <strong>Instructions:</strong> ${latestError.instructions || 'None'}`;
-                        }
-                    }
                 });
         }
 
@@ -1295,10 +1237,7 @@
             fetch(`/api/projects/${projectId}/run`, { method: 'POST' })
                 .then(response => response.json())
                 .then(data => {
-                    if (data.warning) {
-                        showWarningModal(data.actions_content, projectId);
-                        updateRunButtonState(projectId, false);
-                    } else if (data.job_id) {
+                    if (data.job_id) {
                         activeJobs[data.job_id] = {
                             projectId,
                             status: data.status,
@@ -1337,35 +1276,6 @@
                     loadActiveJobsFromBackend();
                 })
                 .catch(err => console.error('Failed to stop project:', err));
-        }
-
-        // Refresh selected paths by fetching newly created files from the project's output directory
-        function refreshSelectedPaths() {
-            const projectId = document.getElementById('run-project-id')?.value;
-            if (!projectId) return;
-
-            fetch(`/api/projects/${projectId}/output-files`)
-                .then(response => response.json())
-                .then(data => {
-                    if (data.files && data.files.length > 0) {
-                        const container = document.getElementById('details-selected-paths-container');
-                        const input = document.getElementById('details-patterns-input');
-                        const displayInput = document.getElementById('details-patterns-display');
-
-                        if (container && input) {
-                            const currentPaths = Array.from(container.children).map(el => el.dataset.path);
-                            const newFiles = data.files.filter(f => !currentPaths.includes(f));
-
-                            if (newFiles.length > 0) {
-                                newFiles.forEach(file => {
-                                    addPathToDetailsList(file);
-                                });
-                                updateDetailsPatternsInput();
-                            }
-                        }
-                    }
-                })
-                .catch(err => console.error('Failed to refresh selected paths:', err));
         }
 
         // Add path to details list
@@ -1664,13 +1574,8 @@
                         errorDisplay.innerHTML = '';
                     }
 
-                    setupDetailsDragAndDrop();
-
                     const isRunning = isProjectRunningOrQueued(projectId);
                     updateRunButtonState(projectId, isRunning);
-
-                    // Check for existing errors
-                    checkForProjectErrors(projectId);
                 })
                 .catch(err => console.error('Failed to load project details:', err));
         }
@@ -2334,42 +2239,6 @@
             pendingRootPathElementId = null;
         }
 
-        // Show warning modal
-        function showWarningModal(actionsContent, projectId) {
-            pendingActionsContent = actionsContent;
-            pendingProjectId = projectId;
-            document.getElementById('warning-actions-content').textContent = actionsContent;
-            document.getElementById('warning-modal').style.display = 'flex';
-        }
-
-        // Close warning modal
-        function closeWarningModal() {
-            document.getElementById('warning-modal').style.display = 'none';
-            pendingProjectId = null;
-            pendingActionsContent = null;
-        }
-
-        // Clear and run
-        function clearAndRun() {
-            if (!pendingProjectId) return;
-            fetch(`/api/projects/${pendingProjectId}/clear`, { method: 'POST' })
-                .then(() => {
-                    closeWarningModal();
-                    runProject(pendingProjectId);
-                })
-                .catch(err => console.error('Failed to clear artifacts:', err));
-        }
-
-        // Set up drag and drop for patterns (kept for potential future use)
-        function setupDragAndDrop() {
-            // Drag and drop removed as per requirements
-        }
-
-        // Set up drag and drop for details patterns (kept for potential future use)
-        function setupDetailsDragAndDrop() {
-            // Drag and drop removed as per requirements
-        }
-
         // --- AIR HOCKEY PUCK LOGIC ---
         function initAirHockeyPuck() {
             logoElement = document.getElementById('draggable-logo');
@@ -2546,9 +2415,6 @@
         document.addEventListener('DOMContentLoaded', () => {
             // Initialize air hockey puck
             initAirHockeyPuck();
-
-            // Set up drag and drop (removed as per requirements)
-            setupDragAndDrop();
 
             // Load initial data
             loadProjects();
