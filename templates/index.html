@@ -2148,6 +2148,7 @@
 
         // Load history
         function loadHistory() {
+            const seenProjects = new Set();
             fetch('/api/history')
                 .then(response => response.json())
                 .then(history => {
@@ -2162,6 +2163,13 @@
                         const historyItem = document.createElement('div');
                         historyItem.className = 'history-item';
                         historyItem.style.cursor = 'pointer';
+                        let opacity = (item.status === "queued" || item.status === "running") ? "100%" : "40%";
+                        if (seenProjects.has(item.project_name)) {
+                            opacity = "40%";
+                        } else {
+                            seenProjects.add(item.project_name);
+                        }
+                        historyItem.style.opacity = opacity;
                         historyItem.innerHTML = `
                             <strong>${item.project_name || 'Unknown Project'}</strong><br>
                             <span style="color: #ccc;">${new Date(item.timestamp).toLocaleString()}</span><br>
