@@ -2461,6 +2461,7 @@
 
             // Poll for job status updates from backend
             setInterval(loadActiveJobsFromBackend, 10000);
+            setInterval(loadHistory, 5000);
         });
 
         // Add this to the <script> tag in index.html
