@@ -81,6 +81,24 @@ def worker():
                 try:
                     ai = AIBuilder(job_id, project)
                     ai.run()
+                    
+                    # Auto-add newly created files to project includePatterns
+                    created_files_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aib_instance", "output", job_id, "created_files.txt")
+                    if os.path.exists(created_files_path):
+                        with open(created_files_path, 'r', encoding='utf-8') as f:
+                            new_files = [line.strip() for line in f if line.strip()]
+                        if new_files:
+                            projects = load_projects()
+                            for p in projects:
+                                if p["id"] == pid:
+                                    current_patterns = [pat.strip() for pat in p.get("includePatterns", "").split(",") if pat.strip()]
+                                    for nf in new_files:
+                                        if nf not in current_patterns:
+                                            current_patterns.append(nf)
+                                    p["includePatterns"] = ",".join(current_patterns)
+                                    save_projects(projects)
+                                    break
+                    
                     run_status[job_id] = {'status': 'completed', 'project_id': pid}
                     if job_id in active_jobs:
                         active_jobs[job_id]['status'] = 'completed'
@@ -361,29 +379,30 @@ def api_run_project(pid):
 
 @app.route("/api/projects/<pid>/stop", methods=["POST"])
 def api_stop_project(pid):
-    jobs_to_stop = [job_id for job_id, job in active_jobs.items() if job.get('pid') == pid]
-    for job_id in jobs_to_stop:
-        if job_id in active_jobs:
-            del active_jobs[job_id]
-        if job_id in run_status:
+    with job_queue_lock:
+        jobs_to_stop = [job_id for job_id, job in active_jobs.items() if job.get('pid') == pid]
+        for job_id in jobs_to_stop:
+            if job_id in active_jobs:
+                del active_jobs[job_id]
+            if job_id in run_status:
+                run_status[job_id]['status'] = 'stopped'
+                
+        # Also cancel queued jobs
+        queued_jobs = [job_id for job_id, status in run_status.items() if status.get('project_id') == pid and status.get('status') == 'queued']
+        for job_id in queued_jobs:
             run_status[job_id]['status'] = 'stopped'
-            
-    # Also cancel queued jobs
-    queued_jobs = [job_id for job_id, status in run_status.items() if status.get('project_id') == pid and status.get('status') == 'queued']
-    for job_id in queued_jobs:
-        run_status[job_id]['status'] = 'stopped'
-        if job_id in active_jobs:
-            del active_jobs[job_id]
-    project, _ = get_project(pid)
-    job_history.append({
-        "job_id": job_id,
-        "project_id": pid,
-        "project_name": project.get("name", "Unknown") if project else "Unknown",
-        "status": "stopped",
-        "instructions": project.get("instructions", ""),
-        "timestamp": datetime.now().isoformat()
-    })
-    save_job_history()
+            if job_id in active_jobs:
+                del active_jobs[job_id]
+        project, _ = get_project(pid)
+        job_history.append({
+            "job_id": job_id,
+            "project_id": pid,
+            "project_name": project.get("name", "Unknown") if project else "Unknown",
+            "status": "stopped",
+            "instructions": project.get("instructions", ""),
+            "timestamp": datetime.now().isoformat()
+        })
+        save_job_history()
     return jsonify({"status": "stopped", "stopped_jobs": list(set(jobs_to_stop + queued_jobs))})
 
 @app.route("/api/run/<job_id>/status", methods=["GET"])
