@@ -26,6 +26,7 @@ run_status = {}
 job_history = []
 active_jobs = {}
 job_queue_lock = threading.Lock()
+worker_thread = None
 
 def load_job_history():
     global job_history
@@ -145,7 +146,21 @@ def worker():
             run_queue.task_done()
             time.sleep(3)
 
-threading.Thread(target=worker, daemon=True).start()
+def start_worker():
+    global worker_thread
+    if worker_thread and worker_thread.is_alive():
+        return
+    worker_thread = threading.Thread(target=worker, daemon=True)
+    worker_thread.start()
+
+def restart_worker():
+    global worker_thread
+    if worker_thread and worker_thread.is_alive():
+        run_queue.put(None)
+        worker_thread.join(timeout=5)
+    start_worker()
+
+start_worker()
 
 PROJECTS_FILE = "aib_instance/projects.json"
 CHATS_DIR = "aib_instance/chats"
@@ -471,6 +486,57 @@ def api_job_status():
         "activeJobs": {k: {"projectId": v.get("pid"), "status": v.get("status", "unknown")} for k, v in active_jobs.items()},
         "runStatus": run_status
     })
+
+@app.route("/api/queue", methods=["GET"])
+def api_get_queue():
+    queued = []
+    for jid, status in run_status.items():
+        if status.get('status') == 'queued':
+            queued.append({
+                'job_id': jid,
+                'project_id': status.get('project_id'),
+                'timestamp': job_history[-1].get('timestamp') if job_history else ''
+            })
+    return jsonify(queued)
+
+@app.route("/api/queue/<job_id>", methods=["DELETE"])
+def api_delete_from_queue(job_id):
+    with job_queue_lock:
+        if run_status.get(job_id, {}).get('status') == 'queued':
+            run_status[job_id]['status'] = 'deleted'
+            job_history.append({
+                "job_id": job_id,
+                "project_id": run_status[job_id].get('project_id'),
+                "project_name": "Unknown",
+                "status": "deleted",
+                "timestamp": datetime.now().isoformat()
+            })
+            save_job_history()
+            return jsonify({"status": "deleted"})
+    return jsonify({"error": "Job not in queue"}), 404
+
+@app.route("/api/queue/<job_id>/restart", methods=["POST"])
+def api_restart_job(job_id):
+    with job_queue_lock:
+        if run_status.get(job_id, {}).get('status') in ['error', 'stopped', 'completed']:
+            run_status[job_id]['status'] = 'queued'
+            run_queue.put({'pid': run_status[job_id].get('project_id'), 'job_id': job_id})
+            restart_worker()
+            return jsonify({"status": "restarted"})
+    return jsonify({"error": "Job not in a restartable state"}), 400
+
+@app.route("/api/queue/<job_id>/stop", methods=["POST"])
+def api_stop_queued_job(job_id):
+    with job_queue_lock:
+        if run_status.get(job_id, {}).get('status') == 'queued':
+            run_status[job_id]['status'] = 'stopped'
+            return jsonify({"status": "stopped"})
+    return jsonify({"error": "Job not in queue"}), 404
+
+@app.route("/api/worker/restart", methods=["POST"])
+def api_restart_worker():
+    restart_worker()
+    return jsonify({"status": "worker restarted"})
 
 # ---------- Chat Routes ----------
 @app.route("/api/chats", methods=["GET"])

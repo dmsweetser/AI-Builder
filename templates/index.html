@@ -864,6 +864,7 @@
                 <button class="tab-btn active" onclick="showTab('projects')">PROJECTS</button>
                 <button class="tab-btn" onclick="showTab('history')">JOB HISTORY</button>
                 <button class="tab-btn" onclick="showTab('chat')">CHAT</button>
+                <button class="tab-btn" onclick="showTab('queue')">JOB QUEUE</button>
             </div>
         </aside>
         <main class="main-content">
@@ -1027,6 +1028,14 @@
                     <h2>JOB HISTORY</h2>
                     <div class="history-list" id="history-list">
                         <div class="note">LOADING HISTORY...</div>
+                    </div>
+                </div>
+            </div>
+            <div id="queue-panel" class="panel">
+                <div class="block">
+                    <h2>JOB QUEUE <button type="button" onclick="restartWorker()" class="btn-sm" style="float:right; background:var(--stone);">RESTART WORKER</button></h2>
+                    <div id="queue-list" class="project-list">
+                        <div class="note">LOADING QUEUE...</div>
                     </div>
                 </div>
             </div>
@@ -1908,6 +1917,8 @@
                 }
             } else if (tabName === 'history') {
                 loadHistory();
+            } else if (tabName === 'queue') {
+                loadQueue();
             }
         }
 
@@ -2463,6 +2474,59 @@
             setInterval(loadActiveJobsFromBackend, 10000);
             setInterval(loadHistory, 60000);
         });
+
+        function loadQueue() {
+            fetch('/api/queue')
+                .then(res => res.json())
+                .then(jobs => {
+                    const list = document.getElementById('queue-list');
+                    list.innerHTML = '';
+                    if (!jobs.length) {
+                        list.innerHTML = '<div class="note">QUEUE IS EMPTY.</div>';
+                        return;
+                    }
+                    jobs.forEach(job => {
+                        const item = document.createElement('div');
+                        item.className = 'project-item';
+                        item.innerHTML = `
+                            <div class="project-item-header">
+                                <span class="project-item-name">Job: ${job.job_id.substring(0,8)}...</span>
+                                <div class="project-item-actions">
+                                    <button class="btn-sm" onclick="restartJob('${job.job_id}')">RESTART</button>
+                                    <button class="btn-sm stop" onclick="stopJob('${job.job_id}')">STOP</button>
+                                    <button class="btn-sm delete" onclick="deleteJob('${job.job_id}')">DELETE</button>
+                                </div>
+                            </div>
+                            <span style="color: #ccc; font-size: 8px;">Project: ${job.project_id}</span>
+                        `;
+                        list.appendChild(item);
+                    });
+                });
+        }
+
+        function restartJob(jobId) {
+            fetch(`/api/queue/${jobId}/restart`, { method: 'POST' })
+                .then(() => loadQueue())
+                .catch(err => console.error('Failed to restart job:', err));
+        }
+
+        function stopJob(jobId) {
+            fetch(`/api/queue/${jobId}/stop`, { method: 'POST' })
+                .then(() => loadQueue())
+                .catch(err => console.error('Failed to stop job:', err));
+        }
+
+        function deleteJob(jobId) {
+            fetch(`/api/queue/${jobId}`, { method: 'DELETE' })
+                .then(() => loadQueue())
+                .catch(err => console.error('Failed to delete job:', err));
+        }
+
+        function restartWorker() {
+            fetch('/api/worker/restart', { method: 'POST' })
+                .then(() => alert('Worker restarted!'))
+                .catch(err => console.error('Failed to restart worker:', err));
+        }
 
         // Add this to the <script> tag in index.html
         document.getElementById('add-project-form').addEventListener('submit', function (e) {
