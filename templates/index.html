@@ -1024,6 +1024,14 @@
             <div id="jobs-panel" class="panel">
                 <div class="block">
                     <h2>JOB MANAGEMENT <button type="button" onclick="restartWorker()" class="btn-sm" style="float:right; background:var(--stone);">RESTART WORKER</button></h2>
+                    <div class="selector-controls">
+                        <button type="button" onclick="filterJobs('all')" class="btn-sm active" id="filter-all-btn">ALL</button>
+                        <button type="button" onclick="filterJobs('running')" class="btn-sm" id="filter-running-btn">RUNNING</button>
+                        <button type="button" onclick="filterJobs('queued')" class="btn-sm" id="filter-queued-btn">QUEUED</button>
+                        <button type="button" onclick="filterJobs('completed')" class="btn-sm" id="filter-completed-btn">COMPLETED</button>
+                        <button type="button" onclick="filterJobs('error')" class="btn-sm" id="filter-error-btn">ERROR</button>
+                        <button type="button" onclick="filterJobs('stopped')" class="btn-sm" id="filter-stopped-btn">STOPPED</button>
+                    </div>
                     <div id="jobs-list" class="project-list">
                         <div class="note">LOADING JOBS...</div>
                     </div>
@@ -1199,7 +1207,7 @@
             const job = activeJobs[jobId];
             if (!job) return;
 
-            loadHistory();
+            loadJobs();
 
             fetch(`/api/run/${jobId}/status`)
                 .then(response => response.json())
@@ -2001,6 +2009,7 @@
                     chatInput.disabled = false;
                     sendBtn.disabled = false;
 
+                    if (!chatLog) return;
                     chatLog.innerHTML = '';
                     if (!chat.messages || chat.messages.length === 0) {
                         chatLog.innerHTML = '<div class="note">No messages yet. Start a conversation!</div>';
@@ -2145,7 +2154,21 @@
             element.appendChild(copyButton);
         }
 
-        // Load jobs
+        let currentJobFilter = 'all';
+        function filterJobs(status) {
+            currentJobFilter = status;
+            document.querySelectorAll('.selector-controls .btn-sm').forEach(btn => {
+                btn.classList.remove('active');
+                btn.style.background = 'var(--wood)';
+            });
+            const activeBtn = document.getElementById(`filter-${status}-btn`);
+            if (activeBtn) {
+                activeBtn.classList.add('active');
+                activeBtn.style.background = 'var(--grass)';
+            }
+            loadJobs();
+        }
+
         function loadJobs() {
             fetch('/api/jobs')
                 .then(res => res.json())
@@ -2166,7 +2189,9 @@
                 return;
             }
 
-            jobs.forEach(job => {
+            const filteredJobs = currentJobFilter === 'all' ? jobs : jobs.filter(j => j.status === currentJobFilter);
+
+            filteredJobs.forEach(job => {
                 const item = document.createElement('div');
                 item.className = 'project-item';
                 item.dataset.jobId = job.job_id;

@@ -59,7 +59,6 @@ def worker():
 
         with job_queue_lock:
             current_status = run_status.get(job_id, {}).get('status', 'unknown')
-            # Skip if job was stopped, deleted, or already completed/error
             if current_status in ['stopped', 'deleted', 'error', 'completed']:
                 run_queue.task_done()
                 continue
@@ -397,29 +396,33 @@ def api_run_project(pid):
 def api_stop_project(pid):
     with job_queue_lock:
         jobs_to_stop = [job_id for job_id, job in active_jobs.items() if job.get('pid') == pid]
+        stopped_jobs = []
         for job_id in jobs_to_stop:
             if job_id in active_jobs:
                 del active_jobs[job_id]
             if job_id in run_status:
                 run_status[job_id]['status'] = 'stopped'
+                stopped_jobs.append(job_id)
                 
-        # Also cancel queued jobs
         queued_jobs = [job_id for job_id, status in run_status.items() if status.get('project_id') == pid and status.get('status') == 'queued']
         for job_id in queued_jobs:
             run_status[job_id]['status'] = 'stopped'
             if job_id in active_jobs:
                 del active_jobs[job_id]
+            stopped_jobs.append(job_id)
+            
         project, _ = get_project(pid)
-        job_history.append({
-            "job_id": job_id,
-            "project_id": pid,
-            "project_name": project.get("name", "Unknown") if project else "Unknown",
-            "status": "stopped",
-            "instructions": project.get("instructions", ""),
-            "timestamp": datetime.now().isoformat()
-        })
+        for j_id in stopped_jobs:
+            job_history.append({
+                "job_id": j_id,
+                "project_id": pid,
+                "project_name": project.get("name", "Unknown") if project else "Unknown",
+                "status": "stopped",
+                "instructions": project.get("instructions", ""),
+                "timestamp": datetime.now().isoformat()
+            })
         save_job_history()
-    return jsonify({"status": "stopped", "stopped_jobs": list(set(jobs_to_stop + queued_jobs))})
+    return jsonify({"status": "stopped", "stopped_jobs": list(set(stopped_jobs))})
 
 @app.route("/api/run/<job_id>/status", methods=["GET"])
 def api_run_status(job_id):
@@ -564,7 +567,6 @@ def api_restart_job(job_id):
         status = run_status.get(job_id, {}).get('status', 'unknown')
         if status in ['error', 'stopped', 'completed', 'deleted']:
             run_status[job_id]['status'] = 'queued'
-            # Re-queue if not already queued (worker already processed/skipped it)
             if status != 'queued':
                 run_queue.put({'pid': run_status[job_id].get('project_id'), 'job_id': job_id})
             restart_worker()
