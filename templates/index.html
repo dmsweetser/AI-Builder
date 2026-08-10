@@ -862,9 +862,8 @@
             </div>
             <div class="sidebar-nav">
                 <button class="tab-btn active" onclick="showTab('projects')">PROJECTS</button>
-                <button class="tab-btn" onclick="showTab('history')">JOB HISTORY</button>
+                <button class="tab-btn" onclick="showTab('jobs')">JOBS</button>
                 <button class="tab-btn" onclick="showTab('chat')">CHAT</button>
-                <button class="tab-btn" onclick="showTab('queue')">JOB QUEUE</button>
             </div>
         </aside>
         <main class="main-content">
@@ -998,7 +997,6 @@
                                 style="flex: 1; background:#a03030;">DELETE PROJECT</button>
                         </div>
                     </form>
-                    <div id="run-status"></div>
                     <p class="note">REVISE INSTRUCTIONS & SCRIPTS, THEN RE-RUN AS MANY TIMES AS YOU LIKE.</p>
                 </div>
             </div>
@@ -1023,19 +1021,11 @@
                     </div>
                 </div>
             </div>
-            <div id="history-panel" class="panel">
+            <div id="jobs-panel" class="panel">
                 <div class="block">
-                    <h2>JOB HISTORY</h2>
-                    <div class="history-list" id="history-list">
-                        <div class="note">LOADING HISTORY...</div>
-                    </div>
-                </div>
-            </div>
-            <div id="queue-panel" class="panel">
-                <div class="block">
-                    <h2>JOB QUEUE <button type="button" onclick="restartWorker()" class="btn-sm" style="float:right; background:var(--stone);">RESTART WORKER</button></h2>
-                    <div id="queue-list" class="project-list">
-                        <div class="note">LOADING QUEUE...</div>
+                    <h2>JOB MANAGEMENT <button type="button" onclick="restartWorker()" class="btn-sm" style="float:right; background:var(--stone);">RESTART WORKER</button></h2>
+                    <div id="jobs-list" class="project-list">
+                        <div class="note">LOADING JOBS...</div>
                     </div>
                 </div>
             </div>
@@ -1915,10 +1905,8 @@
                 } else {
                     newChat().then(() => loadChats());
                 }
-            } else if (tabName === 'history') {
-                loadHistory();
-            } else if (tabName === 'queue') {
-                loadQueue();
+            } else if (tabName === 'jobs') {
+                loadJobs();
             }
         }
 
@@ -2157,52 +2145,126 @@
             element.appendChild(copyButton);
         }
 
-        // Load history
-        function loadHistory() {
-            const seenProjects = new Set();
-            fetch('/api/history')
-                .then(response => response.json())
-                .then(history => {
-                    const historyList = document.getElementById('history-list');
-                    historyList.innerHTML = '';
-                    if (!history || history.length === 0) {
-                        historyList.innerHTML = '<div class="note">NO HISTORY FOUND.</div>';
-                        return;
-                    }
-
-                    history.forEach(item => {
-                        const historyItem = document.createElement('div');
-                        historyItem.className = 'history-item';
-                        historyItem.style.cursor = 'pointer';
-                        let opacity = (item.status === "queued" || item.status === "running") ? "100%" : "40%";
-                        if (seenProjects.has(item.project_name)) {
-                            opacity = "40%";
-                        } else {
-                            seenProjects.add(item.project_name);
-                        }
-                        historyItem.style.opacity = opacity;
-                        historyItem.innerHTML = `
-                            <strong>${item.project_name || 'Unknown Project'}</strong><br>
-                            <span style="color: #ccc;">${new Date(item.timestamp).toLocaleString()}</span><br>
-                            <span style="color: #aaa;">Status: ${item.status}</span>
-                            ${item.error ? `<div style="color:#f55; margin-top:5px;">Error: ${item.error}</div>` : ''}
-                            <div class="history-details" style="display:none; margin-top:8px; padding:8px; background:#2a2a2a; border:1px solid #555; font-size:11px;">
-                                <div><strong>Job ID:</strong> ${item.job_id}</div>
-                                <div><strong>Project ID:</strong> ${item.project_id}</div>
-                                <div><strong>Instructions:</strong> ${item.instructions}</div>
-                                ${item.end_timestamp ? `<div><strong>Ended:</strong> ${new Date(item.end_timestamp).toLocaleString()}</div>` : ''}
-                            </div>
-                        `;
-                        historyItem.onclick = function () {
-                            const details = this.querySelector('.history-details');
-                            details.style.display = details.style.display === 'none' ? 'block' : 'none';
-                        };
-                        historyList.appendChild(historyItem);
-                    });
+        // Load jobs
+        function loadJobs() {
+            fetch('/api/jobs')
+                .then(res => res.json())
+                .then(jobs => {
+                    renderJobs(jobs);
                 })
                 .catch(err => {
-                    console.error('Failed to load history:', err);
-                    document.getElementById('history-list').innerHTML = '<div class="note">Failed to load history.</div>';
+                    console.error('Failed to load jobs:', err);
+                    document.getElementById('jobs-list').innerHTML = '<div class="note warning">Failed to load jobs.</div>';
+                });
+        }
+
+        function renderJobs(jobs) {
+            const list = document.getElementById('jobs-list');
+            list.innerHTML = '';
+            if (!jobs.length) {
+                list.innerHTML = '<div class="note">NO JOBS FOUND.</div>';
+                return;
+            }
+
+            jobs.forEach(job => {
+                const item = document.createElement('div');
+                item.className = 'project-item';
+                item.dataset.jobId = job.job_id;
+                
+                const statusClass = job.status === 'running' ? 'var(--grass)' : 
+                                    job.status === 'queued' ? 'var(--sky)' : 
+                                    job.status === 'error' ? '#a03030' : 
+                                    job.status === 'stopped' ? '#808000' : '#555';
+                
+                const isActionable = ['queued', 'error', 'stopped', 'deleted', 'completed'].includes(job.status);
+                const isRunning = job.status === 'running';
+
+                item.innerHTML = `
+                    <div class="project-item-header">
+                        <span class="project-item-name">${job.project_name || 'Unknown Project'}</span>
+                        <span style="font-size: 9px; color: ${statusClass}; margin-left: 5px; font-weight:bold;">${job.status.toUpperCase()}</span>
+                        <div class="project-item-actions">
+                            <button class="btn-sm" id="restart-btn-${job.job_id}" onclick="restartJob('${job.job_id}', this)" ${isActionable && !isRunning ? '' : 'disabled'}>RESTART</button>
+                            <button class="btn-sm stop" id="stop-btn-${job.job_id}" onclick="stopJob('${job.job_id}', this)" ${isActionable && !isRunning ? '' : 'disabled'}>STOP</button>
+                            <button class="btn-sm delete" id="delete-btn-${job.job_id}" onclick="deleteJob('${job.job_id}', this)" ${isActionable && !isRunning ? '' : 'disabled'}>DELETE</button>
+                        </div>
+                    </div>
+                    <span style="color: #ccc; font-size: 8px;">Job: ${job.job_id.substring(0,8)}...</span>
+                    ${job.error ? `<div style="color:#f55; margin-top:5px; font-size:10px;">Error: ${job.error}</div>` : ''}
+                `;
+                list.appendChild(item);
+            });
+        }
+
+        function setJobButtonState(jobId, isLoading) {
+            const restartBtn = document.getElementById(`restart-btn-${jobId}`);
+            const stopBtn = document.getElementById(`stop-btn-${jobId}`);
+            const deleteBtn = document.getElementById(`delete-btn-${jobId}`);
+
+            const buttons = [restartBtn, stopBtn, deleteBtn].filter(b => b);
+            buttons.forEach(btn => {
+                if (isLoading) {
+                    btn.disabled = true;
+                    btn.dataset.originalText = btn.textContent;
+                    btn.innerHTML = '<span class="spinner"></span> PROCESSING';
+                } else {
+                    btn.disabled = false;
+                    btn.textContent = btn.dataset.originalText || btn.textContent;
+                }
+            });
+        }
+
+        function restartJob(jobId, btnElement) {
+            setJobButtonState(jobId, true);
+            fetch(`/api/queue/${jobId}/restart`, { method: 'POST' })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.status === 'restarted') {
+                        loadJobs();
+                    } else {
+                        alert('Failed to restart job: ' + (data.error || 'Unknown error'));
+                        setJobButtonState(jobId, false);
+                    }
+                })
+                .catch(err => {
+                    console.error('Failed to restart job:', err);
+                    setJobButtonState(jobId, false);
+                });
+        }
+
+        function stopJob(jobId, btnElement) {
+            setJobButtonState(jobId, true);
+            fetch(`/api/queue/${jobId}/stop`, { method: 'POST' })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.status === 'stopped') {
+                        loadJobs();
+                    } else {
+                        alert('Failed to stop job: ' + (data.error || 'Unknown error'));
+                        setJobButtonState(jobId, false);
+                    }
+                })
+                .catch(err => {
+                    console.error('Failed to stop job:', err);
+                    setJobButtonState(jobId, false);
+                });
+        }
+
+        function deleteJob(jobId, btnElement) {
+            setJobButtonState(jobId, true);
+            fetch(`/api/queue/${jobId}`, { method: 'DELETE' })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.status === 'deleted') {
+                        loadJobs();
+                    } else {
+                        alert('Failed to delete job: ' + (data.error || 'Unknown error'));
+                        setJobButtonState(jobId, false);
+                    }
+                })
+                .catch(err => {
+                    console.error('Failed to delete job:', err);
+                    setJobButtonState(jobId, false);
                 });
         }
 
@@ -2472,7 +2534,7 @@
 
             // Poll for job status updates from backend
             setInterval(loadActiveJobsFromBackend, 10000);
-            setInterval(loadHistory, 60000);
+            setInterval(loadJobs, 60000);
         });
 
         function loadQueue() {

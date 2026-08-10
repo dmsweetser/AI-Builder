@@ -488,6 +488,36 @@ def api_job_status():
         "runStatus": run_status
     })
 
+@app.route("/api/jobs", methods=["GET"])
+def api_get_jobs():
+    latest_jobs = {}
+    for hist in job_history:
+        job_id = hist.get("job_id")
+        latest_jobs[job_id] = hist
+
+    jobs = []
+    for job_id, hist in latest_jobs.items():
+        status = hist.get("status")
+        project_id = hist.get("project_id")
+        project_name = hist.get("project_name", "Unknown")
+
+        if job_id in run_status:
+            status = run_status[job_id].get("status", status)
+        if job_id in active_jobs:
+            status = active_jobs[job_id].get("status", status)
+
+        jobs.append({
+            "job_id": job_id,
+            "project_id": project_id,
+            "project_name": project_name,
+            "status": status,
+            "timestamp": hist.get("timestamp", ""),
+            "error": hist.get("error")
+        })
+
+    jobs.sort(key=lambda x: x["timestamp"], reverse=True)
+    return jsonify(jobs)
+
 @app.route("/api/queue", methods=["GET"])
 def api_get_queue():
     queued = []
@@ -555,8 +585,15 @@ def api_stop_queued_job(job_id):
 
 @app.route("/api/worker/restart", methods=["POST"])
 def api_restart_worker():
-    restart_worker()
-    return jsonify({"status": "worker restarted"})
+    global worker_thread
+    try:
+        if worker_thread and worker_thread.is_alive():
+            run_queue.put(None)
+            worker_thread.join(timeout=5)
+        start_worker()
+        return jsonify({"status": "worker restarted"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 # ---------- Chat Routes ----------
 @app.route("/api/chats", methods=["GET"])
