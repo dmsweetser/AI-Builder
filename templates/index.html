@@ -2488,50 +2488,90 @@
                     jobs.forEach(job => {
                         const item = document.createElement('div');
                         item.className = 'project-item';
+                        const isRunning = job.status === 'running';
                         item.innerHTML = `
                             <div class="project-item-header">
-                                <span class="project-item-name">Job: ${job.job_id.substring(0,8)}...</span>
+                                <span class="project-item-name">${job.project_name || 'Unknown Project'}</span>
+                                <span style="font-size: 9px; color: #aaa; margin-left: 5px;">${job.status.toUpperCase()}</span>
                                 <div class="project-item-actions">
-                                    <button class="btn-sm" onclick="restartJob('${job.job_id}')">RESTART</button>
-                                    <button class="btn-sm stop" onclick="stopJob('${job.job_id}')">STOP</button>
-                                    <button class="btn-sm delete" onclick="deleteJob('${job.job_id}')">DELETE</button>
+                                    <button class="btn-sm" id="restart-btn-${job.job_id}" onclick="restartJob('${job.job_id}', this)" ${isRunning ? 'disabled' : ''}>RESTART</button>
+                                    <button class="btn-sm stop" id="stop-btn-${job.job_id}" onclick="stopJob('${job.job_id}', this)" ${isRunning ? 'disabled' : ''}>STOP</button>
+                                    <button class="btn-sm delete" id="delete-btn-${job.job_id}" onclick="deleteJob('${job.job_id}', this)" ${isRunning ? 'disabled' : ''}>DELETE</button>
                                 </div>
                             </div>
-                            <span style="color: #ccc; font-size: 8px;">Project: ${job.project_id}</span>
+                            <span style="color: #ccc; font-size: 8px;">Job: ${job.job_id.substring(0,8)}...</span>
                         `;
                         list.appendChild(item);
                     });
                 });
         }
 
-        function restartJob(jobId) {
+        function setLoadingState(btn, isLoading) {
+            if (isLoading) {
+                btn.disabled = true;
+                btn.dataset.originalText = btn.textContent;
+                btn.innerHTML = '<span class="spinner"></span> PROCESSING';
+            } else {
+                btn.disabled = false;
+                btn.textContent = btn.dataset.originalText || btn.textContent;
+            }
+        }
+
+        function restartJob(jobId, btnElement) {
+            if (btnElement.disabled) return;
+            setLoadingState(btnElement, true);
             fetch(`/api/queue/${jobId}/restart`, { method: 'POST' })
                 .then(res => res.json())
                 .then(data => {
-                    if (data.status === 'restarted') loadQueue();
-                    else alert('Failed to restart job: ' + (data.error || 'Unknown error'));
+                    if (data.status === 'restarted') {
+                        loadQueue();
+                    } else {
+                        alert('Failed to restart job: ' + (data.error || 'Unknown error'));
+                        setLoadingState(btnElement, false);
+                    }
                 })
-                .catch(err => console.error('Failed to restart job:', err));
+                .catch(err => {
+                    console.error('Failed to restart job:', err);
+                    setLoadingState(btnElement, false);
+                });
         }
 
-        function stopJob(jobId) {
+        function stopJob(jobId, btnElement) {
+            if (btnElement.disabled) return;
+            setLoadingState(btnElement, true);
             fetch(`/api/queue/${jobId}/stop`, { method: 'POST' })
                 .then(res => res.json())
                 .then(data => {
-                    if (data.status === 'stopped') loadQueue();
-                    else alert('Failed to stop job: ' + (data.error || 'Unknown error'));
+                    if (data.status === 'stopped') {
+                        loadQueue();
+                    } else {
+                        alert('Failed to stop job: ' + (data.error || 'Unknown error'));
+                        setLoadingState(btnElement, false);
+                    }
                 })
-                .catch(err => console.error('Failed to stop job:', err));
+                .catch(err => {
+                    console.error('Failed to stop job:', err);
+                    setLoadingState(btnElement, false);
+                });
         }
 
-        function deleteJob(jobId) {
+        function deleteJob(jobId, btnElement) {
+            if (btnElement.disabled) return;
+            setLoadingState(btnElement, true);
             fetch(`/api/queue/${jobId}`, { method: 'DELETE' })
                 .then(res => res.json())
                 .then(data => {
-                    if (data.status === 'deleted') loadQueue();
-                    else alert('Failed to delete job: ' + (data.error || 'Unknown error'));
+                    if (data.status === 'deleted') {
+                        loadQueue();
+                    } else {
+                        alert('Failed to delete job: ' + (data.error || 'Unknown error'));
+                        setLoadingState(btnElement, false);
+                    }
                 })
-                .catch(err => console.error('Failed to delete job:', err));
+                .catch(err => {
+                    console.error('Failed to delete job:', err);
+                    setLoadingState(btnElement, false);
+                });
         }
 
         function restartWorker() {

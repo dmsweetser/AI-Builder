@@ -492,10 +492,18 @@ def api_job_status():
 def api_get_queue():
     queued = []
     for jid, status in run_status.items():
-        if status.get('status') == 'queued':
+        if status.get('status') in ['queued', 'running']:
+            project_name = "Unknown"
+            project_id = status.get('project_id')
+            for hist in reversed(job_history):
+                if hist.get('project_id') == project_id:
+                    project_name = hist.get('project_name', 'Unknown')
+                    break
             queued.append({
                 'job_id': jid,
-                'project_id': status.get('project_id'),
+                'project_id': project_id,
+                'project_name': project_name,
+                'status': status.get('status'),
                 'timestamp': job_history[-1].get('timestamp') if job_history else ''
             })
     return jsonify(queued)
