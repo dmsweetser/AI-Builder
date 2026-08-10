@@ -58,8 +58,9 @@ def worker():
         job_id = job['job_id']
 
         with job_queue_lock:
-            # Check if job was cancelled while queued
-            if run_status.get(job_id, {}).get('status') == 'stopped':
+            current_status = run_status.get(job_id, {}).get('status', 'unknown')
+            # Skip if job was stopped, deleted, or already completed/error
+            if current_status in ['stopped', 'deleted', 'error', 'completed']:
                 run_queue.task_done()
                 continue
 
@@ -502,7 +503,8 @@ def api_get_queue():
 @app.route("/api/queue/<job_id>", methods=["DELETE"])
 def api_delete_from_queue(job_id):
     with job_queue_lock:
-        if run_status.get(job_id, {}).get('status') == 'queued':
+        status = run_status.get(job_id, {}).get('status', 'unknown')
+        if status in ['queued', 'running', 'stopped', 'deleted', 'error', 'completed']:
             run_status[job_id]['status'] = 'deleted'
             job_history.append({
                 "job_id": job_id,
@@ -512,15 +514,21 @@ def api_delete_from_queue(job_id):
                 "timestamp": datetime.now().isoformat()
             })
             save_job_history()
+            if job_id in active_jobs:
+                del active_jobs[job_id]
+            restart_worker()
             return jsonify({"status": "deleted"})
-    return jsonify({"error": "Job not in queue"}), 404
+    return jsonify({"error": "Job not found"}), 404
 
 @app.route("/api/queue/<job_id>/restart", methods=["POST"])
 def api_restart_job(job_id):
     with job_queue_lock:
-        if run_status.get(job_id, {}).get('status') in ['error', 'stopped', 'completed']:
+        status = run_status.get(job_id, {}).get('status', 'unknown')
+        if status in ['error', 'stopped', 'completed', 'deleted']:
             run_status[job_id]['status'] = 'queued'
-            run_queue.put({'pid': run_status[job_id].get('project_id'), 'job_id': job_id})
+            # Re-queue if not already queued (worker already processed/skipped it)
+            if status != 'queued':
+                run_queue.put({'pid': run_status[job_id].get('project_id'), 'job_id': job_id})
             restart_worker()
             return jsonify({"status": "restarted"})
     return jsonify({"error": "Job not in a restartable state"}), 400
@@ -528,10 +536,14 @@ def api_restart_job(job_id):
 @app.route("/api/queue/<job_id>/stop", methods=["POST"])
 def api_stop_queued_job(job_id):
     with job_queue_lock:
-        if run_status.get(job_id, {}).get('status') == 'queued':
+        status = run_status.get(job_id, {}).get('status', 'unknown')
+        if status in ['queued', 'running', 'stopped', 'error', 'completed']:
             run_status[job_id]['status'] = 'stopped'
+            if job_id in active_jobs:
+                del active_jobs[job_id]
+            restart_worker()
             return jsonify({"status": "stopped"})
-    return jsonify({"error": "Job not in queue"}), 404
+    return jsonify({"error": "Job not found"}), 404
 
 @app.route("/api/worker/restart", methods=["POST"])
 def api_restart_worker():

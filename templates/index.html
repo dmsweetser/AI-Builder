@@ -2506,19 +2506,31 @@
 
         function restartJob(jobId) {
             fetch(`/api/queue/${jobId}/restart`, { method: 'POST' })
-                .then(() => loadQueue())
+                .then(res => res.json())
+                .then(data => {
+                    if (data.status === 'restarted') loadQueue();
+                    else alert('Failed to restart job: ' + (data.error || 'Unknown error'));
+                })
                 .catch(err => console.error('Failed to restart job:', err));
         }
 
         function stopJob(jobId) {
             fetch(`/api/queue/${jobId}/stop`, { method: 'POST' })
-                .then(() => loadQueue())
+                .then(res => res.json())
+                .then(data => {
+                    if (data.status === 'stopped') loadQueue();
+                    else alert('Failed to stop job: ' + (data.error || 'Unknown error'));
+                })
                 .catch(err => console.error('Failed to stop job:', err));
         }
 
         function deleteJob(jobId) {
             fetch(`/api/queue/${jobId}`, { method: 'DELETE' })
-                .then(() => loadQueue())
+                .then(res => res.json())
+                .then(data => {
+                    if (data.status === 'deleted') loadQueue();
+                    else alert('Failed to delete job: ' + (data.error || 'Unknown error'));
+                })
                 .catch(err => console.error('Failed to delete job:', err));
         }
 
