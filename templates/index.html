@@ -178,16 +178,39 @@
             justify-content: space-between;
             align-items: center;
             margin-bottom: 5px;
+            gap: 10px;
+        }
+
+        .project-item-name-container {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex: 1;
+            min-width: 0;
         }
 
         .project-item-name {
             font-weight: bold;
             color: var(--sky);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .project-item-status {
+            font-size: 9px;
+            padding: 2px 4px;
+            border-radius: 3px;
+            background: #444;
+            color: #fff;
+            white-space: nowrap;
+            flex-shrink: 0;
         }
 
         .project-item-actions {
             display: flex;
             gap: 5px;
+            flex-shrink: 0;
         }
 
         .btn-sm {
@@ -2195,26 +2218,32 @@
                 const item = document.createElement('div');
                 item.className = 'project-item';
                 item.dataset.jobId = job.job_id;
+                item.onclick = (e) => {
+                    if (e.target.tagName === 'BUTTON' || e.target.closest('button')) return;
+                    goToProject(job.project_id);
+                };
                 
                 const statusClass = job.status === 'running' ? 'var(--grass)' : 
                                     job.status === 'queued' ? 'var(--sky)' : 
                                     job.status === 'error' ? '#a03030' : 
                                     job.status === 'stopped' ? '#808000' : '#555';
                 
-                const isActionable = ['queued', 'error', 'stopped', 'deleted', 'completed'].includes(job.status);
                 const isRunning = job.status === 'running';
 
                 item.innerHTML = `
                     <div class="project-item-header">
-                        <span class="project-item-name">${job.project_name || 'Unknown Project'}</span>
-                        <span style="font-size: 9px; color: ${statusClass}; margin-left: 5px; font-weight:bold;">${job.status.toUpperCase()}</span>
+                        <div class="project-item-name-container">
+                            <span class="project-item-name" title="${escapeHtml(job.project_name || 'Unknown Project')}">${job.project_name || 'Unknown Project'}</span>
+                            <span class="project-item-status" style="background:${statusClass};">${job.status.toUpperCase()}</span>
+                        </div>
                         <div class="project-item-actions">
-                            <button class="btn-sm" id="restart-btn-${job.job_id}" onclick="restartJob('${job.job_id}', this)" ${isActionable && !isRunning ? '' : 'disabled'}>RESTART</button>
-                            <button class="btn-sm stop" id="stop-btn-${job.job_id}" onclick="stopJob('${job.job_id}', this)" ${isActionable && !isRunning ? '' : 'disabled'}>STOP</button>
-                            <button class="btn-sm delete" id="delete-btn-${job.job_id}" onclick="deleteJob('${job.job_id}', this)" ${isActionable && !isRunning ? '' : 'disabled'}>DELETE</button>
+                            <button class="btn-sm" id="restart-btn-${job.job_id}" onclick="event.stopPropagation(); restartJob('${job.job_id}', this)" ${isRunning ? 'disabled' : ''}>RESTART</button>
+                            <button class="btn-sm stop" id="stop-btn-${job.job_id}" onclick="event.stopPropagation(); stopJob('${job.job_id}', this)">STOP</button>
+                            <button class="btn-sm delete" id="delete-btn-${job.job_id}" onclick="event.stopPropagation(); deleteJob('${job.job_id}', this)" ${isRunning ? 'disabled' : ''}>DELETE</button>
                         </div>
                     </div>
                     <span style="color: #ccc; font-size: 8px;">Job: ${job.job_id.substring(0,8)}...</span>
+                    ${job.instructions ? `<div style="margin-top:5px;"><button class="btn-sm" onclick="event.stopPropagation(); toggleInstructions('${job.job_id}', this)">VIEW INSTRUCTIONS</button><div id="instr-${job.job_id}" style="display:none; margin-top:5px; white-space:pre-wrap; font-size:10px; background:#222; padding:5px; border:1px solid #444;">${escapeHtml(job.instructions)}</div></div>` : ''}
                     ${job.error ? `<div style="color:#f55; margin-top:5px; font-size:10px;">Error: ${job.error}</div>` : ''}
                 `;
                 list.appendChild(item);
@@ -2291,6 +2320,83 @@
                     console.error('Failed to delete job:', err);
                     setJobButtonState(jobId, false);
                 });
+        }
+
+        function goToProject(projectId) {
+            currentProjectId = projectId;
+            localStorage.setItem('currentProjectId', projectId);
+
+            const projectsPanel = document.getElementById('projects-panel');
+            const detailsPanel = document.getElementById('project-details-panel');
+            if (projectsPanel) {
+                projectsPanel.classList.add('hidden');
+                projectsPanel.classList.remove('active');
+            }
+            if (detailsPanel) {
+                detailsPanel.classList.remove('hidden');
+                detailsPanel.classList.add('active');
+            }
+
+            fetch(`/api/projects/${projectId}`)
+                .then(response => response.json())
+                .then(project => {
+                    const safeSet = (id, val) => {
+                        const el = document.getElementById(id);
+                        if (el) el.value = val;
+                    };
+
+                    safeSet('run-project-id', project.id);
+                    const nameEl = document.getElementById('details-project-name');
+                    if (nameEl) nameEl.textContent = project.name;
+                    const nameFormEl = document.getElementById('details-project-name-form');
+                    if (nameFormEl) nameFormEl.value = project.name;
+
+                    const fileListContainer = document.getElementById('details-file-tree-container');
+                    fileListContainer.innerHTML = '';
+
+                    const rootDir = project.rootDirectory || '';
+                    safeSet('details-root-dir', rootDir);
+
+                    const patterns = project.includePatterns ? project.includePatterns.split(',').map(p => p.trim()) : [];
+                    const container = document.getElementById('details-selected-paths-container');
+                    if (container) {
+                        container.innerHTML = '';
+                        patterns.forEach(path => {
+                            if (path) addPathToDetailsList(path);
+                        });
+                    }
+                    updateDetailsPatternsInput();
+
+                    safeSet('details-instructions', project.instructions || '');
+                    safeSet('details-pre-script', project.preScript || '');
+                    safeSet('details-post-script', project.postScript || '');
+
+                    const statusEl = document.getElementById('run-status');
+                    if (statusEl) statusEl.textContent = '';
+
+                    const errorDisplay = document.getElementById('project-error-display');
+                    if (errorDisplay) {
+                        errorDisplay.style.display = 'none';
+                        errorDisplay.innerHTML = '';
+                    }
+
+                    const isRunning = isProjectRunningOrQueued(projectId);
+                    updateRunButtonState(projectId, isRunning);
+                })
+                .catch(err => console.error('Failed to load project details:', err));
+        }
+
+        function toggleInstructions(jobId, btn) {
+            const instrDiv = document.getElementById(`instr-${jobId}`);
+            if (instrDiv) {
+                if (instrDiv.style.display === 'none') {
+                    instrDiv.style.display = 'block';
+                    btn.textContent = 'HIDE INSTRUCTIONS';
+                } else {
+                    instrDiv.style.display = 'none';
+                    btn.textContent = 'VIEW INSTRUCTIONS';
+                }
+            }
         }
 
         // Confirm before clearing selected paths when changing root directory

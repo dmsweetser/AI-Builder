@@ -515,7 +515,8 @@ def api_get_jobs():
             "project_name": project_name,
             "status": status,
             "timestamp": hist.get("timestamp", ""),
-            "error": hist.get("error")
+            "error": hist.get("error"),
+            "instructions": hist.get("instructions", "")
         })
 
     jobs.sort(key=lambda x: x["timestamp"], reverse=True)
