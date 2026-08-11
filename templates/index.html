@@ -441,114 +441,10 @@
             flex-wrap: wrap;
         }
 
+        /* Fix: Ensure filter buttons in selector-controls are not full width */
         .selector-controls button {
-            flex: 1;
-            margin-top: 0;
-            font-size: 10px;
-            padding: 8px;
-            max-width: 150px;
-        }
-
-        .modal {
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0, 0, 0, 0.8);
-            z-index: 1000;
-            justify-content: center;
-            align-items: center;
-        }
-
-        .modal-content {
-            background: #2a2a2a;
-            padding: 20px;
-            border: 3px solid var(--grass);
-            max-width: 600px;
-            width: 90%;
-            max-height: 80vh;
-            overflow-y: auto;
-        }
-
-        #file-tree-container {
-            background: var(--dark-bg);
-            border: 3px solid #000;
-            max-height: 200px;
-            overflow-y: auto;
-            padding: 10px;
-            font-family: monospace;
-            font-size: 13px;
-        }
-
-        .tree-item {
-            padding: 4px 0;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .tree-item input {
             width: auto;
-            margin: 0;
-        }
-
-        .tree-item.dir {
-            font-weight: bold;
-            color: var(--sky);
-            font-size: 13px;
-        }
-
-        .tree-item.file {
-            color: #ccc;
-            font-size: 13px;
-        }
-
-        ::-webkit-scrollbar {
-            width: 12px;
-        }
-
-        ::-webkit-scrollbar-track {
-            background: var(--dark-bg);
-        }
-
-        ::-webkit-scrollbar-thumb {
-            background: var(--wood);
-            border: 2px solid #000;
-        }
-
-        #chat-log {
-            background: var(--dark-bg);
-            border: 3px solid #000;
-            height: 400px;
-            overflow-y: auto;
-            padding: 10px;
-            margin-bottom: 10px;
-        }
-
-        .chat-msg {
-            margin-bottom: 10px;
-            padding: 8px;
-            border: 2px solid #555;
-            position: relative;
-        }
-
-        .chat-msg.user {
-            border-color: var(--sky);
-            background: #2a3a4a;
-        }
-
-        .chat-msg.model {
-            border-color: var(--grass);
-            background: #2a4a2a;
-        }
-
-        .chat-msg strong {
-            display: block;
-            margin-bottom: 4px;
-            font-size: 12px;
-            color: #aaa;
+            flex: 0 0 auto;
         }
 
         .form-grid {
@@ -867,6 +763,22 @@
             color: #888;
             margin-top: 5px;
         }
+
+        /* Copy button for job instructions */
+        .instructions-copy-btn {
+            background: var(--wood);
+            border: 1px solid #000;
+            padding: 2px 4px;
+            cursor: pointer;
+            font-size: 8px;
+            color: var(--light-text);
+            margin-left: 5px;
+            border-radius: 2px;
+        }
+
+        .instructions-copy-btn:hover {
+            background: var(--grass);
+        }
     </style>
 </head>
 
@@ -1046,15 +958,7 @@
             </div>
             <div id="jobs-panel" class="panel">
                 <div class="block">
-                    <h2>JOB MANAGEMENT <button type="button" onclick="restartWorker()" class="btn-sm" style="float:right; background:var(--stone);">RESTART WORKER</button></h2>
-                    <div class="selector-controls">
-                        <button type="button" onclick="filterJobs('all')" class="btn-sm active" id="filter-all-btn">ALL</button>
-                        <button type="button" onclick="filterJobs('running')" class="btn-sm" id="filter-running-btn">RUNNING</button>
-                        <button type="button" onclick="filterJobs('queued')" class="btn-sm" id="filter-queued-btn">QUEUED</button>
-                        <button type="button" onclick="filterJobs('completed')" class="btn-sm" id="filter-completed-btn">COMPLETED</button>
-                        <button type="button" onclick="filterJobs('error')" class="btn-sm" id="filter-error-btn">ERROR</button>
-                        <button type="button" onclick="filterJobs('stopped')" class="btn-sm" id="filter-stopped-btn">STOPPED</button>
-                    </div>
+                    <h2>JOB MANAGEMENT</h2>
                     <div id="jobs-list" class="project-list">
                         <div class="note">LOADING JOBS...</div>
                     </div>
@@ -1246,7 +1150,6 @@
                         updateRunButtonState(job.projectId, false);
                         updateStatusDisplay();
                         loadProjects();
-
                     }
                 })
                 .catch(error => {
@@ -2177,19 +2080,20 @@
             element.appendChild(copyButton);
         }
 
-        let currentJobFilter = 'all';
-        function filterJobs(status) {
-            currentJobFilter = status;
-            document.querySelectorAll('.selector-controls .btn-sm').forEach(btn => {
-                btn.classList.remove('active');
-                btn.style.background = 'var(--wood)';
-            });
-            const activeBtn = document.getElementById(`filter-${status}-btn`);
-            if (activeBtn) {
-                activeBtn.classList.add('active');
-                activeBtn.style.background = 'var(--grass)';
+        // Copy instructions to clipboard
+        function copyInstructions(jobId) {
+            const instrDiv = document.getElementById(`instr-${jobId}`);
+            if (instrDiv) {
+                navigator.clipboard.writeText(instrDiv.textContent)
+                    .then(() => {
+                        const btn = document.getElementById(`copy-instr-btn-${jobId}`);
+                        if (btn) {
+                            btn.textContent = 'COPIED!';
+                            setTimeout(() => { btn.textContent = 'COPY'; }, 2000);
+                        }
+                    })
+                    .catch(err => console.error('Failed to copy:', err));
             }
-            loadJobs();
         }
 
         function loadJobs() {
@@ -2212,9 +2116,7 @@
                 return;
             }
 
-            const filteredJobs = currentJobFilter === 'all' ? jobs : jobs.filter(j => j.status === currentJobFilter);
-
-            filteredJobs.forEach(job => {
+            jobs.forEach(job => {
                 const item = document.createElement('div');
                 item.className = 'project-item';
                 item.dataset.jobId = job.job_id;
@@ -2222,13 +2124,20 @@
                     if (e.target.tagName === 'BUTTON' || e.target.closest('button')) return;
                     goToProject(job.project_id);
                 };
-                
-                const statusClass = job.status === 'running' ? 'var(--grass)' : 
-                                    job.status === 'queued' ? 'var(--sky)' : 
-                                    job.status === 'error' ? '#a03030' : 
-                                    job.status === 'stopped' ? '#808000' : '#555';
-                
+
+                const statusClass = job.status === 'running' ? 'var(--grass)' :
+                    job.status === 'queued' ? 'var(--sky)' :
+                        job.status === 'error' ? '#a03030' :
+                            job.status === 'stopped' ? '#808000' : '#555';
+
                 const isRunning = job.status === 'running';
+
+                const instructionsHtml = job.instructions ? `
+                    <div style="margin-top:5px;">
+                        <button class="instructions-copy-btn" id="copy-instr-btn-${job.job_id}" onclick="event.stopPropagation(); copyInstructions('${job.job_id}')">COPY PRIOR INSTRUCTIONS</button>
+                        <div id="instr-${job.job_id}" style="display:none; margin-top:5px; white-space:pre-wrap; font-size:10px; background:#222; padding:5px; border:1px solid #444;">${escapeHtml(job.instructions)}</div>
+                    </div>
+                ` : '';
 
                 item.innerHTML = `
                     <div class="project-item-header">
@@ -2242,8 +2151,8 @@
                             <button class="btn-sm delete" id="delete-btn-${job.job_id}" onclick="event.stopPropagation(); deleteJob('${job.job_id}', this)" ${isRunning ? 'disabled' : ''}>DELETE</button>
                         </div>
                     </div>
-                    <span style="color: #ccc; font-size: 8px;">Job: ${job.job_id.substring(0,8)}...</span>
-                    ${job.instructions ? `<div style="margin-top:5px;"><button class="btn-sm" onclick="event.stopPropagation(); toggleInstructions('${job.job_id}', this)">VIEW INSTRUCTIONS</button><div id="instr-${job.job_id}" style="display:none; margin-top:5px; white-space:pre-wrap; font-size:10px; background:#222; padding:5px; border:1px solid #444;">${escapeHtml(job.instructions)}</div></div>` : ''}
+                    <span style="color: #ccc; font-size: 8px;">Job: ${job.job_id.substring(0, 8)}...</span>
+                    ${instructionsHtml}
                     ${job.error ? `<div style="color:#f55; margin-top:5px; font-size:10px;">Error: ${job.error}</div>` : ''}
                 `;
                 list.appendChild(item);
@@ -2668,37 +2577,6 @@
             setInterval(loadJobs, 60000);
         });
 
-        function loadQueue() {
-            fetch('/api/queue')
-                .then(res => res.json())
-                .then(jobs => {
-                    const list = document.getElementById('queue-list');
-                    list.innerHTML = '';
-                    if (!jobs.length) {
-                        list.innerHTML = '<div class="note">QUEUE IS EMPTY.</div>';
-                        return;
-                    }
-                    jobs.forEach(job => {
-                        const item = document.createElement('div');
-                        item.className = 'project-item';
-                        const isRunning = job.status === 'running';
-                        item.innerHTML = `
-                            <div class="project-item-header">
-                                <span class="project-item-name">${job.project_name || 'Unknown Project'}</span>
-                                <span style="font-size: 9px; color: #aaa; margin-left: 5px;">${job.status.toUpperCase()}</span>
-                                <div class="project-item-actions">
-                                    <button class="btn-sm" id="restart-btn-${job.job_id}" onclick="restartJob('${job.job_id}', this)" ${isRunning ? 'disabled' : ''}>RESTART</button>
-                                    <button class="btn-sm stop" id="stop-btn-${job.job_id}" onclick="stopJob('${job.job_id}', this)" ${isRunning ? 'disabled' : ''}>STOP</button>
-                                    <button class="btn-sm delete" id="delete-btn-${job.job_id}" onclick="deleteJob('${job.job_id}', this)" ${isRunning ? 'disabled' : ''}>DELETE</button>
-                                </div>
-                            </div>
-                            <span style="color: #ccc; font-size: 8px;">Job: ${job.job_id.substring(0,8)}...</span>
-                        `;
-                        list.appendChild(item);
-                    });
-                });
-        }
-
         function setLoadingState(btn, isLoading) {
             if (isLoading) {
                 btn.disabled = true;
@@ -2708,69 +2586,6 @@
                 btn.disabled = false;
                 btn.textContent = btn.dataset.originalText || btn.textContent;
             }
-        }
-
-        function restartJob(jobId, btnElement) {
-            if (btnElement.disabled) return;
-            setLoadingState(btnElement, true);
-            fetch(`/api/queue/${jobId}/restart`, { method: 'POST' })
-                .then(res => res.json())
-                .then(data => {
-                    if (data.status === 'restarted') {
-                        loadQueue();
-                    } else {
-                        alert('Failed to restart job: ' + (data.error || 'Unknown error'));
-                        setLoadingState(btnElement, false);
-                    }
-                })
-                .catch(err => {
-                    console.error('Failed to restart job:', err);
-                    setLoadingState(btnElement, false);
-                });
-        }
-
-        function stopJob(jobId, btnElement) {
-            if (btnElement.disabled) return;
-            setLoadingState(btnElement, true);
-            fetch(`/api/queue/${jobId}/stop`, { method: 'POST' })
-                .then(res => res.json())
-                .then(data => {
-                    if (data.status === 'stopped') {
-                        loadQueue();
-                    } else {
-                        alert('Failed to stop job: ' + (data.error || 'Unknown error'));
-                        setLoadingState(btnElement, false);
-                    }
-                })
-                .catch(err => {
-                    console.error('Failed to stop job:', err);
-                    setLoadingState(btnElement, false);
-                });
-        }
-
-        function deleteJob(jobId, btnElement) {
-            if (btnElement.disabled) return;
-            setLoadingState(btnElement, true);
-            fetch(`/api/queue/${jobId}`, { method: 'DELETE' })
-                .then(res => res.json())
-                .then(data => {
-                    if (data.status === 'deleted') {
-                        loadQueue();
-                    } else {
-                        alert('Failed to delete job: ' + (data.error || 'Unknown error'));
-                        setLoadingState(btnElement, false);
-                    }
-                })
-                .catch(err => {
-                    console.error('Failed to delete job:', err);
-                    setLoadingState(btnElement, false);
-                });
-        }
-
-        function restartWorker() {
-            fetch('/api/worker/restart', { method: 'POST' })
-                .then(() => alert('Worker restarted!'))
-                .catch(err => console.error('Failed to restart worker:', err));
         }
 
         // Add this to the <script> tag in index.html

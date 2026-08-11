@@ -82,7 +82,7 @@ def worker():
                 try:
                     ai = AIBuilder(job_id, project)
                     ai.run()
-                    
+
                     # Auto-add newly created files to project includePatterns
                     created_files_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aib_instance", "output", job_id, "created_files.txt")
                     if os.path.exists(created_files_path):
@@ -99,7 +99,7 @@ def worker():
                                     p["includePatterns"] = ",".join(current_patterns)
                                     save_projects(projects)
                                     break
-                    
+
                     run_status[job_id] = {'status': 'completed', 'project_id': pid}
                     if job_id in active_jobs:
                         active_jobs[job_id]['status'] = 'completed'
@@ -141,8 +141,6 @@ def worker():
             save_job_history()
             if job_id in active_jobs:
                 del active_jobs[job_id]
-            if job_id in run_status:
-                del run_status[job_id]
             run_queue.task_done()
             time.sleep(3)
 
@@ -403,14 +401,14 @@ def api_stop_project(pid):
             if job_id in run_status:
                 run_status[job_id]['status'] = 'stopped'
                 stopped_jobs.append(job_id)
-                
+
         queued_jobs = [job_id for job_id, status in run_status.items() if status.get('project_id') == pid and status.get('status') == 'queued']
         for job_id in queued_jobs:
             run_status[job_id]['status'] = 'stopped'
             if job_id in active_jobs:
                 del active_jobs[job_id]
             stopped_jobs.append(job_id)
-            
+
         project, _ = get_project(pid)
         for j_id in stopped_jobs:
             job_history.append({
@@ -565,11 +563,17 @@ def api_delete_from_queue(job_id):
 @app.route("/api/queue/<job_id>/restart", methods=["POST"])
 def api_restart_job(job_id):
     with job_queue_lock:
-        status = run_status.get(job_id, {}).get('status', 'unknown')
+        # Ensure job exists in run_status with project_id
+        if job_id not in run_status:
+            return jsonify({"error": "Job not found"}), 404
+        if 'project_id' not in run_status[job_id]:
+            return jsonify({"error": "Job missing project_id"}), 400
+
+        status = run_status[job_id].get('status', 'unknown')
         if status in ['error', 'stopped', 'completed', 'deleted']:
             run_status[job_id]['status'] = 'queued'
             if status != 'queued':
-                run_queue.put({'pid': run_status[job_id].get('project_id'), 'job_id': job_id})
+                run_queue.put({'pid': run_status[job_id]['project_id'], 'job_id': job_id})
             restart_worker()
             return jsonify({"status": "restarted"})
     return jsonify({"error": "Job not in a restartable state"}), 400
@@ -585,18 +589,6 @@ def api_stop_queued_job(job_id):
             restart_worker()
             return jsonify({"status": "stopped"})
     return jsonify({"error": "Job not found"}), 404
-
-@app.route("/api/worker/restart", methods=["POST"])
-def api_restart_worker():
-    global worker_thread
-    try:
-        if worker_thread and worker_thread.is_alive():
-            run_queue.put(None)
-            worker_thread.join(timeout=5)
-        start_worker()
-        return jsonify({"status": "worker restarted"})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
 
 # ---------- Chat Routes ----------
 @app.route("/api/chats", methods=["GET"])
