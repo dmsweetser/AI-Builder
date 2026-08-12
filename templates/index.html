@@ -1574,10 +1574,12 @@
                         checkbox.checked = currentPaths.includes(item.path);
                         checkbox.onchange = () => updateSelectedPatterns();
                         checkbox.dataset.path = item.path;
+                        checkbox.style.width = '10%';
 
                         const label = document.createElement('label');
                         label.textContent = item.path;
                         label.style.marginLeft = '5px';
+                        label.style.display = 'inline-block';
 
                         const sizeLabel = document.createElement('span');
                         sizeLabel.textContent = ` (${formatSize(item.size)})`;
@@ -1646,10 +1648,12 @@
                         checkbox.checked = currentPaths.includes(item.path);
                         checkbox.onchange = () => detailsUpdateSelectedPatterns();
                         checkbox.dataset.path = item.path;
+                        checkbox.style.width = '10%';
 
                         const label = document.createElement('label');
                         label.textContent = item.path;
                         label.style.marginLeft = '5px';
+                        label.style.display = 'inline-block';
 
                         const sizeLabel = document.createElement('span');
                         sizeLabel.textContent = ` (${formatSize(item.size)})`;
