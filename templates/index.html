@@ -2056,11 +2056,13 @@
         // Render markdown
         function renderMarkdown(text) {
             let html = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-            html = html.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>');
+            // Use <pre> for code blocks to preserve whitespace and newlines exactly as displayed
+            html = html.replace(/```(\w*)\r?\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>');
             html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
             html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
             html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
-            html = html.replace(/\n/g, '<br>');
+            // Convert remaining newlines to <br> for visual display
+            html = html.replace(/\r?\n/g, '<br>');
             return html;
         }
 
@@ -2077,7 +2079,14 @@
             copyButton.className = 'copy-icon';
             copyButton.textContent = 'COPY';
             copyButton.onclick = () => {
-                navigator.clipboard.writeText(element.textContent)
+                // Clone the element to exclude the copy button itself from the extracted text
+                const clone = element.cloneNode(true);
+                clone.removeChild(copyButton);
+                // Use innerText to capture exactly what is visually rendered, including <pre> whitespace
+                let text = clone.innerText || clone.textContent;
+                // Normalize line endings to \n for consistent pasting across OS/text editors
+                text = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+                navigator.clipboard.writeText(text)
                     .then(() => {
                         copyButton.textContent = 'COPIED!';
                         setTimeout(() => { copyButton.textContent = 'COPY'; }, 2000);
