@@ -578,10 +578,8 @@ def api_restart_job(job_id):
 
         status = run_status[job_id].get('status', 'unknown')
         if status in ['queued', 'error', 'stopped', 'completed', 'deleted']:
-            run_status[job_id]['status'] = 'queued'
-            if status != 'queued':
-                run_queue.put({'pid': run_status[job_id]['project_id'], 'job_id': job_id})
-            restart_worker()
+            run_status[job_id]['status'] = 'running'
+            run_queue.put({'pid': run_status[job_id]['project_id'], 'job_id': job_id})
             return jsonify({"status": "restarted"})
     return jsonify({"error": "Job not in a restartable state"}), 400
 
