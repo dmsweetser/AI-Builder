@@ -958,8 +958,10 @@
             </div>
             <div id="jobs-panel" class="panel">
                 <div class="block">
-                    <h2>JOB MANAGEMENT</h2>
-                    <div id="jobs-list" class="project-list">
+                    <h2>JOB MANAGEMENT
+                        <button type="button" onclick="clearJobHistory()" class="btn-sm" style="float:right; background:#a03030;">CLEAR HISTORY</button>
+                    </h2>
+                    <div id="jobs-list" class="history-list">
                         <div class="note">LOADING JOBS...</div>
                     </div>
                 </div>
@@ -2094,6 +2096,23 @@
                     })
                     .catch(err => console.error('Failed to copy:', err));
             }
+        }
+
+        function clearJobHistory() {
+            if (!confirm('Are you sure you want to clear all job history?')) return;
+            fetch('/api/history/clear', { method: 'POST' })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.status === 'cleared') {
+                        loadJobs();
+                    } else {
+                        alert('Failed to clear history: ' + (data.error || 'Unknown error'));
+                    }
+                })
+                .catch(err => {
+                    console.error('Failed to clear history:', err);
+                    alert('Failed to clear history.');
+                });
         }
 
         function loadJobs() {

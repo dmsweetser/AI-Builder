@@ -480,6 +480,14 @@ def api_get_history():
     current_job_history = sorted(job_history, key=lambda x: x["timestamp"], reverse=True)
     return jsonify(current_job_history)
 
+@app.route("/api/history/clear", methods=["POST"])
+def api_clear_history():
+    global job_history
+    with job_queue_lock:
+        job_history.clear()
+        save_job_history()
+    return jsonify({"status": "cleared"})
+
 # ---------- NEW ENDPOINTS ----------
 @app.route("/api/job-status", methods=["GET"])
 def api_job_status():
@@ -563,14 +571,13 @@ def api_delete_from_queue(job_id):
 @app.route("/api/queue/<job_id>/restart", methods=["POST"])
 def api_restart_job(job_id):
     with job_queue_lock:
-        # Ensure job exists in run_status with project_id
         if job_id not in run_status:
             return jsonify({"error": "Job not found"}), 404
         if 'project_id' not in run_status[job_id]:
             return jsonify({"error": "Job missing project_id"}), 400
 
         status = run_status[job_id].get('status', 'unknown')
-        if status in ['error', 'stopped', 'completed', 'deleted']:
+        if status in ['queued', 'error', 'stopped', 'completed', 'deleted']:
             run_status[job_id]['status'] = 'queued'
             if status != 'queued':
                 run_queue.put({'pid': run_status[job_id]['project_id'], 'job_id': job_id})
