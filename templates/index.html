@@ -959,7 +959,8 @@
             <div id="jobs-panel" class="panel">
                 <div class="block">
                     <h2>JOB MANAGEMENT
-                        <button type="button" onclick="clearJobHistory()" class="btn-sm" style="float:right; background:#a03030;">CLEAR HISTORY</button>
+                        <button type="button" onclick="clearJobHistory()" class="btn-sm"
+                            style="float:right; background:#a03030;">CLEAR HISTORY</button>
                     </h2>
                     <div id="jobs-list" class="history-list">
                         <div class="note">LOADING JOBS...</div>
@@ -2165,7 +2166,6 @@
                             <span class="project-item-status" style="background:${statusClass};">${job.status.toUpperCase()}</span>
                         </div>
                         <div class="project-item-actions">
-                            <button class="btn-sm" id="restart-btn-${job.job_id}" onclick="event.stopPropagation(); restartJob('${job.job_id}', this)" ${isRunning ? 'disabled' : ''}>RESTART</button>
                             <button class="btn-sm stop" id="stop-btn-${job.job_id}" onclick="event.stopPropagation(); stopJob('${job.job_id}', this)">STOP</button>
                             <button class="btn-sm delete" id="delete-btn-${job.job_id}" onclick="event.stopPropagation(); deleteJob('${job.job_id}', this)" ${isRunning ? 'disabled' : ''}>DELETE</button>
                         </div>
@@ -2179,11 +2179,10 @@
         }
 
         function setJobButtonState(jobId, isLoading) {
-            const restartBtn = document.getElementById(`restart-btn-${jobId}`);
             const stopBtn = document.getElementById(`stop-btn-${jobId}`);
             const deleteBtn = document.getElementById(`delete-btn-${jobId}`);
 
-            const buttons = [restartBtn, stopBtn, deleteBtn].filter(b => b);
+            const buttons = [stopBtn, deleteBtn].filter(b => b);
             buttons.forEach(btn => {
                 if (isLoading) {
                     btn.disabled = true;
@@ -2194,24 +2193,6 @@
                     btn.textContent = btn.dataset.originalText || btn.textContent;
                 }
             });
-        }
-
-        function restartJob(jobId, btnElement) {
-            setJobButtonState(jobId, true);
-            fetch(`/api/queue/${jobId}/restart`, { method: 'POST' })
-                .then(res => res.json())
-                .then(data => {
-                    if (data.status === 'restarted') {
-                        loadJobs();
-                    } else {
-                        alert('Failed to restart job: ' + (data.error || 'Unknown error'));
-                        setJobButtonState(jobId, false);
-                    }
-                })
-                .catch(err => {
-                    console.error('Failed to restart job:', err);
-                    setJobButtonState(jobId, false);
-                });
         }
 
         function stopJob(jobId, btnElement) {
@@ -2314,19 +2295,6 @@
                 .catch(err => console.error('Failed to load project details:', err));
         }
 
-        function toggleInstructions(jobId, btn) {
-            const instrDiv = document.getElementById(`instr-${jobId}`);
-            if (instrDiv) {
-                if (instrDiv.style.display === 'none') {
-                    instrDiv.style.display = 'block';
-                    btn.textContent = 'HIDE INSTRUCTIONS';
-                } else {
-                    instrDiv.style.display = 'none';
-                    btn.textContent = 'VIEW INSTRUCTIONS';
-                }
-            }
-        }
-
         // Confirm before clearing selected paths when changing root directory
         function confirmRootPathChange() {
             const newRootPath = document.getElementById('root-path').value;
@@ -2362,14 +2330,6 @@
                     document.getElementById('details-patterns-display').value = '';
                     document.getElementById('details-patterns-input').value = '';
                     document.getElementById('details-root-dir').value = pendingRootPath;
-
-                    // Enable/disable scripts
-                    const preScriptDisabled = !pendingRootPath;
-                    const postScriptDisabled = !pendingRootPath;
-                    document.getElementById('details-pre-script').disabled = preScriptDisabled;
-                    document.getElementById('details-post-script').disabled = postScriptDisabled;
-                    document.getElementById('pre-script-disabled-note').style.display = preScriptDisabled ? 'block' : 'none';
-                    document.getElementById('post-script-disabled-note').style.display = postScriptDisabled ? 'block' : 'none';
                 }
             }
 

@@ -21,6 +21,14 @@ app = Flask(__name__)
 
 STATUS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aib_instance", "run_status.json")
 HISTORY_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aib_instance", "job_history.json")
+
+# Clear job history on app start
+if os.path.exists(HISTORY_FILE):
+    try:
+        os.remove(HISTORY_FILE)
+    except Exception:
+        pass
+
 run_queue = queue.Queue()
 run_status = {}
 job_history = []
@@ -142,7 +150,6 @@ def worker():
             if job_id in active_jobs:
                 del active_jobs[job_id]
             run_queue.task_done()
-            time.sleep(3)
 
 def start_worker():
     global worker_thread
@@ -568,21 +575,6 @@ def api_delete_from_queue(job_id):
             return jsonify({"status": "deleted"})
     return jsonify({"error": "Job not found"}), 404
 
-@app.route("/api/queue/<job_id>/restart", methods=["POST"])
-def api_restart_job(job_id):
-    with job_queue_lock:
-        if job_id not in run_status:
-            return jsonify({"error": "Job not found"}), 404
-        if 'project_id' not in run_status[job_id]:
-            return jsonify({"error": "Job missing project_id"}), 400
-
-        status = run_status[job_id].get('status', 'unknown')
-        if status in ['queued', 'error', 'stopped', 'completed', 'deleted']:
-            run_status[job_id]['status'] = 'running'
-            run_queue.put({'pid': run_status[job_id]['project_id'], 'job_id': job_id})
-            return jsonify({"status": "restarted"})
-    return jsonify({"error": "Job not in a restartable state"}), 400
-
 @app.route("/api/queue/<job_id>/stop", methods=["POST"])
 def api_stop_queued_job(job_id):
     with job_queue_lock:
@@ -591,7 +583,6 @@ def api_stop_queued_job(job_id):
             run_status[job_id]['status'] = 'stopped'
             if job_id in active_jobs:
                 del active_jobs[job_id]
-            restart_worker()
             return jsonify({"status": "stopped"})
     return jsonify({"error": "Job not found"}), 404
 
