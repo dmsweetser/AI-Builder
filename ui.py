@@ -245,15 +245,13 @@ def api_create_project():
         return jsonify({"error": "Project name is required"}), 400
 
     root_directory = request.form.get("rootDirectory", "")
-    if not root_directory:  # <-- REQUIRE ROOT DIRECTORY
+    if not root_directory:
         return jsonify({"error": "Root directory is required"}), 400
 
     include_patterns = request.form.get("includePatterns", "")
     if not include_patterns:
         return jsonify({"error": "At least one include pattern is required"}), 400
 
-    # Allow absolute paths even if rootDirectory is set
-    # Only require rootDirectory if there are relative paths and no absolute paths
     patterns = [p.strip() for p in include_patterns.split(",") if p.strip()]
     has_absolute = any(os.path.isabs(p) for p in patterns)
     has_relative = any(not os.path.isabs(p) for p in patterns)
@@ -286,14 +284,13 @@ def api_update_project(pid):
         return jsonify({"error": "Project not found"}), 404
 
     root_directory = request.form.get("rootDirectory", project.get("rootDirectory", ""))
-    if not root_directory:  # <-- REQUIRE ROOT DIRECTORY
+    if not root_directory:
         return jsonify({"error": "Root directory is required"}), 400
 
     include_patterns = request.form.get("includePatterns", project.get("includePatterns", ""))
     if not include_patterns:
         return jsonify({"error": "At least one include pattern is required"}), 400
 
-    # Same logic as create - allow absolute paths even if rootDirectory is set
     patterns = [p.strip() for p in include_patterns.split(",") if p.strip()]
     has_absolute = any(os.path.isabs(p) for p in patterns)
     has_relative = any(not os.path.isabs(p) for p in patterns)
@@ -338,11 +335,12 @@ def api_unarchive_project(pid):
 
 @app.route("/api/projects/<pid>/run", methods=["POST"])
 def api_run_project(pid):
+    global job_history
     project, _ = get_project(pid)
     if not project:
         return jsonify({"error": "Project not found"}), 404
 
-    # Force-clear ALL stale jobs for this project (critical fix)
+    # Force-clear ALL stale jobs for this project
     for jid in list(active_jobs.keys()):
         if active_jobs[jid].get('pid') == pid:
             del active_jobs[jid]
@@ -354,8 +352,6 @@ def api_run_project(pid):
         return jsonify({"error": "No includePatterns specified"}), 400
 
     include_patterns = [p.strip() for p in project["includePatterns"].split(",") if p.strip()]
-
-    # Only validate rootDirectory if there are relative paths with no absolute paths
     has_absolute = any(os.path.isabs(p) for p in include_patterns)
     has_relative = any(not os.path.isabs(p) for p in include_patterns)
 
@@ -385,10 +381,14 @@ def api_run_project(pid):
     active_jobs[job_id] = {'pid': pid, 'status': 'queued'}
 
     with job_queue_lock:
+        # Clear previously queued jobs for the same project from history
+        job_history = [job for job in job_history if not (job.get('project_id') == pid and job.get('status') == 'queued')]
+        save_job_history()
+
         job_history.append({
             "job_id": job_id,
             "project_id": pid,
-            "project_name": project.get("name", "Unknown") if project else "Unknown",
+            "project_name": project.get("name", "Unknown"),
             "status": "queued",
             "instructions": project.get("instructions", ""),
             "timestamp": datetime.now().isoformat()
@@ -427,6 +427,9 @@ def api_stop_project(pid):
                 "timestamp": datetime.now().isoformat()
             })
         save_job_history()
+
+    # Restart worker to pick up the next queued job
+    restart_worker()
     return jsonify({"status": "stopped", "stopped_jobs": list(set(stopped_jobs))})
 
 @app.route("/api/run/<job_id>/status", methods=["GET"])
@@ -498,7 +501,6 @@ def api_clear_history():
 # ---------- NEW ENDPOINTS ----------
 @app.route("/api/job-status", methods=["GET"])
 def api_job_status():
-    """Return current job statuses from the server."""
     return jsonify({
         "activeJobs": {k: {"projectId": v.get("pid"), "status": v.get("status", "unknown")} for k, v in active_jobs.items()},
         "runStatus": run_status
@@ -583,6 +585,7 @@ def api_stop_queued_job(job_id):
             run_status[job_id]['status'] = 'stopped'
             if job_id in active_jobs:
                 del active_jobs[job_id]
+            restart_worker()  # Ensure the next queued job starts
             return jsonify({"status": "stopped"})
     return jsonify({"error": "Job not found"}), 404
 
