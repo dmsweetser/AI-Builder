@@ -22,11 +22,18 @@ IS_LEGACY = False
 class FileParser:
     @staticmethod
     def _safe_split(content: str) -> List[str]:
+        # Escape literal \r\n and \n to prevent them from being split or converted to actual newlines
+        content = content.replace("\\r\\n", "<<LITERAL_CRLF>>")
+        content = content.replace("\\n", "<<LITERAL_NEWLINE>>")
         return content.replace(f"{chr(10)}", LINE_DELIMITER).split(f"{chr(10)}")
 
     @staticmethod
     def _safe_join(lines: List[str]) -> str:
-        return f"{chr(10)}".join(lines).replace(LINE_DELIMITER, f"{chr(10)}")
+        result = f"{chr(10)}".join(lines).replace(LINE_DELIMITER, f"{chr(10)}")
+        # Restore literal \r\n and \n
+        result = result.replace("<<LITERAL_CRLF>>", "\\r\\n")
+        result = result.replace("<<LITERAL_NEWLINE>>", "\\n")
+        return result
 
     @staticmethod
     def parse_custom_format(content: str) -> List[Dict[str, Any]]:
