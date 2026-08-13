@@ -2081,7 +2081,10 @@
             copyButton.onclick = () => {
                 // Clone the element to exclude the copy button itself from the extracted text
                 const clone = element.cloneNode(true);
-                clone.removeChild(copyButton);
+                const clonedButton = clone.querySelector('.copy-icon');
+                if (clonedButton) {
+                    clonedButton.remove();
+                }
                 // Use innerText to capture exactly what is visually rendered, including <pre> whitespace
                 let text = clone.innerText || clone.textContent;
                 // Normalize line endings to \n for consistent pasting across OS/text editors
