@@ -839,9 +839,10 @@
                         </div>
                         <input type="text" id="tree-search" placeholder="Search files/folders..."
                             oninput="filterTree()">
-                        <div id="file-tree-container" style="position: relative;">
+                        <div id="file-tree-container" style="position: relative; max-height: 400px; overflow-y: auto;">
                             <div id="file-tree-loading-overlay" class="file-tree-overlay">PROCESSING...</div>
                         </div>
+                        <div id="file-tree-pagination" style="margin: 10px 0;"></div>
                         <label>SELECTED PATHS</label>
                         <div class="selected-paths-list" id="selected-paths-container"></div>
                         <div class="flex-row">
@@ -891,7 +892,8 @@
                             </div>
                             <input type="text" id="details-tree-search" placeholder="Search files/folders..."
                                 oninput="detailsFilterTree()">
-                            <div id="details-file-tree-container"></div>
+                            <div id="details-file-tree-container" style="max-height: 400px; overflow-y: auto;"></div>
+                            <div id="details-file-tree-pagination" style="margin: 10px 0;"></div>
                             <label>SELECTED PATHS</label>
                             <div class="selected-paths-list" id="details-selected-paths-container"></div>
                             <div class="flex-row">
@@ -1132,86 +1134,40 @@
             }
         }
 
-        // Poll job status
-        function pollJobStatus(jobId) {
-            const job = activeJobs[jobId];
-            if (!job) return;
-
-            loadJobs();
-
-            fetch(`/api/run/${jobId}/status`)
-                .then(response => response.json())
-                .then(status => {
-                    if (!status || !status.status) return;
-
-                    job.status = status.status;
-                    updateStatusDisplay();
-
-                    if (['completed', 'error', 'stopped'].includes(status.status)) {
-                        clearInterval(job.intervalId);
-                        delete activeJobs[jobId];
-                        updateRunButtonState(job.projectId, false);
-                        updateStatusDisplay();
-                        loadProjects();
-                    }
-                })
-                .catch(error => {
-                    console.error('Error polling job status:', error);
-                    clearInterval(job.intervalId);
-                    delete activeJobs[jobId];
-                    updateRunButtonState(job.projectId, false);
-                    updateStatusDisplay();
-                });
-        }
-
         // Run project
         function runProject(projectId) {
             if (isProjectRunningOrQueued(projectId)) {
                 alert('This project is already running or queued. Please wait for it to complete.');
                 return;
             }
-
             updateRunButtonState(projectId, true);
-            fetch(`/api/projects/${projectId}/run`, { method: 'POST' })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.job_id) {
-                        activeJobs[data.job_id] = {
-                            projectId,
-                            status: data.status,
-                            intervalId: setInterval(
-                                () => pollJobStatus(data.job_id),
-                                5000
-                            )
-                        };
-                        updateStatusDisplay();
-                    } else {
-                        throw new Error('No job_id returned from API');
-                    }
-                })
-                .catch(error => {
-                    console.error('Error running project:', error);
-                    updateRunButtonState(projectId, false);
-                });
+            fetch('/api/queue', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ project_id: projectId })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.job_id) {
+                    loadJobs();
+                } else {
+                    throw new Error(data.error || 'Failed to queue job');
+                }
+            })
+            .catch(error => {
+                console.error('Error running project:', error);
+                updateRunButtonState(projectId, false);
+                alert(error.message);
+            });
         }
 
         // Stop project
         function stopProject(projectId) {
-            fetch(`/api/projects/${projectId}/stop`, { method: 'POST' })
-                .then(response => response.json())
-                .then(data => {
+            fetch('/api/queue/running/stop', { method: 'POST' })
+                .then(() => {
                     projectRunStates[projectId] = false;
-                    if (data.stopped_jobs) {
-                        data.stopped_jobs.forEach(jobId => {
-                            if (activeJobs[jobId] && activeJobs[jobId].intervalId) {
-                                clearInterval(activeJobs[jobId].intervalId);
-                                delete activeJobs[jobId];
-                            }
-                        });
-                    }
                     updateRunButtonState(projectId, false);
-                    loadProjects();
-                    loadActiveJobsFromBackend();
+                    loadJobs();
                 })
                 .catch(err => console.error('Failed to stop project:', err));
         }
@@ -1532,39 +1488,44 @@
             loadProjects();
         }
 
-        // Load file tree
-        function loadFileTree() {
+        // Load file tree (paginated)
+        let fileTreePage = 0;
+        let fileTreeTotal = 0;
+        let fileTreeSearch = '';
+        let fileTreePath = '';
+
+        function loadFileTree(isSearch = false) {
+            if (isSearch) fileTreePage = 0;
             const rootPath = document.getElementById('root-path').value;
             if (!rootPath) { alert('Please enter a root directory first'); return; }
+            fileTreePath = rootPath;
+            fileTreeSearch = document.getElementById('tree-search').value.toLowerCase();
 
             const loadTreeBtn = document.getElementById('load-tree-btn');
             const loadTreeText = document.getElementById('load-tree-text');
             const loadTreeSpinner = document.getElementById('load-tree-spinner');
             const container = document.getElementById('file-tree-container');
+            const paginationDiv = document.getElementById('file-tree-pagination');
 
             loadTreeBtn.disabled = true;
             loadTreeText.style.display = 'none';
             loadTreeSpinner.style.display = 'inline-block';
             container.innerHTML = '<span class="spinner" style="display:inline-block; margin:10px;"></span><span style="margin-left: 10px;">Loading files...</span>';
+            if(paginationDiv) paginationDiv.innerHTML = '';
 
-            const pathToUse = rootPath.startsWith('/') || rootPath.match(/^[a-zA-Z]:\\/) ? rootPath : `./${rootPath}`;
+            const pathToUse = fileTreePath.startsWith('/') || fileTreePath.match(/^[a-zA-Z]:\\/) ? fileTreePath : `./${fileTreePath}`;
 
-            fetch(`/api/files?path=${encodeURIComponent(pathToUse)}`)
+            fetch(`/api/files?path=${encodeURIComponent(pathToUse)}&limit=50&offset=${fileTreePage * 50}&search=${encodeURIComponent(fileTreeSearch)}`)
                 .then(response => response.json())
-                .then(paths => {
+                .then(data => {
                     container.innerHTML = '';
-                    const sortedPaths = [...paths].sort((a, b) => {
-                        const aIsDir = a.path.endsWith('/'), bIsDir = b.path.endsWith('/');
-                        if (aIsDir !== bIsDir) return aIsDir ? -1 : 1;
-                        if (sortMode === 'size') return (b.size || 0) - (a.size || 0);
-                        return a.path.localeCompare(b.path);
-                    });
+                    const paths = data.files || [];
+                    fileTreeTotal = data.total || 0;
 
-                    // Get currently selected paths
                     const currentPaths = Array.from(document.querySelectorAll('#selected-paths-container .path-item'))
                         .map(el => el.dataset.path);
 
-                    sortedPaths.forEach(item => {
+                    paths.forEach(item => {
                         const isDir = item.path.endsWith('/');
                         const itemElement = document.createElement('div');
                         itemElement.className = `tree-item ${isDir ? 'dir' : 'file'}`;
@@ -1596,6 +1557,8 @@
                     loadTreeBtn.disabled = false;
                     loadTreeText.style.display = 'inline';
                     loadTreeSpinner.style.display = 'none';
+
+                    if(paginationDiv) renderPagination(paginationDiv, fileTreePage, fileTreeTotal, 50, () => loadFileTree());
                 })
                 .catch(err => {
                     console.error('Failed to load file tree:', err);
@@ -1606,39 +1569,44 @@
                 });
         }
 
-        // Load details file tree
-        function loadDetailsFileTree() {
+        // Load details file tree (paginated)
+        let detailsFileTreePage = 0;
+        let detailsFileTreeTotal = 0;
+        let detailsFileTreeSearch = '';
+        let detailsFileTreePath = '';
+
+        function loadDetailsFileTree(isSearch = false) {
+            if (isSearch) detailsFileTreePage = 0;
             const rootPath = document.getElementById('details-root-dir').value;
             if (!rootPath) { alert('Please enter a root directory first'); return; }
+            detailsFileTreePath = rootPath;
+            detailsFileTreeSearch = document.getElementById('details-tree-search').value.toLowerCase();
 
             const loadTreeBtn = document.getElementById('details-load-tree-btn');
             const loadTreeText = document.getElementById('details-load-tree-text');
             const loadTreeSpinner = document.getElementById('details-load-tree-spinner');
             const container = document.getElementById('details-file-tree-container');
+            const paginationDiv = document.getElementById('details-file-tree-pagination');
 
             loadTreeBtn.disabled = true;
             loadTreeText.style.display = 'none';
             loadTreeSpinner.style.display = 'inline-block';
             container.innerHTML = '<span class="spinner" style="display:inline-block; margin:10px;"></span><span style="margin-left: 10px;">Loading files...</span>';
+            if(paginationDiv) paginationDiv.innerHTML = '';
 
-            const pathToUse = rootPath.startsWith('/') || rootPath.match(/^[a-zA-Z]:\\/) ? rootPath : `./${rootPath}`;
+            const pathToUse = detailsFileTreePath.startsWith('/') || detailsFileTreePath.match(/^[a-zA-Z]:\\/) ? detailsFileTreePath : `./${detailsFileTreePath}`;
 
-            fetch(`/api/files?path=${encodeURIComponent(pathToUse)}`)
+            fetch(`/api/files?path=${encodeURIComponent(pathToUse)}&limit=50&offset=${detailsFileTreePage * 50}&search=${encodeURIComponent(detailsFileTreeSearch)}`)
                 .then(response => response.json())
-                .then(paths => {
+                .then(data => {
                     container.innerHTML = '';
-                    const sortedPaths = [...paths].sort((a, b) => {
-                        const aIsDir = a.path.endsWith('/'), bIsDir = b.path.endsWith('/');
-                        if (aIsDir !== bIsDir) return aIsDir ? -1 : 1;
-                        if (detailsSortMode === 'size') return (b.size || 0) - (a.size || 0);
-                        return a.path.localeCompare(b.path);
-                    });
+                    const paths = data.files || [];
+                    detailsFileTreeTotal = data.total || 0;
 
-                    // Get currently selected paths
                     const currentPaths = Array.from(document.querySelectorAll('#details-selected-paths-container .path-item'))
                         .map(el => el.dataset.path);
 
-                    sortedPaths.forEach(item => {
+                    paths.forEach(item => {
                         const isDir = item.path.endsWith('/');
                         const itemElement = document.createElement('div');
                         itemElement.className = `tree-item ${isDir ? 'dir' : 'file'}`;
@@ -1670,7 +1638,7 @@
                     loadTreeBtn.disabled = false;
                     loadTreeText.style.display = 'inline';
                     loadTreeSpinner.style.display = 'none';
-                    detailsFilterTree();
+                    if(paginationDiv) renderPagination(paginationDiv, detailsFileTreePage, detailsFileTreeTotal, 50, () => loadDetailsFileTree());
                 })
                 .catch(err => {
                     console.error('Failed to load details file tree:', err);
@@ -1679,6 +1647,18 @@
                     loadTreeSpinner.style.display = 'none';
                     container.innerHTML = '<div class="note warning">Failed to load files. Check path and try again.</div>';
                 });
+        }
+
+        function renderPagination(container, currentPage, total, limit, callback) {
+            const totalPages = Math.ceil(total / limit);
+            if (totalPages <= 1) return;
+            container.innerHTML = `
+                <div style="display:flex; justify-content:center; gap:10px; margin-top:10px;">
+                    <button class="btn-sm" onclick="window._treePage = Math.max(0, ${currentPage}-1); loadFileTree();" ${currentPage === 0 ? 'disabled' : ''}>PREV</button>
+                    <span style="align-self:center;">Page ${currentPage + 1} of ${totalPages} (${total} files)</span>
+                    <button class="btn-sm" onclick="window._treePage = Math.min(${totalPages-1}, ${currentPage}+1); loadFileTree();" ${currentPage >= totalPages-1 ? 'disabled' : ''}>NEXT</button>
+                </div>
+            `;
         }
 
         // Select all
@@ -1721,46 +1701,22 @@
             hideTreeOverlay('details-file-tree');
         }
 
-        // Filter tree
+        // Filter tree (server-side)
         function filterTree() {
             clearTimeout(filterTreeTimeout);
             showTreeOverlay('file-tree');
             filterTreeTimeout = setTimeout(() => {
-                const searchTerm = document.getElementById('tree-search').value.toLowerCase();
-                const showSelectedOnly = document.getElementById('show-selected-only-new').checked;
-
-                document.querySelectorAll('#file-tree-container .tree-item').forEach(item => {
-                    const checkbox = item.querySelector('input[type="checkbox"]');
-                    const text = item.textContent.toLowerCase();
-                    const isSelected = checkbox && checkbox.checked;
-                    const matchesSearch = !searchTerm || text.includes(searchTerm);
-                    const matchesFilter = !showSelectedOnly || isSelected;
-                    item.style.display = (matchesSearch && matchesFilter) ? '' : 'none';
-                });
-
-                hideTreeOverlay('file-tree');
-            }, 200);
+                loadFileTree(true);
+            }, 300);
         }
 
-        // Details filter tree
+        // Details filter tree (server-side)
         function detailsFilterTree() {
             clearTimeout(detailsFilterTreeTimeout);
             showTreeOverlay('details-file-tree');
             detailsFilterTreeTimeout = setTimeout(() => {
-                const searchTerm = document.getElementById('details-tree-search').value.toLowerCase();
-                const showSelectedOnly = document.getElementById('details-show-selected-only').checked;
-
-                document.querySelectorAll('#details-file-tree-container .tree-item').forEach(item => {
-                    const checkbox = item.querySelector('input[type="checkbox"]');
-                    const text = item.textContent.toLowerCase();
-                    const isSelected = checkbox && checkbox.checked;
-                    const matchesSearch = !searchTerm || text.includes(searchTerm);
-                    const matchesFilter = !showSelectedOnly || isSelected;
-                    item.style.display = (matchesSearch && matchesFilter) ? '' : 'none';
-                });
-
-                hideTreeOverlay('details-file-tree');
-            }, 200);
+                loadDetailsFileTree(true);
+            }, 300);
         }
 
         // Auto-save project
@@ -2132,27 +2088,36 @@
                 });
         }
 
+        // Load jobs (simplified)
         function loadJobs() {
-            fetch('/api/jobs')
-                .then(res => res.json())
-                .then(jobs => {
-                    renderJobs(jobs);
-                })
-                .catch(err => {
-                    console.error('Failed to load jobs:', err);
-                    document.getElementById('jobs-list').innerHTML = '<div class="note warning">Failed to load jobs.</div>';
-                });
+            Promise.all([
+                fetch('/api/queue').then(r => r.json()),
+                fetch('/api/history').then(r => r.json())
+            ]).then(([queueData, history]) => {
+                renderJobs(queueData, history);
+            }).catch(err => {
+                console.error('Failed to load jobs:', err);
+                document.getElementById('jobs-list').innerHTML = '<div class="note warning">Failed to load jobs.</div>';
+            });
         }
 
-        function renderJobs(jobs) {
+        function renderJobs(queueData, history) {
             const list = document.getElementById('jobs-list');
             list.innerHTML = '';
-            if (!jobs.length) {
+            
+            let items = [];
+            if (queueData.running) {
+                items.push({ ...queueData.running, status: 'running', project_name: 'Running', instructions: '' });
+            }
+            queueData.queue.forEach(j => items.push({ ...j, status: 'queued', project_name: 'Queued', instructions: '' }));
+            items = items.concat(history.slice(0, 20));
+
+            if (!items.length) {
                 list.innerHTML = '<div class="note">NO JOBS FOUND.</div>';
                 return;
             }
 
-            jobs.forEach(job => {
+            items.forEach(job => {
                 const item = document.createElement('div');
                 item.className = 'project-item';
                 item.dataset.jobId = job.job_id;
@@ -2165,8 +2130,6 @@
                     job.status === 'queued' ? 'var(--sky)' :
                         job.status === 'error' ? '#a03030' :
                             job.status === 'stopped' ? '#808000' : '#555';
-
-                const isRunning = job.status === 'running';
 
                 const instructionsHtml = job.instructions ? `
                     <div style="margin-top:5px;">
@@ -2183,7 +2146,7 @@
                         </div>
                         <div class="project-item-actions">
                             <button class="btn-sm stop" id="stop-btn-${job.job_id}" onclick="event.stopPropagation(); stopJob('${job.job_id}', this)">STOP</button>
-                            <button class="btn-sm delete" id="delete-btn-${job.job_id}" onclick="event.stopPropagation(); deleteJob('${job.job_id}', this)" ${isRunning ? 'disabled' : ''}>DELETE</button>
+                            <button class="btn-sm delete" id="delete-btn-${job.job_id}" onclick="event.stopPropagation(); deleteJob('${job.job_id}', this)">DELETE</button>
                         </div>
                     </div>
                     <span style="color: #ccc; font-size: 8px;">Job: ${job.job_id.substring(0, 8)}...</span>
@@ -2197,7 +2160,6 @@
         function setJobButtonState(jobId, isLoading) {
             const stopBtn = document.getElementById(`stop-btn-${jobId}`);
             const deleteBtn = document.getElementById(`delete-btn-${jobId}`);
-
             const buttons = [stopBtn, deleteBtn].filter(b => b);
             buttons.forEach(btn => {
                 if (isLoading) {
@@ -2213,16 +2175,8 @@
 
         function stopJob(jobId, btnElement) {
             setJobButtonState(jobId, true);
-            fetch(`/api/queue/${jobId}/stop`, { method: 'POST' })
-                .then(res => res.json())
-                .then(data => {
-                    if (data.status === 'stopped') {
-                        loadJobs();
-                    } else {
-                        alert('Failed to stop job: ' + (data.error || 'Unknown error'));
-                        setJobButtonState(jobId, false);
-                    }
-                })
+            fetch('/api/queue/running/stop', { method: 'POST' })
+                .then(() => loadJobs())
                 .catch(err => {
                     console.error('Failed to stop job:', err);
                     setJobButtonState(jobId, false);
@@ -2232,15 +2186,7 @@
         function deleteJob(jobId, btnElement) {
             setJobButtonState(jobId, true);
             fetch(`/api/queue/${jobId}`, { method: 'DELETE' })
-                .then(res => res.json())
-                .then(data => {
-                    if (data.status === 'deleted') {
-                        loadJobs();
-                    } else {
-                        alert('Failed to delete job: ' + (data.error || 'Unknown error'));
-                        setJobButtonState(jobId, false);
-                    }
-                })
+                .then(() => loadJobs())
                 .catch(err => {
                     console.error('Failed to delete job:', err);
                     setJobButtonState(jobId, false);
@@ -2568,8 +2514,7 @@
             document.addEventListener('mouseup', endDrag);
 
             // Poll for job status updates from backend
-            setInterval(loadActiveJobsFromBackend, 10000);
-            setInterval(loadJobs, 60000);
+            setInterval(loadJobs, 5000);
         });
 
         function setLoadingState(btn, isLoading) {

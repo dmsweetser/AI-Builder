@@ -29,12 +29,12 @@ if os.path.exists(HISTORY_FILE):
     except Exception:
         pass
 
-run_queue = queue.Queue()
-run_status = {}
+job_queue = []
+running_job = None
 job_history = []
-active_jobs = {}
 job_queue_lock = threading.Lock()
 worker_thread = None
+stop_event = threading.Event()
 
 def load_job_history():
     global job_history
@@ -58,98 +58,44 @@ def save_job_history():
 load_job_history()
 
 def worker():
-    while True:
-        job = run_queue.get()
-        if job is None:
-            break
-        pid = job['pid']
-        job_id = job['job_id']
-
+    global running_job
+    while not stop_event.is_set():
         with job_queue_lock:
-            current_status = run_status.get(job_id, {}).get('status', 'unknown')
-            if current_status in ['stopped', 'deleted', 'error', 'completed']:
-                run_queue.task_done()
+            if running_job is None and job_queue:
+                running_job = job_queue.pop(0)
+            else:
+                time.sleep(0.5)
                 continue
 
-            run_status[job_id] = {'status': 'running', 'project_id': pid}
-            active_jobs[job_id] = {'pid': pid, 'status': 'running'}
-
+        job_id = running_job["job_id"]
+        pid = running_job["project_id"]
         project, _ = get_project(pid)
+
         job_history.append({
             "job_id": job_id,
             "project_id": pid,
             "project_name": project.get("name", "Unknown") if project else "Unknown",
             "status": "running",
-            "instructions": project.get("instructions", ""),
+            "instructions": project.get("instructions", "") if project else "",
             "timestamp": datetime.now().isoformat()
         })
         save_job_history()
 
         try:
             if project:
-                try:
-                    ai = AIBuilder(job_id, project)
-                    ai.run()
-
-                    # Auto-add newly created files to project includePatterns
-                    created_files_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aib_instance", "output", job_id, "created_files.txt")
-                    if os.path.exists(created_files_path):
-                        with open(created_files_path, 'r', encoding='utf-8') as f:
-                            new_files = [line.strip() for line in f if line.strip()]
-                        if new_files:
-                            projects = load_projects()
-                            for p in projects:
-                                if p["id"] == pid:
-                                    current_patterns = [pat.strip() for pat in p.get("includePatterns", "").split(",") if pat.strip()]
-                                    for nf in new_files:
-                                        if nf not in current_patterns:
-                                            current_patterns.append(nf)
-                                    p["includePatterns"] = ",".join(current_patterns)
-                                    save_projects(projects)
-                                    break
-
-                    run_status[job_id] = {'status': 'completed', 'project_id': pid}
-                    if job_id in active_jobs:
-                        active_jobs[job_id]['status'] = 'completed'
-                    job_history.append({
-                                "job_id": job_id,
-                                "project_id": pid,
-                                "project_name": project.get("name", "Unknown") if project else "Unknown",
-                                "status": "completed",
-                                "instructions": project.get("instructions", ""),
-                                "timestamp": datetime.now().isoformat()
-                            })
-                except Exception as e:
-                    run_status[job_id] = {'status': 'error', 'message': str(e), 'project_id': pid}
-                    if job_id in active_jobs:
-                        active_jobs[job_id]['status'] = 'error'
-                    job_history.append({
-                                "job_id": job_id,
-                                "project_id": pid,
-                                "project_name": project.get("name", "Unknown") if project else "Unknown",
-                                "status": "error",
-                                "error": str(e),
-                                "instructions": project.get("instructions", ""),
-                                "timestamp": datetime.now().isoformat()
-                            })
+                ai = AIBuilder(job_id, project)
+                ai.run()
+                job_history[-1]["status"] = "completed"
             else:
-                run_status[job_id] = {'status': 'error', 'message': 'Project not found', 'project_id': pid}
-                if job_id in active_jobs:
-                    active_jobs[job_id]['status'] = 'error'
-                job_history.append({
-                            "job_id": job_id,
-                            "project_id": pid,
-                            "project_name": project.get("name", "Unknown") if project else "Unknown",
-                            "status": "error",
-                            "error": "Project not found",
-                            "instructions": project.get("instructions", ""),
-                            "timestamp": datetime.now().isoformat()
-                        })
+                job_history[-1]["status"] = "error"
+                job_history[-1]["error"] = "Project not found"
+        except Exception as e:
+            job_history[-1]["status"] = "error"
+            job_history[-1]["error"] = str(e)
         finally:
             save_job_history()
-            if job_id in active_jobs:
-                del active_jobs[job_id]
-            run_queue.task_done()
+            with job_queue_lock:
+                running_job = None
 
 def start_worker():
     global worker_thread
@@ -158,10 +104,10 @@ def start_worker():
     worker_thread = threading.Thread(target=worker, daemon=True)
     worker_thread.start()
 
-def restart_worker():
+def stop_worker():
     global worker_thread
     if worker_thread and worker_thread.is_alive():
-        run_queue.put(None)
+        stop_event.set()
         worker_thread.join(timeout=5)
     start_worker()
 
@@ -333,20 +279,19 @@ def api_unarchive_project(pid):
     save_projects(projects)
     return jsonify({"status": "unarchived"})
 
-@app.route("/api/projects/<pid>/run", methods=["POST"])
-def api_run_project(pid):
-    global job_history
+@app.route("/api/queue", methods=["GET"])
+def api_get_queue():
+    return jsonify({"queue": job_queue, "running": running_job})
+
+@app.route("/api/queue", methods=["POST"])
+def api_add_to_queue():
+    data = request.json
+    pid = data.get("project_id")
+    if not pid:
+        return jsonify({"error": "project_id required"}), 400
     project, _ = get_project(pid)
     if not project:
         return jsonify({"error": "Project not found"}), 404
-
-    # Force-clear ALL stale jobs for this project
-    for jid in list(active_jobs.keys()):
-        if active_jobs[jid].get('pid') == pid:
-            del active_jobs[jid]
-    for jid in list(run_status.keys()):
-        if run_status[jid].get('project_id') == pid:
-            del run_status[jid]
 
     if not project.get("includePatterns"):
         return jsonify({"error": "No includePatterns specified"}), 400
@@ -369,7 +314,6 @@ def api_run_project(pid):
 
     job_id = str(uuid.uuid4())
     output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aib_instance", "output", job_id)
-
     try:
         if os.path.exists(output_dir):
             shutil.rmtree(output_dir)
@@ -377,113 +321,51 @@ def api_run_project(pid):
     except Exception as e:
         return jsonify({"error": f"Failed to create output directory: {str(e)}"}), 500
 
-    run_status[job_id] = {'status': 'queued', 'project_id': pid}
-    active_jobs[job_id] = {'pid': pid, 'status': 'queued'}
-
     with job_queue_lock:
-        # Clear previously queued jobs for the same project from history
-        job_history = [job for job in job_history if not (job.get('project_id') == pid and job.get('status') == 'queued')]
-        save_job_history()
-
-        job_history.append({
-            "job_id": job_id,
-            "project_id": pid,
-            "project_name": project.get("name", "Unknown"),
-            "status": "queued",
-            "instructions": project.get("instructions", ""),
-            "timestamp": datetime.now().isoformat()
-        })
-        run_queue.put({'pid': pid, 'job_id': job_id})
-
+        job_queue.append({"job_id": job_id, "project_id": pid})
+    stop_event.clear()
+    if not worker_thread or not worker_thread.is_alive():
+        start_worker()
     return jsonify({"status": "queued", "job_id": job_id})
 
-@app.route("/api/projects/<pid>/stop", methods=["POST"])
-def api_stop_project(pid):
+@app.route("/api/queue/<job_id>", methods=["DELETE"])
+def api_delete_from_queue(job_id):
     with job_queue_lock:
-        jobs_to_stop = [job_id for job_id, job in active_jobs.items() if job.get('pid') == pid]
-        stopped_jobs = []
-        for job_id in jobs_to_stop:
-            if job_id in active_jobs:
-                del active_jobs[job_id]
-            if job_id in run_status:
-                run_status[job_id]['status'] = 'stopped'
-                stopped_jobs.append(job_id)
+        for i, j in enumerate(job_queue):
+            if j["job_id"] == job_id:
+                job_queue.pop(i)
+                break
+        if running_job and running_job["job_id"] == job_id:
+            running_job = None
+    stop_event.clear()
+    if not worker_thread or not worker_thread.is_alive():
+        start_worker()
+    return jsonify({"status": "deleted"})
 
-        queued_jobs = [job_id for job_id, status in run_status.items() if status.get('project_id') == pid and status.get('status') == 'queued']
-        for job_id in queued_jobs:
-            run_status[job_id]['status'] = 'stopped'
-            if job_id in active_jobs:
-                del active_jobs[job_id]
-            stopped_jobs.append(job_id)
-
-        project, _ = get_project(pid)
-        for j_id in stopped_jobs:
-            job_history.append({
-                "job_id": j_id,
-                "project_id": pid,
-                "project_name": project.get("name", "Unknown") if project else "Unknown",
-                "status": "stopped",
-                "instructions": project.get("instructions", ""),
-                "timestamp": datetime.now().isoformat()
-            })
-        save_job_history()
-
-    # Restart worker to pick up the next queued job
-    restart_worker()
-    return jsonify({"status": "stopped", "stopped_jobs": list(set(stopped_jobs))})
-
-@app.route("/api/run/<job_id>/status", methods=["GET"])
-def api_run_status(job_id):
-    status = run_status.get(job_id, {'status': 'unknown'})
-    return jsonify(status)
+@app.route("/api/queue/running/stop", methods=["POST"])
+def api_stop_running():
+    with job_queue_lock:
+        if running_job:
+            running_job = None
+    stop_event.clear()
+    if not worker_thread or not worker_thread.is_alive():
+        start_worker()
+    return jsonify({"status": "stopped"})
 
 @app.route("/api/projects/<pid>", methods=["DELETE"])
 def api_delete_project(pid):
-    jobs_to_stop = [job_id for job_id, job in active_jobs.items() if job.get('pid') == pid]
-    for job_id in jobs_to_stop:
-        if job_id in active_jobs:
-            active_jobs[job_id]['status'] = 'stopped'
-        if job_id in run_status:
-            run_status[job_id]['status'] = 'stopped'
-
-    save_job_history()
+    with job_queue_lock:
+        job_queue[:] = [j for j in job_queue if j["project_id"] != pid]
+        if running_job and running_job["project_id"] == pid:
+            running_job = None
+    stop_event.clear()
+    if not worker_thread or not worker_thread.is_alive():
+        start_worker()
 
     projects = load_projects()
     projects = [p for p in projects if p["id"] != pid]
     save_projects(projects)
     return jsonify({"status": "deleted"})
-
-@app.route("/api/files", methods=["GET"])
-def api_files():
-    path = request.args.get("path", ".")
-    try:
-        base_dir = os.path.dirname(os.path.abspath(__file__))
-        if not os.path.isabs(path):
-            if path.startswith('./') or path.startswith('.\\'):
-                path = os.path.abspath(path)
-            else:
-                path = os.path.abspath(os.path.join(os.getcwd(), path))
-
-        path = os.path.normpath(path)
-        if not os.path.exists(path):
-            return jsonify({"error": f"Path does not exist: {path}"}), 400
-
-        if path.startswith('/etc') or path.startswith('/usr') or path.startswith('/var') or \
-           path.startswith('C:\\Windows') or path.startswith('C:\\Program Files'):
-            return jsonify({"error": "Access to system directories is not allowed"}), 403
-
-        paths = []
-        for root, dirs, files in os.walk(path):
-            rel_root = os.path.relpath(root, path)
-            if rel_root == ".":
-                rel_root = ""
-            for f in files:
-                rel_path = os.path.join(rel_root, f) if rel_root else f
-                file_size = os.path.getsize(os.path.join(root, f))
-                paths.append({"path": rel_path, "size": file_size})
-        return jsonify(paths)
-    except Exception as e:
-        return jsonify({"error": str(e)}), 400
 
 @app.route("/api/history", methods=["GET"])
 def api_get_history():
@@ -498,96 +380,46 @@ def api_clear_history():
         save_job_history()
     return jsonify({"status": "cleared"})
 
-# ---------- NEW ENDPOINTS ----------
-@app.route("/api/job-status", methods=["GET"])
-def api_job_status():
-    return jsonify({
-        "activeJobs": {k: {"projectId": v.get("pid"), "status": v.get("status", "unknown")} for k, v in active_jobs.items()},
-        "runStatus": run_status
-    })
+@app.route("/api/files", methods=["GET"])
+def api_files():
+    path = request.args.get("path", ".")
+    search = request.args.get("search", "").lower()
+    limit = int(request.args.get("limit", 50))
+    offset = int(request.args.get("offset", 0))
+    try:
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        if not os.path.isabs(path):
+            if path.startswith('./') or path.startswith('.\\'):
+                path = os.path.abspath(path)
+            else:
+                path = os.path.abspath(os.path.join(os.getcwd(), path))
 
-@app.route("/api/jobs", methods=["GET"])
-def api_get_jobs():
-    latest_jobs = {}
-    for hist in job_history:
-        job_id = hist.get("job_id")
-        latest_jobs[job_id] = hist
+        path = os.path.normpath(path)
+        if not os.path.exists(path):
+            return jsonify({"error": f"Path does not exist: {path}"}), 400
 
-    jobs = []
-    for job_id, hist in latest_jobs.items():
-        status = hist.get("status")
-        project_id = hist.get("project_id")
-        project_name = hist.get("project_name", "Unknown")
+        if path.startswith('/etc') or path.startswith('/usr') or path.startswith('/var') or \
+           path.startswith('C:\Windows') or path.startswith('C:\Program Files'):
+            return jsonify({"error": "Access to system directories is not allowed"}), 403
 
-        if job_id in run_status:
-            status = run_status[job_id].get("status", status)
-        if job_id in active_jobs:
-            status = active_jobs[job_id].get("status", status)
+        all_paths = []
+        for root, dirs, files in os.walk(path):
+            rel_root = os.path.relpath(root, path)
+            if rel_root == ".":
+                rel_root = ""
+            for f in files:
+                rel_path = os.path.join(rel_root, f) if rel_root else f
+                if search and search not in rel_path.lower():
+                    continue
+                file_size = os.path.getsize(os.path.join(root, f))
+                all_paths.append({"path": rel_path, "size": file_size})
 
-        jobs.append({
-            "job_id": job_id,
-            "project_id": project_id,
-            "project_name": project_name,
-            "status": status,
-            "timestamp": hist.get("timestamp", ""),
-            "error": hist.get("error"),
-            "instructions": hist.get("instructions", "")
-        })
-
-    jobs.sort(key=lambda x: x["timestamp"], reverse=True)
-    return jsonify(jobs)
-
-@app.route("/api/queue", methods=["GET"])
-def api_get_queue():
-    queued = []
-    for jid, status in run_status.items():
-        if status.get('status') in ['queued', 'running']:
-            project_name = "Unknown"
-            project_id = status.get('project_id')
-            for hist in reversed(job_history):
-                if hist.get('project_id') == project_id:
-                    project_name = hist.get('project_name', 'Unknown')
-                    break
-            queued.append({
-                'job_id': jid,
-                'project_id': project_id,
-                'project_name': project_name,
-                'status': status.get('status'),
-                'timestamp': job_history[-1].get('timestamp') if job_history else ''
-            })
-    return jsonify(queued)
-
-@app.route("/api/queue/<job_id>", methods=["DELETE"])
-def api_delete_from_queue(job_id):
-    with job_queue_lock:
-        status = run_status.get(job_id, {}).get('status', 'unknown')
-        if status in ['queued', 'running', 'stopped', 'deleted', 'error', 'completed']:
-            run_status[job_id]['status'] = 'deleted'
-            job_history.append({
-                "job_id": job_id,
-                "project_id": run_status[job_id].get('project_id'),
-                "project_name": "Unknown",
-                "status": "deleted",
-                "timestamp": datetime.now().isoformat()
-            })
-            save_job_history()
-            if job_id in active_jobs:
-                del active_jobs[job_id]
-            restart_worker()
-            return jsonify({"status": "deleted"})
-    return jsonify({"error": "Job not found"}), 404
-
-@app.route("/api/queue/<job_id>/stop", methods=["POST"])
-def api_stop_queued_job(job_id):
-    with job_queue_lock:
-        status = run_status.get(job_id, {}).get('status', 'unknown')
-        if status in ['queued', 'running', 'stopped', 'error', 'completed']:
-            run_status[job_id]['status'] = 'stopped'
-            if job_id in active_jobs:
-                del active_jobs[job_id]
-            restart_worker()  # Ensure the next queued job starts
-            return jsonify({"status": "stopped"})
-    return jsonify({"error": "Job not found"}), 404
+        all_paths.sort(key=lambda x: x["path"])
+        total = len(all_paths)
+        paginated = all_paths[offset:offset+limit]
+        return jsonify({"files": paginated, "total": total, "offset": offset, "limit": limit})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
 
 # ---------- Chat Routes ----------
 @app.route("/api/chats", methods=["GET"])
