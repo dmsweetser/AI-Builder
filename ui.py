@@ -8,6 +8,8 @@ import platform
 import queue
 import threading
 import shutil
+import atexit
+import signal
 from datetime import datetime
 from flask import Flask, Response, request, jsonify, render_template, send_from_directory
 
@@ -19,22 +21,26 @@ from azure.core.credentials import AzureKeyCredential
 
 app = Flask(__name__)
 
+# --- Constants ---
 STATUS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aib_instance", "run_status.json")
 HISTORY_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aib_instance", "job_history.json")
+PROJECTS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aib_instance", "projects.json")
+CHATS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aib_instance", "chats")
 
-# Clear job history on app start
-if os.path.exists(HISTORY_FILE):
-    try:
-        os.remove(HISTORY_FILE)
-    except Exception:
-        pass
-
+# --- Global State (Thread-Safe) ---
 job_queue = []
 running_job = None
 job_history = []
 job_queue_lock = threading.Lock()
-worker_thread = None
 stop_event = threading.Event()
+worker_thread = None
+
+# --- Initialization ---
+def init_directories():
+    os.makedirs(os.path.dirname(STATUS_FILE), exist_ok=True)
+    os.makedirs(os.path.dirname(HISTORY_FILE), exist_ok=True)
+    os.makedirs(os.path.dirname(PROJECTS_FILE), exist_ok=True)
+    os.makedirs(CHATS_DIR, exist_ok=True)
 
 def load_job_history():
     global job_history
@@ -49,14 +55,23 @@ def load_job_history():
 
 def save_job_history():
     try:
-        os.makedirs(os.path.dirname(HISTORY_FILE), exist_ok=True)
         with open(HISTORY_FILE, 'w') as f:
             json.dump(job_history, f, indent=2)
     except Exception:
         pass
 
-load_job_history()
+def load_projects():
+    if not os.path.exists(PROJECTS_FILE):
+        with open(PROJECTS_FILE, "w", encoding="utf-8") as f:
+            json.dump([], f)
+    with open(PROJECTS_FILE, "r", encoding="utf-8") as f:
+        return json.load(f)
 
+def save_projects(projects):
+    with open(PROJECTS_FILE, "w", encoding="utf-8") as f:
+        json.dump(projects, f, indent=2)
+
+# --- Worker Thread ---
 def worker():
     global running_job
     while not stop_event.is_set():
@@ -101,66 +116,34 @@ def start_worker():
     global worker_thread
     if worker_thread and worker_thread.is_alive():
         return
+    stop_event.clear()
     worker_thread = threading.Thread(target=worker, daemon=True)
     worker_thread.start()
 
 def stop_worker():
     global worker_thread
+    stop_event.set()
     if worker_thread and worker_thread.is_alive():
-        stop_event.set()
         worker_thread.join(timeout=5)
-    start_worker()
 
-start_worker()
+def cleanup():
+    stop_worker()
+    save_job_history()
 
-PROJECTS_FILE = "aib_instance/projects.json"
-CHATS_DIR = "aib_instance/chats"
+atexit.register(cleanup)
 
-os.makedirs(CHATS_DIR, exist_ok=True)
-os.makedirs(os.path.dirname(PROJECTS_FILE), exist_ok=True)
-
-# ---------- Helpers ----------
-def load_projects():
-    if not os.path.exists(PROJECTS_FILE):
-        with open(PROJECTS_FILE, "w", encoding="utf-8") as f:
-            json.dump([], f)
-    with open(PROJECTS_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
-
-def save_projects(projects):
-    with open(PROJECTS_FILE, "w", encoding="utf-8") as f:
-        json.dump(projects, f, indent=2)
-
+# --- Project Helpers ---
 def get_project(pid):
     projects = load_projects()
     return next((p for p in projects if p["id"] == pid), None), projects
 
 def is_project_running(pid):
-    # Clean up stale entries for this project
-    stale_job_ids = []
-    for jid, job in active_jobs.items():
-        if job.get('pid') == pid and job.get('status') not in ['running', 'queued']:
-            stale_job_ids.append(jid)
-    for jid in stale_job_ids:
-        del active_jobs[jid]
+    with job_queue_lock:
+        if running_job and running_job["project_id"] == pid:
+            return True
+        return any(job["project_id"] == pid for job in job_queue)
 
-    for jid, status in run_status.items():
-        if status.get('project_id') == pid and status.get('status') not in ['running', 'queued']:
-            del run_status[jid]
-
-    # Check active jobs
-    for job_id, job in active_jobs.items():
-        if job.get('pid') == pid and job.get('status') in ['running', 'queued']:
-            return True, job_id
-
-    # Check run_status
-    for job_id, status in run_status.items():
-        if status.get('project_id') == pid and status.get('status') in ['running', 'queued']:
-            return True, job_id
-
-    return False, None
-
-# ---------- Routes ----------
+# --- Routes: Projects ---
 @app.route("/")
 def index():
     projects = load_projects()
@@ -279,9 +262,11 @@ def api_unarchive_project(pid):
     save_projects(projects)
     return jsonify({"status": "unarchived"})
 
+# --- Routes: Queue ---
 @app.route("/api/queue", methods=["GET"])
 def api_get_queue():
-    return jsonify({"queue": job_queue, "running": running_job})
+    with job_queue_lock:
+        return jsonify({"queue": job_queue.copy(), "running": running_job})
 
 @app.route("/api/queue", methods=["POST"])
 def api_add_to_queue():
@@ -305,7 +290,7 @@ def api_add_to_queue():
 
     root_dir = project.get("rootDirectory", "")
     if root_dir and os.path.isdir(root_dir):
-        all_files_pattern = any(p.strip() == "." or p.strip() == "./" or p.strip() == "" for p in include_patterns)
+        all_files_pattern = any(p.strip() in (".", "./", "") for p in include_patterns)
         if all_files_pattern and not project.get("excludePatterns"):
             return jsonify({
                 "error": "Pattern includes entire directory without exclusion filters. This is not allowed for safety reasons.",
@@ -323,33 +308,23 @@ def api_add_to_queue():
 
     with job_queue_lock:
         job_queue.append({"job_id": job_id, "project_id": pid})
-    stop_event.clear()
-    if not worker_thread or not worker_thread.is_alive():
-        start_worker()
+    start_worker()
     return jsonify({"status": "queued", "job_id": job_id})
 
 @app.route("/api/queue/<job_id>", methods=["DELETE"])
 def api_delete_from_queue(job_id):
     with job_queue_lock:
-        for i, j in enumerate(job_queue):
-            if j["job_id"] == job_id:
-                job_queue.pop(i)
-                break
+        job_queue[:] = [j for j in job_queue if j["job_id"] != job_id]
         if running_job and running_job["job_id"] == job_id:
             running_job = None
-    stop_event.clear()
-    if not worker_thread or not worker_thread.is_alive():
-        start_worker()
+    start_worker()
     return jsonify({"status": "deleted"})
 
 @app.route("/api/queue/running/stop", methods=["POST"])
 def api_stop_running():
     with job_queue_lock:
-        if running_job:
-            running_job = None
-    stop_event.clear()
-    if not worker_thread or not worker_thread.is_alive():
-        start_worker()
+        running_job = None
+    start_worker()
     return jsonify({"status": "stopped"})
 
 @app.route("/api/projects/<pid>", methods=["DELETE"])
@@ -358,15 +333,14 @@ def api_delete_project(pid):
         job_queue[:] = [j for j in job_queue if j["project_id"] != pid]
         if running_job and running_job["project_id"] == pid:
             running_job = None
-    stop_event.clear()
-    if not worker_thread or not worker_thread.is_alive():
-        start_worker()
+    start_worker()
 
     projects = load_projects()
     projects = [p for p in projects if p["id"] != pid]
     save_projects(projects)
     return jsonify({"status": "deleted"})
 
+# --- Routes: History ---
 @app.route("/api/history", methods=["GET"])
 def api_get_history():
     current_job_history = sorted(job_history, key=lambda x: x["timestamp"], reverse=True)
@@ -380,27 +354,30 @@ def api_clear_history():
         save_job_history()
     return jsonify({"status": "cleared"})
 
+# --- Routes: Files ---
 @app.route("/api/files", methods=["GET"])
 def api_files():
     path = request.args.get("path", ".")
     search = request.args.get("search", "").lower()
     limit = int(request.args.get("limit", 50))
     offset = int(request.args.get("offset", 0))
+
     try:
         base_dir = os.path.dirname(os.path.abspath(__file__))
         if not os.path.isabs(path):
-            if path.startswith('./') or path.startswith('.\\'):
-                path = os.path.abspath(path)
-            else:
-                path = os.path.abspath(os.path.join(os.getcwd(), path))
-
+            path = os.path.abspath(os.path.join(base_dir, path))
         path = os.path.normpath(path)
+
+        # Security: Block access to sensitive directories
+        blocked_prefixes = [
+            '/etc', '/usr', '/var', '/bin', '/sbin', '/lib', '/dev',
+            'C:\\Windows', 'C:\\Program Files', 'C:\\ProgramData'
+        ]
+        if any(path.startswith(prefix) for prefix in blocked_prefixes):
+            return jsonify({"error": "Access to system directories is not allowed"}), 403
+
         if not os.path.exists(path):
             return jsonify({"error": f"Path does not exist: {path}"}), 400
-
-        if path.startswith('/etc') or path.startswith('/usr') or path.startswith('/var') or \
-           path.startswith('C:\Windows') or path.startswith('C:\Program Files'):
-            return jsonify({"error": "Access to system directories is not allowed"}), 403
 
         all_paths = []
         for root, dirs, files in os.walk(path):
@@ -411,17 +388,20 @@ def api_files():
                 rel_path = os.path.join(rel_root, f) if rel_root else f
                 if search and search not in rel_path.lower():
                     continue
-                file_size = os.path.getsize(os.path.join(root, f))
-                all_paths.append({"path": rel_path, "size": file_size})
+                try:
+                    file_size = os.path.getsize(os.path.join(root, f))
+                    all_paths.append({"path": rel_path, "size": file_size})
+                except (OSError, PermissionError):
+                    continue
 
         all_paths.sort(key=lambda x: x["path"])
         total = len(all_paths)
-        paginated = all_paths[offset:offset+limit]
+        paginated = all_paths[offset:offset + limit]
         return jsonify({"files": paginated, "total": total, "offset": offset, "limit": limit})
     except Exception as e:
         return jsonify({"error": str(e)}), 400
 
-# ---------- Chat Routes ----------
+# --- Routes: Chat ---
 @app.route("/api/chats", methods=["GET"])
 def api_list_chats():
     chats = []
@@ -440,8 +420,8 @@ def api_list_chats():
                             "title": title,
                             "timestamp": timestamp
                         })
-                except Exception as e:
-                    print(f"Error reading chat file {fname}: {e}")
+                except Exception:
+                    continue
     chats.sort(key=lambda x: x.get("timestamp", x.get("id", "")), reverse=True)
     return jsonify(chats)
 
@@ -499,7 +479,7 @@ def api_send_message(chat_id):
             else:
                 prompt_parts.append(f"Assistant: {content}")
 
-        prompt = f"{chr(10)}".join(prompt_parts) + f"{chr(10)}Assistant:"
+        prompt = "\n".join(prompt_parts) + "\nAssistant:"
 
         def generate():
             response_content = ""
@@ -508,7 +488,6 @@ def api_send_message(chat_id):
                     model_path = Config.get_model_path()
                     if not model_path:
                         raise ValueError("MODEL_PATH environment variable not set for local model.")
-                    base_dir = os.path.dirname(os.path.abspath(__file__))
                     llama_binary = Config.get_llama_binary_path()
                     if not os.path.isfile(llama_binary):
                         raise FileNotFoundError(f"llama binary not found at: {llama_binary}")
@@ -518,15 +497,25 @@ def api_send_message(chat_id):
                         f.write(prompt)
                     cmd = [
                         llama_binary, "-m", model_path, "-f", filename,
-                        "--temp", str(Config.get_temperature()), "--top-p", str(Config.get_top_p()),
-                        "--top-k", str(Config.get_top_k()), "--min-p", str(Config.get_min_p()),
-                        "-n", str(Config.get_output_tokens()), "--ctx-size", str(Config.get_model_context()),
+                        "--temp", str(Config.get_temperature()),
+                        "--top-p", str(Config.get_top_p()),
+                        "--top-k", str(Config.get_top_k()),
+                        "--min-p", str(Config.get_min_p()),
+                        "-n", str(Config.get_output_tokens()),
+                        "--ctx-size", str(Config.get_model_context()),
                         "--jinja", "--no-display-prompt", "-st"
                     ]
-                    process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
-                    for token in iter(lambda: process.stdout.read(1), ''):
-                        response_content += token
-                        yield token
+                    process = subprocess.Popen(
+                        cmd,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                        bufsize=1,
+                        universal_newlines=True
+                    )
+                    for line in process.stdout:
+                        response_content += line
+                        yield line
                         if len(response_content) % 20 == 0:
                             chat_data["messages"] = [m for m in chat_data["messages"] if m["role"] != "assistant"]
                             chat_data["messages"].append({"role": "assistant", "content": response_content})
@@ -543,13 +532,16 @@ def api_send_message(chat_id):
                     if not all([endpoint, model_name, api_key]):
                         raise ValueError("Missing one or more required environment variables: ENDPOINT, MODEL_NAME, API_KEY")
                     client = ChatCompletionsClient(
-                        endpoint=endpoint, credential=AzureKeyCredential(api_key),
-                        api_version="2024-05-01-preview", connection_verify=verify_ssl
+                        endpoint=endpoint,
+                        credential=AzureKeyCredential(api_key),
+                        api_version="2024-05-01-preview",
+                        connection_verify=verify_ssl
                     )
                     response = client.complete(
                         stream=True,
                         messages=[SystemMessage(content="You are a helpful coding assistant."), UserMessage(content=prompt)],
-                        max_tokens=Config.get_output_tokens(), model=model_name
+                        max_tokens=Config.get_output_tokens(),
+                        model=model_name
                     )
                     for update in response:
                         if update.choices and isinstance(update.choices, list) and len(update.choices) > 0:
@@ -563,6 +555,7 @@ def api_send_message(chat_id):
                                     with open(chat_path, "w", encoding="utf-8") as f:
                                         json.dump(chat_data, f, indent=2)
                     response.close()
+
                 chat_data["messages"] = [m for m in chat_data["messages"] if m["role"] != "assistant"]
                 chat_data["messages"].append({"role": "assistant", "content": response_content})
                 with open(chat_path, "w", encoding="utf-8") as f:
@@ -600,8 +593,34 @@ def api_auto_chat():
 
 @app.route('/favicon.ico')
 def favicon():
-    return send_from_directory(os.path.join(app.root_path, 'static'),
-                               'favicon.ico', mimetype='image/vnd.microsoft.icon')
+    return send_from_directory(
+        os.path.join(app.root_path, 'static'),
+        'favicon.ico',
+        mimetype='image/vnd.microsoft.icon'
+    )
+
+# --- Job Status Route (Added for Frontend) ---
+@app.route("/api/job-status", methods=["GET"])
+def api_job_status():
+    with job_queue_lock:
+        active_jobs = {
+            job["job_id"]: {
+                "status": "queued" if job["job_id"] != (running_job["job_id"] if running_job else None) else "running",
+                "projectId": job["project_id"]
+            }
+            for job in job_queue
+        }
+        if running_job:
+            active_jobs[running_job["job_id"]] = {
+                "status": "running",
+                "projectId": running_job["project_id"]
+            }
+    return jsonify({"activeJobs": active_jobs, "runStatus": {}})
+
+# --- Start Worker on App Start ---
+init_directories()
+load_job_history()
+start_worker()
 
 if __name__ == "__main__":
     app.run(port=5000, debug=True, threaded=True)
