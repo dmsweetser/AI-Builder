@@ -266,7 +266,18 @@ def api_unarchive_project(pid):
 @app.route("/api/queue", methods=["GET"])
 def api_get_queue():
     with job_queue_lock:
-        return jsonify({"queue": job_queue.copy(), "running": running_job})
+        projects = load_projects()
+        project_map = {p["id"]: p.get("name", "Unknown") for p in projects}
+        
+        running_name = project_map.get(running_job["project_id"], "Unknown") if running_job else None
+        queue_with_names = []
+        for j in job_queue:
+            queue_with_names.append({**j, "project_name": project_map.get(j["project_id"], "Unknown")})
+            
+        return jsonify({
+            "queue": queue_with_names, 
+            "running": {**running_job, "project_name": running_name} if running_job else None
+        })
 
 @app.route("/api/queue", methods=["POST"])
 def api_add_to_queue():

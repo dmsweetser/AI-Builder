@@ -698,7 +698,7 @@
         }
 
         .modal {
-            display: none;
+            display: none !important;
             position: fixed;
             z-index: 10001;
             left: 0;
@@ -1083,29 +1083,15 @@
 
             list.innerHTML = '';
 
-            let items = history.slice(0, 20);
+            let items = [...history];
             const historyIds = new Set(items.map(i => i.job_id));
 
             if (queueData.running && !historyIds.has(queueData.running.job_id)) {
-                items.unshift({
-                    job_id: queueData.running.job_id,
-                    project_id: queueData.running.project_id,
-                    project_name: 'Running',
-                    status: 'running',
-                    instructions: '',
-                    error: null
-                });
+                items.unshift(queueData.running);
             }
             queueData.queue.forEach(j => {
                 if (!historyIds.has(j.job_id)) {
-                    items.push({
-                        job_id: j.job_id,
-                        project_id: j.project_id,
-                        project_name: 'Queued',
-                        status: 'queued',
-                        instructions: '',
-                        error: null
-                    });
+                    items.push(j);
                 }
             });
 
