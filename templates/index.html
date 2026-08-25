@@ -1429,6 +1429,8 @@
                         const isDir = item.path.endsWith('/');
                         const itemElement = document.createElement('div');
                         itemElement.className = `tree-item ${isDir ? 'dir' : 'file'}`;
+                        itemElement.style.cursor = 'pointer';
+                        itemElement.style.padding = '5px 0';
 
                         const checkbox = document.createElement('input');
                         checkbox.type = 'checkbox';
@@ -1450,6 +1452,15 @@
                         label.appendChild(sizeLabel);
                         itemElement.appendChild(checkbox);
                         itemElement.appendChild(label);
+
+                        // Allow clicking anywhere on the row to toggle selection
+                        itemElement.onclick = (e) => {
+                            if (e.target !== checkbox) {
+                                checkbox.checked = !checkbox.checked;
+                                checkbox.onchange();
+                            }
+                        };
+
                         container.appendChild(itemElement);
                     });
 
@@ -1457,7 +1468,7 @@
                     if (loadTreeBtn) loadTreeBtn.disabled = false;
                     if (loadTreeText) loadTreeText.style.display = 'inline';
                     if (loadTreeSpinner) loadTreeSpinner.style.display = 'none';
-                    if (paginationDiv) renderPagination(paginationDiv, fileTreePage, fileTreeTotal, 50, loadFileTree);
+                    if (paginationDiv) renderPagination(paginationDiv, fileTreePage, fileTreeTotal, 50, loadFileTree, false);
                 })
                 .catch(err => {
                     console.error('Failed to load file tree:', err);
@@ -1508,6 +1519,8 @@
                         const isDir = item.path.endsWith('/');
                         const itemElement = document.createElement('div');
                         itemElement.className = `tree-item ${isDir ? 'dir' : 'file'}`;
+                        itemElement.style.cursor = 'pointer';
+                        itemElement.style.padding = '5px 0';
 
                         const checkbox = document.createElement('input');
                         checkbox.type = 'checkbox';
@@ -1529,6 +1542,15 @@
                         label.appendChild(sizeLabel);
                         itemElement.appendChild(checkbox);
                         itemElement.appendChild(label);
+
+                        // Allow clicking anywhere on the row to toggle selection
+                        itemElement.onclick = (e) => {
+                            if (e.target !== checkbox) {
+                                checkbox.checked = !checkbox.checked;
+                                checkbox.onchange();
+                            }
+                        };
+
                         container.appendChild(itemElement);
                     });
 
@@ -1536,7 +1558,7 @@
                     if (loadTreeBtn) loadTreeBtn.disabled = false;
                     if (loadTreeText) loadTreeText.style.display = 'inline';
                     if (loadTreeSpinner) loadTreeSpinner.style.display = 'none';
-                    if (paginationDiv) renderPagination(paginationDiv, detailsFileTreePage, detailsFileTreeTotal, 50, loadDetailsFileTree);
+                    if (paginationDiv) renderPagination(paginationDiv, detailsFileTreePage, detailsFileTreeTotal, 50, loadDetailsFileTree, true);
                 })
                 .catch(err => {
                     console.error('Failed to load details file tree:', err);
@@ -1547,15 +1569,16 @@
                 });
         }
 
-        function renderPagination(container, currentPage, total, limit, callback) {
+        function renderPagination(container, currentPage, total, limit, callback, isDetails = false) {
             const totalPages = Math.ceil(total / limit);
             if (totalPages <= 1) return;
+            const pageVar = isDetails ? 'detailsFileTreePage' : 'fileTreePage';
             container.innerHTML = `
                 <div style="display:flex; justify-content:center; gap:10px; margin-top:10px;">
-                    <button class="btn-sm" onclick="event.stopPropagation(); ${callback.name}(false)"
+                    <button class="btn-sm" onclick="event.stopPropagation(); ${pageVar} = Math.max(0, ${pageVar} - 1); ${callback.name}(false)"
                             ${currentPage === 0 ? 'disabled' : ''}>PREV</button>
                     <span style="align-self:center;">Page ${currentPage + 1} of ${totalPages} (${total} files)</span>
-                    <button class="btn-sm" onclick="event.stopPropagation(); ${callback.name}(false)"
+                    <button class="btn-sm" onclick="event.stopPropagation(); ${pageVar} = Math.min(${totalPages - 1}, ${pageVar} + 1); ${callback.name}(false)"
                             ${currentPage >= totalPages - 1 ? 'disabled' : ''}>NEXT</button>
                 </div>
             `;
