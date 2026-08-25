@@ -37,7 +37,7 @@ echo "Select a model:"
 echo "1) Devstral-24B-Instruct-GGUF (Default)"
 echo "2) Qwen3.6-35B-A3B"
 echo "3) Ministral3-8B"
-echo "4) Qwen3.8-27B"
+echo "4) Gemma4-E4B"
 read -p "Enter choice: " model_choice
 
 MODEL_PATH=""
@@ -78,18 +78,18 @@ elif [ "$model_choice" == "3" ]; then
     TOP_K=40
     MIN_P=0.00
 elif [ "$model_choice" == "4" ]; then
-    MODEL_PATH="aib_instance/models/Qwen3.8-27B-UD-Q4_K_M.gguf"
+    MODEL_PATH="aib_instance/models/gemma-4-E4B-it-Q4_K_M.gguf"
     if [ ! -f "$MODEL_PATH" ]; then
         echo "Downloading $MODEL_PATH..."
-        wget -O "$MODEL_PATH" "https://huggingface.co/unsloth/Qwen3.8-27B-GGUF/resolve/main/Qwen3.8-27B-UD-Q4_K_M.gguf?download=true"
+        wget -O "$MODEL_PATH" "https://huggingface.co/unsloth/gemma-4-E4B-it-GGUF/resolve/main/gemma-4-E4B-it-Q4_K_M.gguf?download=true"
     else
         echo "$MODEL_PATH already exists, skipping download."
     fi
     CONTEXT_SIZE=262144
     OUTPUT_TOKENS=131072
-    TEMPERATURE=0.7
-    TOP_P=0.8
-    TOP_K=20
+    TEMPERATURE=1.0
+    TOP_P=0.95
+    TOP_K=64
     MIN_P=0.0
 else
     MODEL_PATH="aib_instance/models/Devstral-Small-2-24B-Instruct-2512-Q4_K_M.gguf"
