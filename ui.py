@@ -10,6 +10,7 @@ import threading
 import shutil
 import atexit
 import signal
+import re
 from datetime import datetime
 from flask import Flask, Response, request, jsonify, render_template, send_from_directory
 
@@ -397,8 +398,12 @@ def api_files():
                 rel_root = ""
             for f in files:
                 rel_path = os.path.join(rel_root, f) if rel_root else f
-                if search and search not in rel_path.lower():
-                    continue
+                if search:
+                    # Convert search pattern to regex to support * as wildcard
+                    escaped_search = re.escape(search).replace(r'\*', '.*')
+                    regex_pattern = f".*{escaped_search}.*"
+                    if not re.search(regex_pattern, rel_path, re.IGNORECASE):
+                        continue
                 try:
                     file_size = os.path.getsize(os.path.join(root, f))
                     all_paths.append({"path": rel_path, "size": file_size})
