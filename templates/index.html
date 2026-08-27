@@ -1147,7 +1147,7 @@
                                 ${job.project_name || 'Unknown Project'}
                             </span>
                             <span class="project-item-status" style="background:${statusClass};">
-                                ${job.status.toUpperCase()}
+                                ${job.status}
                             </span>
                         </div>
                         <div style="display:flex; gap:5px;">
@@ -1962,7 +1962,7 @@
                                 const msgElement = document.createElement('div');
                                 msgElement.className = `chat-msg ${msg.role}`;
                                 msgElement.innerHTML = `
-                                    <strong>${msg.role.toUpperCase()}</strong>
+                                    <strong>${msg.role}</strong>
                                     <div class="markdown-content">${renderMarkdown(msg.content)}</div>
                                 `;
                                 addCopyButton(msgElement.querySelector('.markdown-content'));
