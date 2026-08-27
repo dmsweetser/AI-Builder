@@ -1083,6 +1083,12 @@
                 fetch('/api/history').then(r => r.json())
             ]).then(([queueData, history]) => {
                 renderJobs(queueData, history);
+                // Update run button state for the currently selected project
+                if (currentProjectId) {
+                    const isRunning = queueData.running && queueData.running.project_id === currentProjectId;
+                    const isQueued = (queueData.queue || []).some(j => j.project_id === currentProjectId);
+                    updateRunButtonState(currentProjectId, isRunning || isQueued);
+                }
             }).catch(err => {
                 console.error('Failed to load jobs:', err);
                 document.getElementById('jobs-list').innerHTML = '<div class="note warning">Failed to load jobs.</div>';
