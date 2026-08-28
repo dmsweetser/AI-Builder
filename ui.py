@@ -109,6 +109,10 @@ def worker():
             job_history[-1]["status"] = "error"
             job_history[-1]["error"] = str(e)
         finally:
+            # Check for incomplete actions file
+            actions_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aib_instance", "output", job_id, "actions.txt")
+            if os.path.exists(actions_file):
+                job_history[-1]["incomplete"] = True
             save_job_history()
             with job_queue_lock:
                 running_job = None
@@ -273,12 +277,20 @@ def api_get_queue():
         running_name = project_map.get(running_job["project_id"], "Unknown") if running_job else None
         queue_with_names = []
         for j in job_queue:
-            queue_with_names.append({**j, "project_name": project_map.get(j["project_id"], "Unknown")})
+            queue_with_names.append({**j, "project_name": project_map.get(j["project_id"], "Unknown"), "status": "queued"})
             
         return jsonify({
             "queue": queue_with_names, 
             "running": {**running_job, "project_name": running_name} if running_job else None
         })
+
+@app.route("/api/job/<job_id>/actions", methods=["GET"])
+def api_get_job_actions(job_id):
+    actions_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aib_instance", "output", job_id, "actions.txt")
+    if os.path.exists(actions_path):
+        with open(actions_path, 'r', encoding='utf-8') as f:
+            return jsonify({"content": f.read()})
+    return jsonify({"content": "", "error": "No actions file found"})
 
 @app.route("/api/queue", methods=["POST"])
 def api_add_to_queue():
@@ -309,7 +321,7 @@ def api_add_to_queue():
                 "suggestion": "Add specific file patterns or exclusion patterns to limit the scope."
             }), 400
 
-    job_id = str(uuid.uuid4())
+    job_id = str(int(time.time() * 1000))
     output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aib_instance", "output", job_id)
     try:
         if os.path.exists(output_dir):

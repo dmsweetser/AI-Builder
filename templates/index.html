@@ -883,7 +883,7 @@
                         <label>SELECTED PATHS</label>
                         <div class="selected-paths-list" id="selected-paths-container"></div>
                         <div class="flex-row">
-                            <input type="text" id="new-path-input" placeholder="Add file path...">
+                            <input type="text" id="new-path-input" placeholder="Add file path..." onkeydown="if(event.key==='Enter') { event.preventDefault(); addNewPath(); }">
                             <button type="button" onclick="addNewPath()" class="btn-sm">ADD</button>
                         </div>
                         <input type="hidden" name="includePatterns" id="patterns-input">
@@ -1027,6 +1027,16 @@
         </div>
     </div>
 
+    <div id="actions-modal" class="modal">
+        <div class="modal-content" style="max-width: 700px;">
+            <h2>INCOMPLETE ACTIONS</h2>
+            <pre id="actions-modal-content" style="white-space: pre-wrap; font-family: monospace; font-size: 12px; background: #222; padding: 10px; border: 2px solid #444; max-height: 400px; overflow-y: auto; text-align: left;"></pre>
+            <div style="display:flex; gap:10px; margin-top:15px;">
+                <button onclick="closeActionsModal()" class="btn-sm" style="flex:1;">CLOSE</button>
+            </div>
+        </div>
+    </div>
+
     <script>
         // === Global State ===
         let currentProjectId = localStorage.getItem('currentProjectId') || null;
@@ -1085,9 +1095,13 @@
                 renderJobs(queueData, history);
                 // Update run button state for the currently selected project
                 if (currentProjectId) {
-                    const isRunning = queueData.running && queueData.running.project_id === currentProjectId;
-                    const isQueued = (queueData.queue || []).some(j => j.project_id === currentProjectId);
-                    updateRunButtonState(currentProjectId, isRunning || isQueued);
+                    let currentStatus = null;
+                    if (queueData.running && queueData.running.project_id === currentProjectId) {
+                        currentStatus = 'running';
+                    } else if ((queueData.queue || []).some(j => j.project_id === currentProjectId)) {
+                        currentStatus = 'queued';
+                    }
+                    updateRunButtonState(currentProjectId, currentStatus);
                 }
             }).catch(err => {
                 console.error('Failed to load jobs:', err);
@@ -1140,6 +1154,14 @@
                     </div>
                 ` : '';
 
+                const incompleteHtml = job.incomplete ? `
+                    <div style="margin-top:5px;">
+                        <button class="btn-sm" style="background:#a03030;" onclick="event.stopPropagation(); openActionsModal('${job.job_id}')">
+                            VIEW INCOMPLETE ACTIONS
+                        </button>
+                    </div>
+                ` : '';
+
                 item.innerHTML = `
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:5px;">
                         <div style="display:flex; align-items:center; gap:8px; flex:1; min-width:0;">
@@ -1159,6 +1181,7 @@
                     </div>
                     <span style="color: #ccc; font-size: 8px;">Job: ${job.job_id.substring(0, 8)}...</span>
                     ${instructionsHtml}
+                    ${incompleteHtml}
                     ${job.error ? `<div style="color:#f55; margin-top:5px; font-size:10px;">Error: ${escapeHtml(job.error)}</div>` : ''}
                 `;
                 item.onclick = () => goToProject(job.project_id);
@@ -1283,25 +1306,25 @@
                 .catch(err => console.error('Failed to stop project:', err));
         }
 
-        function updateRunButtonState(projectId, isRunning) {
+        function updateRunButtonState(projectId, status) {
             const listBtn = document.getElementById(`run-btn-${projectId}`);
             const stopListBtn = document.getElementById(`stop-btn-${projectId}`);
             const detailBtn = document.getElementById('details-run-btn');
             const detailStopBtn = document.getElementById('details-stop-btn');
 
             if (listBtn) {
-                listBtn.disabled = isRunning;
-                listBtn.innerHTML = isRunning ? '<span class="spinner"></span> RUNNING...' : 'RUN';
+                listBtn.disabled = status === 'running';
+                listBtn.innerHTML = status === 'running' ? '<span class="spinner"></span> RUNNING...' : status === 'queued' ? '<span class="spinner"></span> QUEUED' : 'RUN';
             }
             if (stopListBtn) {
-                stopListBtn.style.display = isRunning ? 'inline-block' : 'none';
+                stopListBtn.style.display = status === 'running' ? 'inline-block' : 'none';
             }
             if (detailBtn && currentProjectId === projectId) {
-                detailBtn.disabled = isRunning;
-                detailBtn.innerHTML = isRunning ? '<span class="run-spinner"></span> RUNNING...' : 'RUN AI BUILDER';
+                detailBtn.disabled = status === 'running';
+                detailBtn.innerHTML = status === 'running' ? '<span class="run-spinner"></span> RUNNING...' : status === 'queued' ? '<span class="run-spinner"></span> QUEUED' : 'RUN AI BUILDER';
             }
             if (detailStopBtn && currentProjectId === projectId) {
-                detailStopBtn.style.display = isRunning ? 'inline-block' : 'none';
+                detailStopBtn.style.display = status === 'running' ? 'inline-block' : 'none';
             }
         }
 
@@ -1862,6 +1885,30 @@
                     })
                     .catch(err => console.error('Failed to copy:', err));
             }
+        }
+
+        function openActionsModal(jobId) {
+            const modal = document.getElementById('actions-modal');
+            const contentPre = document.getElementById('actions-modal-content');
+            if (!modal || !contentPre) return;
+
+            contentPre.textContent = 'LOADING...';
+            modal.style.display = 'flex';
+
+            fetch(`/api/job/${jobId}/actions`)
+                .then(res => res.json())
+                .then(data => {
+                    contentPre.textContent = data.content || 'No actions file found.';
+                })
+                .catch(err => {
+                    contentPre.textContent = 'Failed to load actions: ' + err.message;
+                    console.error('Failed to load actions:', err);
+                });
+        }
+
+        function closeActionsModal() {
+            const modal = document.getElementById('actions-modal');
+            if (modal) modal.style.display = 'none';
         }
 
         // === Chat Management ===
