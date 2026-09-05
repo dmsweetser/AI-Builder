@@ -101,12 +101,11 @@ elif [ "$model_choice" == "5" ]; then
     else
         echo "$MODEL_PATH already exists, skipping download."
     fi
-    # UNVERIFIED PARAMS
     CONTEXT_SIZE=262144
     OUTPUT_TOKENS=131072
     TEMPERATURE=1.0
     TOP_P=0.95
-    TOP_K=64
+    TOP_K=20
     MIN_P=0.0
 elif [ "$model_choice" == "6" ]; then
     MODEL_PATH="aib_instance/models/Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf"
