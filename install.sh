@@ -34,10 +34,12 @@ pip install -r requirements.txt
 
 # Model selection and configuration
 echo "Select a model:"
-echo "1) Devstral-24B-Instruct-GGUF (Default)"
-echo "2) Qwen3.6-35B-A3B"
-echo "3) Ministral3-8B"
-echo "4) Gemma4-E4B"
+echo "1) Devstral-Small-2-24B-Instruct-2512-Q4_K_M.gguf (Default)"
+echo "2) Qwen3.6-35B-A3B-UD-Q4_K_M.gguf"
+echo "3) Ministral-3-8B-Instruct-2512-Q4_K_M.gguf"
+echo "4) gemma-4-E4B-it-Q4_K_M.gguf"
+echo "5) TIR-Qwen3.5-9B-NonThinking-v2.Q4_K_M.gguf"
+echo "6) Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf"
 read -p "Enter choice: " model_choice
 
 MODEL_PATH=""
@@ -90,6 +92,35 @@ elif [ "$model_choice" == "4" ]; then
     TEMPERATURE=1.0
     TOP_P=0.95
     TOP_K=64
+    MIN_P=0.0
+elif [ "$model_choice" == "5" ]; then
+    MODEL_PATH="aib_instance/models/TIR-Qwen3.5-9B-NonThinking-v2.Q4_K_M.gguf"
+    if [ ! -f "$MODEL_PATH" ]; then
+        echo "Downloading $MODEL_PATH..."
+        wget -O "$MODEL_PATH" "https://huggingface.co/mradermacher/TIR-Qwen3.5-9B-NonThinking-v2-GGUF/resolve/main/TIR-Qwen3.5-9B-NonThinking-v2.Q4_K_M.gguf?download=true"
+    else
+        echo "$MODEL_PATH already exists, skipping download."
+    fi
+    # UNVERIFIED PARAMS
+    CONTEXT_SIZE=262144
+    OUTPUT_TOKENS=131072
+    TEMPERATURE=1.0
+    TOP_P=0.95
+    TOP_K=64
+    MIN_P=0.0
+elif [ "$model_choice" == "6" ]; then
+    MODEL_PATH="aib_instance/models/Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf"
+    if [ ! -f "$MODEL_PATH" ]; then
+        echo "Downloading $MODEL_PATH..."
+        wget -O "$MODEL_PATH" "https://huggingface.co/unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF/resolve/main/Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf?download=true"
+    else
+        echo "$MODEL_PATH already exists, skipping download."
+    fi
+    CONTEXT_SIZE=262144
+    OUTPUT_TOKENS=131072
+    TEMPERATURE=0.7
+    TOP_P=0.8
+    TOP_K=20
     MIN_P=0.0
 else
     MODEL_PATH="aib_instance/models/Devstral-Small-2-24B-Instruct-2512-Q4_K_M.gguf"
