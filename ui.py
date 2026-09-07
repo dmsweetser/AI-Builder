@@ -367,7 +367,26 @@ def api_delete_project(pid):
 # --- Routes: History ---
 @app.route("/api/history", methods=["GET"])
 def api_get_history():
-    current_job_history = sorted(job_history, key=lambda x: x["timestamp"], reverse=True)
+    with job_queue_lock:
+        projects = load_projects()
+        project_map = {p["id"]: p.get("name", "Unknown") for p in projects}
+        
+        queued_jobs = []
+        for j in job_queue:
+            queued_jobs.append({
+                "job_id": j["job_id"],
+                "project_id": j["project_id"],
+                "project_name": project_map.get(j["project_id"], "Unknown"),
+                "status": "queued",
+                "timestamp": datetime.now().isoformat()
+            })
+        
+        current_job_history = sorted(job_history, key=lambda x: x["timestamp"], reverse=True)
+        history_ids = {h["job_id"] for h in current_job_history}
+        for qj in queued_jobs:
+            if qj["job_id"] not in history_ids:
+                current_job_history.insert(0, qj)
+                
     return jsonify(current_job_history)
 
 @app.route("/api/history/clear", methods=["POST"])
