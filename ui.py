@@ -430,10 +430,17 @@ def api_files():
             for f in files:
                 rel_path = os.path.join(rel_root, f) if rel_root else f
                 if search:
-                    # Convert search pattern to regex to support * as wildcard
-                    escaped_search = re.escape(search).replace(r'\*', '.*')
-                    regex_pattern = f".*{escaped_search}.*"
-                    if not re.search(regex_pattern, rel_path, re.IGNORECASE):
+                    # Parse comma-separated criteria with OR logic and ! negation
+                    criteria = [c.strip() for c in search.split(',') if c.strip()]
+                    pos_pats = [c for c in criteria if not c.startswith('!')]
+                    neg_pats = [c[1:].strip() for c in criteria if c.startswith('!')]
+
+                    has_positive_match = any(re.search(re.escape(p).replace(r'\*', '.*'), rel_path, re.IGNORECASE) for p in pos_pats)
+                    has_negative_match = any(re.search(re.escape(p).replace(r'\*', '.*'), rel_path, re.IGNORECASE) for p in neg_pats)
+
+                    if pos_pats and not has_positive_match:
+                        continue
+                    if has_negative_match:
                         continue
                 try:
                     file_size = os.path.getsize(os.path.join(root, f))
