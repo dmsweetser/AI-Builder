@@ -874,7 +874,7 @@
                                 <span style="font-size: 11px;">SHOW SELECTED ONLY</span>
                             </label>
                         </div>
-                        <input type="text" id="tree-search" placeholder="Search files/folders...(wildcards accepted)"
+                        <input type="text" id="tree-search" placeholder="Search (comma=OR, !=exclude, e.g., 'main,test,!venv')..."
                             oninput="filterTree()">
                         <div id="file-tree-container" style="position: relative; max-height: 400px; overflow-y: auto;">
                             <div id="file-tree-loading-overlay" class="file-tree-overlay">PROCESSING...</div>
@@ -927,7 +927,7 @@
                                     <span style="font-size: 11px;">SHOW SELECTED ONLY</span>
                                 </label>
                             </div>
-                            <input type="text" id="details-tree-search" placeholder="Search files/folders..."
+                            <input type="text" id="details-tree-search" placeholder="Search (comma=OR, !=exclude, e.g., 'main,test,!venv')..."
                                 oninput="detailsFilterTree()">
                             <div id="details-file-tree-container"
                                 style="max-height: 400px; overflow-y: auto; position: relative;">
@@ -1460,8 +1460,16 @@
                 .then(data => {
                     if (!container) return;
                     container.innerHTML = '';
-                    const paths = data.files || [];
+                    let paths = data.files || [];
                     fileTreeTotal = data.total || 0;
+
+                    const showSelectedOnly = document.getElementById('show-selected-only-new').checked;
+                    if (showSelectedOnly) {
+                        const selectedPaths = Array.from(document.querySelectorAll('#selected-paths-container .path-item'))
+                            .map(el => el.dataset.path);
+                        paths = paths.filter(p => selectedPaths.includes(p.path));
+                        fileTreeTotal = paths.length;
+                    }
 
                     const currentPaths = Array.from(document.querySelectorAll('#selected-paths-container .path-item'))
                         .map(el => el.dataset.path);
@@ -1550,8 +1558,16 @@
                 .then(data => {
                     if (!container) return;
                     container.innerHTML = '';
-                    const paths = data.files || [];
+                    let paths = data.files || [];
                     detailsFileTreeTotal = data.total || 0;
+
+                    const showSelectedOnly = document.getElementById('details-show-selected-only').checked;
+                    if (showSelectedOnly) {
+                        const selectedPaths = Array.from(document.querySelectorAll('#details-selected-paths-container .path-item'))
+                            .map(el => el.dataset.path);
+                        paths = paths.filter(p => selectedPaths.includes(p.path));
+                        detailsFileTreeTotal = paths.length;
+                    }
 
                     const currentPaths = Array.from(document.querySelectorAll('#details-selected-paths-container .path-item'))
                         .map(el => el.dataset.path);

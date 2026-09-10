@@ -40,6 +40,7 @@ echo "3) Ministral-3-8B-Instruct-2512-Q4_K_M.gguf"
 echo "4) gemma-4-E4B-it-Q4_K_M.gguf"
 echo "5) TIR-Qwen3.5-9B-NonThinking-v2.Q4_K_M.gguf"
 echo "6) Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf"
+echo "7) Qwen3.8-27B-OBLITERATED-Mythos-Class-Agentic.Q4_K_M.gguf"
 read -p "Enter choice: " model_choice
 
 MODEL_PATH=""
@@ -118,6 +119,20 @@ elif [ "$model_choice" == "6" ]; then
     CONTEXT_SIZE=262144
     OUTPUT_TOKENS=131072
     TEMPERATURE=0.7
+    TOP_P=0.8
+    TOP_K=20
+    MIN_P=0.0
+elif [ "$model_choice" == "7" ]; then
+    MODEL_PATH="aib_instance/models/Qwen3.8-27B-OBLITERATED-Mythos-Class-Agentic.Q4_K_M.gguf"
+    if [ ! -f "$MODEL_PATH" ]; then
+        echo "Downloading $MODEL_PATH..."
+        wget -O "$MODEL_PATH" "https://huggingface.co/mradermacher/Qwen3.8-27B-OBLITERATED-Mythos-Class-Agentic-GGUF/resolve/main/Qwen3.8-27B-OBLITERATED-Mythos-Class-Agentic.Q4_K_M.gguf?download=true"
+    else
+        echo "$MODEL_PATH already exists, skipping download."
+    fi
+    CONTEXT_SIZE=262144
+    OUTPUT_TOKENS=131072
+    TEMPERATURE=0.65
     TOP_P=0.8
     TOP_K=20
     MIN_P=0.0
