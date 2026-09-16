@@ -49,6 +49,10 @@ def load_job_history():
         try:
             with open(HISTORY_FILE, 'r') as f:
                 job_history = json.load(f)
+            # Reset any lingering "running" jobs to "stopped" on startup
+            for job in job_history:
+                if job.get("status") == "running":
+                    job["status"] = "stopped"
         except Exception:
             job_history = []
     else:
