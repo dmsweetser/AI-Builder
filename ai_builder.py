@@ -35,6 +35,29 @@ class FileParser:
         result = result.replace("<<LITERAL_NEWLINE>>", "\\n")
         return result
 
+    def escape_newline_sequences(content: str) -> str:
+        """
+        Replace all newline-related sequences with unique tokens to prevent LLM misinterpretation.
+        Order: Replace longer sequences first to avoid partial replacements.
+        """
+        content = content.replace("\r\n", "<<LITERAL_CRLF>>")
+        content = content.replace("\n", "<<LITERAL_NEWLINE>>")
+        content = content.replace("\\r\\n", "<<LITERAL_ESCAPED_CRLF>>")
+        content = content.replace("\\n", "<<LITERAL_ESCAPED_NEWLINE>>")
+        return content
+
+    @staticmethod
+    def unescape_newline_sequences(content: str) -> str:
+        """
+        Restore all newline-related sequences from tokens.
+        Order: Reverse of escape order to avoid partial replacements.
+        """
+        content = content.replace("<<LITERAL_ESCAPED_CRLF>>", "\\r\\n")
+        content = content.replace("<<LITERAL_ESCAPED_NEWLINE>>", "\\n")
+        content = content.replace("<<LITERAL_CRLF>>", "\r\n")
+        content = content.replace("<<LITERAL_NEWLINE>>", "\n")
+        return content
+
     @staticmethod
     def parse_custom_format(content: str) -> List[Dict[str, Any]]:
         try:
@@ -98,7 +121,7 @@ class FileParser:
                 file_content = file_content_match.group(1)
                 return {
                     'action': 'create_file',
-                    'file_content': FileParser._safe_split(file_content)
+                    'file_content': file_content.split('\n')
                 }
             return None
         except Exception as e:
@@ -114,7 +137,7 @@ class FileParser:
                 file_content = file_content_match.group(1)
                 return {
                     'action': 'replace_file',
-                    'file_content': FileParser._safe_split(file_content)
+                    'file_content': file_content.split('\n')
                 }
             return None
         except Exception as e:
@@ -134,7 +157,7 @@ class FileParser:
                 return {
                     'action': 'replace_section',
                     'original_content': original_content,
-                    'file_content': FileParser._safe_split(file_content)
+                    'file_content': file_content.split('\n')
                 }
             return None
         except Exception as e:
@@ -545,7 +568,7 @@ class CodeUtility:
             raise
 
 class AIBuilder:
-    def __init__(self, job_id : str, project_config: Dict[str, Any] = None):
+    def __init__(self, job_id: str, project_config: Dict[str, Any] = None):
         self.project_config = project_config
         self.clean_mode = project_config is not None
         self.use_git_diff = False
@@ -646,9 +669,9 @@ class AIBuilder:
             for p in patterns:
                 p = p.strip()
                 if absolute_mode or os.path.isabs(p):
-                    full_path = p  # Treat as absolute
+                    full_path = p
                 else:
-                    full_path = os.path.join(directory, p)  # Treat as relative
+                    full_path = os.path.join(directory, p)
                 file_paths.append(full_path + ".bak")
 
             for full_path in file_paths:
@@ -664,6 +687,9 @@ class AIBuilder:
             raise
 
     def build_prompt(self, current_code: str, instructions: str) -> str:
+        escaped_code = FileParser.escape_newline_sequences(current_code)
+        escaped_instructions = FileParser.escape_newline_sequences(instructions)
+
         return f"""
 Generate a line-delimited format file that describes file modifications to apply using the `create_file`, `remove_file`, `replace_file`, and `replace_section` action types.
 Ensure all content is provided using line-delimited format-compatible entities.
@@ -714,9 +740,9 @@ Example output format:
 [aibuilder_end_action]
 Generate modifications logically based on the desired changes.
 Current code:
-{current_code}
+{escaped_code}
 Instructions:
-{instructions}
+{escaped_instructions}
 Reply ONLY in the specified format with no commentary. THAT'S AN ORDER, SOLDIER!
 """
 
@@ -834,17 +860,15 @@ Reply ONLY in the specified format with no commentary. THAT'S AN ORDER, SOLDIER!
                 exclude_patterns = [p.strip() for p in raw_exclude.split(",") if p.strip()] if isinstance(raw_exclude, str) else (raw_exclude if isinstance(raw_exclude, list) else [])
                 instructions = self.project_config.get("instructions", "")
 
-                # Handle both absolute and relative paths
                 diff_files = []
                 for p in patterns:
                     p = p.strip()
                     if os.path.isabs(p):
-                        diff_files.append(p)  # Use absolute path as-is
+                        diff_files.append(p)
                     elif self.root_directory:
                         full_path = os.path.join(self.root_directory, p)
                         diff_files.append(full_path)
                     else:
-                        # If no root directory, treat as absolute (user responsibility)
                         diff_files.append(p)
             else:
                 base_config_path = os.path.join("base_config.xml")
@@ -885,7 +909,6 @@ Reply ONLY in the specified format with no commentary. THAT'S AN ORDER, SOLDIER!
                                 logging.info("No files in git diff, falling back to directory walk.")
                                 self.utility.process_directory(self.root_directory, exclude_patterns, patterns, mode)
                         else:
-                            # Pass diff_files directly to process_directory with empty directory
                             self.utility.process_directory("", exclude_patterns, diff_files, mode)
 
                         if not os.path.exists(self.utility.output_file):
@@ -898,6 +921,7 @@ Reply ONLY in the specified format with no commentary. THAT'S AN ORDER, SOLDIER!
 
                         prompt = self.build_prompt(current_code, instructions)
                         response_content = self.run_model(prompt)
+                        response_content = FileParser.unescape_newline_sequences(response_content)
 
                         with open(modifications_format_path, 'w', encoding='utf-8') as modifications_file:
                             modifications_file.write(response_content)
@@ -905,7 +929,6 @@ Reply ONLY in the specified format with no commentary. THAT'S AN ORDER, SOLDIER!
 
                     if not Config.generate_but_do_not_apply():
                         changes = FileParser.parse_custom_format(response_content)
-                        # Pass diff_files as scope_paths to handle LLM output variances
                         incomplete_actions = FileModifier.apply_modifications(
                             changes,
                             self.root_directory,
@@ -917,7 +940,6 @@ Reply ONLY in the specified format with no commentary. THAT'S AN ORDER, SOLDIER!
 
                 except Exception as e:
                     logging.error(f"An error occurred: {str(e)}", exc_info=True)
-                    # Save error to actions.txt for UI display
                     try:
                         with open(actions_file_path, 'w', encoding='utf-8') as f:
                             f.write(f"ERROR: {str(e)}\n")
@@ -929,7 +951,6 @@ Reply ONLY in the specified format with no commentary. THAT'S AN ORDER, SOLDIER!
 
         except Exception as e:
             logging.error(f"An error occurred during execution: {str(e)}", exc_info=True)
-            # Save error to actions.txt for UI display
             try:
                 with open(actions_file_path, 'w', encoding='utf-8') as f:
                     f.write(f"FATAL ERROR: {str(e)}\n")
