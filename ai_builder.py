@@ -957,6 +957,43 @@ Reply ONLY in the specified format with no commentary. THAT'S AN ORDER, SOLDIER!
             except Exception:
                 pass
 
+# ---------------------------------------------------------------------------
+# Agent Engine Integration
+# ---------------------------------------------------------------------------
+# The new multi-step agentic engine lives in agent_engine.py.
+# This AIBuilder class now delegates to it for the primary workflow,
+# while keeping the old single-pass classes available for legacy compatibility.
+
+try:
+    from agent_engine import run as agent_run
+    _HAS_AGENT_ENGINE = True
+except ImportError:
+    _HAS_AGENT_ENGINE = False
+
+
+def run_with_agent_engine(project_config: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Run the new multi-step agentic engine.
+    This replaces the old single-pass workflow with a tool-based reasoning loop.
+    """
+    if not _HAS_AGENT_ENGINE:
+        logging.warning("agent_engine.py not found — falling back to legacy single-pass mode.")
+        return {}
+
+    # Ensure job_id is set
+    if "job_id" not in project_config:
+        import time
+        project_config["job_id"] = str(int(time.time() * 1000))
+
+    # Set environment variables the agent engine needs
+    os.environ["AIB_ROOT"] = project_config.get("rootDirectory", "")
+    os.environ["AIB_INSTRUCTIONS"] = project_config.get("instructions", "")
+    os.environ["AIB_PRE_SCRIPT"] = project_config.get("preScript", "")
+    os.environ["AIB_POST_SCRIPT"] = project_config.get("postScript", "")
+
+    return agent_run(project_config)
+
+
 if __name__ == "__main__":
     IS_LEGACY = True
     try:

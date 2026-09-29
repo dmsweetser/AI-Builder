@@ -14,11 +14,15 @@ import re
 from datetime import datetime
 from flask import Flask, Response, request, jsonify, render_template, send_from_directory
 
-from ai_builder import AIBuilder
+from ai_builder import AIBuilder, run_with_agent_engine
+from agent_engine import AgentEngine, EngineConfig, ToolResult
 from config import Config
 from azure.ai.inference import ChatCompletionsClient
 from azure.ai.inference.models import SystemMessage, UserMessage
 from azure.core.credentials import AzureKeyCredential
+
+# Engine mode: 'agent' (multi-step tool-based) or 'legacy' (single-pass)
+ENGINE_MODE = os.getenv("AIB_ENGINE_MODE", "agent").lower()
 
 app = Flask(__name__)
 
@@ -103,9 +107,19 @@ def worker():
 
         try:
             if project:
-                ai = AIBuilder(job_id, project)
-                ai.run()
-                job_history[-1]["status"] = "completed"
+                if ENGINE_MODE == "agent":
+                    # Use the new multi-step agentic engine
+                    result = run_with_agent_engine(project)
+                    job_history[-1]["status"] = result.get("status", "completed")
+                    job_history[-1]["summary"] = result.get("summary", "")
+                    job_history[-1]["steps"] = result.get("steps", 0)
+                    if result.get("status") == "error":
+                        job_history[-1]["error"] = result.get("error", "Unknown error")
+                else:
+                    # Legacy single-pass mode
+                    ai = AIBuilder(job_id, project)
+                    ai.run()
+                    job_history[-1]["status"] = "completed"
             else:
                 job_history[-1]["status"] = "error"
                 job_history[-1]["error"] = "Project not found"
@@ -679,6 +693,155 @@ def api_job_status():
 init_directories()
 load_job_history()
 start_worker()
+
+
+# --- SSE Streaming for Agentic Engine ---
+@app.route("/api/agent/run", methods=["POST"])
+def api_agent_run():
+    """Start the agentic engine and stream step results via SSE."""
+    data = request.get_json(silent=True) or {}
+    project_id = data.get("project_id")
+    instructions = data.get("instructions", "")
+    root_dir = data.get("rootDirectory", "")
+
+    if not project_id and not instructions:
+        return jsonify({"error": "project_id or instructions required"}), 400
+
+    # Get project if project_id provided
+    project = None
+    if project_id:
+        project, _ = get_project(project_id)
+        if not project:
+            return jsonify({"error": "Project not found"}), 404
+        instructions = project.get("instructions", "")
+        root_dir = project.get("rootDirectory", "")
+
+    if not root_dir:
+        return jsonify({"error": "rootDirectory required"}), 400
+
+    job_id = str(int(time.time() * 1000))
+    output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                              "aib_instance", "output", job_id)
+    try:
+        if os.path.exists(output_dir):
+            shutil.rmtree(output_dir)
+        os.makedirs(output_dir, exist_ok=True)
+    except Exception as e:
+        return jsonify({"error": f"Failed to create output directory: {str(e)}"}), 500
+
+    # Add to history
+    job_history.append({
+        "job_id": job_id,
+        "project_id": project_id,
+        "project_name": project.get("name", "Ad-hoc") if project else "Ad-hoc",
+        "status": "running",
+        "instructions": instructions,
+        "timestamp": datetime.now().isoformat()
+    })
+    save_job_history()
+
+    # Set environment variables for the engine
+    os.environ["AIB_ROOT"] = root_dir
+    os.environ["AIB_INSTRUCTIONS"] = instructions
+    os.environ["AIB_PRE_SCRIPT"] = project.get("preScript", "") if project else ""
+    os.environ["AIB_POST_SCRIPT"] = project.get("postScript", "") if project else ""
+
+    def generate():
+        yield "event: status\ndata: " + json.dumps({"type": "start", "job_id": job_id}) + "\n\n"
+
+        try:
+            config = {
+                "rootDirectory": root_dir,
+                "instructions": instructions,
+                "job_id": job_id,
+                "preScript": project.get("preScript", "") if project else "",
+                "postScript": project.get("postScript", "") if project else "",
+            }
+
+            engine = AgentEngine(config)
+            result = engine.run()
+
+            # Stream step history
+            for step in engine.step_history:
+                yield "event: step\ndata: " + json.dumps({
+                    "type": "step",
+                    "step": step["step"],
+                    "tool": step["tool"],
+                    "params": step.get("params", {}),
+                    "result": step.get("result", {}),
+                }) + "\n\n"
+                time.sleep(0.01)
+
+            # Final result
+            yield "event: status\ndata: " + json.dumps({
+                "type": "complete",
+                "status": result.get("status", "completed"),
+                "summary": result.get("summary", ""),
+                "steps": result.get("steps", 0),
+                "max_steps": result.get("max_steps", 50),
+            }) + "\n\n"
+
+            # Update history
+            job_history[-1]["status"] = result.get("status", "completed")
+            job_history[-1]["summary"] = result.get("summary", "")
+            job_history[-1]["steps"] = result.get("steps", 0)
+            if result.get("status") == "error":
+                job_history[-1]["error"] = result.get("error", "Unknown error")
+            save_job_history()
+
+        except Exception as e:
+            yield "event: status\ndata: " + json.dumps({
+                "type": "error",
+                "error": str(e),
+            }) + "\n\n"
+            job_history[-1]["status"] = "error"
+            job_history[-1]["error"] = str(e)
+            save_job_history()
+
+    return Response(generate(), mimetype='text/event-stream')
+
+
+@app.route("/api/agent/history/<job_id>", methods=["GET"])
+def api_agent_history(job_id):
+    """Get the step history for a completed agent run."""
+    step_log = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                            "aib_instance", "output", job_id, "steps.jsonl")
+    if os.path.exists(step_log):
+        steps = []
+        with open(step_log, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    try:
+                        steps.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        pass
+        return jsonify({"steps": steps})
+    return jsonify({"steps": []})
+
+
+@app.route("/api/agent/response/<job_id>", methods=["GET"])
+def api_agent_response(job_id):
+    """Get the current LLM response for a running agent run."""
+    response_file = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                 "aib_instance", "output", job_id, "current_response.txt")
+    if os.path.exists(response_file):
+        with open(response_file, 'r', encoding='utf-8') as f:
+            content = f.read()
+        return jsonify({"content": content})
+    return jsonify({"content": ""})
+
+
+@app.route("/api/agent/output/<job_id>", methods=["GET"])
+def api_agent_output(job_id):
+    """Get the output file for a job."""
+    output_file = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                               "aib_instance", "output", job_id, "output.txt")
+    if os.path.exists(output_file):
+        with open(output_file, 'r', encoding='utf-8') as f:
+            content = f.read()
+        return jsonify({"content": content})
+    return jsonify({"content": ""})
 
 if __name__ == "__main__":
     app.run(port=5000, debug=True, threaded=True)

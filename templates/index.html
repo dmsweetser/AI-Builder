@@ -901,6 +901,7 @@
             </div>
             <div class="sidebar-nav">
                 <button class="tab-btn active" onclick="showTab('projects')">PROJECTS</button>
+                <button class="tab-btn" onclick="showTab('agent')">AGENT</button>
                 <button class="tab-btn" onclick="showTab('jobs')">JOBS</button>
                 <button class="tab-btn" onclick="showTab('chat')">CHAT</button>
             </div>
@@ -962,6 +963,31 @@
                         <input type="hidden" name="iterations" value="1">
                         <button type="submit">CREATE PROJECT</button>
                     </form>
+                </div>
+            </div>
+            <div id="agent-panel" class="panel">
+                <div class="block">
+                    <h2>AGENTIC ENGINE</h2>
+                    <p class="note">Multi-step AI coding with live tool call streaming. Select a project or enter instructions directly.</p>
+                    <form id="agent-form">
+                        <label>SELECT PROJECT (OR LEAVE BLANK FOR AD-HOC)</label>
+                        <select id="agent-project-select" onchange="loadAgentProject()" style="width:100%;background:var(--dark-bg);color:var(--light-text);border:3px solid #555;padding:10px;font-family:'Press Start 2P',monospace;font-size:12px;">
+                            <option value="">-- Ad-hoc (enter root dir manually) --</option>
+                        </select>
+                        <label style="margin-top:10px;">ROOT DIRECTORY</label>
+                        <input type="text" id="agent-root-dir" placeholder="e.g., /home/user/project">
+                        <label style="margin-top:10px;">INSTRUCTIONS</label>
+                        <textarea id="agent-instructions" rows="6" placeholder="What changes do you want to make?"></textarea>
+                        <div style="display:flex;gap:10px;margin-top:15px;">
+                            <button type="submit" id="agent-run-btn">RUN AGENT</button>
+                            <button type="button" id="agent-stop-btn" style="background:#a03030;display:none;">STOP</button>
+                        </div>
+                    </form>
+                    <div id="agent-status" style="margin-top:15px;padding:10px;background:var(--dark-bg);border:2px solid var(--grass);font-size:10px;white-space:pre-wrap;word-wrap:break-word;max-height:100px;overflow-y:auto;display:none;"></div>
+                    <div id="agent-steps-container" style="margin-top:15px;display:none;">
+                        <h3 style="font-size:12px;margin-bottom:10px;">LIVE STEPS <span id="agent-step-count" style="color:var(--sky);"></span></h3>
+                        <div id="agent-steps" style="max-height:500px;overflow-y:auto;background:var(--dark-bg);border:3px solid #000;padding:10px;"></div>
+                    </div>
                 </div>
             </div>
             <div id="project-details-panel" class="panel">
@@ -1986,9 +2012,12 @@
             modal.style.display = 'flex';
 
             fetch(`/api/job/${jobId}/actions`)
-                .then(res => res.json())
+                .then(res => {
+                    if (!res.ok) throw new Error('Failed to load actions');
+                    return res.json();
+                })
                 .then(data => {
-                    contentPre.textContent = data.content || 'No actions file found.';
+                    contentPre.textContent = data.content !== undefined ? data.content : 'No actions file found.';
                 })
                 .catch(err => {
                     contentPre.textContent = 'Failed to load actions: ' + err.message;
@@ -2586,6 +2615,169 @@
 
             // Poll for job updates
             setInterval(loadJobs, 5000);
+
+            // === Agent Panel ===
+            // Load agent projects dropdown
+            fetch('/api/projects')
+                .then(res => res.json())
+                .then(projects => {
+                    const select = document.getElementById('agent-project-select');
+                    projects.forEach(p => {
+                        const opt = document.createElement('option');
+                        opt.value = p.id;
+                        opt.textContent = p.name;
+                        select.appendChild(opt);
+                    });
+                });
+
+            // Load project into agent form
+            window.loadAgentProject = function () {
+                const pid = document.getElementById('agent-project-select').value;
+                if (!pid) return;
+                fetch(`/api/projects/${pid}`)
+                    .then(res => res.json())
+                    .then(p => {
+                        document.getElementById('agent-root-dir').value = p.rootDirectory || '';
+                        document.getElementById('agent-instructions').value = p.instructions || '';
+                    });
+            };
+
+            // Run agent with SSE streaming
+            document.getElementById('agent-form').addEventListener('submit', function (e) {
+                e.preventDefault();
+                const projectId = document.getElementById('agent-project-select').value;
+                const rootDir = document.getElementById('agent-root-dir').value.trim();
+                const instructions = document.getElementById('agent-instructions').value.trim();
+
+                if (!rootDir) {
+                    alert('ERROR: Root Directory is REQUIRED.');
+                    return;
+                }
+
+                const runBtn = document.getElementById('agent-run-btn');
+                const stopBtn = document.getElementById('agent-stop-btn');
+                const statusDiv = document.getElementById('agent-status');
+                const stepsContainer = document.getElementById('agent-steps-container');
+                const stepsDiv = document.getElementById('agent-steps');
+                const stepCount = document.getElementById('agent-step-count');
+
+                runBtn.disabled = true;
+                runBtn.innerHTML = '<span class="run-spinner"></span> RUNNING...';
+                stopBtn.style.display = 'inline-block';
+                statusDiv.style.display = 'block';
+                stepsContainer.style.display = 'block';
+                stepsDiv.innerHTML = '';
+                stepCount.textContent = '';
+
+                let abortController = new AbortController();
+
+                stopBtn.onclick = function () {
+                    abortController.abort();
+                    runBtn.disabled = false;
+                    runBtn.innerHTML = 'RUN AGENT';
+                    stopBtn.style.display = 'none';
+                    statusDiv.textContent = 'Stopped by user.';
+                };
+
+                const formData = {
+                    project_id: projectId || undefined,
+                    rootDirectory: rootDir,
+                    instructions: instructions
+                };
+
+                statusDiv.textContent = 'Connecting...\n';
+
+                const evtSource = new EventSource(`/api/agent/run?project_id=${projectId}&rootDirectory=${encodeURIComponent(rootDir)}&instructions=${encodeURIComponent(instructions)}`);
+                // Note: EventSource doesn't support POST, so we use fetch + ReadableStream instead
+                evtSource.close();
+
+                // Use fetch with ReadableStream for SSE
+                fetch('/api/agent/run', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(formData),
+                    signal: abortController.signal
+                })
+                    .then(response => {
+                        if (!response.ok) {
+                            throw new Error(`HTTP ${response.status}`);
+                        }
+                        const reader = response.body.getReader();
+                        const decoder = new TextDecoder();
+                        let buffer = '';
+
+                        function read() {
+                            return reader.read().then(({ done, value }) => {
+                                if (done) {
+                                    runBtn.disabled = false;
+                                    runBtn.innerHTML = 'RUN AGENT';
+                                    stopBtn.style.display = 'none';
+                                    statusDiv.textContent += '\nJob complete.';
+                                    return;
+                                }
+
+                                buffer += decoder.decode(value, { stream: true });
+                                const lines = buffer.split('\n');
+                                buffer = lines.pop() || '';
+
+                                for (const line of lines) {
+                                    if (line.startsWith('data: ')) {
+                                        try {
+                                            const data = JSON.parse(line.slice(6));
+                                            if (data.type === 'start') {
+                                                statusDiv.textContent += `Started job: ${data.job_id}\n`;
+                                            } else if (data.type === 'step') {
+                                                const stepNum = data.step;
+                                                const tool = data.tool;
+                                                const success = data.result?.success !== false;
+                                                const summary = data.result?.summary || '';
+                                                const error = data.result?.error || '';
+
+                                                stepCount.textContent = `(${stepNum})`;
+
+                                                const stepEl = document.createElement('div');
+                                                stepEl.style.cssText = 'margin:5px 0;padding:8px;background:#2a2a2a;border:2px solid #444;font-size:10px;';
+
+                                                const toolColor = success ? 'var(--grass)' : '#a03030';
+                                                stepEl.innerHTML = `
+                                                    <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+                                                        <strong style="color:${toolColor};">[STEP ${stepNum}] ${tool}</strong>
+                                                        <span style="color:#888;">${success ? 'OK' : 'FAILED'}</span>
+                                                    </div>
+                                                    ${success && summary ? `<div style="color:#ccc;margin-bottom:4px;">${summary}</div>` : ''}
+                                                    ${!success && error ? `<div style="color:#f55;">${error}</div>` : ''}
+                                                    ${success && data.result?.file_paths?.length ? `<div style="color:#888;">Files: ${data.result.file_paths.slice(0, 5).join(', ')}${data.result.file_paths.length > 5 ? '...' : ''}</div>` : ''}
+                                                `;
+                                                stepsDiv.appendChild(stepEl);
+                                                stepsDiv.scrollTop = stepsDiv.scrollHeight;
+                                            } else if (data.type === 'complete') {
+                                                statusDiv.textContent += `\nCompleted: ${data.status}\nSteps: ${data.steps}/${data.max_steps}\n`;
+                                                if (data.summary) {
+                                                    statusDiv.textContent += `\nSummary: ${data.summary}\n`;
+                                                }
+                                            } else if (data.type === 'error') {
+                                                statusDiv.textContent += `\nError: ${data.error}\n`;
+                                            }
+                                        } catch (e) {
+                                            console.error('Failed to parse SSE data:', e);
+                                        }
+                                    }
+                                }
+
+                                return read();
+                            });
+                        }
+
+                        return read();
+                    })
+                    .catch(err => {
+                        if (err.name === 'AbortError') return;
+                        statusDiv.textContent += `\nError: ${err.message}\n`;
+                        runBtn.disabled = false;
+                        runBtn.innerHTML = 'RUN AGENT';
+                        stopBtn.style.display = 'none';
+                    });
+            });
         });
     </script>
 </body>
