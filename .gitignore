@@ -10,3 +10,4 @@ instructions.txt
 instance/*
 aib_instance/*
 .env*
+**/aib_instance/*
