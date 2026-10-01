@@ -208,10 +208,13 @@ def parse_tool_calls(response: str) -> List[Tuple[str, Dict[str, str]]]:
     """
     Parse tool calls from LLM response.
     Format: [TOOL:tool_name{param1:"value1",param2:"value2"}]
+    Supports optional whitespace around colons/braces and mixed-case tool names.
     Returns list of (tool_name, params_dict) tuples.
     """
     calls = []
-    pattern = r'\[TOOL:([a-z_]+)\{([^}]*)\}\]'
+    # More permissive: allow optional whitespace around ':', '{', '}',
+    # and support hyphens in tool names
+    pattern = r'\[TOOL:\s*([a-zA-Z_][a-zA-Z0-9_-]*)\s*\{([^}]*)\}\s*\]'
     for match in re.finditer(pattern, response):
         tool_name = match.group(1)
         params_str = match.group(2)
@@ -329,14 +332,58 @@ class AgentEngine:
                 # Parse tool calls
                 tool_calls = parse_tool_calls(response)
                 if not tool_calls:
-                    # No tool calls found - LLM may be reasoning
-                    reminder = (
-                        "\n\n[REMINDER] You must take action using the available tools. "
-                        "Use [TOOL:tool_name{param:\"value\"}] format to call tools, "
-                        "or [DONE] when you have finished all changes."
+                    # No tool calls found - LLM may be reasoning or stuck
+                    # Check if we're in a loop (same response pattern repeated)
+                    last_user_msg = ""
+                    for msg in reversed(self.messages):
+                        if msg["role"] == "user":
+                            last_user_msg = msg.get("content", "")
+                            break
+
+                    # Check for repetition: if the last assistant message is very similar
+                    # to the current response, send a stronger prompt
+                    last_assistant = ""
+                    for msg in reversed(self.messages):
+                        if msg["role"] == "assistant":
+                            last_assistant = msg.get("content", "")
+                            break
+
+                    is_repeating = (
+                        last_assistant and response.strip() == last_assistant.strip()
                     )
-                    self.messages.append({"role": "assistant", "content": response + reminder})
+
+                    if is_repeating:
+                        # LLM is stuck in a loop — tell it to stop and use [DONE]
+                        stuck_msg = (
+                            "\n\n[LOOP DETECTED] You are repeating the same output. "
+                            "Either complete the task with [DONE] and a summary, "
+                            "or use a different tool call. Do NOT repeat the same tool call."
+                        )
+                        self.messages.append({"role": "assistant", "content": response + stuck_msg})
+                    else:
+                        reminder = (
+                            "\n\n[REMINDER] You must take action using the available tools. "
+                            "Use [TOOL:tool_name{param:\"value\"}] format to call tools, "
+                            "or [DONE] when you have finished all changes."
+                        )
+                        self.messages.append({"role": "assistant", "content": response + reminder})
                     continue
+
+                # Strip tool call markers from the response before appending to history.
+                # This prevents the LLM from seeing its own tool calls in the conversation,
+                # which causes it to repeat them verbatim.
+                cleaned_response = re.sub(
+                    r'\[TOOL:\s*[a-zA-Z_][a-zA-Z0-9_-]*\s*\{[^}]*\}\s*\]\s*',
+                    '',
+                    response
+                ).strip()
+
+                # Append cleaned response once (before all tool results)
+                if cleaned_response:
+                    self.messages.append({
+                        "role": "assistant",
+                        "content": cleaned_response
+                    })
 
                 # Process each tool call
                 for tool_name, params in tool_calls:
@@ -370,11 +417,7 @@ class AgentEngine:
                     with open(self.step_log_file, 'a', encoding='utf-8') as f:
                         f.write(json.dumps(step_entry) + '\n')
 
-                    # Feed result back to conversation
-                    self.messages.append({
-                        "role": "assistant",
-                        "content": response
-                    })
+                    # Feed tool result back to conversation
                     self.messages.append({
                         "role": "system",
                         "content": f"[TOOL RESULT for {tool_name}]\n{result_text}\n[END TOOL RESULT]\n\nNow continue with your next action."
