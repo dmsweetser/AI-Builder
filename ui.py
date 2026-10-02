@@ -11,6 +11,7 @@ import shutil
 import atexit
 import signal
 import re
+import logging
 from datetime import datetime
 from flask import Flask, Response, request, jsonify, render_template, send_from_directory
 
@@ -31,6 +32,7 @@ STATUS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aib_inst
 HISTORY_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aib_instance", "job_history.json")
 PROJECTS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aib_instance", "projects.json")
 CHATS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aib_instance", "chats")
+SETTINGS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aib_instance", "settings.json")
 
 # --- Global State (Thread-Safe) ---
 job_queue = []
@@ -40,12 +42,111 @@ job_queue_lock = threading.Lock()
 stop_event = threading.Event()
 worker_thread = None
 
+# --- Settings State ---
+settings_lock = threading.Lock()
+settings_cache = {}
+
+def load_settings():
+    """Load settings from disk, falling back to env vars."""
+    global settings_cache
+    with settings_lock:
+        if settings_cache:
+            return settings_cache.copy()
+
+        loaded = {}
+        if os.path.exists(SETTINGS_FILE):
+            try:
+                with open(SETTINGS_FILE, 'r') as f:
+                    loaded = json.load(f)
+            except Exception:
+                loaded = {}
+
+        # Fill defaults from env vars for anything not in settings file
+        loaded.setdefault('use_local_model', os.getenv("USE_LOCAL_MODEL", "false").lower() == "true")
+        loaded.setdefault('model_path', os.getenv("MODEL_PATH", ""))
+        loaded.setdefault('llama_binary', os.getenv("LLAMA_BINARY_PATH", ""))
+        loaded.setdefault('temperature', float(os.getenv("TEMPERATURE", "0.1")))
+        loaded.setdefault('top_p', float(os.getenv("TOP_P", "0.9")))
+        loaded.setdefault('top_k', int(os.getenv("TOP_K", "40")))
+        loaded.setdefault('min_p', float(os.getenv("MIN_P", "0.0")))
+        loaded.setdefault('output_tokens', int(os.getenv("OUTPUT_TOKENS", "8192")))
+        loaded.setdefault('model_context', int(os.getenv("MODEL_CONTEXT", "128000")))
+        loaded.setdefault('max_steps', int(os.getenv("AIB_MAX_STEPS", "50")))
+        loaded.setdefault('endpoint', os.getenv("ENDPOINT", ""))
+        loaded.setdefault('model_name', os.getenv("MODEL_NAME", ""))
+        loaded.setdefault('api_key', os.getenv("API_KEY", ""))
+        loaded.setdefault('verify_ssl', os.getenv("VERIFY_SSL", "false").lower() == "true")
+        loaded.setdefault('generate_but_do_not_apply', os.getenv("GENERATE_BUT_DO_NOT_APPLY", "false").lower() == "true")
+        loaded.setdefault('use_git_diff', os.getenv("USE_GIT_DIFF", "false").lower() == "true")
+        loaded.setdefault('generate_output_only', os.getenv("GENERATE_OUTPUT_ONLY", "false").lower() == "true")
+        loaded.setdefault('engine_mode', os.getenv("AIB_ENGINE_MODE", "agent"))
+        loaded.setdefault('root_directory', os.getenv("ROOT_DIRECTORY", ""))
+        loaded.setdefault('jd_cli_path', os.getenv("JD_CLI_PATH", ""))
+        loaded.setdefault('java_home', os.getenv("JAVA_HOME", ""))
+        loaded.setdefault('dotnet_cli_path', os.getenv("DOTNET_CLI_PATH", ""))
+        loaded.setdefault('git_diff_command', os.getenv("GIT_DIFF_COMMAND", "git diff --name-only"))
+
+        settings_cache = loaded
+        return loaded.copy()
+
+
+def save_settings(settings):
+    """Save settings to disk and update cache."""
+    with settings_lock:
+        try:
+            with open(SETTINGS_FILE, 'w') as f:
+                json.dump(settings, f, indent=2)
+            settings_cache.clear()
+            load_settings()  # Reload into cache
+        except Exception as e:
+            logging.error(f"Failed to save settings: {e}")
+
+
+def apply_settings_to_env():
+    """Apply settings to environment variables for engine config."""
+    s = load_settings()
+    os.environ["USE_LOCAL_MODEL"] = str(s.get('use_local_model', False)).lower()
+    if s.get('model_path'):
+        os.environ["MODEL_PATH"] = s['model_path']
+    if s.get('llama_binary'):
+        os.environ["LLAMA_BINARY_PATH"] = s['llama_binary']
+    os.environ["TEMPERATURE"] = str(s.get('temperature', 0.1))
+    os.environ["TOP_P"] = str(s.get('top_p', 0.9))
+    os.environ["TOP_K"] = str(s.get('top_k', 40))
+    os.environ["MIN_P"] = str(s.get('min_p', 0.0))
+    os.environ["OUTPUT_TOKENS"] = str(s.get('output_tokens', 8192))
+    os.environ["MODEL_CONTEXT"] = str(s.get('model_context', 128000))
+    os.environ["AIB_MAX_STEPS"] = str(s.get('max_steps', 50))
+    if s.get('endpoint'):
+        os.environ["ENDPOINT"] = s['endpoint']
+    if s.get('model_name'):
+        os.environ["MODEL_NAME"] = s['model_name']
+    if s.get('api_key'):
+        os.environ["API_KEY"] = s['api_key']
+    os.environ["VERIFY_SSL"] = str(s.get('verify_ssl', False)).lower()
+    os.environ["GENERATE_BUT_DO_NOT_APPLY"] = str(s.get('generate_but_do_not_apply', False)).lower()
+    os.environ["USE_GIT_DIFF"] = str(s.get('use_git_diff', False)).lower()
+    os.environ["GENERATE_OUTPUT_ONLY"] = str(s.get('generate_output_only', False)).lower()
+    os.environ["AIB_ENGINE_MODE"] = s.get('engine_mode', 'agent')
+    if s.get('root_directory'):
+        os.environ["ROOT_DIRECTORY"] = s['root_directory']
+    if s.get('jd_cli_path'):
+        os.environ["JD_CLI_PATH"] = s['jd_cli_path']
+    if s.get('java_home'):
+        os.environ["JAVA_HOME"] = s['java_home']
+    if s.get('dotnet_cli_path'):
+        os.environ["DOTNET_CLI_PATH"] = s['dotnet_cli_path']
+    if s.get('git_diff_command'):
+        os.environ["GIT_DIFF_COMMAND"] = s['git_diff_command']
+
+
 # --- Initialization ---
 def init_directories():
     os.makedirs(os.path.dirname(STATUS_FILE), exist_ok=True)
     os.makedirs(os.path.dirname(HISTORY_FILE), exist_ok=True)
     os.makedirs(os.path.dirname(PROJECTS_FILE), exist_ok=True)
     os.makedirs(CHATS_DIR, exist_ok=True)
+    os.makedirs(os.path.dirname(SETTINGS_FILE), exist_ok=True)
 
 def load_job_history():
     global job_history
@@ -53,7 +154,6 @@ def load_job_history():
         try:
             with open(HISTORY_FILE, 'r') as f:
                 job_history = json.load(f)
-            # Reset any lingering "running" jobs to "stopped" on startup
             for job in job_history:
                 if job.get("status") == "running":
                     job["status"] = "stopped"
@@ -107,7 +207,7 @@ def worker():
 
         try:
             if project:
-                if ENGINE_MODE == "agent":
+                if ENGINE_MODE == "agent" or project.get("mode") == "agentic":
                     # Use the new multi-step agentic engine
                     result = run_with_agent_engine(project)
                     job_history[-1]["status"] = result.get("status", "completed")
@@ -196,24 +296,30 @@ def api_create_project():
     if not name:
         return jsonify({"error": "Project name is required"}), 400
 
+    mode = request.form.get("mode", "oneshot")
     root_directory = request.form.get("rootDirectory", "")
     if not root_directory:
         return jsonify({"error": "Root directory is required"}), 400
 
-    include_patterns = request.form.get("includePatterns", "")
-    if not include_patterns:
-        return jsonify({"error": "At least one include pattern is required"}), 400
-
-    patterns = [p.strip() for p in include_patterns.split(",") if p.strip()]
-    has_absolute = any(os.path.isabs(p) for p in patterns)
-    has_relative = any(not os.path.isabs(p) for p in patterns)
-
-    if has_relative and not root_directory and not has_absolute:
-        return jsonify({"error": "rootDirectory is required if includePatterns contain relative paths and no absolute paths"}), 400
+    # For oneshot mode, require include patterns
+    if mode == "oneshot":
+        include_patterns = request.form.get("includePatterns", "")
+        if not include_patterns:
+            return jsonify({"error": "At least one include pattern is required for One-Shot mode"}), 400
+        patterns = [p.strip() for p in include_patterns.split(",") if p.strip()]
+        has_absolute = any(os.path.isabs(p) for p in patterns)
+        has_relative = any(not os.path.isabs(p) for p in patterns)
+        if has_relative and not root_directory and not has_absolute:
+            return jsonify({"error": "rootDirectory is required if includePatterns contain relative paths and no absolute paths"}), 400
+    else:
+        # Agentic mode: root directory is sufficient
+        include_patterns = ""
+        patterns = []
 
     project = {
         "id": pid,
         "name": name,
+        "mode": mode,
         "rootDirectory": root_directory,
         "includePatterns": include_patterns,
         "excludePatterns": request.form.get("excludePatterns", ""),
@@ -221,8 +327,8 @@ def api_create_project():
         "instructions": request.form.get("instructions", ""),
         "preScript": request.form.get("preScript", ""),
         "postScript": request.form.get("postScript", ""),
-        "mode": request.form.get("mode", "include"),
-        "isArchived": False
+        "isArchived": False,
+        "enabled_tools": []  # Will be set when running in agentic mode
     }
 
     projects.append(project)
@@ -235,23 +341,27 @@ def api_update_project(pid):
     if not project:
         return jsonify({"error": "Project not found"}), 404
 
+    mode = request.form.get("mode", project.get("mode", "oneshot"))
     root_directory = request.form.get("rootDirectory", project.get("rootDirectory", ""))
     if not root_directory:
         return jsonify({"error": "Root directory is required"}), 400
 
-    include_patterns = request.form.get("includePatterns", project.get("includePatterns", ""))
-    if not include_patterns:
-        return jsonify({"error": "At least one include pattern is required"}), 400
-
-    patterns = [p.strip() for p in include_patterns.split(",") if p.strip()]
-    has_absolute = any(os.path.isabs(p) for p in patterns)
-    has_relative = any(not os.path.isabs(p) for p in patterns)
-
-    if has_relative and not root_directory and not has_absolute:
-        return jsonify({"error": "rootDirectory is required if includePatterns contain relative paths and no absolute paths"}), 400
+    # For oneshot mode, require include patterns
+    if mode == "oneshot":
+        include_patterns = request.form.get("includePatterns", project.get("includePatterns", ""))
+        if not include_patterns:
+            return jsonify({"error": "At least one include pattern is required for One-Shot mode"}), 400
+        patterns = [p.strip() for p in include_patterns.split(",") if p.strip()]
+        has_absolute = any(os.path.isabs(p) for p in patterns)
+        has_relative = any(not os.path.isabs(p) for p in patterns)
+        if has_relative and not root_directory and not has_absolute:
+            return jsonify({"error": "rootDirectory is required if includePatterns contain relative paths and no absolute paths"}), 400
+    else:
+        include_patterns = project.get("includePatterns", "")
 
     project.update({
         "name": request.form.get("name", project["name"]),
+        "mode": mode,
         "rootDirectory": root_directory,
         "includePatterns": include_patterns,
         "excludePatterns": request.form.get("excludePatterns", project.get("excludePatterns", "")),
@@ -259,7 +369,6 @@ def api_update_project(pid):
         "instructions": request.form.get("instructions", project.get("instructions", "")),
         "preScript": request.form.get("preScript", project.get("preScript", "")),
         "postScript": request.form.get("postScript", project.get("postScript", "")),
-        "mode": request.form.get("mode", project.get("mode", "include"))
     })
 
     save_projects(projects)
@@ -291,14 +400,14 @@ def api_get_queue():
     with job_queue_lock:
         projects = load_projects()
         project_map = {p["id"]: p.get("name", "Unknown") for p in projects}
-        
+
         running_name = project_map.get(running_job["project_id"], "Unknown") if running_job else None
         queue_with_names = []
         for j in job_queue:
             queue_with_names.append({**j, "project_name": project_map.get(j["project_id"], "Unknown"), "status": "queued"})
-            
+
         return jsonify({
-            "queue": queue_with_names, 
+            "queue": queue_with_names,
             "running": {**running_job, "project_name": running_name} if running_job else None
         })
 
@@ -320,24 +429,26 @@ def api_add_to_queue():
     if not project:
         return jsonify({"error": "Project not found"}), 404
 
-    if not project.get("includePatterns"):
-        return jsonify({"error": "No includePatterns specified"}), 400
+    # Agentic mode doesn't need include patterns
+    if project.get("mode") != "agentic":
+        if not project.get("includePatterns"):
+            return jsonify({"error": "No includePatterns specified"}), 400
 
-    include_patterns = [p.strip() for p in project["includePatterns"].split(",") if p.strip()]
-    has_absolute = any(os.path.isabs(p) for p in include_patterns)
-    has_relative = any(not os.path.isabs(p) for p in include_patterns)
+        include_patterns = [p.strip() for p in project["includePatterns"].split(",") if p.strip()]
+        has_absolute = any(os.path.isabs(p) for p in include_patterns)
+        has_relative = any(not os.path.isabs(p) for p in include_patterns)
 
-    if has_relative and not project.get("rootDirectory") and not has_absolute:
-        return jsonify({"error": "rootDirectory required if includePatterns contain relative paths and no absolute paths"}), 400
+        if has_relative and not project.get("rootDirectory") and not has_absolute:
+            return jsonify({"error": "rootDirectory required if includePatterns contain relative paths and no absolute paths"}), 400
 
-    root_dir = project.get("rootDirectory", "")
-    if root_dir and os.path.isdir(root_dir):
-        all_files_pattern = any(p.strip() in (".", "./", "") for p in include_patterns)
-        if all_files_pattern and not project.get("excludePatterns"):
-            return jsonify({
-                "error": "Pattern includes entire directory without exclusion filters. This is not allowed for safety reasons.",
-                "suggestion": "Add specific file patterns or exclusion patterns to limit the scope."
-            }), 400
+        root_dir = project.get("rootDirectory", "")
+        if root_dir and os.path.isdir(root_dir):
+            all_files_pattern = any(p.strip() in (".", "./", "") for p in include_patterns)
+            if all_files_pattern and not project.get("excludePatterns"):
+                return jsonify({
+                    "error": "Pattern includes entire directory without exclusion filters. This is not allowed for safety reasons.",
+                    "suggestion": "Add specific file patterns or exclusion patterns to limit the scope."
+                }), 400
 
     job_id = str(int(time.time() * 1000))
     output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aib_instance", "output", job_id)
@@ -388,7 +499,7 @@ def api_get_history():
     with job_queue_lock:
         projects = load_projects()
         project_map = {p["id"]: p.get("name", "Unknown") for p in projects}
-        
+
         queued_jobs = []
         for j in job_queue:
             queued_jobs.append({
@@ -398,13 +509,13 @@ def api_get_history():
                 "status": "queued",
                 "timestamp": datetime.now().isoformat()
             })
-        
+
         current_job_history = sorted(job_history, key=lambda x: x["timestamp"], reverse=True)
         history_ids = {h["job_id"] for h in current_job_history}
         for qj in queued_jobs:
             if qj["job_id"] not in history_ids:
                 current_job_history.insert(0, qj)
-                
+
     return jsonify(current_job_history)
 
 @app.route("/api/history/clear", methods=["POST"])
@@ -432,7 +543,7 @@ def api_files():
         # Security: Block access to sensitive directories
         blocked_prefixes = [
             '/etc', '/usr', '/var', '/bin', '/sbin', '/lib', '/dev',
-            'C:\\Windows', 'C:\\Program Files', 'C:\\ProgramData'
+            'C:\\\\Windows', 'C:\\\\Program Files', 'C:\\\\ProgramData'
         ]
         if any(path.startswith(prefix) for prefix in blocked_prefixes):
             return jsonify({"error": "Access to system directories is not allowed"}), 403
@@ -448,7 +559,6 @@ def api_files():
             for f in files:
                 rel_path = os.path.join(rel_root, f) if rel_root else f
                 if search:
-                    # Parse comma-separated criteria with OR logic and ! negation
                     criteria = [c.strip() for c in search.split(',') if c.strip()]
                     pos_pats = [c for c in criteria if not c.startswith('!')]
                     neg_pats = [c[1:].strip() for c in criteria if c.startswith('!')]
@@ -671,7 +781,7 @@ def favicon():
         mimetype='image/vnd.microsoft.icon'
     )
 
-# --- Job Status Route (Added for Frontend) ---
+# --- Job Status Route ---
 @app.route("/api/job-status", methods=["GET"])
 def api_job_status():
     with job_queue_lock:
@@ -689,13 +799,28 @@ def api_job_status():
             }
     return jsonify({"activeJobs": active_jobs, "runStatus": {}})
 
-# --- Start Worker on App Start ---
-init_directories()
-load_job_history()
-start_worker()
+# --- Settings Routes ---
+@app.route("/api/settings", methods=["GET"])
+def api_get_settings():
+    settings = load_settings()
+    return jsonify(settings)
 
+@app.route("/api/settings", methods=["POST"])
+def api_save_settings():
+    data = request.json
+    if not data:
+        return jsonify({"error": "No settings data provided"}), 400
 
-# --- SSE Streaming for Agentic Engine ---
+    # Load current settings, then update with provided values
+    current = load_settings()
+    for key, value in data.items():
+        current[key] = value
+
+    save_settings(current)
+    apply_settings_to_env()
+    return jsonify({"status": "saved"})
+
+# --- Agent Routes ---
 @app.route("/api/agent/run", methods=["POST"])
 def api_agent_run():
     """Start the agentic engine and stream step results via SSE."""
@@ -703,6 +828,7 @@ def api_agent_run():
     project_id = data.get("project_id")
     instructions = data.get("instructions", "")
     root_dir = data.get("rootDirectory", "")
+    enabled_tools = data.get("enabled_tools", [])
 
     if not project_id and not instructions:
         return jsonify({"error": "project_id or instructions required"}), 400
@@ -756,6 +882,7 @@ def api_agent_run():
                 "job_id": job_id,
                 "preScript": project.get("preScript", "") if project else "",
                 "postScript": project.get("postScript", "") if project else "",
+                "enabled_tools": enabled_tools if enabled_tools else None,
             }
 
             engine = AgentEngine(config)
@@ -781,10 +908,13 @@ def api_agent_run():
                 "max_steps": result.get("max_steps", 50),
             }) + "\n\n"
 
-            # Update history
+            # Update history with step results
             job_history[-1]["status"] = result.get("status", "completed")
             job_history[-1]["summary"] = result.get("summary", "")
             job_history[-1]["steps"] = result.get("steps", 0)
+            job_history[-1]["step_count"] = result.get("steps", 0)
+            # Save step results to history for display
+            job_history[-1]["steps"] = engine.step_history  # Override step count with step list
             if result.get("status") == "error":
                 job_history[-1]["error"] = result.get("error", "Unknown error")
             save_job_history()
@@ -843,5 +973,35 @@ def api_agent_output(job_id):
         return jsonify({"content": content})
     return jsonify({"content": ""})
 
+
+@app.route("/api/agent/inject", methods=["POST"])
+def api_agent_inject():
+    """Inject live instructions into a running agent run."""
+    data = request.json
+    job_id = data.get("job_id")
+    instruction = data.get("instruction", "")
+
+    if not job_id or not instruction:
+        return jsonify({"error": "job_id and instruction required"}), 400
+
+    # Write instruction to a temp file that the agent engine can pick up
+    # For now, we'll store it in the job's output directory
+    instruction_file = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                    "aib_instance", "output", job_id, "live_instruction.txt")
+    try:
+        with open(instruction_file, 'w') as f:
+            f.write(instruction)
+        return jsonify({"status": "injected"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# --- Start Worker on App Start ---
+init_directories()
+load_job_history()
+apply_settings_to_env()
+start_worker()
+
+
 if __name__ == "__main__":
-    app.run(port=5053, debug=True, threaded=True)
+    app.run(port=5056, debug=True, threaded=True)

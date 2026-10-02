@@ -884,6 +884,203 @@
         .pre-copy-btn:hover {
             background: var(--grass);
         }
+
+        /* Settings panel */
+        .settings-section {
+            margin-bottom: 20px;
+        }
+
+        .settings-section h3 {
+            font-size: 12px;
+            color: var(--sky);
+            margin-bottom: 10px;
+            border-bottom: 2px solid #444;
+            padding-bottom: 5px;
+        }
+
+        .setting-row {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 8px;
+            align-items: center;
+        }
+
+        .setting-row label {
+            margin: 0;
+            min-width: 140px;
+            font-size: 9px;
+        }
+
+        .setting-row input,
+        .setting-row select {
+            flex: 1;
+            margin: 0;
+            font-size: 11px;
+            padding: 6px;
+        }
+
+        .setting-row input[type="checkbox"] {
+            width: 18px;
+            flex: 0 0 18px;
+            margin: 0;
+        }
+
+        .settings-save-btn {
+            margin-top: 15px;
+        }
+
+        /* Mode indicator badge */
+        .mode-indicator {
+            display: inline-block;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 8px;
+            margin-left: 8px;
+        }
+
+        .mode-indicator.agentic {
+            background: #6a3a9a;
+            color: #fff;
+        }
+
+        .mode-indicator.oneshot {
+            background: #444;
+            color: #aaa;
+        }
+
+        /* Tool selector grid */
+        .tool-selector-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 6px;
+            margin-top: 8px;
+        }
+
+        .tool-checkbox {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 9px;
+            padding: 4px 6px;
+            background: rgba(0,0,0,0.2);
+            border: 1px solid #444;
+            cursor: pointer;
+        }
+
+        .tool-checkbox input[type="checkbox"] {
+            width: 14px;
+            height: 14px;
+            flex: 0 0 14px;
+            margin: 0;
+        }
+
+        /* Job history step details */
+        .job-steps-container {
+            margin-top: 8px;
+            display: none;
+        }
+
+        .job-steps-toggle {
+            background: var(--wood);
+            border: 1px solid #000;
+            padding: 2px 6px;
+            cursor: pointer;
+            font-size: 8px;
+            color: var(--light-text);
+            border-radius: 2px;
+            margin-top: 5px;
+        }
+
+        .job-steps-toggle:hover {
+            background: var(--grass);
+        }
+
+        .job-steps-list {
+            background: #222;
+            border: 1px solid #444;
+            padding: 8px;
+            margin-top: 5px;
+            max-height: 300px;
+            overflow-y: auto;
+            font-size: 9px;
+            font-family: 'Courier New', monospace;
+        }
+
+        .job-step-item {
+            padding: 4px 0;
+            border-bottom: 1px solid #333;
+        }
+
+        .job-step-item .step-num {
+            color: var(--sky);
+            font-weight: bold;
+        }
+
+        .job-step-item .step-tool-name {
+            color: var(--grass);
+        }
+
+        .job-step-item .step-status-ok {
+            color: #8f8;
+        }
+
+        .job-step-item .step-status-err {
+            color: #f88;
+        }
+
+        /* Live status in project details */
+        #live-status-box {
+            background: var(--dark-bg);
+            border: 3px solid var(--grass);
+            padding: 12px;
+            font-size: 10px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            max-height: 300px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+        }
+
+        /* Agent live panel in project details */
+        #agent-live-box {
+            background: var(--dark-bg);
+            border: 3px solid #000;
+            padding: 10px;
+            font-size: 10px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            max-height: 400px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+        }
+
+        #agent-live-box .step-entry {
+            margin: 6px 0;
+            padding: 6px;
+            border-left: 3px solid #555;
+            padding-left: 10px;
+            background: rgba(0,0,0,0.3);
+        }
+
+        #agent-live-box .step-entry.success {
+            border-left-color: var(--grass);
+        }
+
+        #agent-live-box .step-entry.error {
+            border-left-color: #f55;
+        }
+
+        #agent-live-box .step-entry .step-tool {
+            color: var(--sky);
+            font-weight: bold;
+        }
+
+        #agent-live-box .step-entry .step-result {
+            color: #aaa;
+            font-size: 9px;
+            margin-top: 3px;
+            white-space: pre-wrap;
+        }
     </style>
 </head>
 
@@ -901,9 +1098,9 @@
             </div>
             <div class="sidebar-nav">
                 <button class="tab-btn active" onclick="showTab('projects')">PROJECTS</button>
-                <button class="tab-btn" onclick="showTab('agent')">AGENT</button>
                 <button class="tab-btn" onclick="showTab('jobs')">JOBS</button>
                 <button class="tab-btn" onclick="showTab('chat')">CHAT</button>
+                <button class="tab-btn" onclick="showTab('settings')">SETTINGS</button>
             </div>
         </aside>
         <main class="main-content">
@@ -923,80 +1120,201 @@
                     <form id="add-project-form">
                         <label>PROJECT NAME</label>
                         <input name="name" id="add-project-name" required placeholder="My Cool Project">
-                        <label>ROOT DIRECTORY (OPTIONAL)</label>
-                        <input type="text" name="rootDirectory" id="root-path" placeholder="e.g., /home/user/project"
+
+                        <label>MODE</label>
+                        <select name="mode" id="add-project-mode" onchange="onAddModeChange()">
+                            <option value="oneshot">ONE-SHOT (Single Pass)</option>
+                            <option value="agentic">AGENTIC (Multi-Step)</option>
+                        </select>
+                        <p class="note" id="add-mode-note">One-Shot: Select files/folders to include. Agentic: Agent explores and modifies files autonomously — only root path required.</p>
+
+                        <label>ROOT DIRECTORY</label>
+                        <input type="text" name="rootDirectory" id="add-root-path" placeholder="e.g., /home/user/project"
                             required>
-                        <div class="selector-controls">
-                            <button type="button" id="load-tree-btn" onclick="loadFileTree()">
-                                <span id="load-tree-text">LOAD TREE</span>
-                                <span id="load-tree-spinner" class="spinner" style="display: none;"></span>
-                            </button>
-                            <button type="button" onclick="selectAll()">SELECT ALL</button>
-                            <button type="button" onclick="deselectAll()">DESELECT ALL</button>
-                            <div class="sort-controls">
-                                <button type="button" onclick="setSortMode('name')" class="btn-sm"
-                                    id="sort-name-btn">SORT: NAME</button>
-                                <button type="button" onclick="setSortMode('size')" class="btn-sm"
-                                    id="sort-size-btn">SORT: SIZE</button>
+
+                        <div id="add-file-selector" style="display:block;">
+                            <div class="selector-controls">
+                                <button type="button" id="load-tree-btn" onclick="loadFileTree()">
+                                    <span id="load-tree-text">LOAD TREE</span>
+                                    <span id="load-tree-spinner" class="spinner" style="display: none;"></span>
+                                </button>
+                                <button type="button" onclick="selectAll()">SELECT ALL</button>
+                                <button type="button" onclick="deselectAll()">DESELECT ALL</button>
+                                <div class="sort-controls">
+                                    <button type="button" onclick="setSortMode('name')" class="btn-sm"
+                                        id="sort-name-btn">SORT: NAME</button>
+                                    <button type="button" onclick="setSortMode('size')" class="btn-sm"
+                                        id="sort-size-btn">SORT: SIZE</button>
+                                </div>
+                                <label style="display: flex; align-items: center; gap: 5px; margin: 0; width:200px;">
+                                    <input type="checkbox" id="show-selected-only-new" style="width:50px;"
+                                        onchange="filterTree()">
+                                    <span style="font-size: 11px;">SHOW SELECTED ONLY</span>
+                                </label>
                             </div>
-                            <label style="display: flex; align-items: center; gap: 5px; margin: 0; width:200px;">
-                                <input type="checkbox" id="show-selected-only-new" style="width:50px;"
-                                    onchange="filterTree()">
-                                <span style="font-size: 11px;">SHOW SELECTED ONLY</span>
-                            </label>
+                            <input type="text" id="tree-search"
+                                placeholder="Search (comma=OR, !=exclude, e.g., 'main,test,!venv')..."
+                                oninput="filterTree()">
+                            <div id="file-tree-container" style="position: relative; max-height: 400px; overflow-y: auto;">
+                                <div id="file-tree-loading-overlay" class="file-tree-overlay">PROCESSING...</div>
+                            </div>
+                            <div id="file-tree-pagination" style="margin: 10px 0;"></div>
+                            <label>SELECTED PATHS</label>
+                            <div class="selected-paths-list" id="selected-paths-container"></div>
+                            <div class="flex-row">
+                                <input type="text" id="new-path-input" placeholder="Add file path..."
+                                    onkeydown="if(event.key==='Enter') { event.preventDefault(); addNewPath(); }">
+                                <button type="button" onclick="addNewPath()" class="btn-sm">ADD</button>
+                            </div>
                         </div>
-                        <input type="text" id="tree-search"
-                            placeholder="Search (comma=OR, !=exclude, e.g., 'main,test,!venv')..."
-                            oninput="filterTree()">
-                        <div id="file-tree-container" style="position: relative; max-height: 400px; overflow-y: auto;">
-                            <div id="file-tree-loading-overlay" class="file-tree-overlay">PROCESSING...</div>
-                        </div>
-                        <div id="file-tree-pagination" style="margin: 10px 0;"></div>
-                        <label>SELECTED PATHS</label>
-                        <div class="selected-paths-list" id="selected-paths-container"></div>
-                        <div class="flex-row">
-                            <input type="text" id="new-path-input" placeholder="Add file path..."
-                                onkeydown="if(event.key==='Enter') { event.preventDefault(); addNewPath(); }">
-                            <button type="button" onclick="addNewPath()" class="btn-sm">ADD</button>
-                        </div>
+
                         <input type="hidden" name="includePatterns" id="patterns-input">
                         <input type="hidden" name="iterations" value="1">
+
+                        <label>EXCLUDE PATTERNS (comma-sep)</label>
+                        <input type="text" name="excludePatterns" id="add-exclude-patterns" placeholder="venv, __pycache__, .git">
+
+                        <label>INSTRUCTIONS</label>
+                        <textarea name="instructions" id="add-instructions" rows="4" placeholder="What changes do you want?"></textarea>
+
+                        <div class="form-grid">
+                            <div>
+                                <label>PRE-SCRIPT</label>
+                                <textarea name="preScript" id="add-pre-script" rows="3"></textarea>
+                            </div>
+                            <div>
+                                <label>POST-SCRIPT</label>
+                                <textarea name="postScript" id="add-post-script" rows="3"></textarea>
+                            </div>
+                        </div>
+
                         <button type="submit">CREATE PROJECT</button>
                     </form>
-                </div>
-            </div>
-            <div id="agent-panel" class="panel">
-                <div class="block">
-                    <h2>AGENTIC ENGINE</h2>
-                    <p class="note">Multi-step AI coding with live tool call streaming. Select a project or enter instructions directly.</p>
-                    <form id="agent-form">
-                        <label>SELECT PROJECT (OR LEAVE BLANK FOR AD-HOC)</label>
-                        <select id="agent-project-select" onchange="loadAgentProject()" style="width:100%;background:var(--dark-bg);color:var(--light-text);border:3px solid #555;padding:10px;font-family:'Press Start 2P',monospace;font-size:12px;">
-                            <option value="">-- Ad-hoc (enter root dir manually) --</option>
-                        </select>
-                        <label style="margin-top:10px;">ROOT DIRECTORY</label>
-                        <input type="text" id="agent-root-dir" placeholder="e.g., /home/user/project">
-                        <label style="margin-top:10px;">INSTRUCTIONS</label>
-                        <textarea id="agent-instructions" rows="6" placeholder="What changes do you want to make?"></textarea>
-                        <div style="display:flex;gap:10px;margin-top:15px;">
-                            <button type="submit" id="agent-run-btn">RUN AGENT</button>
-                            <button type="button" id="agent-stop-btn" style="background:#a03030;display:none;">STOP</button>
-                        </div>
-                    </form>
-                    <div id="agent-status" style="margin-top:15px;padding:10px;background:var(--dark-bg);border:2px solid var(--grass);font-size:10px;white-space:pre-wrap;word-wrap:break-word;max-height:100px;overflow-y:auto;display:none;"></div>
-                    <div id="agent-steps-container" style="margin-top:15px;display:none;">
-                        <h3 style="font-size:12px;margin-bottom:10px;">LIVE STEPS <span id="agent-step-count" style="color:var(--sky);"></span></h3>
-                        <div id="agent-steps" style="max-height:500px;overflow-y:auto;background:var(--dark-bg);border:3px solid #000;padding:10px;"></div>
-                    </div>
                 </div>
             </div>
             <div id="project-details-panel" class="panel">
                 <div class="block">
                     <button class="btn-sm" onclick="goBackToProjects()" style="margin-bottom:10px;">← BACK TO
                         PROJECTS</button>
-                    <h2>INTERVIEW - <span id="details-project-name"></span></h2>
+                    <h2>PROJECT - <span id="details-project-name"></span>
+                        <span id="details-mode-badge" class="mode-indicator oneshot">ONE-SHOT</span>
+                    </h2>
                     <div id="project-error-display" class="error-display"></div>
                     <form id="project-details-form">
+                        <input type="hidden" name="name" id="details-project-name-form">
+                        <input type="hidden" name="id" id="run-project-id">
+                        <input type="hidden" name="mode" id="details-mode-input">
+
+                        <label>MODE</label>
+                        <select name="mode" id="details-mode" onchange="onDetailsModeChange()">
+                            <option value="oneshot">ONE-SHOT (Single Pass)</option>
+                            <option value="agentic">AGENTIC (Multi-Step)</option>
+                        </select>
+
+                        <div>
+                            <label>ROOT DIRECTORY</label>
+                            <input name="rootDirectory" id="details-root-dir" onchange="confirmDetailsRootPathChange()"
+                                required>
+                        </div>
+
+                        <div id="details-file-selector" style="margin-top:15px;">
+                            <label>INCLUDED FILES/FOLDERS</label>
+                            <div class="selector-controls">
+                                <button type="button" id="details-load-tree-btn" onclick="loadDetailsFileTree()">
+                                    <span id="details-load-tree-text">LOAD TREE</span>
+                                    <span id="details-load-tree-spinner" class="spinner" style="display: none;"></span>
+                                </button>
+                                <button type="button" onclick="detailsSelectAll()">SELECT ALL</button>
+                                <button type="button" onclick="detailsDeselectAll()">DESELECT ALL</button>
+                                <div class="sort-controls">
+                                    <button type="button" onclick="setDetailsSortMode('name')" class="btn-sm"
+                                        id="details-sort-name-btn">SORT: NAME</button>
+                                    <button type="button" onclick="setDetailsSortMode('size')" class="btn-sm"
+                                        id="details-sort-size-btn">SORT: SIZE</button>
+                                </div>
+                                <label style="display: flex; align-items: center; gap: 5px; margin: 0; width:200px;">
+                                    <input type="checkbox" id="details-show-selected-only" style="width:50px;"
+                                        onchange="detailsFilterTree()">
+                                    <span style="font-size: 11px;">SHOW SELECTED ONLY</span>
+                                </label>
+                            </div>
+                            <input type="text" id="details-tree-search"
+                                placeholder="Search (comma=OR, !=exclude, e.g., 'main,test,!venv')..."
+                                oninput="detailsFilterTree()">
+                            <div id="details-file-tree-container"
+                                style="max-height: 400px; overflow-y: auto; position: relative;">
+                                <div id="details-file-tree-loading-overlay" class="file-tree-overlay">PROCESSING...</div>
+                            </div>
+                            <div id="details-file-tree-pagination" style="margin: 10px 0;"></div>
+                            <label>SELECTED PATHS</label>
+                            <div class="selected-paths-list" id="details-selected-paths-container"></div>
+                            <div class="flex-row">
+                                <input type="text" id="details-new-path-input" placeholder="Add file path...">
+                                <button type="button" onclick="detailsAddNewPath()" class="btn-sm">ADD</button>
+                            </div>
+                            <input type="hidden" name="includePatterns" id="details-patterns-input">
+                        </div>
+
+                        <div>
+                            <label>INSTRUCTIONS</label>
+                            <textarea name="instructions" id="details-instructions" rows="6"
+                                oninput="autoSaveProject()"></textarea>
+                        </div>
+
+                        <div class="form-grid">
+                            <div>
+                                <label>PRE-SCRIPT</label>
+                                <textarea name="preScript" id="details-pre-script" rows="3"
+                                    oninput="autoSaveProject()"></textarea>
+                            </div>
+                            <div>
+                                <label>POST-SCRIPT</label>
+                                <textarea name="postScript" id="details-post-script" rows="3"
+                                    oninput="autoSaveProject()"></textarea>
+                            </div>
+                        </div>
+
+                        <input type="hidden" name="iterations" value="1">
+
+                        <!-- Agent-specific settings -->
+                        <div id="details-agent-settings" style="display:none; margin-top:15px;">
+                            <label>AGENT TOOLS (check which tools the agent may use)</label>
+                            <div class="tool-selector-grid" id="details-tool-selector"></div>
+                        </div>
+
+                        <!-- Agent live run panel -->
+                        <div id="agent-live-container" style="display:none;">
+                            <h3 style="font-size:12px; margin-top:10px;">AGENT LIVE OUTPUT</h3>
+                            <div id="agent-live-box"></div>
+                            <div id="live-inject-container" style="display:none; margin-top:10px;">
+                                <label>LIVE INSTRUCTION (sent to agent mid-run):</label>
+                                <div class="flex-row">
+                                    <input type="text" id="live-inject-input" placeholder="Type extra instructions...">
+                                    <button type="button" id="live-inject-btn" onclick="injectLiveInstruction()">SEND</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Live status display -->
+                        <div id="live-status-container" style="display:none; margin-top:15px;">
+                            <h3 style="font-size:12px; margin-top:10px;">LIVE STATUS</h3>
+                            <div id="live-status-box"></div>
+                        </div>
+
+                        <div style="display: flex; gap: 10px; margin-top: 15px;">
+                            <button type="button" id="details-run-btn"
+                                onclick="runProject(document.getElementById('run-project-id').value)"
+                                style="flex: 3;">RUN AI BUILDER</button>
+                            <button type="button" id="details-stop-btn"
+                                onclick="stopProject(document.getElementById('run-project-id').value)"
+                                style="flex: 1; background:#a03030; display: none;">STOP</button>
+                            <button type="button"
+                                onclick="deleteProject(document.getElementById('run-project-id').value)"
+                                style="flex: 1; background:#a03030;">DELETE</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
                         <input type="hidden" name="name" id="details-project-name-form">
                         <input type="hidden" name="id" id="run-project-id">
                         <div>
@@ -1073,11 +1391,7 @@
                                 onclick="deleteProject(document.getElementById('run-project-id').value)"
                                 style="flex: 1; background:#a03030;">DELETE PROJECT</button>
                         </div>
-                    </form>
-                    <p class="note">REVISE INSTRUCTIONS & SCRIPTS, THEN RE-RUN AS MANY TIMES AS YOU LIKE.</p>
-                </div>
-            </div>
-            <div id="chat-panel" class="panel">
+                    id="chat-panel" class="panel">
                 <div class="block">
                     <h2>AI CHAT</h2>
                     <p class="note">CHATS ARE STORED IN AIB_INSTANCE/CHATS. SELECT OR START A NEW CONVERSATION.</p>
@@ -1110,6 +1424,130 @@
                     </div>
                 </div>
             </div>
+            <div id="settings-panel" class="panel">
+                <div class="block">
+                    <h2>SETTINGS</h2>
+                    <p class="note">CONFIGURE MODEL, API, AND ENGINE BEHAVIOR. CHANGES ARE SAVED LOCALLY AND APPLIED ON NEXT RUN.</p>
+
+                    <div class="settings-section">
+                        <h3>MODEL BACKEND</h3>
+                        <div class="setting-row">
+                            <label>USE LOCAL MODEL:</label>
+                            <input type="checkbox" id="set-use-local" checked>
+                        </div>
+                    </div>
+
+                    <div class="settings-section" id="set-local-section">
+                        <h3>LOCAL MODEL</h3>
+                        <div class="setting-row">
+                            <label>MODEL PATH:</label>
+                            <input type="text" id="set-model-path" placeholder="Path to .gguf model file">
+                        </div>
+                        <div class="setting-row">
+                            <label>LLAMA BINARY:</label>
+                            <input type="text" id="set-llama-binary" placeholder="Path to llama-server or llama-cli binary">
+                        </div>
+                        <div class="setting-row">
+                            <label>TEMPERATURE:</label>
+                            <input type="number" id="set-temperature" step="0.1" min="0" max="2" value="0.1">
+                        </div>
+                        <div class="setting-row">
+                            <label>TOP_P:</label>
+                            <input type="number" id="set-top-p" step="0.01" min="0" max="1" value="0.9">
+                        </div>
+                        <div class="setting-row">
+                            <label>TOP_K:</label>
+                            <input type="number" id="set-top-k" min="0" value="40">
+                        </div>
+                        <div class="setting-row">
+                            <label>MIN_P:</label>
+                            <input type="number" id="set-min-p" step="0.01" min="0" max="1" value="0.0">
+                        </div>
+                        <div class="setting-row">
+                            <label>OUTPUT TOKENS:</label>
+                            <input type="number" id="set-output-tokens" min="1" value="8192">
+                        </div>
+                        <div class="setting-row">
+                            <label>CONTEXT SIZE:</label>
+                            <input type="number" id="set-model-context" min="1" value="128000">
+                        </div>
+                        <div class="setting-row">
+                            <label>MAX AGENT STEPS:</label>
+                            <input type="number" id="set-max-steps" min="1" value="50">
+                        </div>
+                    </div>
+
+                    <div class="settings-section">
+                        <h3>AZURE AI / REMOTE</h3>
+                        <div class="setting-row">
+                            <label>ENDPOINT:</label>
+                            <input type="text" id="set-endpoint" placeholder="https://...">
+                        </div>
+                        <div class="setting-row">
+                            <label>MODEL NAME:</label>
+                            <input type="text" id="set-model-name" placeholder="Model name">
+                        </div>
+                        <div class="setting-row">
+                            <label>API KEY:</label>
+                            <input type="password" id="set-api-key" placeholder="Azure AI API key">
+                        </div>
+                        <div class="setting-row">
+                            <label>VERIFY SSL:</label>
+                            <input type="checkbox" id="set-verify-ssl">
+                        </div>
+                    </div>
+
+                    <div class="settings-section">
+                        <h3>BEHAVIOR</h3>
+                        <div class="setting-row">
+                            <label>GENERATE BUT NOT APPLY:</label>
+                            <input type="checkbox" id="set-generate-only">
+                        </div>
+                        <div class="setting-row">
+                            <label>USE GIT DIFF:</label>
+                            <input type="checkbox" id="set-git-diff">
+                        </div>
+                        <div class="setting-row">
+                            <label>GENERATE OUTPUT ONLY:</label>
+                            <input type="checkbox" id="set-output-only">
+                        </div>
+                        <div class="setting-row">
+                            <label>ENGINE MODE:</label>
+                            <select id="set-engine-mode">
+                                <option value="agent">AGENT (Multi-Step)</option>
+                                <option value="legacy">LEGACY (Single-Pass)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="settings-section">
+                        <h3>PATHS</h3>
+                        <div class="setting-row">
+                            <label>ROOT DIRECTORY:</label>
+                            <input type="text" id="set-root-dir" placeholder="Default root directory">
+                        </div>
+                        <div class="setting-row">
+                            <label>JD-CLI PATH:</label>
+                            <input type="text" id="set-jd-cli" placeholder="Path to jd-cli for JAR decompilation">
+                        </div>
+                        <div class="setting-row">
+                            <label>JAVA_HOME:</label>
+                            <input type="text" id="set-java-home" placeholder="JAVA_HOME path">
+                        </div>
+                        <div class="setting-row">
+                            <label>DOTNET CLI PATH:</label>
+                            <input type="text" id="set-dotnet-cli" placeholder="Path to dotnet CLI">
+                        </div>
+                        <div class="setting-row">
+                            <label>GIT DIFF COMMAND:</label>
+                            <input type="text" id="set-git-diff-cmd" value="git diff --name-only">
+                        </div>
+                    </div>
+
+                    <button type="button" class="settings-save-btn" onclick="saveSettings()">SAVE SETTINGS</button>
+                    <button type="button" class="settings-save-btn" onclick="loadSettingsUI()" style="background:var(--wood);">RELOAD FROM DISK</button>
+                </div>
+            </div>
         </main>
     </div>
 
@@ -1138,6 +1576,7 @@
     </div>
 
     <script>
+        
         // === Global State ===
         let currentProjectId = localStorage.getItem('currentProjectId') || null;
         let currentChatId = localStorage.getItem('currentChatId') || null;
@@ -1158,32 +1597,232 @@
         let pendingRootPathElementId = null;
         let showArchived = false;
 
-        // === Air Hockey Puck State ===
-        let logoElement = null;
-        let isDragging = false;
-        let startX, startY, initialX, initialY;
-        let velocityX = 0, velocityY = 0;
-        let friction = 0.98;
-        let bounceFactor = 0.8;
-        let logoX = 40, logoY = 40;
-        let animationId = null;
-        let flingCount = 0;
-        let hasFlung = false;
-        let goalZoneVisible = false;
+        // === Live Agent State ===
+        let currentRunningJobId = null;
+        let agentSSEController = null;
+        let agentRunning = false;
+        let liveInjectActive = false;
 
-        // === Drag Event Handlers (Reusable) ===
-        let dragHandler = null;
-        let endDragHandler = null;
+        // === Available tools for agent mode ===
+        const AVAILABLE_TOOLS = [
+            "list_directory", "search_files", "grep_code", "read_file",
+            "write_file", "edit_file", "delete_file", "find_symbol",
+            "decompile_jar", "list_dependencies", "check_syntax", "get_file_info"
+        ];
 
-        function cleanupDragHandlers() {
-            if (dragHandler) {
-                document.removeEventListener('mousemove', dragHandler);
-                dragHandler = null;
+        // === Tab Management ===
+        function showTab(tabName) {
+            document.querySelectorAll('.panel').forEach(p => {
+                p.classList.remove('active');
+                p.classList.add('hidden');
+            });
+            document.querySelectorAll('.sidebar-nav .tab-btn').forEach(b => b.classList.remove('active'));
+            const panel = document.getElementById(tabName + '-panel');
+            if (panel) {
+                panel.classList.remove('hidden');
+                panel.classList.add('active');
             }
-            if (endDragHandler) {
-                document.removeEventListener('mouseup', endDragHandler);
-                endDragHandler = null;
+            document.querySelectorAll('.sidebar-nav .tab-btn').forEach(b => {
+                if (b.textContent.trim().toUpperCase() === tabName.toUpperCase()) {
+                    b.classList.add('active');
+                }
+            });
+            if (tabName === 'jobs') loadJobs();
+            if (tabName === 'settings') loadSettingsUI();
+        }
+
+        // === Utility ===
+        function escapeHtml(str) {
+            if (!str) return '';
+            return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        }
+
+        // === Mode handling for add form ===
+        function onAddModeChange() {
+            const mode = document.getElementById('add-project-mode').value;
+            const fileSelector = document.getElementById('add-file-selector');
+            if (fileSelector) fileSelector.style.display = mode === 'agentic' ? 'none' : 'block';
+        }
+
+        function onDetailsModeChange() {
+            const mode = document.getElementById('details-mode').value;
+            const fileSelector = document.getElementById('details-file-selector');
+            const agentSettings = document.getElementById('details-agent-settings');
+            const modeBadge = document.getElementById('details-mode-badge');
+            if (fileSelector) fileSelector.style.display = mode === 'agentic' ? 'none' : 'block';
+            if (agentSettings) agentSettings.style.display = mode === 'agentic' ? 'block' : 'none';
+            if (modeBadge) {
+                modeBadge.className = `mode-indicator ${mode === 'agentic' ? 'agentic' : 'oneshot'}`;
+                modeBadge.textContent = mode === 'agentic' ? 'AGENTIC' : 'ONE-SHOT';
             }
+            autoSaveProject();
+        }
+
+        // === Tool selector ===
+        function buildToolSelector(enabledTools) {
+            const container = document.getElementById('details-tool-selector');
+            if (!container) return;
+            container.innerHTML = '';
+            AVAILABLE_TOOLS.forEach(tool => {
+                const checked = enabledTools.includes(tool) || enabledTools.length === 0;
+                const label = document.createElement('label');
+                label.className = 'tool-checkbox';
+                label.innerHTML = `<input type="checkbox" name="tool_${tool}" ${checked ? 'checked' : ''}> ${tool}`;
+                container.appendChild(label);
+            });
+        }
+
+        function getEnabledTools() {
+            const checkboxes = document.querySelectorAll('#details-tool-selector input[type="checkbox"]');
+            const enabled = [];
+            checkboxes.forEach(cb => {
+                if (cb.checked) enabled.push(cb.name.replace('tool_', ''));
+            });
+            return enabled;
+        }
+
+        // === Live instruction injection ===
+        function injectLiveInstruction() {
+            if (!liveInjectActive) return;
+            const input = document.getElementById('live-inject-input');
+            if (!input || !input.value.trim()) return;
+            const instruction = input.value.trim();
+            fetch('/api/agent/inject', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ job_id: currentRunningJobId, instruction: instruction })
+            }).then(() => {
+                const statusBox = document.getElementById('live-status-box');
+                if (statusBox) {
+                    statusBox.innerHTML += `\n[INJECTED] ${instruction}\n`;
+                    statusBox.scrollTop = statusBox.scrollHeight;
+                }
+                input.value = '';
+            }).catch(err => console.error('Failed to inject instruction:', err));
+        }
+
+        // === Live status display ===
+        function showLiveStatus(projectId) {
+            const liveStatus = document.getElementById('live-status-container');
+            if (liveStatus) liveStatus.style.display = 'block';
+            const statusBox = document.getElementById('live-status-box');
+            if (statusBox) statusBox.innerHTML = '[STATUS POLLING...]\n';
+            pollJobStatus();
+        }
+
+        function pollJobStatus() {
+            const statusBox = document.getElementById('live-status-box');
+            if (!statusBox || !currentProjectId) return;
+            fetch('/api/queue')
+                .then(r => r.json())
+                .then(data => {
+                    let statusText = '';
+                    if (data.running) {
+                        statusText = `[RUNNING] Project: ${data.running.project_name || 'Unknown'}\n`;
+                        statusText += `  Job ID: ${data.running.job_id}\n`;
+                        statusText += `  Started: ${data.running.timestamp || 'N/A'}\n`;
+                    }
+                    if (data.queue && data.queue.length > 0) {
+                        statusText += `\n[QUEUED] ${data.queue.length} job(s) waiting:\n`;
+                        data.queue.forEach(j => {
+                            statusText += `  - ${j.project_name || 'Unknown'} (${j.job_id.substring(0, 8)})\n`;
+                        });
+                    }
+                    if (!data.running && (!data.queue || data.queue.length === 0)) {
+                        statusText = '[IDLE] No active jobs.';
+                    }
+                    statusBox.innerHTML = statusText;
+                })
+                .catch(err => {
+                    statusBox.innerHTML = `[ERROR] Failed to poll status: ${err.message}`;
+                });
+        }
+
+        // === Settings ===
+        function loadSettingsUI() {
+            fetch('/api/settings')
+                .then(r => r.json())
+                .then(settings => {
+                    const set = (id, val) => {
+                        const el = document.getElementById(id);
+                        if (el) el.value = val;
+                    };
+                    set('set-use-local', settings.use_local_model ?? 'false');
+                    set('set-model-path', settings.model_path || '');
+                    set('set-llama-binary', settings.llama_binary || '');
+                    set('set-temperature', settings.temperature ?? '0.1');
+                    set('set-top-p', settings.top_p ?? '0.9');
+                    set('set-top-k', settings.top_k ?? '40');
+                    set('set-min-p', settings.min_p ?? '0.0');
+                    set('set-output-tokens', settings.output_tokens ?? '8192');
+                    set('set-model-context', settings.model_context ?? '128000');
+                    set('set-max-steps', settings.max_steps ?? '50');
+                    set('set-endpoint', settings.endpoint || '');
+                    set('set-model-name', settings.model_name || '');
+                    set('set-api-key', settings.api_key || '');
+                    set('set-verify-ssl', settings.verify_ssl ?? 'false');
+                    set('set-generate-only', settings.generate_but_do_not_apply ?? 'false');
+                    set('set-git-diff', settings.use_git_diff ?? 'false');
+                    set('set-output-only', settings.generate_output_only ?? 'false');
+                    set('set-engine-mode', settings.engine_mode || 'agent');
+                    set('set-root-dir', settings.root_directory || '');
+                    set('set-jd-cli', settings.jd_cli_path || '');
+                    set('set-java-home', settings.java_home || '');
+                    set('set-dotnet-cli', settings.dotnet_cli_path || '');
+                    set('set-git-diff-cmd', settings.git_diff_command || 'git diff --name-only');
+                    onSettingsLocalChange();
+                })
+                .catch(err => console.error('Failed to load settings:', err));
+        }
+
+        function onSettingsLocalChange() {
+            const isLocal = document.getElementById('set-use-local').checked;
+            document.getElementById('set-local-section').style.display = isLocal ? 'block' : 'none';
+        }
+
+        function saveSettings() {
+            const settings = {
+                use_local_model: document.getElementById('set-use-local').checked,
+                model_path: document.getElementById('set-model-path').value,
+                llama_binary: document.getElementById('set-llama-binary').value,
+                temperature: document.getElementById('set-temperature').value,
+                top_p: document.getElementById('set-top-p').value,
+                top_k: document.getElementById('set-top-k').value,
+                min_p: document.getElementById('set-min-p').value,
+                output_tokens: document.getElementById('set-output-tokens').value,
+                model_context: document.getElementById('set-model-context').value,
+                max_steps: document.getElementById('set-max-steps').value,
+                endpoint: document.getElementById('set-endpoint').value,
+                model_name: document.getElementById('set-model-name').value,
+                api_key: document.getElementById('set-api-key').value,
+                verify_ssl: document.getElementById('set-verify-ssl').checked,
+                generate_but_do_not_apply: document.getElementById('set-generate-only').checked,
+                use_git_diff: document.getElementById('set-git-diff').checked,
+                generate_output_only: document.getElementById('set-output-only').checked,
+                engine_mode: document.getElementById('set-engine-mode').value,
+                root_directory: document.getElementById('set-root-dir').value,
+                jd_cli_path: document.getElementById('set-jd-cli').value,
+                java_home: document.getElementById('set-java-home').value,
+                dotnet_cli_path: document.getElementById('set-dotnet-cli').value,
+                git_diff_command: document.getElementById('set-git-diff-cmd').value,
+            };
+            fetch('/api/settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(settings)
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.status === 'saved') {
+                    alert('Settings saved! Changes will apply on next run.');
+                } else {
+                    alert('Failed to save settings: ' + (data.error || 'Unknown error'));
+                }
+            })
+            .catch(err => {
+                console.error('Failed to save settings:', err);
+                alert('Failed to save settings.');
+            });
         }
 
         // === Job Management ===
@@ -1193,7 +1832,6 @@
                 fetch('/api/history').then(r => r.json())
             ]).then(([queueData, history]) => {
                 renderJobs(queueData, history);
-                // Update run button state for the currently selected project
                 if (currentProjectId) {
                     let currentStatus = null;
                     if (queueData.running && queueData.running.project_id === currentProjectId) {
@@ -1212,36 +1850,27 @@
         function renderJobs(queueData, history) {
             const list = document.getElementById('jobs-list');
             if (!list) return;
-
             list.innerHTML = '';
-
             let items = [...history];
             const historyIds = new Set(items.map(i => i.job_id));
-
             if (queueData.running && !historyIds.has(queueData.running.job_id)) {
                 items.unshift(queueData.running);
             }
             queueData.queue.forEach(j => {
-                if (!historyIds.has(j.job_id)) {
-                    items.push(j);
-                }
+                if (!historyIds.has(j.job_id)) items.push(j);
             });
-
             if (!items.length) {
                 list.innerHTML = '<div class="note">NO JOBS FOUND.</div>';
                 return;
             }
-
             items.forEach(job => {
                 const item = document.createElement('div');
                 item.className = 'history-item';
                 item.dataset.jobId = job.job_id;
-
                 const statusClass = job.status === 'running' ? 'var(--grass)' :
                     job.status === 'queued' ? 'var(--sky)' :
                         job.status === 'error' ? '#a03030' :
                             job.status === 'stopped' ? '#808000' : '#555';
-
                 const instructionsHtml = job.instructions ? `
                     <div style="margin-top:5px;">
                         <button class="instructions-copy-btn" id="copy-instr-btn-${job.job_id}"
@@ -1253,7 +1882,6 @@
                         </div>
                     </div>
                 ` : '';
-
                 const incompleteHtml = job.incomplete ? `
                     <div style="margin-top:5px;">
                         <button class="btn-sm" style="background:#a03030;" onclick="event.stopPropagation(); openActionsModal('${job.job_id}')">
@@ -1261,7 +1889,30 @@
                         </button>
                     </div>
                 ` : '';
-
+                // Step results for agentic jobs
+                const stepsHtml = job.steps && job.steps.length > 0 ? `
+                    <div style="margin-top:5px;">
+                        <button class="job-steps-toggle" onclick="event.stopPropagation(); toggleJobSteps('${job.job_id}')">
+                            ▼ SHOW STEPS (${job.steps.length})
+                        </button>
+                        <div id="job-steps-${job.job_id}" class="job-steps-list" style="display:none;">
+                            ${job.steps.map((s, i) => {
+                                const ok = s.result && s.result.success !== false;
+                                const resultText = s.result ? (s.result.content || '').substring(0, 200) : 'no result';
+                                return `<div class="job-step-item">
+                                    <span class="step-num">Step ${s.step}</span>
+                                    <span class="step-tool-name">[${s.tool}]</span>
+                                    <span class="step-status-${ok ? 'ok' : 'err'}">${ok ? '✓' : '✗'}</span>
+                                    <span style="color:#aaa;">${escapeHtml(resultText)}</span>
+                                </div>`;
+                            }).join('')}
+                        </div>
+                    </div>
+                ` : (job.step_count !== undefined ? `
+                    <div style="margin-top:5px; font-size:9px; color:#aaa;">
+                        Completed ${job.steps || 0} steps${job.summary ? ': ' + escapeHtml(job.summary.substring(0, 100)) : ''}
+                    </div>
+                ` : '');
                 item.innerHTML = `
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:5px;">
                         <div style="display:flex; align-items:center; gap:8px; flex:1; min-width:0;">
@@ -1281,12 +1932,19 @@
                     </div>
                     <span style="color: #ccc; font-size: 8px;">Job: ${job.job_id.substring(0, 8)}...</span>
                     ${instructionsHtml}
+                    ${stepsHtml}
                     ${incompleteHtml}
                     ${job.error ? `<div style="color:#f55; margin-top:5px; font-size:10px;">Error: ${escapeHtml(job.error)}</div>` : ''}
+                    ${job.summary ? `<div style="color:#aaa; margin-top:3px; font-size:9px;">Summary: ${escapeHtml(job.summary.substring(0, 150))}</div>` : ''}
                 `;
                 item.onclick = () => goToProject(job.project_id);
                 list.appendChild(item);
             });
+        }
+
+        function toggleJobSteps(jobId) {
+            const el = document.getElementById('job-steps-' + jobId);
+            if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
         }
 
         function stopJob(jobId) {
@@ -1323,31 +1981,32 @@
                 .then(data => {
                     const projectList = document.getElementById('project-list');
                     if (!projectList) return;
-
                     projectList.innerHTML = '';
                     if (!data || data.length === 0) {
                         projectList.innerHTML = '<div class="note">NO PROJECTS FOUND.<br>ADD ONE BELOW.</div>';
                         return;
                     }
-
                     const filteredProjects = showArchived ? data : data.filter(p => !p.isArchived);
                     if (filteredProjects.length === 0) {
                         projectList.innerHTML = '<div class="note">NO PROJECTS FOUND.<br>ADD ONE BELOW.</div>';
                         return;
                     }
-
                     filteredProjects.forEach(project => {
                         const projectItem = document.createElement('div');
                         projectItem.className = 'project-item';
                         projectItem.id = `proj-${project.id}`;
                         projectItem.onclick = () => selectProject(project.id);
-
+                        const modeBadge = project.mode === 'agentic'
+                            ? '<span class="mode-indicator agentic">AGENTIC</span>'
+                            : '<span class="mode-indicator oneshot">ONE-SHOT</span>';
                         const archiveBtnText = project.isArchived ? 'UNARCHIVE' : 'ARCHIVE';
                         const archiveBtnAction = project.isArchived ? `unarchiveProject('${project.id}')` : `archiveProject('${project.id}')`;
-
                         projectItem.innerHTML = `
                             <div class="project-item-header">
-                                <span class="project-item-name">${escapeHtml(project.name || 'Untitled')}</span>
+                                <div class="project-item-name-container">
+                                    <span class="project-item-name">${escapeHtml(project.name || 'Untitled')}</span>
+                                    ${modeBadge}
+                                </div>
                                 <div class="project-item-actions">
                                     <button class="btn-sm" id="run-btn-${project.id}"
                                         onclick="event.stopPropagation(); runProject('${project.id}')">
@@ -1377,33 +2036,182 @@
         }
 
         function runProject(projectId) {
+            const project = getProjectById(projectId);
+            if (!project) { alert('Project not found'); return; }
+            if (project.mode === 'agentic') {
+                runAgenticProject(projectId);
+            } else {
+                runLegacyProject(projectId);
+            }
+        }
+
+        function runLegacyProject(projectId) {
             fetch('/api/queue', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ project_id: projectId })
             })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.job_id) {
-                        loadJobs();
-                        updateRunButtonState(projectId, true);
-                    } else {
-                        throw new Error(data.error || 'Failed to queue job');
-                    }
-                })
-                .catch(error => {
-                    console.error('Error running project:', error);
-                    alert(error.message);
-                });
+            .then(response => response.json())
+            .then(data => {
+                if (data.job_id) {
+                    loadJobs();
+                    updateRunButtonState(projectId, true);
+                    showLiveStatus(projectId);
+                } else {
+                    throw new Error(data.error || 'Failed to queue job');
+                }
+            })
+            .catch(error => {
+                console.error('Error running project:', error);
+                alert(error.message);
+            });
+        }
+
+        function runAgenticProject(projectId) {
+            const project = getProjectById(projectId);
+            if (!project) return;
+            const enabledTools = getEnabledTools();
+            if (agentSSEController) agentSSEController.abort();
+            agentSSEController = new AbortController();
+            agentRunning = true;
+            liveInjectActive = true;
+            const runBtn = document.getElementById('details-run-btn');
+            const stopBtn = document.getElementById('details-stop-btn');
+            if (runBtn) { runBtn.disabled = true; runBtn.innerHTML = '<span class="run-spinner"></span> RUNNING...'; }
+            if (stopBtn) stopBtn.style.display = 'inline-block';
+            const agentLive = document.getElementById('agent-live-container');
+            const liveStatus = document.getElementById('live-status-container');
+            const liveInject = document.getElementById('live-inject-container');
+            if (agentLive) agentLive.style.display = 'block';
+            if (liveStatus) liveStatus.style.display = 'block';
+            if (liveInject) liveInject.style.display = 'block';
+            const agentBox = document.getElementById('agent-live-box');
+            const statusBox = document.getElementById('live-status-box');
+            if (agentBox) agentBox.innerHTML = '';
+            if (statusBox) statusBox.innerHTML = '';
+            startAgentSSE(projectId, enabledTools);
+        }
+
+        function startAgentSSE(projectId, enabledTools) {
+            if (agentSSEController) agentSSEController.abort();
+            agentSSEController = new AbortController();
+            const agentBox = document.getElementById('agent-live-box');
+            const statusBox = document.getElementById('live-status-box');
+            const liveInject = document.getElementById('live-inject-container');
+            if (agentBox) agentBox.innerHTML = '';
+            if (statusBox) statusBox.innerHTML = '';
+            if (liveInject) liveInject.style.display = 'block';
+            fetch('/api/agent/run', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ project_id: projectId, enabled_tools: enabledTools }),
+                signal: agentSSEController.signal
+            })
+            .then(response => {
+                if (!response.ok) throw new Error('Failed to start agent run');
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+                function processChunk() {
+                    reader.read().then(({ done, value }) => {
+                        if (done || !agentRunning) {
+                            agentRunning = false;
+                            liveInjectActive = false;
+                            resetRunButtons();
+                            return;
+                        }
+                        buffer += decoder.decode(value, { stream: true });
+                        let newlineIdx;
+                        while ((newlineIdx = buffer.indexOf('\n')) !== -1) {
+                            const fullLine = buffer.substring(0, newlineIdx);
+                            buffer = buffer.substring(newlineIdx + 1);
+                            if (fullLine.startsWith('event: ')) {
+                                const eventType = fullLine.substring(7).trim();
+                                const dataLine = buffer.substring(0, buffer.indexOf('\n'));
+                                const dataStr = dataLine.replace('data: ', '');
+                                buffer = buffer.substring(buffer.indexOf('\n') + 1);
+                                try {
+                                    const data = JSON.parse(dataStr);
+                                    if (eventType === 'status') handleAgentStatus(data, statusBox);
+                                    else if (eventType === 'step') handleAgentStep(data, agentBox, statusBox);
+                                } catch (e) { console.warn('Failed to parse SSE data:', e); }
+                            }
+                        }
+                        processChunk();
+                    });
+                }
+                processChunk();
+            })
+            .catch(err => {
+                if (err.name === 'AbortError') {
+                    console.log('Agent run stopped');
+                    if (statusBox) statusBox.innerHTML += '\n[STOPPED]';
+                } else {
+                    console.error('Agent run error:', err);
+                    if (agentBox) agentBox.innerHTML += `<div class="step-entry error">ERROR: ${escapeHtml(err.message)}</div>`;
+                    if (statusBox) statusBox.innerHTML += `\n[ERROR: ${escapeHtml(err.message)}]`;
+                }
+                agentRunning = false;
+                liveInjectActive = false;
+                resetRunButtons();
+            });
+        }
+
+        function handleAgentStatus(data, statusBox) {
+            if (!statusBox) return;
+            if (data.type === 'start') {
+                currentRunningJobId = data.job_id;
+                statusBox.innerHTML = `[STARTED] Job: ${data.job_id}\n`;
+            } else if (data.type === 'complete') {
+                statusBox.innerHTML += `\n[COMPLETE] Steps: ${data.steps}/${data.max_steps}\n${data.summary || ''}\n`;
+                loadJobs();
+            } else if (data.type === 'error') {
+                statusBox.innerHTML += `\n[ERROR] ${data.error}\n`;
+                loadJobs();
+            }
+            if (statusBox) statusBox.scrollTop = statusBox.scrollHeight;
+        }
+
+        function handleAgentStep(data, agentBox, statusBox) {
+            if (!agentBox) return;
+            const ok = data.result && data.result.success !== false;
+            const resultPreview = data.result ? (data.result.content || '').substring(0, 300) : 'no result';
+            const entry = document.createElement('div');
+            entry.className = `step-entry ${ok ? 'success' : 'error'}`;
+            entry.innerHTML = `
+                <div><span class="step-tool">Step ${data.step}: ${data.tool}</span></div>
+                ${data.params && Object.keys(data.params).length ? `<div style="color:#aaa;font-size:9px;">Params: ${escapeHtml(JSON.stringify(data.params))}</div>` : ''}
+                <div class="step-result">${escapeHtml(resultPreview)}</div>
+            `;
+            agentBox.appendChild(entry);
+            if (agentBox) agentBox.scrollTop = agentBox.scrollHeight;
+            if (statusBox) {
+                statusBox.innerHTML += `[Step ${data.step}] ${data.tool}: ${ok ? '✓' : '✗'} ${resultPreview.substring(0, 80)}\n`;
+                statusBox.scrollTop = statusBox.scrollHeight;
+            }
         }
 
         function stopProject(projectId) {
+            agentRunning = false;
+            if (agentSSEController) {
+                agentSSEController.abort();
+                agentSSEController = null;
+            }
+            liveInjectActive = false;
             fetch('/api/queue/running/stop', { method: 'POST' })
                 .then(() => {
                     updateRunButtonState(projectId, false);
                     loadJobs();
+                    resetRunButtons();
                 })
                 .catch(err => console.error('Failed to stop project:', err));
+        }
+
+        function resetRunButtons() {
+            const runBtn = document.getElementById('details-run-btn');
+            const stopBtn = document.getElementById('details-stop-btn');
+            if (runBtn) { runBtn.disabled = false; runBtn.innerHTML = 'RUN AI BUILDER'; }
+            if (stopBtn) stopBtn.style.display = 'none';
         }
 
         function updateRunButtonState(projectId, status) {
@@ -1411,14 +2219,11 @@
             const stopListBtn = document.getElementById(`stop-btn-${projectId}`);
             const detailBtn = document.getElementById('details-run-btn');
             const detailStopBtn = document.getElementById('details-stop-btn');
-
             if (listBtn) {
                 listBtn.disabled = status === 'running';
                 listBtn.innerHTML = status === 'running' ? '<span class="spinner"></span> RUNNING...' : status === 'queued' ? '<span class="spinner"></span> QUEUED' : 'RUN';
             }
-            if (stopListBtn) {
-                stopListBtn.style.display = status === 'running' ? 'inline-block' : 'none';
-            }
+            if (stopListBtn) stopListBtn.style.display = status === 'running' ? 'inline-block' : 'none';
             if (detailBtn && currentProjectId === projectId) {
                 detailBtn.disabled = status === 'running';
                 detailBtn.innerHTML = status === 'running' ? '<span class="run-spinner"></span> RUNNING...' : status === 'queued' ? '<span class="run-spinner"></span> QUEUED' : 'RUN AI BUILDER';
@@ -1444,81 +2249,83 @@
             if (!confirm('Are you sure you want to delete this project?')) return;
             fetch(`/api/projects/${projectId}`, { method: 'DELETE' })
                 .then(() => {
-                    if (currentProjectId === projectId) {
-                        goBackToProjects();
-                    } else {
-                        loadProjects();
-                    }
+                    if (currentProjectId === projectId) goBackToProjects();
+                    else loadProjects();
                 })
                 .catch(err => console.error('Failed to delete project:', err));
+        }
+
+        function getProjectById(projectId) {
+            for (const p of _loadedProjects || []) {
+                if (p.id === projectId) return p;
+            }
+            return null;
+        }
+
+        let _loadedProjects = [];
+        function loadProjectsCached() {
+            return fetch('/api/projects')
+                .then(r => r.json())
+                .then(data => {
+                    _loadedProjects = data;
+                    loadProjects();
+                    return data;
+                });
         }
 
         function selectProject(projectId) {
             currentProjectId = projectId;
             localStorage.setItem('currentProjectId', projectId);
-
             const projectsPanel = document.getElementById('projects-panel');
             const detailsPanel = document.getElementById('project-details-panel');
-            if (projectsPanel) {
-                projectsPanel.classList.add('hidden');
-                projectsPanel.classList.remove('active');
-            }
-            if (detailsPanel) {
-                detailsPanel.classList.remove('hidden');
-                detailsPanel.classList.add('active');
-            }
-
+            if (projectsPanel) { projectsPanel.classList.add('hidden'); projectsPanel.classList.remove('active'); }
+            if (detailsPanel) { detailsPanel.classList.remove('hidden'); detailsPanel.classList.add('active'); }
             fetch(`/api/projects/${projectId}`)
                 .then(response => response.json())
                 .then(project => {
-                    const safeSet = (id, val) => {
-                        const el = document.getElementById(id);
-                        if (el) el.value = val;
-                    };
-
+                    const safeSet = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
                     safeSet('run-project-id', project.id);
                     const nameEl = document.getElementById('details-project-name');
                     if (nameEl) nameEl.textContent = escapeHtml(project.name || 'Untitled');
                     const nameFormEl = document.getElementById('details-project-name-form');
                     if (nameFormEl) nameFormEl.value = project.name || '';
-
                     const fileListContainer = document.getElementById('details-file-tree-container');
                     if (fileListContainer) fileListContainer.innerHTML = '';
-
+                    const mode = project.mode || 'oneshot';
+                    const modeSelect = document.getElementById('details-mode');
+                    const modeInput = document.getElementById('details-mode-input');
+                    const modeBadge = document.getElementById('details-mode-badge');
+                    if (modeSelect) modeSelect.value = mode;
+                    if (modeInput) modeInput.value = mode;
+                    if (modeBadge) {
+                        modeBadge.className = `mode-indicator ${mode === 'agentic' ? 'agentic' : 'oneshot'}`;
+                        modeBadge.textContent = mode === 'agentic' ? 'AGENTIC' : 'ONE-SHOT';
+                    }
+                    const fileSelector = document.getElementById('details-file-selector');
+                    const agentSettings = document.getElementById('details-agent-settings');
+                    if (fileSelector) fileSelector.style.display = mode === 'agentic' ? 'none' : 'block';
+                    if (agentSettings) agentSettings.style.display = mode === 'agentic' ? 'block' : 'none';
                     const rootDir = project.rootDirectory || '';
                     safeSet('details-root-dir', rootDir);
-
                     const patterns = project.includePatterns ? project.includePatterns.split(',').map(p => p.trim()) : [];
                     const container = document.getElementById('details-selected-paths-container');
                     if (container) {
                         container.innerHTML = '';
-                        patterns.forEach(path => {
-                            if (path) addPathToDetailsList(path);
-                        });
+                        patterns.forEach(path => { if (path) addPathToDetailsList(path); });
                     }
                     updateDetailsPatternsInput();
-
                     safeSet('details-instructions', project.instructions || '');
                     safeSet('details-pre-script', project.preScript || '');
                     safeSet('details-post-script', project.postScript || '');
-
-                    const statusEl = document.getElementById('run-status');
-                    if (statusEl) statusEl.textContent = '';
-
-                    const errorDisplay = document.getElementById('project-error-display');
-                    if (errorDisplay) {
-                        errorDisplay.style.display = 'none';
-                        errorDisplay.innerHTML = '';
-                    }
-
-                    updateRunButtonState(projectId, false);
+                    safeSet('details-exclude-patterns', project.excludePatterns || '');
+                    if (mode === 'agentic') buildToolSelector(project.enabled_tools || []);
+                    loadDetailsFileTree();
+                    loadJobs();
                 })
                 .catch(err => console.error('Failed to load project details:', err));
         }
 
-        function goToProject(projectId) {
-            selectProject(projectId);
-        }
+        function goToProject(projectId) { selectProject(projectId); }
 
         function goBackToProjects() {
             document.getElementById('project-details-panel').classList.add('hidden');
@@ -1533,28 +2340,21 @@
         // === File Tree Management ===
         function loadFileTree(isSearch = false) {
             if (isSearch) fileTreePage = 0;
-            const rootPath = document.getElementById('root-path').value;
-            if (!rootPath) {
-                alert('Please enter a root directory first');
-                return;
-            }
+            const rootPath = document.getElementById('add-root-path')?.value;
+            if (!rootPath) { alert('Please enter a root directory first'); return; }
             fileTreePath = rootPath;
             fileTreeSearch = document.getElementById('tree-search').value.toLowerCase();
-
             const loadTreeBtn = document.getElementById('load-tree-btn');
             const loadTreeText = document.getElementById('load-tree-text');
             const loadTreeSpinner = document.getElementById('load-tree-spinner');
             const container = document.getElementById('file-tree-container');
             const paginationDiv = document.getElementById('file-tree-pagination');
-
             if (loadTreeBtn) loadTreeBtn.disabled = true;
             if (loadTreeText) loadTreeText.style.display = 'none';
             if (loadTreeSpinner) loadTreeSpinner.style.display = 'inline-block';
             if (container) container.innerHTML = '<span class="spinner" style="display:inline-block; margin:10px;"></span><span style="margin-left: 10px;">Loading files...</span>';
             if (paginationDiv) paginationDiv.innerHTML = '';
-
-            const pathToUse = fileTreePath.startsWith('/') || fileTreePath.match(/^[a-zA-Z]:\\/) ? fileTreePath : `./${fileTreePath}`;
-
+            const pathToUse = fileTreePath.startsWith('/') || fileTreePath.match(/^[a-zA-Z]:\\\\/) ? fileTreePath : `./${fileTreePath}`;
             fetch(`/api/files?path=${encodeURIComponent(pathToUse)}&limit=50&offset=${fileTreePage * 50}&search=${encodeURIComponent(fileTreeSearch)}`)
                 .then(response => response.json())
                 .then(data => {
@@ -1562,57 +2362,39 @@
                     container.innerHTML = '';
                     let paths = data.files || [];
                     fileTreeTotal = data.total || 0;
-
-                    const showSelectedOnly = document.getElementById('show-selected-only-new').checked;
+                    const showSelectedOnly = document.getElementById('show-selected-only-new')?.checked;
                     if (showSelectedOnly) {
-                        const selectedPaths = Array.from(document.querySelectorAll('#selected-paths-container .path-item'))
-                            .map(el => el.dataset.path);
+                        const selectedPaths = Array.from(document.querySelectorAll('#selected-paths-container .path-item')).map(el => el.dataset.path);
                         paths = paths.filter(p => selectedPaths.includes(p.path));
                         fileTreeTotal = paths.length;
                     }
-
-                    const currentPaths = Array.from(document.querySelectorAll('#selected-paths-container .path-item'))
-                        .map(el => el.dataset.path);
-
+                    const currentPaths = Array.from(document.querySelectorAll('#selected-paths-container .path-item')).map(el => el.dataset.path);
                     paths.forEach(item => {
                         const isDir = item.path.endsWith('/');
                         const itemElement = document.createElement('div');
                         itemElement.className = `tree-item ${isDir ? 'dir' : 'file'}`;
                         itemElement.style.cursor = 'pointer';
                         itemElement.style.padding = '5px 0';
-
                         const checkbox = document.createElement('input');
                         checkbox.type = 'checkbox';
                         checkbox.checked = currentPaths.includes(item.path);
                         checkbox.onchange = () => updateSelectedPatterns();
                         checkbox.dataset.path = item.path;
                         checkbox.style.width = '10%';
-
                         const label = document.createElement('label');
                         label.textContent = item.path;
                         label.style.marginLeft = '5px';
                         label.style.display = 'inline-block';
-
                         const sizeLabel = document.createElement('span');
                         sizeLabel.textContent = ` (${formatSize(item.size)})`;
                         sizeLabel.style.color = '#888';
                         sizeLabel.style.fontSize = '11px';
-
                         label.appendChild(sizeLabel);
                         itemElement.appendChild(checkbox);
                         itemElement.appendChild(label);
-
-                        // Allow clicking anywhere on the row to toggle selection
-                        itemElement.onclick = (e) => {
-                            if (e.target !== checkbox) {
-                                checkbox.checked = !checkbox.checked;
-                                checkbox.onchange();
-                            }
-                        };
-
+                        itemElement.onclick = (e) => { if (e.target !== checkbox) { checkbox.checked = !checkbox.checked; checkbox.onchange(); } };
                         container.appendChild(itemElement);
                     });
-
                     updateSelectedPatterns();
                     if (loadTreeBtn) loadTreeBtn.disabled = false;
                     if (loadTreeText) loadTreeText.style.display = 'inline';
@@ -1630,29 +2412,21 @@
 
         function loadDetailsFileTree(isSearch = false) {
             if (isSearch) detailsFileTreePage = 0;
-            const rootPath = document.getElementById('details-root-dir').value;
-            if (!rootPath) {
-                alert('Please enter a root directory first');
-                return;
-            }
+            const rootPath = document.getElementById('details-root-dir')?.value;
+            if (!rootPath) { alert('Please enter a root directory first'); return; }
             detailsFileTreePath = rootPath;
             detailsFileTreeSearch = document.getElementById('details-tree-search').value.toLowerCase();
-
             const loadTreeBtn = document.getElementById('details-load-tree-btn');
             const loadTreeText = document.getElementById('details-load-tree-text');
             const loadTreeSpinner = document.getElementById('details-load-tree-spinner');
             const container = document.getElementById('details-file-tree-container');
             const paginationDiv = document.getElementById('details-file-tree-pagination');
-
             if (loadTreeBtn) loadTreeBtn.disabled = true;
             if (loadTreeText) loadTreeText.style.display = 'none';
             if (loadTreeSpinner) loadTreeSpinner.style.display = 'inline-block';
             if (container) container.innerHTML = '<span class="spinner" style="display:inline-block; margin:10px;"></span><span style="margin-left: 10px;">Loading files...</span>';
             if (paginationDiv) paginationDiv.innerHTML = '';
-
-            const pathToUse = detailsFileTreePath.startsWith('/') || detailsFileTreePath.match(/^[a-zA-Z]:\\/) ?
-                detailsFileTreePath : `./${detailsFileTreePath}`;
-
+            const pathToUse = detailsFileTreePath.startsWith('/') || detailsFileTreePath.match(/^[a-zA-Z]:\\\\/) ? detailsFileTreePath : `./${detailsFileTreePath}`;
             fetch(`/api/files?path=${encodeURIComponent(pathToUse)}&limit=50&offset=${detailsFileTreePage * 50}&search=${encodeURIComponent(detailsFileTreeSearch)}`)
                 .then(response => response.json())
                 .then(data => {
@@ -1660,57 +2434,39 @@
                     container.innerHTML = '';
                     let paths = data.files || [];
                     detailsFileTreeTotal = data.total || 0;
-
-                    const showSelectedOnly = document.getElementById('details-show-selected-only').checked;
+                    const showSelectedOnly = document.getElementById('details-show-selected-only')?.checked;
                     if (showSelectedOnly) {
-                        const selectedPaths = Array.from(document.querySelectorAll('#details-selected-paths-container .path-item'))
-                            .map(el => el.dataset.path);
+                        const selectedPaths = Array.from(document.querySelectorAll('#details-selected-paths-container .path-item')).map(el => el.dataset.path);
                         paths = paths.filter(p => selectedPaths.includes(p.path));
                         detailsFileTreeTotal = paths.length;
                     }
-
-                    const currentPaths = Array.from(document.querySelectorAll('#details-selected-paths-container .path-item'))
-                        .map(el => el.dataset.path);
-
+                    const currentPaths = Array.from(document.querySelectorAll('#details-selected-paths-container .path-item')).map(el => el.dataset.path);
                     paths.forEach(item => {
                         const isDir = item.path.endsWith('/');
                         const itemElement = document.createElement('div');
                         itemElement.className = `tree-item ${isDir ? 'dir' : 'file'}`;
                         itemElement.style.cursor = 'pointer';
                         itemElement.style.padding = '5px 0';
-
                         const checkbox = document.createElement('input');
                         checkbox.type = 'checkbox';
                         checkbox.checked = currentPaths.includes(item.path);
                         checkbox.onchange = () => detailsUpdateSelectedPatterns();
                         checkbox.dataset.path = item.path;
                         checkbox.style.width = '10%';
-
                         const label = document.createElement('label');
                         label.textContent = item.path;
                         label.style.marginLeft = '5px';
                         label.style.display = 'inline-block';
-
                         const sizeLabel = document.createElement('span');
                         sizeLabel.textContent = ` (${formatSize(item.size)})`;
                         sizeLabel.style.color = '#888';
                         sizeLabel.style.fontSize = '11px';
-
                         label.appendChild(sizeLabel);
                         itemElement.appendChild(checkbox);
                         itemElement.appendChild(label);
-
-                        // Allow clicking anywhere on the row to toggle selection
-                        itemElement.onclick = (e) => {
-                            if (e.target !== checkbox) {
-                                checkbox.checked = !checkbox.checked;
-                                checkbox.onchange();
-                            }
-                        };
-
+                        itemElement.onclick = (e) => { if (e.target !== checkbox) { checkbox.checked = !checkbox.checked; checkbox.onchange(); } };
                         container.appendChild(itemElement);
                     });
-
                     detailsUpdateSelectedPatterns();
                     if (loadTreeBtn) loadTreeBtn.disabled = false;
                     if (loadTreeText) loadTreeText.style.display = 'inline';
@@ -1743,36 +2499,28 @@
 
         function selectAll() {
             showTreeOverlay('file-tree');
-            document.querySelectorAll('#file-tree-container input[type="checkbox"]').forEach(cb => {
-                cb.checked = true;
-            });
+            document.querySelectorAll('#file-tree-container input[type="checkbox"]').forEach(cb => { cb.checked = true; });
             updateSelectedPatterns();
             hideTreeOverlay('file-tree');
         }
 
         function deselectAll() {
             showTreeOverlay('file-tree');
-            document.querySelectorAll('#file-tree-container input[type="checkbox"]').forEach(cb => {
-                cb.checked = false;
-            });
+            document.querySelectorAll('#file-tree-container input[type="checkbox"]').forEach(cb => { cb.checked = false; });
             updateSelectedPatterns();
             hideTreeOverlay('file-tree');
         }
 
         function detailsSelectAll() {
             showTreeOverlay('details-file-tree');
-            document.querySelectorAll('#details-file-tree-container input[type="checkbox"]').forEach(cb => {
-                cb.checked = true;
-            });
+            document.querySelectorAll('#details-file-tree-container input[type="checkbox"]').forEach(cb => { cb.checked = true; });
             detailsUpdateSelectedPatterns();
             hideTreeOverlay('details-file-tree');
         }
 
         function detailsDeselectAll() {
             showTreeOverlay('details-file-tree');
-            document.querySelectorAll('#details-file-tree-container input[type="checkbox"]').forEach(cb => {
-                cb.checked = false;
-            });
+            document.querySelectorAll('#details-file-tree-container input[type="checkbox"]').forEach(cb => { cb.checked = false; });
             detailsUpdateSelectedPatterns();
             hideTreeOverlay('details-file-tree');
         }
@@ -1780,50 +2528,31 @@
         function filterTree() {
             clearTimeout(filterTreeTimeout);
             showTreeOverlay('file-tree');
-            filterTreeTimeout = setTimeout(() => {
-                loadFileTree(true);
-            }, 300);
+            filterTreeTimeout = setTimeout(() => { loadFileTree(true); }, 300);
         }
 
         function detailsFilterTree() {
             clearTimeout(detailsFilterTreeTimeout);
             showTreeOverlay('details-file-tree');
-            detailsFilterTreeTimeout = setTimeout(() => {
-                loadDetailsFileTree(true);
-            }, 300);
+            detailsFilterTreeTimeout = setTimeout(() => { loadDetailsFileTree(true); }, 300);
         }
 
-        function showTreeOverlay(id) {
-            const overlay = document.getElementById(id + '-loading-overlay');
-            if (overlay) overlay.style.display = 'flex';
-        }
-
-        function hideTreeOverlay(id) {
-            const overlay = document.getElementById(id + '-loading-overlay');
-            if (overlay) overlay.style.display = 'none';
-        }
+        function showTreeOverlay(id) { const overlay = document.getElementById(id + '-loading-overlay'); if (overlay) overlay.style.display = 'flex'; }
+        function hideTreeOverlay(id) { const overlay = document.getElementById(id + '-loading-overlay'); if (overlay) overlay.style.display = 'none'; }
 
         // === Path Management ===
         function addPathToDetailsList(path) {
             const container = document.getElementById('details-selected-paths-container');
             if (!container) return;
-
             const pathItem = document.createElement('div');
             pathItem.className = 'path-item';
             pathItem.dataset.path = path;
-
             const pathText = document.createElement('span');
             pathText.textContent = escapeHtml(path);
-
             const removeBtn = document.createElement('button');
             removeBtn.className = 'remove-btn';
             removeBtn.textContent = 'X';
-            removeBtn.onclick = () => {
-                pathItem.remove();
-                updateDetailsPatternsInput();
-                autoSaveProject();
-            };
-
+            removeBtn.onclick = () => { pathItem.remove(); updateDetailsPatternsInput(); autoSaveProject(); };
             pathItem.appendChild(pathText);
             pathItem.appendChild(removeBtn);
             container.appendChild(pathItem);
@@ -1833,953 +2562,231 @@
             const container = document.getElementById('details-selected-paths-container');
             const input = document.getElementById('details-patterns-input');
             if (!container || !input) return;
-
             const paths = Array.from(container.children).map(el => el.dataset.path);
             input.value = paths.join(',');
         }
+
+        function detailsUpdateSelectedPatterns() { updateDetailsPatternsInput(); autoSaveProject(); }
 
         function addNewPath() {
             const input = document.getElementById('new-path-input');
             const path = input.value.trim();
             if (!path) return;
-
             const container = document.getElementById('selected-paths-container');
             if (!container) return;
-
             const pathItem = document.createElement('div');
             pathItem.className = 'path-item';
             pathItem.dataset.path = path;
-
             const pathText = document.createElement('span');
             pathText.textContent = escapeHtml(path);
-
             const removeBtn = document.createElement('button');
             removeBtn.className = 'remove-btn';
             removeBtn.textContent = 'X';
-            removeBtn.onclick = () => {
-                pathItem.remove();
-                updatePatternsInput();
-            };
-
+            removeBtn.onclick = () => { pathItem.remove(); updateSelectedPatterns(); };
             pathItem.appendChild(pathText);
             pathItem.appendChild(removeBtn);
             container.appendChild(pathItem);
-
             input.value = '';
-            updatePatternsInput();
-        }
-
-        function detailsAddNewPath() {
-            const input = document.getElementById('details-new-path-input');
-            const path = input.value.trim();
-            if (!path) return;
-
-            addPathToDetailsList(path);
-            input.value = '';
-            updateDetailsPatternsInput();
-            autoSaveProject();
-        }
-
-        function updatePatternsInput() {
-            const container = document.getElementById('selected-paths-container');
-            const input = document.getElementById('patterns-input');
-            if (!container || !input) return;
-
-            const paths = Array.from(container.children).map(el => el.dataset.path);
-            input.value = paths.join(',');
+            updateSelectedPatterns();
         }
 
         function updateSelectedPatterns() {
             const container = document.getElementById('selected-paths-container');
-            if (!container) return;
-
-            const currentPaths = Array.from(container.children).map(el => el.dataset.path);
-            const checkboxes = document.querySelectorAll('#file-tree-container input[type="checkbox"]:checked');
-            const pathsToAdd = Array.from(checkboxes).map(cb => cb.dataset.path).filter(p => !currentPaths.includes(p));
-
-            pathsToAdd.forEach(path => {
-                const pathItem = document.createElement('div');
-                pathItem.className = 'path-item';
-                pathItem.dataset.path = path;
-
-                const pathText = document.createElement('span');
-                pathText.textContent = escapeHtml(path);
-
-                const removeBtn = document.createElement('button');
-                removeBtn.className = 'remove-btn';
-                removeBtn.textContent = 'X';
-                removeBtn.onclick = () => {
-                    pathItem.remove();
-                    updatePatternsInput();
-                };
-
-                pathItem.appendChild(pathText);
-                pathItem.appendChild(removeBtn);
-                container.appendChild(pathItem);
-            });
-
-            updatePatternsInput();
+            const input = document.getElementById('patterns-input');
+            if (!container || !input) return;
+            const paths = Array.from(container.children).map(el => el.dataset.path);
+            input.value = paths.join(',');
         }
 
-        function detailsUpdateSelectedPatterns() {
-            const container = document.getElementById('details-selected-paths-container');
-            if (!container) return;
-
-            const currentPaths = Array.from(container.children).map(el => el.dataset.path);
-            const checkboxes = document.querySelectorAll('#details-file-tree-container input[type="checkbox"]:checked');
-            const pathsToAdd = Array.from(checkboxes).map(cb => cb.dataset.path).filter(p => !currentPaths.includes(p));
-
-            pathsToAdd.forEach(path => {
-                addPathToDetailsList(path);
-            });
-
-            updateDetailsPatternsInput();
-            autoSaveProject();
-        }
-
-        // === Auto-Save ===
-        function autoSaveProject() {
-            if (!currentProjectId) return;
-            clearTimeout(autoSaveTimeout);
-            autoSaveTimeout = setTimeout(() => {
-                const form = document.getElementById('project-details-form');
-                if (!form) return;
-                const formData = new FormData(form);
-                fetch(`/api/projects/${currentProjectId}`, {
-                    method: 'POST',
-                    body: formData
-                }).catch(error => console.error('Auto-save failed:', error));
-            }, 500);
-        }
-
-        // === Sorting ===
-        function setSortMode(mode) {
-            sortMode = mode;
-            document.getElementById('sort-name-btn').style.background = mode === 'name' ? 'var(--grass)' : 'var(--wood)';
-            document.getElementById('sort-size-btn').style.background = mode === 'size' ? 'var(--grass)' : 'var(--wood)';
-            loadFileTree();
-        }
-
-        function setDetailsSortMode(mode) {
-            detailsSortMode = mode;
-            document.getElementById('details-sort-name-btn').style.background = mode === 'name' ? 'var(--grass)' : 'var(--wood)';
-            document.getElementById('details-sort-size-btn').style.background = mode === 'size' ? 'var(--grass)' : 'var(--wood)';
-            loadDetailsFileTree();
-        }
-
-        // === Utility Functions ===
         function formatSize(bytes) {
-            if (bytes === 0) return '0 B';
-            const k = 1024, sizes = ['B', 'KB', 'MB', 'GB'];
-            const i = Math.floor(Math.log(bytes) / Math.log(k));
-            return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+            if (bytes === null || bytes === undefined) return '';
+            if (bytes < 1024) return bytes + ' B';
+            if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+            return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
         }
+
+        // === Project Form Submit ===
+        document.getElementById('add-project-form').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const formData = new FormData(this);
+            formData.set('includePatterns', document.getElementById('patterns-input').value);
+            fetch('/api/projects', { method: 'POST', body: formData })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.error) { alert('Error: ' + data.error); }
+                    else { loadProjects(); this.reset(); selectedPaths = []; renderSelectedPaths(); onAddModeChange(); }
+                })
+                .catch(err => console.error('Failed to create project:', err));
+        });
 
         function toggleArchived() {
             showArchived = !showArchived;
-            document.getElementById('show-archived-btn').textContent = showArchived ? 'HIDE ARCHIVED' : 'SHOW ARCHIVED';
+            const btn = document.getElementById('show-archived-btn');
+            if (btn) btn.textContent = showArchived ? 'HIDE ARCHIVED' : 'SHOW ARCHIVED';
             loadProjects();
         }
 
-        function escapeHtml(text) {
-            if (!text) return '';
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
+        function openActionsModal(jobId) {
+            fetch(`/api/job/${jobId}/actions`)
+                .then(r => r.json())
+                .then(data => {
+                    document.getElementById('actions-modal-content').textContent = data.content || 'No actions file found.';
+                    document.getElementById('actions-modal').style.display = 'flex';
+                })
+                .catch(err => { console.error('Failed to load actions:', err); alert('Failed to load actions.'); });
         }
+
+        function closeActionsModal() { document.getElementById('actions-modal').style.display = 'none'; }
 
         function copyInstructions(jobId) {
-            const instrDiv = document.getElementById(`instr-${jobId}`);
-            if (instrDiv) {
-                navigator.clipboard.writeText(instrDiv.textContent)
-                    .then(() => {
-                        const btn = document.getElementById(`copy-instr-btn-${jobId}`);
-                        if (btn) {
-                            btn.textContent = 'COPIED!';
-                            setTimeout(() => { btn.textContent = 'COPY PRIOR INSTRUCTIONS'; }, 2000);
-                        }
-                    })
-                    .catch(err => console.error('Failed to copy:', err));
-            }
+            const el = document.getElementById('instr-' + jobId);
+            if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
         }
 
-        function openActionsModal(jobId) {
-            const modal = document.getElementById('actions-modal');
-            const contentPre = document.getElementById('actions-modal-content');
-            if (!modal || !contentPre) return;
-
-            contentPre.textContent = 'LOADING...';
-            modal.style.display = 'flex';
-
-            fetch(`/api/job/${jobId}/actions`)
-                .then(res => {
-                    if (!res.ok) throw new Error('Failed to load actions');
-                    return res.json();
-                })
-                .then(data => {
-                    contentPre.textContent = data.content !== undefined ? data.content : 'No actions file found.';
-                })
-                .catch(err => {
-                    contentPre.textContent = 'Failed to load actions: ' + err.message;
-                    console.error('Failed to load actions:', err);
-                });
+        // === Auto Save ===
+        function autoSaveProject() {
+            clearTimeout(autoSaveTimeout);
+            autoSaveTimeout = setTimeout(() => { saveProjectChanges(); }, 2000);
         }
 
-        function closeActionsModal() {
-            const modal = document.getElementById('actions-modal');
-            if (modal) modal.style.display = 'none';
-        }
-
-        // === Chat Management ===
-        function loadChats() {
-            fetch('/api/chats')
-                .then(response => response.json())
-                .then(chats => {
-                    const sortedChats = chats.sort((a, b) => {
-                        const timeA = a.timestamp || a.id;
-                        const timeB = b.timestamp || b.id;
-                        return new Date(timeB) - new Date(timeA);
-                    });
-
-                    const chatList = document.getElementById('chat-list');
-                    if (!chatList) return;
-                    chatList.innerHTML = '';
-                    if (sortedChats.length === 0) {
-                        chatList.innerHTML = '<div class="note">NO CHATS FOUND.<br>START A NEW ONE BELOW.</div>';
-                        return;
-                    }
-
-                    sortedChats.forEach(chat => {
-                        const chatItem = document.createElement('div');
-                        chatItem.className = 'chat-item';
-                        chatItem.dataset.chatId = chat.id;
-                        chatItem.onclick = () => selectChat(chat.id);
-
-                        let displayTitle = chat.title || 'Unnamed Chat';
-                        if (chat.timestamp) {
-                            const date = new Date(chat.timestamp);
-                            displayTitle = `${date.toLocaleString()} - ${displayTitle}`;
-                        }
-
-                        chatItem.innerHTML = `
-                            <span>${escapeHtml(displayTitle)}</span>
-                            <button class="btn-xs chat-delete" onclick="event.stopPropagation(); deleteChat('${chat.id}')">X</button>
-                        `;
-                        chatList.appendChild(chatItem);
-                    });
-
-                    if (currentChatId) {
-                        const currentItem = document.querySelector(`.chat-item[data-chat-id="${currentChatId}"]`);
-                        if (currentItem) currentItem.classList.add('active');
-                    }
-                });
-        }
-
-        function newChat() {
-            return fetch('/api/chats', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ timestamp: new Date().toISOString() })
-            })
-                .then(response => {
-                    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-                    return response.json();
-                })
-                .then(chat => {
-                    currentChatId = chat.id;
-                    localStorage.setItem('currentChatId', chat.id);
-                    selectChat(chat.id);
-                    loadChats();
-                    return chat.id;
-                })
-                .catch(err => {
-                    console.error('Failed to create chat:', err);
-                    alert('Failed to create chat. Check console for details.');
-                    throw err;
-                });
-        }
-
-        function selectChat(chatId) {
-            currentChatId = chatId;
-            localStorage.setItem('currentChatId', chatId);
-
-            fetch(`/api/chats/${chatId}`)
-                .then(response => {
-                    if (!response.ok) return newChat().then(() => selectChat(currentChatId));
-                    return response.json();
-                })
-                .then(chat => {
-                    document.querySelectorAll('.chat-item').forEach(item => item.classList.remove('active'));
-                    const selectedItem = document.querySelector(`.chat-item[data-chat-id="${chatId}"]`);
-                    if (selectedItem) selectedItem.classList.add('active');
-
-                    const chatLog = document.getElementById('chat-log');
-                    const chatControls = document.getElementById('chat-controls-container');
-                    const chatInput = document.getElementById('chat-input');
-                    const sendBtn = document.getElementById('send-chat-btn');
-
-                    if (chatLog) {
-                        chatLog.style.display = 'block';
-                        chatLog.innerHTML = '';
-                        if (!chat.messages || chat.messages.length === 0) {
-                            chatLog.innerHTML = '<div class="note">No messages yet. Start a conversation!</div>';
-                        } else {
-                            chat.messages.forEach(msg => {
-                                const msgElement = document.createElement('div');
-                                msgElement.className = `chat-msg ${msg.role}`;
-                                msgElement.innerHTML = `
-                                    <strong>${msg.role}</strong>
-                                    <div class="markdown-content">${renderMarkdown(msg.content)}</div>
-                                `;
-                                addCopyButtons(msgElement.querySelector('.markdown-content'));
-                                chatLog.appendChild(msgElement);
-                            });
-                            chatLog.scrollTop = chatLog.scrollHeight;
-                        }
-                    }
-
-                    if (chatControls) chatControls.style.display = 'flex';
-                    if (chatInput) {
-                        chatInput.disabled = false;
-                        chatInput.value = '';
-                    }
-                    if (sendBtn) sendBtn.disabled = false;
-                })
-                .catch(err => {
-                    console.error('Failed to load chat:', err);
-                    newChat().then(() => loadChats());
-                });
-        }
-
-        function sendChat() {
-            const input = document.getElementById('chat-input');
-            const content = input.value.trim();
-            if (!content) {
-                alert('Please enter a message');
-                return;
-            }
-
-            if (!currentChatId) {
-                newChat().then(() => sendChat());
-                return;
-            }
-
-            const chatLog = document.getElementById('chat-log');
-            if (chatLog) {
-                const note = chatLog.querySelector('.note');
-                if (note) note.remove();
-            }
-
-            const userMsgElement = document.createElement('div');
-            userMsgElement.className = 'chat-msg user';
-            userMsgElement.innerHTML = `
-                <strong>USER</strong>
-                <div class="markdown-content">${escapeHtml(content)}</div>
-            `;
-            addCopyButtons(userMsgElement.querySelector('.markdown-content'));
-
-            const assistantMsgElement = document.createElement('div');
-            assistantMsgElement.className = 'chat-msg model';
-            assistantMsgElement.innerHTML = `
-                <strong>ASSISTANT</strong>
-                <span class="spinner"></span>
-                <span class="status-text">GENERATING...</span>
-                <div class="markdown-content"></div>
-            `;
-
-            if (chatLog) {
-                chatLog.appendChild(userMsgElement);
-                chatLog.appendChild(assistantMsgElement);
-                chatLog.scrollTop = chatLog.scrollHeight;
-            }
-
-            input.value = '';
-            if (input) input.disabled = true;
-            const sendBtn = document.getElementById('send-chat-btn');
-            if (sendBtn) sendBtn.disabled = true;
-
-            const contentDiv = assistantMsgElement.querySelector('.markdown-content');
-            let accumulated = '';
-
-            fetch(`/api/chats/${currentChatId}/messages`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ content })
-            })
-                .then(response => {
-                    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-                    if (!response.body) throw new Error('ReadableStream not supported');
-                    return response.body.getReader();
-                })
-                .then(reader => {
-                    const decoder = new TextDecoder();
-                    function read() {
-                        return reader.read().then(({ done, value }) => {
-                            if (done) {
-                                assistantMsgElement.querySelector('.spinner')?.remove();
-                                assistantMsgElement.querySelector('.status-text')?.remove();
-                                contentDiv.innerHTML = renderMarkdown(accumulated);
-                                addCopyButtons(contentDiv);
-                                if (chatLog) chatLog.scrollTop = chatLog.scrollHeight;
-                                if (input) input.disabled = false;
-                                if (sendBtn) sendBtn.disabled = false;
-                                return;
-                            }
-                            const text = decoder.decode(value, { stream: true });
-                            accumulated += text;
-                            if (accumulated.length > 0) {
-                                assistantMsgElement.querySelector('.status-text')?.remove();
-                                assistantMsgElement.querySelector('.spinner')?.remove();
-                            }
-                            contentDiv.innerHTML = renderMarkdown(accumulated);
-                            if (chatLog) chatLog.scrollTop = chatLog.scrollHeight;
-                            return read();
-                        });
-                    }
-                    read();
-                })
-                .catch(err => {
-                    console.error('Send failed:', err);
-                    assistantMsgElement.querySelector('.spinner')?.remove();
-                    assistantMsgElement.querySelector('.status-text')?.remove();
-                    contentDiv.innerHTML = `<span style="color:red;">Error: ${escapeHtml(err.message)}</span>`;
-                    if (chatLog) chatLog.scrollTop = chatLog.scrollHeight;
-                    if (input) input.disabled = false;
-                    if (sendBtn) sendBtn.disabled = false;
-                });
-        }
-
-        function deleteChat(chatId) {
-            if (!confirm('Delete this chat?')) return;
-            fetch(`/api/chats/${chatId}`, { method: 'DELETE' })
-                .then(() => {
-                    if (currentChatId === chatId) {
-                        currentChatId = null;
-                        localStorage.removeItem('currentChatId');
-                        const chatLog = document.getElementById('chat-log');
-                        if (chatLog) {
-                            chatLog.innerHTML = '<div class="note">SELECT A CHAT TO BEGIN</div>';
-                            chatLog.style.display = 'none';
-                        }
-                        document.getElementById('chat-controls-container').style.display = 'none';
-                    }
-                    loadChats();
-                });
-        }
-
-        function renderMarkdown(text) {
-            if (!text) return '';
-            let html = escapeHtml(text);
-            html = html.replace(/```(\w*)\r?\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>');
-            html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
-            html = html.replace(/\*\*([^\*]+)\*\*/g, '<strong>$1</strong>');
-            html = html.replace(/\*([^\*]+)\*/g, '<em>$1</em>');
-            html = html.replace(/\r?\n/g, '<br>');
-            return html;
-        }
-
-        function addCopyButtons(element) {
-            if (!element) return;
-
-            // Add copy button for the entire message
-            const copyButton = document.createElement('button');
-            copyButton.className = 'copy-icon';
-            copyButton.textContent = 'COPY';
-            copyButton.onclick = (e) => {
-                e.stopPropagation();
-                const clone = element.cloneNode(true);
-                const clonedButton = clone.querySelector('.copy-icon');
-                if (clonedButton) clonedButton.remove();
-                let text = clone.innerText || clone.textContent;
-                alert(text);
-                text = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-                alert(text);
-                text = text.trim("COPY");
-                alert(text);
-                navigator.clipboard.writeText(text)
-                    .then(() => {
-                        copyButton.textContent = 'COPIED!';
-                        setTimeout(() => { copyButton.textContent = 'COPY'; }, 2000);
-                    })
-                    .catch(err => console.error('Failed to copy:', err));
-            };
-            element.appendChild(copyButton);
-
-            // Add copy buttons for each <pre> tag
-            const preElements = element.querySelectorAll('pre');
-            preElements.forEach(pre => {
-                const preCopyButton = document.createElement('button');
-                preCopyButton.className = 'pre-copy-btn';
-                preCopyButton.textContent = 'COPY';
-                preCopyButton.onclick = (e) => {
-                    e.stopPropagation();
-                    var codeElement = pre.querySelector("code")
-                    var code = codeElement.innerText;
-                    code = code.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-                    navigator.clipboard.writeText(code)
-                        .then(() => {
-                            preCopyButton.textContent = 'COPIED!';
-                            setTimeout(() => { preCopyButton.textContent = 'COPY'; }, 2000);
-                        })
-                        .catch(err => console.error('Failed to copy:', err));
-                };
-                pre.appendChild(preCopyButton);
-            });
-        }
-
-        // === Root Path Confirmation ===
-        function confirmRootPathChange() {
-            pendingRootPath = document.getElementById('root-path').value;
-            pendingRootPathElementId = 'root-path';
-            document.getElementById('root-path-confirmation-modal').style.display = 'flex';
+        function saveProjectChanges() {
+            const projectId = document.getElementById('run-project-id')?.value;
+            if (!projectId) return;
+            const formData = new FormData(document.getElementById('project-details-form'));
+            formData.set('includePatterns', document.getElementById('details-patterns-input')?.value || '');
+            formData.set('mode', document.getElementById('details-mode').value);
+            fetch(`/api/projects/${projectId}`, { method: 'POST', body: formData })
+                .then(res => res.json())
+                .then(data => { if (data.status === 'saved') console.log('Project saved'); })
+                .catch(err => console.error('Failed to save project:', err));
         }
 
         function confirmDetailsRootPathChange() {
-            pendingRootPath = document.getElementById('details-root-dir').value;
+            pendingRootPathChange = true;
             pendingRootPathElementId = 'details-root-dir';
             document.getElementById('root-path-confirmation-modal').style.display = 'flex';
         }
 
         function confirmRootPathChangeProceed() {
             document.getElementById('root-path-confirmation-modal').style.display = 'none';
-            if (pendingRootPath && pendingRootPathElementId) {
-                if (pendingRootPathElementId === 'root-path') {
-                    document.getElementById('selected-paths-container').innerHTML = '';
-                    document.getElementById('patterns-input').value = '';
-                    document.getElementById('root-path').value = pendingRootPath;
-                } else if (pendingRootPathElementId === 'details-root-dir') {
-                    document.getElementById('details-selected-paths-container').innerHTML = '';
-                    document.getElementById('details-patterns-input').value = '';
-                    document.getElementById('details-root-dir').value = pendingRootPath;
-                    autoSaveProject();
-                }
-            }
-            pendingRootPath = null;
-            pendingRootPathElementId = null;
+            const container = document.getElementById('details-selected-paths-container');
+            if (container) container.innerHTML = '';
+            updateDetailsPatternsInput();
+            autoSaveProject();
         }
 
         function cancelRootPathChange() {
             document.getElementById('root-path-confirmation-modal').style.display = 'none';
-            pendingRootPath = null;
-            pendingRootPathElementId = null;
+            const el = document.getElementById(pendingRootPathElementId);
+            if (el) el.blur();
         }
 
-        // === Air Hockey Puck Logic ===
-        function initAirHockeyPuck() {
-            logoElement = document.getElementById('draggable-logo');
-            if (!logoElement) return;
-
-            logoElement.addEventListener('mousedown', startDrag);
-            logoElement.addEventListener('contextmenu', resetLogoPosition);
-            animatePuck();
+        // === Chat ===
+        function loadChats() {
+            fetch('/api/chats')
+                .then(r => r.json())
+                .then(chats => {
+                    const list = document.getElementById('chat-list');
+                    if (!list) return;
+                    list.innerHTML = '';
+                    if (!chats.length) { list.innerHTML = '<div class="note">NO CHATS FOUND.</div>'; return; }
+                    chats.forEach(chat => {
+                        const item = document.createElement('div');
+                        item.className = 'chat-item' + (chat.id === currentChatId ? ' active' : '');
+                        item.innerHTML = `<span>${escapeHtml(chat.title || 'New Chat')}</span>`;
+                        item.onclick = () => openChat(chat.id);
+                        list.appendChild(item);
+                    });
+                })
+                .catch(err => console.error('Failed to load chats:', err));
         }
 
-        function resetLogoPosition(e) {
-            e.preventDefault();
-            logoX = 40;
-            logoY = 40;
-            velocityX = 0;
-            velocityY = 0;
-            flingCount = 0;
-            hasFlung = false;
-            document.getElementById('fling-counter').style.display = 'none';
-            document.getElementById('goal-zone').style.display = 'none';
-            goalZoneVisible = false;
-            updateLogoPosition();
-            return false;
+        function newChat() {
+            fetch('/api/chats', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ timestamp: new Date().toISOString() })
+            })
+            .then(r => r.json())
+            .then(data => { loadChats(); openChat(data.id); })
+            .catch(err => console.error('Failed to create chat:', err));
         }
 
-        function startDrag(e) {
-            if (e.button === 2) return;
-            cleanupDragHandlers();
-            isDragging = true;
-            startX = e.clientX;
-            startY = e.clientY;
-            initialX = logoX;
-            initialY = logoY;
-            if (logoElement) logoElement.style.cursor = 'grabbing';
-            e.preventDefault();
-
-            dragHandler = (e) => drag(e);
-            endDragHandler = (e) => endDrag(e);
-            document.addEventListener('mousemove', dragHandler);
-            document.addEventListener('mouseup', endDragHandler);
-
-            const goalZone = document.getElementById('goal-zone');
-            if (goalZone) goalZone.style.display = 'block';
-        }
-
-        function drag(e) {
-            if (!isDragging) return;
-            const dx = e.clientX - startX;
-            const dy = e.clientY - startY;
-            logoX = initialX + dx;
-            logoY = initialY + dy;
-            updateLogoPosition();
-        }
-
-        function endDrag(e) {
-            if (!isDragging) return;
-            isDragging = false;
-            if (logoElement) logoElement.style.cursor = 'grab';
-
-            const dx = e.clientX - startX;
-            const dy = e.clientY - startY;
-            const distance = Math.sqrt(dx * dx + dy * dy);
-
-            if (distance > 5) {
-                velocityX = dx * 0.3;
-                velocityY = dy * 0.3;
-                flingCount++;
-                hasFlung = true;
-                document.getElementById('fling-counter').textContent = `FLINGS: ${flingCount}`;
-                document.getElementById('fling-counter').style.display = 'block';
-                document.getElementById('goal-zone').style.display = 'block';
-                goalZoneVisible = true;
-            }
-
-            cleanupDragHandlers();
-        }
-
-        function checkGoalZone() {
-            if (!goalZoneVisible) return;
-            const goalZone = document.getElementById('goal-zone');
-            if (!goalZone) return;
-
-            if (Math.abs(velocityX) > 0.5 || Math.abs(velocityY) > 0.5) return;
-
-            const gx = 40, gy = 40, gw = 120, gh = 120;
-            const logoW = 120, logoH = 120;
-            const logoCenterX = logoX + logoW / 2;
-            const logoCenterY = logoY + logoH / 2;
-
-            if (logoCenterX >= gx && logoCenterX <= gx + gw &&
-                logoCenterY >= gy && logoCenterY <= gy + gh) {
-                document.getElementById('win-message').style.display = 'flex';
-                document.getElementById('win-fling-count').textContent = `IN ${flingCount} FLINGS`;
-                if (goalZone) goalZone.style.display = 'none';
-                logoX = 40;
-                logoY = 40;
-                velocityX = 0;
-                velocityY = 0;
-
-                const winMsg = document.getElementById('win-message');
-                winMsg.onclick = () => { winMsg.style.display = 'none'; };
-                setTimeout(() => { winMsg.style.display = 'none'; }, 3000);
-            }
-        }
-
-        function updateLogoPosition() {
-            if (!logoElement) return;
-            const viewportWidth = window.innerWidth;
-            const viewportHeight = window.innerHeight;
-            const logoWidth = logoElement.offsetWidth;
-            const logoHeight = logoElement.offsetHeight;
-
-            logoX = Math.max(0, Math.min(logoX, viewportWidth - logoWidth));
-            logoY = Math.max(0, Math.min(logoY, viewportHeight - logoHeight));
-
-            logoElement.style.left = `${logoX}px`;
-            logoElement.style.top = `${logoY}px`;
-            checkGoalZone();
-        }
-
-        function animatePuck() {
-            if (!logoElement) {
-                animationId = requestAnimationFrame(animatePuck);
-                return;
-            }
-
-            logoX += velocityX;
-            logoY += velocityY;
-
-            velocityX *= friction;
-            velocityY *= friction;
-
-            if (Math.abs(velocityX) < 0.1 && Math.abs(velocityY) < 0.1) {
-                velocityX = 0;
-                velocityY = 0;
-            }
-
-            const viewportWidth = window.innerWidth;
-            const viewportHeight = window.innerHeight;
-            const logoWidth = logoElement.offsetWidth;
-            const logoHeight = logoElement.offsetHeight;
-
-            if (logoX < 0) {
-                logoX = 0;
-                velocityX = -velocityX * bounceFactor;
-            } else if (logoX + logoWidth > viewportWidth) {
-                logoX = viewportWidth - logoWidth;
-                velocityX = -velocityX * bounceFactor;
-            }
-
-            if (logoY < 0) {
-                logoY = 0;
-                velocityY = -velocityY * bounceFactor;
-            } else if (logoY + logoHeight > viewportHeight) {
-                logoY = viewportHeight - logoHeight;
-                velocityY = -velocityY * bounceFactor;
-            }
-
-            updateLogoPosition();
-            animationId = requestAnimationFrame(animatePuck);
-        }
-
-        // === Tab Management ===
-        function showTab(tabName) {
-            document.querySelectorAll('.panel').forEach(panel => {
-                panel.classList.add('hidden');
-                panel.classList.remove('active');
-            });
-            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
-            const panel = document.getElementById(tabName + '-panel');
-            const btn = event.target;
-            if (panel) {
-                panel.classList.remove('hidden');
-                panel.classList.add('active');
-            }
-            if (btn) btn.classList.add('active');
-
-            if (tabName === 'projects') loadProjects();
-            else if (tabName === 'chat') {
-                if (currentChatId) {
-                    fetch(`/api/chats/${currentChatId}`)
-                        .then(res => res.ok ? res.json() : Promise.reject())
-                        .then(() => { loadChats(); selectChat(currentChatId); })
-                        .catch(() => {
-                            currentChatId = null;
-                            localStorage.removeItem('currentChatId');
-                            newChat().then(() => loadChats());
+        function openChat(chatId) {
+            currentChatId = chatId;
+            localStorage.setItem('currentChatId', chatId);
+            fetch(`/api/chats/${chatId}`)
+                .then(r => r.json())
+                .then(chat => {
+                    const log = document.getElementById('chat-log');
+                    const controls = document.getElementById('chat-controls-container');
+                    const input = document.getElementById('chat-input');
+                    const sendBtn = document.getElementById('send-chat-btn');
+                    if (log) {
+                        log.style.display = 'block';
+                        log.innerHTML = '';
+                        chat.messages.forEach(msg => {
+                            const div = document.createElement('div');
+                            div.className = 'chat-msg';
+                            div.innerHTML = `<strong>${msg.role === 'user' ? 'YOU' : 'AI'}:</strong> ${escapeHtml(msg.content)}`;
+                            log.appendChild(div);
                         });
-                } else {
-                    newChat().then(() => loadChats());
-                }
-            } else if (tabName === 'jobs') {
-                loadJobs();
-            }
+                        log.scrollTop = log.scrollHeight;
+                    }
+                    if (controls) controls.style.display = 'block';
+                    if (input) input.disabled = false;
+                    if (sendBtn) sendBtn.disabled = false;
+                    loadChats();
+                })
+                .catch(err => console.error('Failed to load chat:', err));
         }
 
-        // === Form Submission ===
+        function sendChat() {
+            const input = document.getElementById('chat-input');
+            const content = input.value.trim();
+            if (!content) return;
+            const log = document.getElementById('chat-log');
+            const sendBtn = document.getElementById('send-chat-btn');
+            const userDiv = document.createElement('div');
+            userDiv.className = 'chat-msg';
+            userDiv.innerHTML = `<strong>YOU:</strong> ${escapeHtml(content)}`;
+            log.appendChild(userDiv);
+            input.value = '';
+            sendBtn.disabled = true;
+            log.scrollTop = log.scrollHeight;
+            fetch(`/api/chats/${currentChatId}/messages`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content })
+            })
+            .then(response => {
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+                let aiDiv = document.createElement('div');
+                aiDiv.className = 'chat-msg';
+                aiDiv.innerHTML = `<strong>AI:</strong> <span id="chat-stream-text"></span>`;
+                log.appendChild(aiDiv);
+                function read() {
+                    reader.read().then(({ done, value }) => {
+                        if (done) { sendBtn.disabled = false; log.scrollTop = log.scrollHeight; loadChats(); return; }
+                        buffer += decoder.decode(value, { stream: true });
+                        const textEl = document.getElementById('chat-stream-text');
+                        if (textEl) textEl.textContent = buffer;
+                        log.scrollTop = log.scrollHeight;
+                        read();
+                    });
+                }
+                read();
+            })
+            .catch(err => { console.error('Chat error:', err); sendBtn.disabled = false; });
+        }
+
+        // === Init ===
         document.addEventListener('DOMContentLoaded', () => {
-            initAirHockeyPuck();
-            loadProjects();
-
-            document.getElementById('add-project-form').addEventListener('submit', function (e) {
-                e.preventDefault();
-                const name = document.getElementById('add-project-name').value.trim();
-                const rootDir = document.getElementById('root-path').value.trim();
-                const patternsInput = document.getElementById('patterns-input').value.trim();
-
-                if (!name || !rootDir || !patternsInput) {
-                    alert('ERROR: Project Name, Root Directory, and Include Patterns are REQUIRED.');
-                    return;
-                }
-
-                const formData = new FormData(this);
-                fetch('/api/projects', {
-                    method: 'POST',
-                    body: formData
-                })
-                    .then(response => {
-                        if (!response.ok) {
-                            return response.json().then(err => {
-                                throw new Error(err.error || 'Unknown error');
-                            });
-                        }
-                        return response.json();
-                    })
-                    .then(data => {
-                        loadProjects();
-                        this.reset();
-                        selectProject(data.id);
-                    })
-                    .catch(error => {
-                        alert(`Failed to create project: ${error.message}`);
-                    });
-            });
-
-            // Initialize chat
-            if (currentChatId) {
-                fetch(`/api/chats/${currentChatId}`)
-                    .then(res => res.ok ? res.json() : Promise.reject())
-                    .then(() => { loadChats(); selectChat(currentChatId); })
-                    .catch(() => {
-                        currentChatId = null;
-                        localStorage.removeItem('currentChatId');
-                        newChat().then(() => loadChats());
-                    });
-            } else {
-                newChat().then(() => loadChats());
-            }
-
-            // Poll for job updates
-            setInterval(loadJobs, 5000);
-
-            // === Agent Panel ===
-            // Load agent projects dropdown
-            fetch('/api/projects')
-                .then(res => res.json())
-                .then(projects => {
-                    const select = document.getElementById('agent-project-select');
-                    projects.forEach(p => {
-                        const opt = document.createElement('option');
-                        opt.value = p.id;
-                        opt.textContent = p.name;
-                        select.appendChild(opt);
-                    });
-                });
-
-            // Load project into agent form
-            window.loadAgentProject = function () {
-                const pid = document.getElementById('agent-project-select').value;
-                if (!pid) return;
-                fetch(`/api/projects/${pid}`)
-                    .then(res => res.json())
-                    .then(p => {
-                        document.getElementById('agent-root-dir').value = p.rootDirectory || '';
-                        document.getElementById('agent-instructions').value = p.instructions || '';
-                    });
-            };
-
-            // Run agent with SSE streaming
-            document.getElementById('agent-form').addEventListener('submit', function (e) {
-                e.preventDefault();
-                const projectId = document.getElementById('agent-project-select').value;
-                const rootDir = document.getElementById('agent-root-dir').value.trim();
-                const instructions = document.getElementById('agent-instructions').value.trim();
-
-                if (!rootDir) {
-                    alert('ERROR: Root Directory is REQUIRED.');
-                    return;
-                }
-
-                const runBtn = document.getElementById('agent-run-btn');
-                const stopBtn = document.getElementById('agent-stop-btn');
-                const statusDiv = document.getElementById('agent-status');
-                const stepsContainer = document.getElementById('agent-steps-container');
-                const stepsDiv = document.getElementById('agent-steps');
-                const stepCount = document.getElementById('agent-step-count');
-
-                runBtn.disabled = true;
-                runBtn.innerHTML = '<span class="run-spinner"></span> RUNNING...';
-                stopBtn.style.display = 'inline-block';
-                statusDiv.style.display = 'block';
-                stepsContainer.style.display = 'block';
-                stepsDiv.innerHTML = '';
-                stepCount.textContent = '';
-
-                let abortController = new AbortController();
-
-                stopBtn.onclick = function () {
-                    abortController.abort();
-                    runBtn.disabled = false;
-                    runBtn.innerHTML = 'RUN AGENT';
-                    stopBtn.style.display = 'none';
-                    statusDiv.textContent = 'Stopped by user.';
-                };
-
-                const formData = {
-                    project_id: projectId || undefined,
-                    rootDirectory: rootDir,
-                    instructions: instructions
-                };
-
-                statusDiv.textContent = 'Connecting...\n';
-
-                const evtSource = new EventSource(`/api/agent/run?project_id=${projectId}&rootDirectory=${encodeURIComponent(rootDir)}&instructions=${encodeURIComponent(instructions)}`);
-                // Note: EventSource doesn't support POST, so we use fetch + ReadableStream instead
-                evtSource.close();
-
-                // Use fetch with ReadableStream for SSE
-                fetch('/api/agent/run', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(formData),
-                    signal: abortController.signal
-                })
-                    .then(response => {
-                        if (!response.ok) {
-                            throw new Error(`HTTP ${response.status}`);
-                        }
-                        const reader = response.body.getReader();
-                        const decoder = new TextDecoder();
-                        let buffer = '';
-
-                        function read() {
-                            return reader.read().then(({ done, value }) => {
-                                if (done) {
-                                    runBtn.disabled = false;
-                                    runBtn.innerHTML = 'RUN AGENT';
-                                    stopBtn.style.display = 'none';
-                                    statusDiv.textContent += '\nJob complete.';
-                                    return;
-                                }
-
-                                buffer += decoder.decode(value, { stream: true });
-                                const lines = buffer.split('\n');
-                                buffer = lines.pop() || '';
-
-                                for (const line of lines) {
-                                    if (line.startsWith('data: ')) {
-                                        try {
-                                            const data = JSON.parse(line.slice(6));
-                                            if (data.type === 'start') {
-                                                statusDiv.textContent += `Started job: ${data.job_id}\n`;
-                                            } else if (data.type === 'step') {
-                                                const stepNum = data.step;
-                                                const tool = data.tool;
-                                                const success = data.result?.success !== false;
-                                                const summary = data.result?.summary || '';
-                                                const error = data.result?.error || '';
-
-                                                stepCount.textContent = `(${stepNum})`;
-
-                                                const stepEl = document.createElement('div');
-                                                stepEl.style.cssText = 'margin:5px 0;padding:8px;background:#2a2a2a;border:2px solid #444;font-size:10px;';
-
-                                                const toolColor = success ? 'var(--grass)' : '#a03030';
-                                                stepEl.innerHTML = `
-                                                    <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
-                                                        <strong style="color:${toolColor};">[STEP ${stepNum}] ${tool}</strong>
-                                                        <span style="color:#888;">${success ? 'OK' : 'FAILED'}</span>
-                                                    </div>
-                                                    ${success && summary ? `<div style="color:#ccc;margin-bottom:4px;">${summary}</div>` : ''}
-                                                    ${!success && error ? `<div style="color:#f55;">${error}</div>` : ''}
-                                                    ${success && data.result?.file_paths?.length ? `<div style="color:#888;">Files: ${data.result.file_paths.slice(0, 5).join(', ')}${data.result.file_paths.length > 5 ? '...' : ''}</div>` : ''}
-                                                `;
-                                                stepsDiv.appendChild(stepEl);
-                                                stepsDiv.scrollTop = stepsDiv.scrollHeight;
-                                            } else if (data.type === 'complete') {
-                                                statusDiv.textContent += `\nCompleted: ${data.status}\nSteps: ${data.steps}/${data.max_steps}\n`;
-                                                if (data.summary) {
-                                                    statusDiv.textContent += `\nSummary: ${data.summary}\n`;
-                                                }
-                                            } else if (data.type === 'error') {
-                                                statusDiv.textContent += `\nError: ${data.error}\n`;
-                                            }
-                                        } catch (e) {
-                                            console.error('Failed to parse SSE data:', e);
-                                        }
-                                    }
-                                }
-
-                                return read();
-                            });
-                        }
-
-                        return read();
-                    })
-                    .catch(err => {
-                        if (err.name === 'AbortError') return;
-                        statusDiv.textContent += `\nError: ${err.message}\n`;
-                        runBtn.disabled = false;
-                        runBtn.innerHTML = 'RUN AGENT';
-                        stopBtn.style.display = 'none';
-                    });
-            });
+            loadProjectsCached();
+            loadJobs();
+            setInterval(() => { if (currentProjectId) pollJobStatus(); }, 3000);
         });
-    </script>
-</body>
 
-</html>
+    </script>

@@ -16,13 +16,13 @@ from agent_engine.tools.misc import ListDependenciesTool, GetFileInfoTool
 class ToolRegistry:
     """Registry of all available tools."""
 
-    def __init__(self, root_dir: str):
+    def __init__(self, root_dir: str, enabled_tools=None):
         self.root_dir = root_dir
         self._tools: Dict[str, BaseTool] = {}
-        self._register_tools()
+        self._register_tools(enabled_tools=enabled_tools)
 
-    def _register_tools(self):
-        """Register all tool classes."""
+    def _register_tools(self, enabled_tools=None):
+        """Register all tool classes, optionally filtering by enabled_tools list."""
         tool_classes = [
             ListDirectoryTool,
             SearchFilesTool,
@@ -39,7 +39,9 @@ class ToolRegistry:
         ]
         for tool_cls in tool_classes:
             tool = tool_cls(self.root_dir)
-            self._tools[tool.name] = tool
+            # If enabled_tools is specified, only register those tools
+            if enabled_tools is None or tool.name in enabled_tools:
+                self._tools[tool.name] = tool
 
     def list_tools(self) -> List[Dict[str, Any]]:
         """Return tool definitions for the LLM prompt."""

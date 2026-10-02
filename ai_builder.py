@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import time
 import uuid
+import json
 import xml.etree.ElementTree as ET
 from typing import List, Dict, Any, Optional
 from dotenv import load_dotenv
@@ -990,6 +991,11 @@ def run_with_agent_engine(project_config: Dict[str, Any]) -> Dict[str, Any]:
     os.environ["AIB_INSTRUCTIONS"] = project_config.get("instructions", "")
     os.environ["AIB_PRE_SCRIPT"] = project_config.get("preScript", "")
     os.environ["AIB_POST_SCRIPT"] = project_config.get("postScript", "")
+
+    # Pass enabled tools list if specified
+    enabled_tools = project_config.get("enabled_tools")
+    if enabled_tools:
+        os.environ["AIB_ENABLED_TOOLS"] = json.dumps(enabled_tools)
 
     return agent_run(project_config)
 

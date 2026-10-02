@@ -276,8 +276,9 @@ class AgentEngine:
         sh.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
         self.logger.addHandler(sh)
 
-        # Initialize tools
-        self.tools = ToolRegistry(self.root_dir)
+        # Initialize tools with optional filtering
+        enabled_tools = EngineConfig.get_enabled_tools()
+        self.tools = ToolRegistry(self.root_dir, enabled_tools=enabled_tools)
         self.llm = LLMClient()
 
         # Conversation history
@@ -310,6 +311,15 @@ class AgentEngine:
             while self.step_count < self.max_steps:
                 self.step_count += 1
                 self.logger.info(f"Step {self.step_count}/{self.max_steps}")
+
+                # Check for live instructions injected mid-run
+                live_instruction = EngineConfig.get_live_instruction(self.job_id)
+                if live_instruction:
+                    self.logger.info(f"Received live instruction: {live_instruction[:100]}...")
+                    self.messages.append({
+                        "role": "system",
+                        "content": f"[LIVE INJECTION] User has sent new instructions: {live_instruction}\n\nConsider this as an update to your task. You may need to adjust your approach or add to what you're doing.\n\nContinue with your next action."
+                    })
 
                 # Call LLM
                 try:
