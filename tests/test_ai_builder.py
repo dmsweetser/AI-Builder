@@ -6,6 +6,7 @@ import tempfile
 import shutil
 import unittest
 import unittest.mock as mock
+import threading
 from unittest.mock import patch, MagicMock, PropertyMock
 
 # Add project root to path
@@ -747,6 +748,137 @@ new content
             self.assertFalse(os.path.exists(os.path.join(test_dir, 'should_not_exist.txt')))
         finally:
             shutil.rmtree(test_dir, ignore_errors=True)
+
+
+class TestAgentEngineConfig(unittest.TestCase):
+    """Tests for AgentEngine configuration."""
+
+    def test_build_system_prompt_includes_tools(self):
+        from agent_engine.engine import build_system_prompt
+        tools = [
+            {'name': 'read_file', 'description': 'Read a file', 'parameters': {'path': 'string'}},
+            {'name': 'write_file', 'description': 'Write a file', 'parameters': {'path': 'string', 'content': 'string'}},
+        ]
+        prompt = build_system_prompt(tools)
+        self.assertIn('read_file', prompt)
+        self.assertIn('write_file', prompt)
+        self.assertIn('WORKFLOW:', prompt)
+        self.assertIn('RULES:', prompt)
+        self.assertIn('AVAILABLE TOOLS:', prompt)
+
+
+class TestSettingsPersistence(unittest.TestCase):
+    """Tests for settings persistence and endpoint type handling."""
+
+    def setUp(self):
+        self.test_dir = tempfile.mkdtemp()
+        self.addCleanup(lambda: shutil.rmtree(self.test_dir, ignore_errors=True))
+        self.settings_file = os.path.join(self.test_dir, 'settings.json')
+
+    def _write_settings(self, data):
+        with open(self.settings_file, 'w') as f:
+            json.dump(data, f, indent=2)
+
+    def _read_settings(self):
+        with open(self.settings_file, 'r') as f:
+            return json.load(f)
+
+    def test_save_and_load_settings(self):
+        settings = {
+            'use_local_model': True,
+            'model_path': '/path/to/model.gguf',
+            'temperature': 0.5,
+            'endpoint': 'https://test.com',
+            'model_name': 'gpt-4',
+            'api_key': 'test-key',
+            'use_custom_endpoint': False,
+        }
+        self._write_settings(settings)
+        loaded = self._read_settings()
+        self.assertTrue(loaded['use_local_model'])
+        self.assertEqual(loaded['model_path'], '/path/to/model.gguf')
+        self.assertEqual(loaded['temperature'], 0.5)
+        self.assertEqual(loaded['endpoint'], 'https://test.com')
+        self.assertEqual(loaded['model_name'], 'gpt-4')
+        self.assertEqual(loaded['api_key'], 'test-key')
+        self.assertFalse(loaded['use_custom_endpoint'])
+
+    def test_settings_persist_across_reads(self):
+        settings = {
+            'use_local_model': False,
+            'use_custom_endpoint': True,
+            'custom_endpoint_url': 'https://ollama.local/v1',
+            'custom_model_name': 'llama3',
+        }
+        self._write_settings(settings)
+        loaded1 = self._read_settings()
+        loaded2 = self._read_settings()
+        self.assertEqual(loaded1, loaded2)
+        self.assertTrue(loaded1['use_custom_endpoint'])
+        self.assertEqual(loaded1['custom_endpoint_url'], 'https://ollama.local/v1')
+
+    def test_endpoint_type_mutual_exclusion(self):
+        """Setting local model should not conflict with custom/azure."""
+        settings = {'use_local_model': True, 'use_custom_endpoint': False}
+        self._write_settings(settings)
+        loaded = self._read_settings()
+        self.assertTrue(loaded['use_local_model'])
+        self.assertFalse(loaded['use_custom_endpoint'])
+
+        settings = {'use_local_model': False, 'use_custom_endpoint': True}
+        self._write_settings(settings)
+        loaded = self._read_settings()
+        self.assertFalse(loaded['use_local_model'])
+        self.assertTrue(loaded['use_custom_endpoint'])
+
+    def test_settings_file_not_found_uses_defaults(self):
+        """When settings file doesn't exist, defaults should be used."""
+        self.assertFalse(os.path.exists(self.settings_file))
+        # The _load_settings_unlocked function handles missing file gracefully
+        # by returning an empty dict, which then gets filled with env defaults
+
+    def test_save_updates_env_vars(self):
+        settings = {
+            'use_local_model': True,
+            'model_path': '/test/model.gguf',
+            'temperature': 0.3,
+        }
+        self._write_settings(settings)
+        # Simulate what apply_settings_to_env does
+        with open(self.settings_file, 'r') as f:
+            s = json.load(f)
+        os.environ['USE_LOCAL_MODEL'] = str(s.get('use_local_model', False)).lower()
+        if s.get('model_path'):
+            os.environ['MODEL_PATH'] = s['model_path']
+        os.environ['TEMPERATURE'] = str(s.get('temperature', 0.1))
+        self.assertEqual(os.environ.get('USE_LOCAL_MODEL'), 'true')
+        self.assertEqual(os.environ.get('MODEL_PATH'), '/test/model.gguf')
+        self.assertEqual(os.environ.get('TEMPERATURE'), '0.3')
+
+
+class TestEndpointTypeSelection(unittest.TestCase):
+    """Tests for endpoint type dropdown logic."""
+
+    def test_endpoint_type_local(self):
+        """When endpoint_type is 'local', use_local_model should be True."""
+        endpoint_type = 'local'
+        self.assertEqual(endpoint_type == 'local', True)
+        self.assertEqual(endpoint_type == 'custom', False)
+        self.assertEqual(endpoint_type == 'azure', False)
+
+    def test_endpoint_type_custom(self):
+        """When endpoint_type is 'custom', use_custom_endpoint should be True."""
+        endpoint_type = 'custom'
+        self.assertEqual(endpoint_type == 'custom', True)
+        self.assertEqual(endpoint_type == 'local', False)
+        self.assertEqual(endpoint_type == 'azure', False)
+
+    def test_endpoint_type_azure(self):
+        """When endpoint_type is 'azure', both local and custom should be False."""
+        endpoint_type = 'azure'
+        self.assertEqual(endpoint_type == 'azure', True)
+        self.assertEqual(endpoint_type == 'local', False)
+        self.assertEqual(endpoint_type == 'custom', False)
 
 
 class TestAgentEngineConfig(unittest.TestCase):

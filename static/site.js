@@ -76,6 +76,9 @@ function onDetailsModeChange() {
         modeBadge.className = `mode-indicator ${mode === 'agentic' ? 'agentic' : 'oneshot'}`;
         modeBadge.textContent = mode === 'agentic' ? 'AGENTIC' : 'ONE-SHOT';
     }
+    if (mode === 'agentic') {
+        buildToolSelector([]);
+    }
     autoSaveProject();
 }
 
@@ -168,7 +171,15 @@ function loadSettingsUI() {
                 const el = document.getElementById(id);
                 if (el) el.value = val;
             };
-            set('set-use-local', settings.use_local_model ?? 'false');
+            // Determine endpoint type from settings
+            let endpointType = 'local';
+            if (settings.use_custom_endpoint) {
+                endpointType = 'custom';
+            } else if (settings.endpoint || settings.api_key) {
+                endpointType = 'azure';
+            }
+            set('set-endpoint-type', endpointType);
+
             set('set-model-path', settings.model_path || '');
             set('set-llama-binary', settings.llama_binary || '');
             set('set-temperature', settings.temperature ?? '0.1');
@@ -191,32 +202,42 @@ function loadSettingsUI() {
             set('set-java-home', settings.java_home || '');
             set('set-dotnet-cli', settings.dotnet_cli_path || '');
             set('set-git-diff-cmd', settings.git_diff_command || 'git diff --name-only');
-            set('set-use-custom-endpoint', settings.use_custom_endpoint ?? 'false');
             set('set-custom-endpoint-url', settings.custom_endpoint_url || '');
             set('set-custom-api-key', settings.custom_api_key || '');
             set('set-custom-model-name', settings.custom_model_name || '');
             set('set-custom-api-version', settings.custom_api_version || 'v1');
             set('set-custom-verify-ssl', settings.custom_verify_ssl ?? 'false');
             set('set-custom-max-tokens', settings.custom_max_tokens ?? '8192');
-            onSettingsLocalChange();
-            onSettingsCustomEndpointChange();
+
+            // Show/hide sections based on selected endpoint type
+            onSettingsEndpointTypeChange();
         })
         .catch(err => console.error('Failed to load settings:', err));
 }
 
+function onSettingsEndpointTypeChange() {
+    const type = document.getElementById('set-endpoint-type').value;
+    document.getElementById('set-local-section').style.display = type === 'local' ? 'block' : 'none';
+    document.getElementById('set-custom-endpoint-section').style.display = type === 'custom' ? 'block' : 'none';
+    document.getElementById('set-azure-section').style.display = type === 'azure' ? 'block' : 'none';
+}
+
 function onSettingsLocalChange() {
-    const isLocal = document.getElementById('set-use-local').checked;
+    const isLocal = document.getElementById('set-use-local')?.checked;
     document.getElementById('set-local-section').style.display = isLocal ? 'block' : 'none';
 }
 
 function onSettingsCustomEndpointChange() {
-    const isCustom = document.getElementById('set-use-custom-endpoint').checked;
+    const isCustom = document.getElementById('set-use-custom-endpoint')?.checked;
     document.getElementById('set-custom-endpoint-section').style.display = isCustom ? 'block' : 'none';
 }
 
 function saveSettings() {
+    const endpointType = document.getElementById('set-endpoint-type').value;
     const settings = {
-        use_local_model: document.getElementById('set-use-local').checked,
+        // Endpoint type determines which backend is active
+        use_local_model: endpointType === 'local',
+        use_custom_endpoint: endpointType === 'custom',
         model_path: document.getElementById('set-model-path').value,
         llama_binary: document.getElementById('set-llama-binary').value,
         temperature: document.getElementById('set-temperature').value,
@@ -239,7 +260,6 @@ function saveSettings() {
         java_home: document.getElementById('set-java-home').value,
         dotnet_cli_path: document.getElementById('set-dotnet-cli').value,
         git_diff_command: document.getElementById('set-git-diff-cmd').value,
-        use_custom_endpoint: document.getElementById('set-use-custom-endpoint').checked,
         custom_endpoint_url: document.getElementById('set-custom-endpoint-url').value,
         custom_api_key: document.getElementById('set-custom-api-key').value,
         custom_model_name: document.getElementById('set-custom-model-name').value,

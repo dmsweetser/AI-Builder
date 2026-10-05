@@ -288,13 +288,12 @@
                     <div class="settings-section">
                         <h3>MODEL BACKEND</h3>
                         <div class="setting-row">
-                            <label>USE LOCAL MODEL:</label>
-                            <input type="checkbox" id="set-use-local" checked onchange="onSettingsLocalChange()">
-                        </div>
-                        <div class="setting-row">
-                            <label>USE CUSTOM ENDPOINT:</label>
-                            <input type="checkbox" id="set-use-custom-endpoint"
-                                onchange="onSettingsCustomEndpointChange()">
+                            <label>ENDPOINT TYPE:</label>
+                            <select id="set-endpoint-type" onchange="onSettingsEndpointTypeChange()">
+                                <option value="local">LOCAL MODEL</option>
+                                <option value="custom">CUSTOM ENDPOINT (OpenAI-Compatible)</option>
+                                <option value="azure">AZURE AI / REMOTE</option>
+                            </select>
                         </div>
                     </div>
 
@@ -370,7 +369,7 @@
                         </div>
                     </div>
 
-                    <div class="settings-section">
+                    <div class="settings-section" id="set-azure-section">
                         <h3>AZURE AI / REMOTE</h3>
                         <div class="setting-row">
                             <label>ENDPOINT:</label>

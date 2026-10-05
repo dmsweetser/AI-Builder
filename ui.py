@@ -43,8 +43,54 @@ stop_event = threading.Event()
 worker_thread = None
 
 # --- Settings State ---
-settings_lock = threading.Lock()
+settings_lock = threading.RLock()  # RLock allows re-entrant locking
 settings_cache = {}
+
+
+def _load_settings_unlocked():
+    """Internal: load settings from disk without acquiring lock. Must be called inside settings_lock."""
+    loaded = {}
+    if os.path.exists(SETTINGS_FILE):
+        try:
+            with open(SETTINGS_FILE, 'r') as f:
+                loaded = json.load(f)
+        except Exception:
+            loaded = {}
+
+    # Fill defaults from env vars for anything not in settings file
+    loaded.setdefault('use_local_model', os.getenv("USE_LOCAL_MODEL", "false").lower() == "true")
+    loaded.setdefault('model_path', os.getenv("MODEL_PATH", ""))
+    loaded.setdefault('llama_binary', os.getenv("LLAMA_BINARY_PATH", ""))
+    loaded.setdefault('use_custom_endpoint', os.getenv("USE_CUSTOM_ENDPOINT", "false").lower() == "true")
+    loaded.setdefault('custom_endpoint_url', os.getenv("CUSTOM_ENDPOINT_URL", ""))
+    loaded.setdefault('custom_api_key', os.getenv("CUSTOM_API_KEY", ""))
+    loaded.setdefault('custom_model_name', os.getenv("CUSTOM_MODEL_NAME", ""))
+    loaded.setdefault('custom_api_version', os.getenv("CUSTOM_API_VERSION", "v1"))
+    loaded.setdefault('custom_verify_ssl', os.getenv("CUSTOM_VERIFY_SSL", "false").lower() == "true")
+    loaded.setdefault('custom_max_tokens', int(os.getenv("CUSTOM_MAX_TOKENS", "8192")))
+    loaded.setdefault('temperature', float(os.getenv("TEMPERATURE", "0.1")))
+    loaded.setdefault('top_p', float(os.getenv("TOP_P", "0.9")))
+    loaded.setdefault('top_k', int(os.getenv("TOP_K", "40")))
+    loaded.setdefault('min_p', float(os.getenv("MIN_P", "0.0")))
+    loaded.setdefault('output_tokens', int(os.getenv("OUTPUT_TOKENS", "8192")))
+    loaded.setdefault('model_context', int(os.getenv("MODEL_CONTEXT", "128000")))
+    loaded.setdefault('max_steps', int(os.getenv("AIB_MAX_STEPS", "50")))
+    loaded.setdefault('endpoint', os.getenv("ENDPOINT", ""))
+    loaded.setdefault('model_name', os.getenv("MODEL_NAME", ""))
+    loaded.setdefault('api_key', os.getenv("API_KEY", ""))
+    loaded.setdefault('verify_ssl', os.getenv("VERIFY_SSL", "false").lower() == "true")
+    loaded.setdefault('generate_but_do_not_apply', os.getenv("GENERATE_BUT_DO_NOT_APPLY", "false").lower() == "true")
+    loaded.setdefault('use_git_diff', os.getenv("USE_GIT_DIFF", "false").lower() == "true")
+    loaded.setdefault('generate_output_only', os.getenv("GENERATE_OUTPUT_ONLY", "false").lower() == "true")
+    loaded.setdefault('engine_mode', os.getenv("AIB_ENGINE_MODE", "agent"))
+    loaded.setdefault('root_directory', os.getenv("ROOT_DIRECTORY", ""))
+    loaded.setdefault('jd_cli_path', os.getenv("JD_CLI_PATH", ""))
+    loaded.setdefault('java_home', os.getenv("JAVA_HOME", ""))
+    loaded.setdefault('dotnet_cli_path', os.getenv("DOTNET_CLI_PATH", ""))
+    loaded.setdefault('git_diff_command', os.getenv("GIT_DIFF_COMMAND", "git diff --name-only"))
+
+    return loaded
+
 
 def load_settings():
     """Load settings from disk, falling back to env vars."""
@@ -53,46 +99,7 @@ def load_settings():
         if settings_cache:
             return settings_cache.copy()
 
-        loaded = {}
-        if os.path.exists(SETTINGS_FILE):
-            try:
-                with open(SETTINGS_FILE, 'r') as f:
-                    loaded = json.load(f)
-            except Exception:
-                loaded = {}
-
-        # Fill defaults from env vars for anything not in settings file
-        loaded.setdefault('use_local_model', os.getenv("USE_LOCAL_MODEL", "false").lower() == "true")
-        loaded.setdefault('model_path', os.getenv("MODEL_PATH", ""))
-        loaded.setdefault('llama_binary', os.getenv("LLAMA_BINARY_PATH", ""))
-        loaded.setdefault('use_custom_endpoint', os.getenv("USE_CUSTOM_ENDPOINT", "false").lower() == "true")
-        loaded.setdefault('custom_endpoint_url', os.getenv("CUSTOM_ENDPOINT_URL", ""))
-        loaded.setdefault('custom_api_key', os.getenv("CUSTOM_API_KEY", ""))
-        loaded.setdefault('custom_model_name', os.getenv("CUSTOM_MODEL_NAME", ""))
-        loaded.setdefault('custom_api_version', os.getenv("CUSTOM_API_VERSION", "v1"))
-        loaded.setdefault('custom_verify_ssl', os.getenv("CUSTOM_VERIFY_SSL", "false").lower() == "true")
-        loaded.setdefault('custom_max_tokens', int(os.getenv("CUSTOM_MAX_TOKENS", "8192")))
-        loaded.setdefault('temperature', float(os.getenv("TEMPERATURE", "0.1")))
-        loaded.setdefault('top_p', float(os.getenv("TOP_P", "0.9")))
-        loaded.setdefault('top_k', int(os.getenv("TOP_K", "40")))
-        loaded.setdefault('min_p', float(os.getenv("MIN_P", "0.0")))
-        loaded.setdefault('output_tokens', int(os.getenv("OUTPUT_TOKENS", "8192")))
-        loaded.setdefault('model_context', int(os.getenv("MODEL_CONTEXT", "128000")))
-        loaded.setdefault('max_steps', int(os.getenv("AIB_MAX_STEPS", "50")))
-        loaded.setdefault('endpoint', os.getenv("ENDPOINT", ""))
-        loaded.setdefault('model_name', os.getenv("MODEL_NAME", ""))
-        loaded.setdefault('api_key', os.getenv("API_KEY", ""))
-        loaded.setdefault('verify_ssl', os.getenv("VERIFY_SSL", "false").lower() == "true")
-        loaded.setdefault('generate_but_do_not_apply', os.getenv("GENERATE_BUT_DO_NOT_APPLY", "false").lower() == "true")
-        loaded.setdefault('use_git_diff', os.getenv("USE_GIT_DIFF", "false").lower() == "true")
-        loaded.setdefault('generate_output_only', os.getenv("GENERATE_OUTPUT_ONLY", "false").lower() == "true")
-        loaded.setdefault('engine_mode', os.getenv("AIB_ENGINE_MODE", "agent"))
-        loaded.setdefault('root_directory', os.getenv("ROOT_DIRECTORY", ""))
-        loaded.setdefault('jd_cli_path', os.getenv("JD_CLI_PATH", ""))
-        loaded.setdefault('java_home', os.getenv("JAVA_HOME", ""))
-        loaded.setdefault('dotnet_cli_path', os.getenv("DOTNET_CLI_PATH", ""))
-        loaded.setdefault('git_diff_command', os.getenv("GIT_DIFF_COMMAND", "git diff --name-only"))
-
+        loaded = _load_settings_unlocked()
         settings_cache = loaded
         return loaded.copy()
 
