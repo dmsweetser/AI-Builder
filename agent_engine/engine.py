@@ -24,6 +24,8 @@ class LLMClient:
     def call(self, messages: List[Dict[str, str]], response_file: str = None) -> str:
         if EngineConfig.use_local_model():
             return self._call_local(messages, response_file)
+        elif EngineConfig.use_custom_endpoint():
+            return self._call_custom_endpoint(messages, response_file)
         else:
             return self._call_azure(messages)
 
@@ -144,6 +146,81 @@ class LLMClient:
                         content += c
         finally:
             response.close()
+
+        return content
+
+    def _call_custom_endpoint(self, messages: List[Dict[str, str]], response_file: str) -> str:
+        """Call a custom OpenAI-compatible endpoint (Ollama, LM Studio, vLLM, etc.)."""
+        import urllib.request
+        import ssl
+
+        endpoint_url = EngineConfig.get_custom_endpoint_url()
+        api_key = EngineConfig.get_custom_api_key()
+        model_name = EngineConfig.get_custom_model_name()
+
+        if not all([endpoint_url, model_name]):
+            raise EngineError("Missing custom endpoint credentials: CUSTOM_ENDPOINT_URL and CUSTOM_MODEL_NAME required")
+
+        # Build OpenAI-format messages
+        openai_messages = []
+        for msg in messages:
+            openai_messages.append({
+                "role": msg["role"],
+                "content": msg["content"],
+            })
+
+        payload = {
+            "model": model_name,
+            "messages": openai_messages,
+            "temperature": EngineConfig.get_temperature(),
+            "top_p": EngineConfig.get_top_p(),
+            "max_tokens": EngineConfig.get_custom_max_tokens(),
+            "stream": True,
+        }
+
+        # Build headers
+        headers = {"Content-Type": "application/json"}
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+
+        # Handle SSL verification
+        verify_ssl = EngineConfig.get_custom_verify_ssl()
+        if verify_ssl:
+            context = ssl.create_default_context()
+        else:
+            context = ssl._create_unverified_context()
+
+        data = json.dumps(payload).encode('utf-8')
+        req = urllib.request.Request(
+            endpoint_url,
+            data=data,
+            headers=headers,
+            method='POST',
+        )
+
+        content = ""
+        try:
+            with urllib.request.urlopen(req, context=context, timeout=300) as response:
+                for line in response:
+                    line = line.decode('utf-8').strip()
+                    if not line.startswith('data: '):
+                        continue
+                    data_str = line[6:]
+                    if data_str == '[DONE]':
+                        break
+                    try:
+                        chunk = json.loads(data_str)
+                        delta = chunk.get('choices', [{}])[0].get('delta', {})
+                        c = delta.get('content', '')
+                        if c:
+                            content += c
+                            if response_file and len(content) % 100 == 0:
+                                with open(response_file, 'w', encoding='utf-8') as rf:
+                                    rf.write(content)
+                    except json.JSONDecodeError:
+                        continue
+        except Exception as e:
+            raise EngineError(f"Custom endpoint call failed: {e}")
 
         return content
 

@@ -65,6 +65,13 @@ def load_settings():
         loaded.setdefault('use_local_model', os.getenv("USE_LOCAL_MODEL", "false").lower() == "true")
         loaded.setdefault('model_path', os.getenv("MODEL_PATH", ""))
         loaded.setdefault('llama_binary', os.getenv("LLAMA_BINARY_PATH", ""))
+        loaded.setdefault('use_custom_endpoint', os.getenv("USE_CUSTOM_ENDPOINT", "false").lower() == "true")
+        loaded.setdefault('custom_endpoint_url', os.getenv("CUSTOM_ENDPOINT_URL", ""))
+        loaded.setdefault('custom_api_key', os.getenv("CUSTOM_API_KEY", ""))
+        loaded.setdefault('custom_model_name', os.getenv("CUSTOM_MODEL_NAME", ""))
+        loaded.setdefault('custom_api_version', os.getenv("CUSTOM_API_VERSION", "v1"))
+        loaded.setdefault('custom_verify_ssl', os.getenv("CUSTOM_VERIFY_SSL", "false").lower() == "true")
+        loaded.setdefault('custom_max_tokens', int(os.getenv("CUSTOM_MAX_TOKENS", "8192")))
         loaded.setdefault('temperature', float(os.getenv("TEMPERATURE", "0.1")))
         loaded.setdefault('top_p', float(os.getenv("TOP_P", "0.9")))
         loaded.setdefault('top_k', int(os.getenv("TOP_K", "40")))
@@ -706,6 +713,57 @@ def api_send_message(chat_id):
                     process.wait()
                     if os.path.exists(filename):
                         os.remove(filename)
+                elif Config.use_custom_endpoint():
+                    import urllib.request
+                    import ssl
+                    endpoint_url = Config.get_custom_endpoint_url()
+                    api_key = Config.get_custom_api_key()
+                    model_name = Config.get_custom_model_name()
+                    if not all([endpoint_url, model_name]):
+                        raise ValueError("Missing custom endpoint credentials")
+                    openai_messages = []
+                    for msg in chat_data["messages"]:
+                        openai_messages.append({"role": msg["role"], "content": msg["content"]})
+                    payload = {
+                        "model": model_name,
+                        "messages": openai_messages,
+                        "temperature": Config.get_temperature(),
+                        "top_p": Config.get_top_p(),
+                        "max_tokens": Config.get_output_tokens(),
+                        "stream": True,
+                    }
+                    headers = {"Content-Type": "application/json"}
+                    if api_key:
+                        headers["Authorization"] = f"Bearer {api_key}"
+                    verify_ssl = Config.verify_ssl()
+                    if verify_ssl:
+                        context = ssl.create_default_context()
+                    else:
+                        context = ssl._create_unverified_context()
+                    data = json.dumps(payload).encode('utf-8')
+                    req = urllib.request.Request(endpoint_url, data=data, headers=headers, method='POST')
+                    with urllib.request.urlopen(req, context=context, timeout=300) as response:
+                        for line in response:
+                            line = line.decode('utf-8').strip()
+                            if not line.startswith('data: '):
+                                continue
+                            data_str = line[6:]
+                            if data_str == '[DONE]':
+                                break
+                            try:
+                                chunk = json.loads(data_str)
+                                delta = chunk.get('choices', [{}])[0].get('delta', {})
+                                c = delta.get('content', '')
+                                if c:
+                                    response_content += c
+                                    yield c
+                                    if len(response_content) % 20 == 0:
+                                        chat_data["messages"] = [m for m in chat_data["messages"] if m["role"] != "assistant"]
+                                        chat_data["messages"].append({"role": "assistant", "content": response_content})
+                                        with open(chat_path, "w", encoding="utf-8") as f:
+                                            json.dump(chat_data, f, indent=2)
+                            except json.JSONDecodeError:
+                                continue
                 else:
                     endpoint = Config.get_endpoint()
                     model_name = Config.get_model_name()

@@ -1,6 +1,5 @@
-
 #!/bin/bash
-# AI-Builder Installation Script
+# AI-Builder Installation Script (clean - no model/llama.cpp downloads)
 
 set -e
 
@@ -9,8 +8,7 @@ echo "Setting up AI-Builder..."
 # Create directories
 mkdir -p aib_instance
 mkdir -p aib_instance/conversations
-mkdir -p aib_instance/llama.cpp/bin
-mkdir -p aib_instance/models
+mkdir -p aib_instance/chats
 
 # Create virtual environment
 echo "Creating Python virtual environment..."
@@ -32,158 +30,42 @@ fi
 pip install --upgrade pip
 pip install -r requirements.txt
 
-# Model selection and configuration
-echo "Select a model:"
-echo "1) Devstral-Small-2-24B-Instruct-2512-Q4_K_M.gguf (Default)"
-echo "2) Qwen3.6-35B-A3B-UD-Q4_K_M.gguf"
-echo "3) Ministral-3-8B-Instruct-2512-Q4_K_M.gguf"
-echo "4) gemma-4-E4B-it-Q4_K_M.gguf"
-echo "5) TIR-Qwen3.5-9B-NonThinking-v2.Q4_K_M.gguf"
-echo "6) Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf"
-echo "7) Qwen3.8-27B-OBLITERATED-Mythos-Class-Agentic.Q4_K_M.gguf"
-read -p "Enter choice: " model_choice
+# Generate a basic .env template (user must fill in their own values)
+cat > .env << 'EOF'
+# AI-Builder Configuration
+# Set USE_LOCAL_MODEL=true for local GGUF models via llama.cpp
+# Set USE_CUSTOM_ENDPOINT=true for OpenAI-compatible APIs (Ollama, LM Studio, vLLM, etc.)
+# Set Azure AI credentials (ENDPOINT, MODEL_NAME, API_KEY) for cloud inference
 
-MODEL_PATH=""
-MMPROJ_PATH=""
-CONTEXT_SIZE=""
-OUTPUT_TOKENS=""
-TEMPERATURE=""
-TOP_P=""
-TOP_K=""
-MIN_P=""
+USE_LOCAL_MODEL=false
+# MODEL_PATH=path/to/your/model.gguf
+# LLAMA_BINARY_PATH=path/to/llama-cli
 
-if [ "$model_choice" == "2" ]; then
-    MODEL_PATH="aib_instance/models/Qwen3.6-35B-A3B-UD-Q4_K_M.gguf"
-    if [ ! -f "$MODEL_PATH" ]; then
-        echo "Downloading $MODEL_PATH..."
-        wget -O "$MODEL_PATH" "https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF/resolve/main/Qwen3.6-35B-A3B-UD-Q4_K_M.gguf?download=true"
-    else
-        echo "$MODEL_PATH already exists, skipping download."
-    fi
-    CONTEXT_SIZE=262144
-    OUTPUT_TOKENS=131072
-    TEMPERATURE=0.7
-    TOP_P=0.8
-    TOP_K=20
-    MIN_P=0.0
-elif [ "$model_choice" == "3" ]; then
-    MODEL_PATH="aib_instance/models/Ministral-3-8B-Instruct-2512-Q4_K_M.gguf"
-    if [ ! -f "$MODEL_PATH" ]; then
-        echo "Downloading $MODEL_PATH..."
-        wget -O "$MODEL_PATH" "https://huggingface.co/mistralai/Ministral-3-8B-Instruct-2512-GGUF/resolve/main/Ministral-3-8B-Instruct-2512-Q4_K_M.gguf?download=true"
-    else
-        echo "$MODEL_PATH already exists, skipping download."
-    fi
-    CONTEXT_SIZE=131072
-    OUTPUT_TOKENS=65536
-    TEMPERATURE=0.7
-    TOP_P=0.9
-    TOP_K=40
-    MIN_P=0.00
-elif [ "$model_choice" == "4" ]; then
-    MODEL_PATH="aib_instance/models/gemma-4-E4B-it-Q4_K_M.gguf"
-    if [ ! -f "$MODEL_PATH" ]; then
-        echo "Downloading $MODEL_PATH..."
-        wget -O "$MODEL_PATH" "https://huggingface.co/unsloth/gemma-4-E4B-it-GGUF/resolve/main/gemma-4-E4B-it-Q4_K_M.gguf?download=true"
-    else
-        echo "$MODEL_PATH already exists, skipping download."
-    fi
-    CONTEXT_SIZE=262144
-    OUTPUT_TOKENS=131072
-    TEMPERATURE=1.0
-    TOP_P=0.95
-    TOP_K=64
-    MIN_P=0.0
-elif [ "$model_choice" == "5" ]; then
-    MODEL_PATH="aib_instance/models/TIR-Qwen3.5-9B-NonThinking-v2.Q4_K_M.gguf"
-    if [ ! -f "$MODEL_PATH" ]; then
-        echo "Downloading $MODEL_PATH..."
-        wget -O "$MODEL_PATH" "https://huggingface.co/mradermacher/TIR-Qwen3.5-9B-NonThinking-v2-GGUF/resolve/main/TIR-Qwen3.5-9B-NonThinking-v2.Q4_K_M.gguf?download=true"
-    else
-        echo "$MODEL_PATH already exists, skipping download."
-    fi
-    CONTEXT_SIZE=262144
-    OUTPUT_TOKENS=131072
-    TEMPERATURE=1.0
-    TOP_P=0.95
-    TOP_K=20
-    MIN_P=0.0
-elif [ "$model_choice" == "6" ]; then
-    MODEL_PATH="aib_instance/models/Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf"
-    if [ ! -f "$MODEL_PATH" ]; then
-        echo "Downloading $MODEL_PATH..."
-        wget -O "$MODEL_PATH" "https://huggingface.co/unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF/resolve/main/Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf?download=true"
-    else
-        echo "$MODEL_PATH already exists, skipping download."
-    fi
-    CONTEXT_SIZE=262144
-    OUTPUT_TOKENS=131072
-    TEMPERATURE=0.7
-    TOP_P=0.8
-    TOP_K=20
-    MIN_P=0.0
-elif [ "$model_choice" == "7" ]; then
-    MODEL_PATH="aib_instance/models/Qwen3.8-27B-OBLITERATED-Mythos-Class-Agentic.Q4_K_M.gguf"
-    if [ ! -f "$MODEL_PATH" ]; then
-        echo "Downloading $MODEL_PATH..."
-        wget -O "$MODEL_PATH" "https://huggingface.co/mradermacher/Qwen3.8-27B-OBLITERATED-Mythos-Class-Agentic-GGUF/resolve/main/Qwen3.8-27B-OBLITERATED-Mythos-Class-Agentic.Q4_K_M.gguf?download=true"
-    else
-        echo "$MODEL_PATH already exists, skipping download."
-    fi
-    CONTEXT_SIZE=262144
-    OUTPUT_TOKENS=131072
-    TEMPERATURE=0.65
-    TOP_P=0.8
-    TOP_K=20
-    MIN_P=0.0
-else
-    MODEL_PATH="aib_instance/models/Devstral-Small-2-24B-Instruct-2512-Q4_K_M.gguf"
-    if [ ! -f "$MODEL_PATH" ]; then
-        echo "Downloading $MODEL_PATH..."
-        wget -O "$MODEL_PATH" "https://huggingface.co/unsloth/Devstral-Small-2-24B-Instruct-2512-GGUF/resolve/main/Devstral-Small-2-24B-Instruct-2512-Q4_K_M.gguf?download=true"
-    else
-        echo "$MODEL_PATH already exists, skipping download."
-    fi
-    CONTEXT_SIZE=131072
-    OUTPUT_TOKENS=65536
-    TEMPERATURE=0.7
-    TOP_P=0.9
-    TOP_K=40
-    MIN_P=0.05
-fi
+USE_CUSTOM_ENDPOINT=false
+# CUSTOM_ENDPOINT_URL=https://localhost:11434/v1/chat/completions
+# CUSTOM_API_KEY=your-api-key
+# CUSTOM_MODEL_NAME=llama3
 
-# Generate .env with selected model hyperparameters
-cat > .env << EOF
-USE_LOCAL_MODEL=true
-LLAMA_BINARY_PATH="aib_instance/llama.cpp/bin/llama-completion"
-MODEL_PATH="$MODEL_PATH"
-MODEL_CONTEXT=$CONTEXT_SIZE
-OUTPUT_TOKENS=$OUTPUT_TOKENS
-TEMPERATURE=$TEMPERATURE
-TOP_P=$TOP_P
-TOP_K=$TOP_K
-MIN_P=$MIN_P
+# Azure AI Settings
+# ENDPOINT=https://your-endpoint.ai.azure.com
+# MODEL_NAME=your-model-name
+# API_KEY=your-api-key
+
+# Common settings
+TEMPERATURE=0.1
+TOP_P=0.9
+TOP_K=40
+MIN_P=0.0
+OUTPUT_TOKENS=8192
+MODEL_CONTEXT=128000
+AIB_MAX_STEPS=50
 GENERATE_BUT_DO_NOT_APPLY=false
 GENERATE_OUTPUT_ONLY=false
 USE_GIT_DIFF=false
+AIB_ENGINE_MODE=agent
 EOF
 
-echo "Created default .env"
-echo "Please edit this file with your specific paths and settings"
-
-# Download llama.cpp binary
-echo "Downloading llama.cpp binary..."
-if [ ! -f "aib_instance/llama.cpp/bin/llama-server" ]; then
-    wget -O llama.cpp.tar.gz \
-    "https://github.com/ggml-org/llama.cpp/releases/download/b9279/llama-b9279-bin-ubuntu-x64.tar.gz"
-
-    echo "Extracting llama.cpp binary..."
-    tar -xzf llama.cpp.tar.gz -C aib_instance/llama.cpp/bin --strip-components=1
-    rm llama.cpp.tar.gz
-else
-    echo "llama.cpp already exists, skipping download."
-fi
-
+echo "Created .env template - please edit with your settings"
 echo "Installation complete"
 
 # Make run script executable

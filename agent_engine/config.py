@@ -129,3 +129,38 @@ class EngineConfig:
             except Exception:
                 return None
         return None
+
+    @staticmethod
+    def use_custom_endpoint() -> bool:
+        """Returns whether to use a custom OpenAI-compatible endpoint."""
+        return os.getenv("USE_CUSTOM_ENDPOINT", "false").lower() == "true"
+
+    @staticmethod
+    def get_custom_endpoint_url() -> Optional[str]:
+        """Returns the custom endpoint URL."""
+        return os.getenv("CUSTOM_ENDPOINT_URL")
+
+    @staticmethod
+    def get_custom_api_key() -> Optional[str]:
+        """Returns the API key for the custom endpoint."""
+        return os.getenv("CUSTOM_API_KEY")
+
+    @staticmethod
+    def get_custom_model_name() -> Optional[str]:
+        """Returns the model name for the custom endpoint."""
+        return os.getenv("CUSTOM_MODEL_NAME")
+
+    @staticmethod
+    def get_custom_api_version() -> str:
+        """Returns the API version for the custom endpoint (default: v1)."""
+        return os.getenv("CUSTOM_API_VERSION", "v1")
+
+    @staticmethod
+    def get_custom_verify_ssl() -> bool:
+        """Returns whether to verify SSL for the custom endpoint."""
+        return os.getenv("CUSTOM_VERIFY_SSL", "false").lower() == "true"
+
+    @staticmethod
+    def get_custom_max_tokens() -> int:
+        """Returns max tokens for the custom endpoint."""
+        return int(os.getenv("CUSTOM_MAX_TOKENS", "8192"))
