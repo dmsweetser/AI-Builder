@@ -1003,7 +1003,7 @@ def run_with_agent_engine(project_config: Dict[str, Any]) -> Dict[str, Any]:
 if __name__ == "__main__":
     IS_LEGACY = True
     try:
-        ai_builder = AIBuilder()
+        ai_builder = AIBuilder("standalone")
         ai_builder.run()
     except Exception as e:
         logging.error(f"An error occurred during AIBuilder execution: {str(e)}", exc_info=True)

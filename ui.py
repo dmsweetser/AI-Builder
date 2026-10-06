@@ -152,6 +152,17 @@ def apply_settings_to_env():
         os.environ["DOTNET_CLI_PATH"] = s['dotnet_cli_path']
     if s.get('git_diff_command'):
         os.environ["GIT_DIFF_COMMAND"] = s['git_diff_command']
+    # Custom endpoint settings
+    os.environ["USE_CUSTOM_ENDPOINT"] = str(s.get('use_custom_endpoint', False)).lower()
+    if s.get('custom_endpoint_url'):
+        os.environ["CUSTOM_ENDPOINT_URL"] = s['custom_endpoint_url']
+    if s.get('custom_api_key'):
+        os.environ["CUSTOM_API_KEY"] = s['custom_api_key']
+    if s.get('custom_model_name'):
+        os.environ["CUSTOM_MODEL_NAME"] = s['custom_model_name']
+    os.environ["CUSTOM_API_VERSION"] = s.get('custom_api_version', 'v1')
+    os.environ["CUSTOM_VERIFY_SSL"] = str(s.get('custom_verify_ssl', False)).lower()
+    os.environ["CUSTOM_MAX_TOKENS"] = str(s.get('custom_max_tokens', 8192))
 
 
 # --- Initialization ---

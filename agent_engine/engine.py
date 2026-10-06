@@ -367,6 +367,7 @@ class AgentEngine:
         self.step_count = 0
         self.max_steps = EngineConfig.get_max_steps()
         self.step_history: List[Dict[str, Any]] = []
+        self._recent_tool_calls: List[str] = []  # Track recent tool names for loop detection
 
     def run(self) -> Dict[str, Any]:
         """Execute the agentic revision loop."""
@@ -509,6 +510,31 @@ class AgentEngine:
                         "role": "system",
                         "content": f"[TOOL RESULT for {tool_name}]\n{result_text}\n[END TOOL RESULT]\n\nNow continue with your next action."
                     })
+
+                # Track recent tool calls for loop detection
+                for tool_name, _ in tool_calls:
+                    self._recent_tool_calls.append(tool_name)
+                # Keep only last 5 calls
+                if len(self._recent_tool_calls) > 5:
+                    self._recent_tool_calls = self._recent_tool_calls[-5:]
+
+                # Check for repeated tool calls without progress
+                unique_recent = set(self._recent_tool_calls)
+                if len(unique_recent) == 1 and len(self._recent_tool_calls) >= 3:
+                    repeated_tool = list(unique_recent)[0]
+                    self.logger.warning(f"Loop detected: {repeated_tool} called {len(self._recent_tool_calls)} times in a row without progress")
+                    # Send a strong intervention message
+                    intervention = (
+                        f"\n\n[LOOP DETECTED] You have called {repeated_tool} {len(self._recent_tool_calls)} times in a row without making progress. "
+                        f"This is not productive. You MUST choose a DIFFERENT tool or take a different action. "
+                        f"Available tools: list_directory, search_files, grep_code, read_file, write_file, edit_file, delete_file, "
+                        f"find_symbol, decompile_jar, list_dependencies, check_syntax, get_file_info. "
+                        f"Think about what you've learned so far and what you need to do next. "
+                        f"Either make a concrete change with write_file/edit_file, or gather specific information with a different tool. "
+                        f"DO NOT call {repeated_tool} again."
+                    )
+                    self.messages.append({"role": "system", "content": intervention})
+                    continue
 
             # Run post-script
             post_script = EngineConfig.get_post_script()

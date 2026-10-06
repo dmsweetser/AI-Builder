@@ -582,15 +582,26 @@ function startAgentSSE(projectId, enabledTools) {
                         return;
                     }
                     buffer += decoder.decode(value, { stream: true });
-                    let newlineIdx;
-                    while ((newlineIdx = buffer.indexOf('\n')) !== -1) {
-                        const fullLine = buffer.substring(0, newlineIdx);
-                        buffer = buffer.substring(newlineIdx + 1);
-                        if (fullLine.startsWith('event: ')) {
-                            const eventType = fullLine.substring(7).trim();
-                            const dataLine = buffer.substring(0, buffer.indexOf('\n'));
-                            const dataStr = dataLine.replace('data: ', '');
-                            buffer = buffer.substring(buffer.indexOf('\n') + 1);
+                    // Process complete SSE messages (delimited by \n\n)
+                    // This handles multi-chunk messages correctly
+                    let doubleNewlineIdx;
+                    while ((doubleNewlineIdx = buffer.indexOf('\n\n')) !== -1) {
+                        const message = buffer.substring(0, doubleNewlineIdx);
+                        buffer = buffer.substring(doubleNewlineIdx + 2); // skip \n\n
+
+                        const lines = message.split('\n');
+                        let eventType = 'message'; // default SSE event type
+                        let dataStr = '';
+
+                        for (const line of lines) {
+                            if (line.startsWith('event: ')) {
+                                eventType = line.substring(7).trim();
+                            } else if (line.startsWith('data: ')) {
+                                dataStr = line.substring(6);
+                            }
+                        }
+
+                        if (dataStr) {
                             try {
                                 const data = JSON.parse(dataStr);
                                 if (eventType === 'status') handleAgentStatus(data, statusBox);
