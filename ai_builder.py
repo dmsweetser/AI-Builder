@@ -18,7 +18,6 @@ from config import Config
 load_dotenv()
 
 LINE_DELIMITER = f"<<<AI_BUILDER_LINE_DELIMITER_{uuid.uuid4().hex}>>>"
-IS_LEGACY = False
 
 class FileParser:
     @staticmethod
@@ -436,32 +435,22 @@ class CodeUtility:
 
     def should_process_file(self, path: str, rules: List[str], patterns: List[str], mode: str) -> bool:
         try:
-            if IS_LEGACY:
-                file_name = os.path.basename(path)
-                for rule in rules:
-                    if rule in path:
-                        return False
-                for pattern in patterns:
-                    if pattern in file_name or pattern in path:
-                        return mode == "include"
-                return mode == "exclude"
-            else:
-                file_name = os.path.basename(path)
-                if not patterns:
+            file_name = os.path.basename(path)
+            if not patterns:
+                return mode == "include"
+
+            normalized_patterns = [p.rstrip('/').rstrip('\\') for p in patterns]
+            normalized_path = path.rstrip('/').rstrip('\\')
+
+            for pattern in normalized_patterns:
+                pattern_clean = pattern.rstrip('/').rstrip('\\')
+                if pattern_clean == normalized_path:
                     return mode == "include"
-
-                normalized_patterns = [p.rstrip('/').rstrip('\\') for p in patterns]
-                normalized_path = path.rstrip('/').rstrip('\\')
-
-                for pattern in normalized_patterns:
-                    pattern_clean = pattern.rstrip('/').rstrip('\\')
-                    if pattern_clean == normalized_path:
-                        return mode == "include"
-                    if normalized_path.startswith(pattern_clean + '/') or normalized_path.startswith(pattern_clean + '\\'):
-                        return mode == "include"
-                    if pattern_clean in normalized_path.split(os.sep):
-                        return mode == "include"
-                return mode == "exclude"
+                if normalized_path.startswith(pattern_clean + '/') or normalized_path.startswith(pattern_clean + '\\'):
+                    return mode == "include"
+                if pattern_clean in normalized_path.split(os.sep):
+                    return mode == "include"
+            return mode == "exclude"
         except Exception as e:
             logging.error(f"Error determining if file should be processed: {e}")
             raise
@@ -986,8 +975,12 @@ def run_with_agent_engine(project_config: Dict[str, Any]) -> Dict[str, Any]:
         import time
         project_config["job_id"] = str(int(time.time() * 1000))
 
+    # Compute output_dir relative to rootDirectory (not agent_engine/)
+    root_dir = project_config.get("rootDirectory", "")
+    output_dir = os.path.join(root_dir, "aib_instance", "output", project_config["job_id"])
+
     # Set environment variables the agent engine needs
-    os.environ["AIB_ROOT"] = project_config.get("rootDirectory", "")
+    os.environ["AIB_ROOT"] = root_dir
     os.environ["AIB_INSTRUCTIONS"] = project_config.get("instructions", "")
     os.environ["AIB_PRE_SCRIPT"] = project_config.get("preScript", "")
     os.environ["AIB_POST_SCRIPT"] = project_config.get("postScript", "")
@@ -997,13 +990,5 @@ def run_with_agent_engine(project_config: Dict[str, Any]) -> Dict[str, Any]:
     if enabled_tools:
         os.environ["AIB_ENABLED_TOOLS"] = json.dumps(enabled_tools)
 
-    return agent_run(project_config)
+    return agent_run(project_config, output_dir=output_dir)
 
-
-if __name__ == "__main__":
-    IS_LEGACY = True
-    try:
-        ai_builder = AIBuilder("standalone")
-        ai_builder.run()
-    except Exception as e:
-        logging.error(f"An error occurred during AIBuilder execution: {str(e)}", exc_info=True)

@@ -112,12 +112,22 @@ class EngineConfig:
         return None
 
     @staticmethod
-    def get_live_instruction(job_id: str) -> Optional[str]:
-        """Read a live instruction file for a running job."""
-        instruction_file = os.path.join(
-            os.path.dirname(os.path.abspath(__file__)),
-            "aib_instance", "output", job_id, "live_instruction.txt"
-        )
+    def get_live_instruction(job_id: str, base_dir: Optional[str] = None) -> Optional[str]:
+        """Read a live instruction file for a running job.
+
+        If *base_dir* is given, look there (used by the UI which manages
+        the shared ``aib_instance`` directory).  Otherwise fall back to the
+        legacy ``agent_engine/aib_instance/`` path.
+        """
+        if base_dir:
+            instruction_file = os.path.join(
+                base_dir, "live_instruction.txt"
+            )
+        else:
+            instruction_file = os.path.join(
+                os.path.dirname(os.path.abspath(__file__)),
+                "aib_instance", "output", job_id, "live_instruction.txt"
+            )
         if os.path.exists(instruction_file):
             try:
                 with open(instruction_file, 'r') as f:

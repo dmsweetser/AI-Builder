@@ -961,7 +961,7 @@ def api_agent_run():
                 "enabled_tools": enabled_tools if enabled_tools else None,
             }
 
-            engine = AgentEngine(config)
+            engine = AgentEngine(config, output_dir=output_dir)
             result = engine.run()
 
             # Stream step history

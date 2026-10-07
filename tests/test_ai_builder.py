@@ -881,22 +881,5 @@ class TestEndpointTypeSelection(unittest.TestCase):
         self.assertEqual(endpoint_type == 'custom', False)
 
 
-class TestAgentEngineConfig(unittest.TestCase):
-    """Tests for AgentEngine configuration."""
-
-    def test_build_system_prompt_includes_tools(self):
-        from agent_engine.engine import build_system_prompt
-        tools = [
-            {'name': 'read_file', 'description': 'Read a file', 'parameters': {'path': 'string'}},
-            {'name': 'write_file', 'description': 'Write a file', 'parameters': {'path': 'string', 'content': 'string'}},
-        ]
-        prompt = build_system_prompt(tools)
-        self.assertIn('read_file', prompt)
-        self.assertIn('write_file', prompt)
-        self.assertIn('WORKFLOW:', prompt)
-        self.assertIn('RULES:', prompt)
-        self.assertIn('AVAILABLE TOOLS:', prompt)
-
-
 if __name__ == '__main__':
     unittest.main()

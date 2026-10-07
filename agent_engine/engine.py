@@ -325,14 +325,21 @@ class AgentEngine:
     5. Repeat until [DONE] or max_steps reached
     """
 
-    def __init__(self, project_config: Dict[str, Any]):
+    def __init__(self, project_config: Dict[str, Any], output_dir: Optional[str] = None):
         self.project_config = project_config
         self.root_dir = project_config.get("rootDirectory", EngineConfig.get_root_directory())
         self.instructions = project_config.get("instructions", "")
         self.job_id = project_config.get("job_id", str(int(time.time() * 1000)))
-        self.output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                        "aib_instance", "output",
-                                        self.job_id)
+
+        # Use caller-provided output_dir (from UI) to ensure consistent
+        # aib_instance/output/ path for both agent_engine and legacy modes.
+        if output_dir:
+            self.output_dir = output_dir
+        else:
+            self.output_dir = os.path.join(
+                os.path.dirname(os.path.abspath(__file__)),
+                "aib_instance", "output", self.job_id
+            )
         self.log_file = os.path.join(self.output_dir, "log.txt")
         self.response_file = os.path.join(self.output_dir, "current_response.txt")
         self.step_log_file = os.path.join(self.output_dir, "steps.jsonl")
@@ -391,11 +398,13 @@ class AgentEngine:
                 self.logger.info(f"Step {self.step_count}/{self.max_steps}")
 
                 # Check for live instructions injected mid-run
-                live_instruction = EngineConfig.get_live_instruction(self.job_id)
+                live_instruction = EngineConfig.get_live_instruction(
+                    self.job_id, base_dir=self.output_dir
+                )
                 if live_instruction:
                     self.logger.info(f"Received live instruction: {live_instruction[:100]}...")
                     self.messages.append({
-                        "role": "system",
+                        "role": "user",
                         "content": f"[LIVE INJECTION] User has sent new instructions: {live_instruction}\n\nConsider this as an update to your task. You may need to adjust your approach or add to what you're doing.\n\nContinue with your next action."
                     })
 
@@ -447,14 +456,14 @@ class AgentEngine:
                             "Either complete the task with [DONE] and a summary, "
                             "or use a different tool call. Do NOT repeat the same tool call."
                         )
-                        self.messages.append({"role": "assistant", "content": response + stuck_msg})
+                        self.messages.append({"role": "user", "content": stuck_msg})
                     else:
                         reminder = (
                             "\n\n[REMINDER] You must take action using the available tools. "
                             "Use [TOOL:tool_name{param:\"value\"}] format to call tools, "
                             "or [DONE] when you have finished all changes."
                         )
-                        self.messages.append({"role": "assistant", "content": response + reminder})
+                        self.messages.append({"role": "user", "content": reminder})
                     continue
 
                 # Strip tool call markers from the response before appending to history.
@@ -505,9 +514,10 @@ class AgentEngine:
                     with open(self.step_log_file, 'a', encoding='utf-8') as f:
                         f.write(json.dumps(step_entry) + '\n')
 
-                    # Feed tool result back to conversation
+                    # Feed tool result back to conversation as a user message
+                    # so the LLM properly sees and processes the result.
                     self.messages.append({
-                        "role": "system",
+                        "role": "user",
                         "content": f"[TOOL RESULT for {tool_name}]\n{result_text}\n[END TOOL RESULT]\n\nNow continue with your next action."
                     })
 
@@ -533,7 +543,7 @@ class AgentEngine:
                         f"Either make a concrete change with write_file/edit_file, or gather specific information with a different tool. "
                         f"DO NOT call {repeated_tool} again."
                     )
-                    self.messages.append({"role": "system", "content": intervention})
+                    self.messages.append({"role": "user", "content": intervention})
                     continue
 
             # Run post-script
@@ -577,9 +587,13 @@ class AgentEngine:
                 pass
 
 
-def run(project_config: Dict[str, Any]) -> Dict[str, Any]:
+def run(project_config: Dict[str, Any], output_dir: Optional[str] = None) -> Dict[str, Any]:
     """Run the agentic engine with the given project configuration."""
-    engine = AgentEngine(project_config)
+    if output_dir is None:
+        root_dir = project_config.get("rootDirectory", EngineConfig.get_root_directory())
+        output_dir = os.path.join(root_dir, "aib_instance", "output",
+                                   project_config.get("job_id", ""))
+    engine = AgentEngine(project_config, output_dir=output_dir)
     return engine.run()
 
 
