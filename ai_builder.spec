@@ -17,7 +17,8 @@ from PyInstaller.utils.hooks import collect_submodules, collect_data_files
 block_cipher = None
 
 # Resolve paths relative to this spec file
-here = Path(__file__).parent.resolve()
+import os as _os
+here = _os.path.dirname(_os.path.abspath(__file__)) if '__file__' in dir() else _os.getcwd()
 app_dir = here
 
 # Collect all sub-packages we need
@@ -45,21 +46,22 @@ hidden_imports = [
 # Collect data files (templates, static, etc.)
 aib_data = []
 for pkg_dir in ["templates", "static"]:
-    pkg_path = app_dir / pkg_dir
-    if pkg_path.exists():
-        aib_data.append((str(pkg_path), pkg_dir))
+    pkg_path = _os.path.join(app_dir, pkg_dir)
+    if _os.path.isdir(pkg_path):
+        aib_data.append((pkg_path, pkg_dir))
 
 # Also bundle oneshot_engine and agent_engine as data so they're
 # findable at runtime (they're importable as packages but PyInstaller
 # sometimes misses submodules in one-shot mode).
 for pkg_dir in ["oneshot_engine", "agent_engine"]:
-    pkg_path = app_dir / pkg_dir
-    if pkg_path.exists():
-        aib_data.append((str(pkg_path), pkg_dir))
+    pkg_path = _os.path.join(app_dir, pkg_dir)
+    if _os.path.isdir(pkg_path):
+        aib_data.append((pkg_path, pkg_dir))
 
 # base_config.xml
-if (app_dir / "base_config.xml").exists():
-    aib_data.append((str(app_dir / "base_config.xml"), "."))
+_config_xml = _os.path.join(app_dir, "base_config.xml")
+if _os.path.isfile(_config_xml):
+    aib_data.append((_config_xml, "."))
 
 a = Analysis(
     ['ui.py'],

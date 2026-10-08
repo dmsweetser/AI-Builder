@@ -11,3 +11,5 @@ instance/*
 aib_instance/*
 .env*
 **/aib_instance/*
+build/*
+dist/*

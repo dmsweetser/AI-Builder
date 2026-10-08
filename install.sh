@@ -1,5 +1,8 @@
 #!/bin/bash
 # AI-Builder Installation Script (clean - no model/llama.cpp downloads)
+# Sets up a virtual environment with all dependencies.
+# The app uses a relative ./aib_instance directory for configs,
+# model downloads, chat history, etc.
 
 set -e
 

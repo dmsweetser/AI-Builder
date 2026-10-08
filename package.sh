@@ -1,5 +1,9 @@
-
 #!/bin/bash
+# AI-Builder Packaging Script (Linux)
+# Produces a single ELF executable with all dependencies bundled.
+# The executable uses a relative ./aib_instance directory for configs,
+# model downloads, chat history, etc.
+
 set -e
 
 echo "========================================"
@@ -25,7 +29,7 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-# Upgrade pip and install dependencies
+# Install dependencies and PyInstaller
 echo "[INFO] Installing dependencies and PyInstaller..."
 pip install --upgrade pip
 pip install -r requirements.txt
@@ -42,11 +46,21 @@ pyinstaller \
     --hidden-import=flask \
     --hidden-import=dotenv \
     --hidden-import=azure.ai.inference \
-    --hidden-import=azure.ai.projects \
-    --hidden-import=azure.identity \
+    --hidden-import=azure.ai.inference.models \
     --hidden-import=azure.core.credentials \
+    --hidden-import=agent_engine \
+    --hidden-import=agent_engine.tools \
+    --hidden-import=oneshot_engine \
+    --hidden-import=oneshot_engine.parser \
+    --hidden-import=oneshot_engine.modifier \
+    --hidden-import=oneshot_engine.action_manager \
+    --hidden-import=oneshot_engine.code_utility \
+    --hidden-import=oneshot_engine.engine \
     --add-data "templates:templates" \
-    --add-data "aib_instance:aib_instance" \
+    --add-data "static:static" \
+    --add-data "base_config.xml:." \
+    --add-data "oneshot_engine:oneshot_engine" \
+    --add-data "agent_engine:agent_engine" \
     ui.py
 
 # Check build success
