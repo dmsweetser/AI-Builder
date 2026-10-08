@@ -15,7 +15,23 @@ import logging
 from datetime import datetime
 from flask import Flask, Response, request, jsonify, render_template, send_from_directory
 
-from ai_builder import AIBuilder, run_with_agent_engine
+# --- Resolve app directory (works for both dev and PyInstaller one-file builds) ---
+def _get_app_dir():
+    """Return the directory containing the app.
+
+    For PyInstaller one-file builds ``sys._MEIPASS`` points to the
+    extracted temp directory.  For normal dev it returns the directory
+    containing this file.
+    """
+    if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+        return sys._MEIPASS
+    return os.path.dirname(os.path.abspath(__file__))
+
+import sys
+_app_dir = _get_app_dir()
+
+from oneshot_engine import AIBuilder
+from oneshot_engine.engine import run_with_agent_engine
 from agent_engine import AgentEngine, EngineConfig, ToolResult
 from config import Config
 from azure.ai.inference import ChatCompletionsClient
@@ -25,14 +41,17 @@ from azure.core.credentials import AzureKeyCredential
 # Engine mode: 'agent' (multi-step tool-based) or 'legacy' (single-pass)
 ENGINE_MODE = os.getenv("AIB_ENGINE_MODE", "agent").lower()
 
-app = Flask(__name__)
+app = Flask(__name__,
+            template_folder=os.path.join(_app_dir, 'templates'),
+            static_folder=os.path.join(_app_dir, 'static'))
 
-# --- Constants ---
-STATUS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aib_instance", "run_status.json")
-HISTORY_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aib_instance", "job_history.json")
-PROJECTS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aib_instance", "projects.json")
-CHATS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aib_instance", "chats")
-SETTINGS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aib_instance", "settings.json")
+# --- Constants (all relative to the app directory) ---
+_AIB_INSTANCE = os.path.join(_app_dir, "aib_instance")
+STATUS_FILE = os.path.join(_AIB_INSTANCE, "run_status.json")
+HISTORY_FILE = os.path.join(_AIB_INSTANCE, "job_history.json")
+PROJECTS_FILE = os.path.join(_AIB_INSTANCE, "projects.json")
+CHATS_DIR = os.path.join(_AIB_INSTANCE, "chats")
+SETTINGS_FILE = os.path.join(_AIB_INSTANCE, "settings.json")
 
 # --- Global State (Thread-Safe) ---
 job_queue = []

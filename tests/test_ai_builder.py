@@ -12,7 +12,8 @@ from unittest.mock import patch, MagicMock, PropertyMock
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from ai_builder import FileParser, FileModifier, ActionManager
+from oneshot_engine import FileParser, FileModifier, ActionManager
+from oneshot_engine.code_utility import CodeUtility
 from agent_engine.security import ensure_under_root, validate_tool_params, SecurityError, ToolError
 from agent_engine.tools.base import ToolResult, BaseTool
 from agent_engine.engine import parse_tool_calls, is_done, build_user_prompt
