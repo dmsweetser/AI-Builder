@@ -40,7 +40,7 @@ REM Build single executable
 echo [INFO] Building executable...
 pyinstaller ^
     --onefile ^
-    --name ai-builder ^
+    --name ai_builder.exe ^
     --hidden-import=flask ^
     --hidden-import=dotenv ^
     --hidden-import=azure.ai.inference ^
@@ -62,10 +62,10 @@ pyinstaller ^
     ui.py
 
 REM Check build success
-if exist "dist\ai-builder.exe" (
+if exist "dist\ai_builder.exe" (
     echo [SUCCESS] Packaging complete!
-    echo [INFO] Executable location: dist\ai-builder.exe
-    echo [INFO] To run: dist\ai-builder.exe
+    echo [INFO] Executable location: dist\ai_builder.exe
+    echo [INFO] To run: dist\ai_builder.exe
     pause
 ) else (
     echo [ERROR] Build failed. Check PyInstaller output above.

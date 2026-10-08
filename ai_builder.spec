@@ -86,7 +86,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name='ai-builder',
+    name='ai_builder',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -105,7 +105,7 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name='ai-builder',
+    name='ai_builder',
 )
 
 # --- Additional: standalone one-file executable ---
@@ -115,7 +115,7 @@ exe_onefile = EXE(
     a.binaries,
     a.datas,
     [],
-    name='ai-builder',
+    name='ai_builder.bin',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

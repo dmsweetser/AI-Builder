@@ -42,7 +42,7 @@ rm -rf dist build ai_builder.spec
 echo "[INFO] Building executable..."
 pyinstaller \
     --onefile \
-    --name ai-builder \
+    --name ai_builder.bin \
     --hidden-import=flask \
     --hidden-import=dotenv \
     --hidden-import=azure.ai.inference \
@@ -64,11 +64,11 @@ pyinstaller \
     ui.py
 
 # Check build success
-if [ -f "dist/ai-builder" ]; then
+if [ -f "dist/ai_builder.bin" ]; then
     echo "[SUCCESS] Packaging complete!"
-    echo "[INFO] Executable location: dist/ai-builder"
-    echo "[INFO] To run: ./dist/ai-builder"
-    chmod +x dist/ai-builder
+    echo "[INFO] Executable location: dist/ai_builder.bin"
+    echo "[INFO] To run: ./dist/ai_builder.bin"
+    chmod +x dist/ai_builder.bin
 else
     echo "[ERROR] Build failed. Check PyInstaller output above."
     exit 1
