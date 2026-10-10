@@ -37,15 +37,24 @@ function showTab(tabName) {
         p.classList.remove('active');
         p.classList.add('hidden');
     });
-    document.querySelectorAll('.sidebar-nav .tab-btn').forEach(b => b.classList.remove('active'));
+    const buttons = document.querySelectorAll('.sidebar-nav .tab-btn');
+    buttons.forEach(b => {
+        b.classList.remove('active');
+        b.setAttribute('aria-selected', 'false');
+        b.setAttribute('tabindex', '-1');
+    });
     const panel = document.getElementById(tabName + '-panel');
     if (panel) {
         panel.classList.remove('hidden');
         panel.classList.add('active');
     }
-    document.querySelectorAll('.sidebar-nav .tab-btn').forEach(b => {
+    // Activate the correct button
+    buttons.forEach(b => {
         if (b.textContent.trim().toUpperCase() === tabName.toUpperCase()) {
             b.classList.add('active');
+            b.setAttribute('aria-selected', 'true');
+            b.setAttribute('tabindex', '0');
+            b.focus();
         }
     });
     if (tabName === 'jobs') loadJobs();
@@ -160,6 +169,37 @@ function pollJobStatus() {
         .catch(err => {
             statusBox.innerHTML = `[ERROR] Failed to poll status: ${err.message}`;
         });
+}
+
+// === Live step updates during agent run ===
+function pollAgentSteps() {
+    if (!currentRunningJobId || !agentRunning) return;
+    fetch(`/api/agent/history/${currentRunningJobId}`)
+        .then(r => r.json())
+        .then(data => {
+            if (data.steps && data.steps.length > 0) {
+                // Update the job history item if it exists
+                const historyItem = document.querySelector(`.history-item[data-job-id="${currentRunningJobId}"]`);
+                if (historyItem) {
+                    const stepsList = historyItem.querySelector('.job-steps-list');
+                    if (stepsList) {
+                        stepsList.innerHTML = data.steps.map((s, i) => {
+                            const ok = s.result && s.result.success !== false;
+                            const resultText = s.result ? (s.result.content || '').substring(0, 200) : 'no result';
+                            return `<div class="job-step-item">
+                                <span class="step-num">Step ${s.step}</span>
+                                <span class="step-tool-name">[${s.tool}]</span>
+                                <span class="step-status-${ok ? 'ok' : 'err'}">${ok ? '✓' : '✗'}</span>
+                                <span style="color:#aaa;">${escapeHtml(resultText)}</span>
+                            </div>`;
+                        }).join('');
+                        // Auto-scroll the steps list
+                        stepsList.scrollTop = stepsList.scrollHeight;
+                    }
+                }
+            }
+        })
+        .catch(err => console.warn('Failed to poll agent steps:', err));
 }
 
 // === Settings ===
@@ -328,8 +368,11 @@ function renderJobs(queueData, history) {
         const item = document.createElement('div');
         item.className = 'history-item';
         item.dataset.jobId = job.job_id;
+        item.setAttribute('role', 'listitem');
+        item.setAttribute('tabindex', '0');
+        item.onclick = () => goToProject(job.project_id);
+        item.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goToProject(job.project_id); } };
         const statusClass = job.status === 'running' ? 'var(--grass)' :
-            job.status === 'queued' ? 'var(--sky)' :
                 job.status === 'error' ? '#a03030' :
                     job.status === 'stopped' ? '#808000' : '#555';
         const instructionsHtml = job.instructions ? `
@@ -456,7 +499,10 @@ function loadProjects() {
                 const projectItem = document.createElement('div');
                 projectItem.className = 'project-item';
                 projectItem.id = `proj-${project.id}`;
+                projectItem.setAttribute('role', 'listitem');
+                projectItem.setAttribute('tabindex', '0');
                 projectItem.onclick = () => selectProject(project.id);
+                projectItem.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectProject(project.id); } };
                 const modeBadge = project.mode === 'agentic'
                     ? '<span class="mode-indicator agentic">AGENTIC</span>'
                     : '<span class="mode-indicator oneshot">ONE-SHOT</span>';
@@ -470,20 +516,24 @@ function loadProjects() {
                                 </div>
                                 <div class="project-item-actions">
                                     <button class="btn-sm" id="run-btn-${project.id}"
-                                        onclick="event.stopPropagation(); runProject('${project.id}')">
+                                        onclick="event.stopPropagation(); runProject('${project.id}')"
+                                        aria-label="Run ${escapeHtml(project.name || 'project')}">
                                         RUN
                                     </button>
                                     <button class="btn-sm stop" id="stop-btn-${project.id}"
                                         onclick="event.stopPropagation(); stopProject('${project.id}')"
-                                        style="display: none;">
+                                        style="display: none;"
+                                        aria-label="Stop ${escapeHtml(project.name || 'project')}">
                                         STOP
                                     </button>
                                     <button class="btn-sm archive"
-                                        onclick="event.stopPropagation(); ${archiveBtnAction}">
+                                        onclick="event.stopPropagation(); ${archiveBtnAction}"
+                                        aria-label="${archiveBtnText} ${escapeHtml(project.name || 'project')}">
                                         ${archiveBtnText}
                                     </button>
                                     <button class="btn-sm delete"
-                                        onclick="event.stopPropagation(); deleteProject('${project.id}')">
+                                        onclick="event.stopPropagation(); deleteProject('${project.id}')"
+                                        aria-label="Delete ${escapeHtml(project.name || 'project')}">
                                         DEL
                                     </button>
                                 </div>
@@ -497,8 +547,28 @@ function loadProjects() {
 }
 
 function runProject(projectId) {
-    const project = getProjectById(projectId);
-    if (!project) { alert('Project not found'); return; }
+    // First check _loadedProjects cache
+    let project = getProjectById(projectId);
+    // If not found in cache, try to fetch it directly from the API
+    if (!project) {
+        fetch(`/api/projects/${projectId}`)
+            .then(r => r.json())
+            .then(data => {
+                if (data.error) { alert('Project not found'); return; }
+                // Cache it for future lookups
+                _loadedProjects = _loadedProjects || [];
+                if (!_loadedProjects.find(p => p.id === projectId)) {
+                    _loadedProjects.push(data);
+                }
+                if (data.mode === 'agentic') {
+                    runAgenticProject(projectId);
+                } else {
+                    runLegacyProject(projectId);
+                }
+            })
+            .catch(err => { console.error('Failed to fetch project:', err); alert('Failed to load project details'); });
+        return;
+    }
     if (project.mode === 'agentic') {
         runAgenticProject(projectId);
     } else {
@@ -637,9 +707,12 @@ function handleAgentStatus(data, statusBox) {
     } else if (data.type === 'complete') {
         statusBox.innerHTML += `\n[COMPLETE] Steps: ${data.steps}/${data.max_steps}\n${data.summary || ''}\n`;
         loadJobs();
+        // Stop polling agent steps when complete
+        agentRunning = false;
     } else if (data.type === 'error') {
         statusBox.innerHTML += `\n[ERROR] ${data.error}\n`;
         loadJobs();
+        agentRunning = false;
     }
     if (statusBox) statusBox.scrollTop = statusBox.scrollHeight;
 }
@@ -661,6 +734,8 @@ function handleAgentStep(data, agentBox, statusBox) {
         statusBox.innerHTML += `[Step ${data.step}] ${data.tool}: ${ok ? '✓' : '✗'} ${resultPreview.substring(0, 80)}\n`;
         statusBox.scrollTop = statusBox.scrollHeight;
     }
+    // Also update the job history steps list in real-time
+    pollAgentSteps();
 }
 
 function stopProject(projectId) {
@@ -752,9 +827,21 @@ function selectProject(projectId) {
     const detailsPanel = document.getElementById('project-details-panel');
     if (projectsPanel) { projectsPanel.classList.add('hidden'); projectsPanel.classList.remove('active'); }
     if (detailsPanel) { detailsPanel.classList.remove('hidden'); detailsPanel.classList.add('active'); }
+    // Hide all other panels to prevent overlap
+    document.querySelectorAll('.panel').forEach(p => {
+        if (p.id !== 'projects-panel' && p.id !== 'project-details-panel') {
+            p.classList.add('hidden');
+            p.classList.remove('active');
+        }
+    });
     fetch(`/api/projects/${projectId}`)
         .then(response => response.json())
         .then(project => {
+            // Cache in _loadedProjects so runProject can find it
+            if (!_loadedProjects) _loadedProjects = [];
+            const idx = _loadedProjects.findIndex(p => p.id === projectId);
+            if (idx === -1) _loadedProjects.push(project);
+            else _loadedProjects[idx] = project;
             const safeSet = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
             safeSet('run-project-id', project.id);
             const nameEl = document.getElementById('details-project-name');
@@ -804,6 +891,13 @@ function goBackToProjects() {
     document.getElementById('project-details-panel').classList.remove('active');
     document.getElementById('projects-panel').classList.remove('hidden');
     document.getElementById('projects-panel').classList.add('active');
+    // Hide all other panels
+    document.querySelectorAll('.panel').forEach(p => {
+        if (p.id !== 'projects-panel') {
+            p.classList.add('hidden');
+            p.classList.remove('active');
+        }
+    });
     localStorage.removeItem('currentProjectId');
     currentProjectId = null;
     loadProjects();
@@ -1062,6 +1156,16 @@ function addNewPath() {
     updateSelectedPatterns();
 }
 
+function detailsAddNewPath() {
+    const input = document.getElementById('details-new-path-input');
+    const path = input.value.trim();
+    if (!path) return;
+    addPathToDetailsList(path);
+    input.value = '';
+    updateDetailsPatternsInput();
+    autoSaveProject();
+}
+
 function updateSelectedPatterns() {
     const container = document.getElementById('selected-paths-container');
     const input = document.getElementById('patterns-input');
@@ -1165,8 +1269,11 @@ function loadChats() {
             chats.forEach(chat => {
                 const item = document.createElement('div');
                 item.className = 'chat-item' + (chat.id === currentChatId ? ' active' : '');
+                item.setAttribute('role', 'listitem');
+                item.setAttribute('tabindex', '0');
                 item.innerHTML = `<span>${escapeHtml(chat.title || 'New Chat')}</span>`;
                 item.onclick = () => openChat(chat.id);
+                item.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openChat(chat.id); } };
                 list.appendChild(item);
             });
         })
@@ -1259,4 +1366,70 @@ document.addEventListener('DOMContentLoaded', () => {
     loadProjectsCached();
     loadJobs();
     setInterval(() => { if (currentProjectId) pollJobStatus(); }, 3000);
+
+    // Keyboard navigation for sidebar tabs
+    const sidebarNav = document.querySelector('.sidebar-nav');
+    if (sidebarNav) {
+        sidebarNav.addEventListener('keydown', (e) => {
+            const buttons = Array.from(sidebarNav.querySelectorAll('.tab-btn'));
+            const current = document.activeElement;
+            const idx = buttons.indexOf(current);
+            if (idx === -1) return;
+
+            let nextIdx;
+            if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+                e.preventDefault();
+                nextIdx = (idx + 1) % buttons.length;
+            } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+                e.preventDefault();
+                nextIdx = (idx - 1 + buttons.length) % buttons.length;
+            } else if (e.key === 'Home') {
+                e.preventDefault();
+                nextIdx = 0;
+            } else if (e.key === 'End') {
+                e.preventDefault();
+                nextIdx = buttons.length - 1;
+            } else {
+                return;
+            }
+            buttons[nextIdx].focus();
+            buttons[nextIdx].click();
+        });
+    }
+
+    // Close modals on Escape key
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            const actionsModal = document.getElementById('actions-modal');
+            const rootModal = document.getElementById('root-path-confirmation-modal');
+            if (actionsModal && actionsModal.style.display === 'flex') {
+                closeActionsModal();
+            }
+            if (rootModal && rootModal.style.display === 'flex') {
+                cancelRootPathChange();
+            }
+        }
+    });
+
+    // Trap focus in modals
+    document.querySelectorAll('.modal').forEach(modal => {
+        modal.addEventListener('keydown', (e) => {
+            if (e.key !== 'Tab') return;
+            const focusable = modal.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+            if (!focusable.length) return;
+            const first = focusable[0];
+            const last = focusable[focusable.length - 1];
+            if (e.shiftKey) {
+                if (document.activeElement === first) {
+                    e.preventDefault();
+                    last.focus();
+                }
+            } else {
+                if (document.activeElement === last) {
+                    e.preventDefault();
+                    first.focus();
+                }
+            }
+        });
+    });
 });

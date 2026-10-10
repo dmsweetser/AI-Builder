@@ -7,36 +7,89 @@
     <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
     <title>AIB</title>
     <link rel="stylesheet" href="/static/styles.css">
+    <style>
+        /* === Accessibility: Focus indicators & skip link === */
+        *:focus-visible {
+            outline: 3px solid var(--grass);
+            outline-offset: 2px;
+        }
+        .skip-link {
+            position: absolute;
+            top: -100px;
+            left: 0;
+            background: var(--grass);
+            color: #fff;
+            padding: 8px 16px;
+            z-index: 100000;
+            font-family: 'Press Start 2P', monospace;
+            font-size: 12px;
+            text-decoration: none;
+        }
+        .skip-link:focus {
+            top: 0;
+        }
+        /* Screen-reader only text */
+        .sr-only {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0;
+            margin: -1px;
+            overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+            white-space: nowrap;
+            border: 0;
+        }
+        /* Live region for announcements */
+        [aria-live] {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0;
+            margin: -1px;
+            overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+            white-space: nowrap;
+            border: 0;
+        }
+    </style>
 </head>
 
 <body>
+    <!-- Skip navigation link for keyboard users -->
+    <a href="#main-content" class="skip-link" id="skip-nav">SKIP TO MAIN CONTENT</a>
+
     <div class="goal-zone" id="goal-zone"></div>
     <div class="fling-counter" id="fling-counter">FLINGS: 0</div>
     <div id="win-message">🏆&nbsp;YOU WON&nbsp;<span id="win-fling-count">IN 0 FLINGS</span>&nbsp;🏆</div>
-    <div class="app-layout">
-        <aside class="sidebar">
+    <div class="app-layout" role="application" aria-label="AI Builder Application">
+        <aside class="sidebar" role="navigation" aria-label="Main navigation">
             <div class="sidebar-header">
                 <div class="logo-container">
-                    <span class="logo-spinner" id="draggable-logo" alt="The Puck">Portal<br /><span
+                    <span class="logo-spinner" id="draggable-logo" role="img" aria-label="AI Builder logo">Portal<br /><span
                             style="font-size:9px !important">[FLING ME]</span></span>
                 </div>
             </div>
-            <div class="sidebar-nav">
-                <button class="tab-btn active" onclick="showTab('projects')">PROJECTS</button>
-                <button class="tab-btn" onclick="showTab('jobs')">JOBS</button>
-                <button class="tab-btn" onclick="showTab('chat')">CHAT</button>
-                <button class="tab-btn" onclick="showTab('settings')">SETTINGS</button>
-            </div>
+            <nav class="sidebar-nav" role="menubar" aria-label="Application tabs">
+                <button class="tab-btn active" role="menuitem" aria-selected="true" aria-controls="projects-panel"
+                    onclick="showTab('projects')" tabindex="0">PROJECTS</button>
+                <button class="tab-btn" role="menuitem" aria-selected="false" aria-controls="jobs-panel"
+                    onclick="showTab('jobs')" tabindex="-1">JOBS</button>
+                <button class="tab-btn" role="menuitem" aria-selected="false" aria-controls="chat-panel"
+                    onclick="showTab('chat')" tabindex="-1">CHAT</button>
+                <button class="tab-btn" role="menuitem" aria-selected="false" aria-controls="settings-panel"
+                    onclick="showTab('settings')" tabindex="-1">SETTINGS</button>
+            </nav>
         </aside>
-        <main class="main-content">
-            <div id="projects-panel" class="panel active">
+        <main id="main-content" class="main-content" role="main" aria-live="polite" aria-atomic="false">
+            <div id="projects-panel" class="panel active" role="tabpanel" aria-label="Projects panel">
                 <div class="block">
                     <h2>
                         PROJECT LIST
                         <button type="button" id="show-archived-btn" class="btn-sm" onclick="toggleArchived()"
-                            style="width:150px; transform: translateY(-5px);">SHOW ARCHIVED</button>
+                            style="width:150px; transform: translateY(-5px);" aria-label="Toggle archived projects">SHOW ARCHIVED</button>
                     </h2>
-                    <div class="project-list" id="project-list">
+                    <div class="project-list" id="project-list" role="list" aria-label="Project list">
                         <div class="note">LOADING PROJECTS...</div>
                     </div>
                 </div>
@@ -121,15 +174,15 @@
                     </form>
                 </div>
             </div>
-            <div id="project-details-panel" class="panel">
+            <div id="project-details-panel" class="panel" role="tabpanel" aria-label="Project details panel">
                 <div class="block">
-                    <button class="btn-sm" onclick="goBackToProjects()" style="margin-bottom:10px;">← BACK TO
+                    <button class="btn-sm" onclick="goBackToProjects()" style="margin-bottom:10px;" aria-label="Back to projects list">← BACK TO
                         PROJECTS</button>
-                    <h2>PROJECT - <span id="details-project-name"></span>
-                        <span id="details-mode-badge" class="mode-indicator oneshot">ONE-SHOT</span>
+                    <h2>PROJECT - <span id="details-project-name" aria-live="polite"></span>
+                        <span id="details-mode-badge" class="mode-indicator oneshot" aria-live="polite">ONE-SHOT</span>
                     </h2>
-                    <div id="project-error-display" class="error-display"></div>
-                    <form id="project-details-form">
+                    <div id="project-error-display" class="error-display" role="alert" aria-live="assertive"></div>
+                    <form id="project-details-form" aria-label="Project configuration form">
                         <input type="hidden" name="name" id="details-project-name-form">
                         <input type="hidden" name="id" id="run-project-id">
                         <input type="hidden" name="mode" id="details-mode-input">
@@ -235,26 +288,26 @@
                         <div style="display: flex; gap: 10px; margin-top: 15px;">
                             <button type="button" id="details-run-btn"
                                 onclick="runProject(document.getElementById('run-project-id').value)"
-                                style="flex: 3;">RUN AI BUILDER</button>
+                                style="flex: 3;" aria-label="Run AI Builder for this project">RUN AI BUILDER</button>
                             <button type="button" id="details-stop-btn"
                                 onclick="stopProject(document.getElementById('run-project-id').value)"
-                                style="flex: 1; background:#a03030; display: none;">STOP</button>
+                                style="flex: 1; background:#a03030; display: none;" aria-label="Stop running AI Builder">STOP</button>
                             <button type="button"
                                 onclick="deleteProject(document.getElementById('run-project-id').value)"
-                                style="flex: 1; background:#a03030;">DELETE</button>
+                                style="flex: 1; background:#a03030;" aria-label="Delete this project">DELETE</button>
                         </div>
                     </form>
                 </div>
             </div>
-            <div id="chat-panel" class="panel">
+            <div id="chat-panel" class="panel" role="tabpanel" aria-label="AI Chat panel">
                 <div class="block">
                     <h2>AI CHAT</h2>
-                    <p class="note">CHATS ARE STORED IN AIB_INSTANCE/CHATS. SELECT OR START A NEW CONVERSATION.</p>
+                    <p class="note" id="chat-note">CHATS ARE STORED IN AIB_INSTANCE/CHATS. SELECT OR START A NEW CONVERSATION.</p>
                     <div class="flex-row" style="margin-bottom: 10px;">
-                        <button type="button" onclick="loadChats()" class="btn-sm" style="flex:1">REFRESH LIST</button>
-                        <button type="button" onclick="newChat()" class="btn-sm" style="flex:1">+ NEW CHAT</button>
+                        <button type="button" onclick="loadChats()" class="btn-sm" style="flex:1" aria-label="Refresh chat list">REFRESH LIST</button>
+                        <button type="button" onclick="newChat()" class="btn-sm" style="flex:1" aria-label="Create new chat">+ NEW CHAT</button>
                     </div>
-                    <div id="chat-list"></div>
+                    <div id="chat-list" role="list" aria-label="Chat list"></div>
                     <div id="chat-log" style="display: none;">
                         <div class="note">SELECT A CHAT TO BEGIN</div>
                     </div>
@@ -267,19 +320,19 @@
                     </div>
                 </div>
             </div>
-            <div id="jobs-panel" class="panel">
+            <div id="jobs-panel" class="panel" role="tabpanel" aria-label="Job management panel">
                 <div class="block">
                     <h2>
                         JOB MANAGEMENT
                         <button type="button" onclick="clearJobHistory()" class="btn-sm"
-                            style="float:right; background:#a03030;">CLEAR HISTORY</button>
+                            style="float:right; background:#a03030;" aria-label="Clear all job history">CLEAR HISTORY</button>
                     </h2>
-                    <div id="jobs-list" class="history-list">
+                    <div id="jobs-list" class="history-list" role="list" aria-label="Job history list">
                         <div class="note">LOADING JOBS...</div>
                     </div>
                 </div>
             </div>
-            <div id="settings-panel" class="panel">
+            <div id="settings-panel" class="panel" role="tabpanel" aria-label="Settings panel">
                 <div class="block">
                     <h2>SETTINGS</h2>
                     <p class="note">CONFIGURE MODEL, API, AND ENGINE BEHAVIOR. CHANGES ARE SAVED LOCALLY AND APPLIED ON
@@ -444,26 +497,26 @@
         </main>
     </div>
 
-    <div id="root-path-confirmation-modal" class="modal">
+    <div id="root-path-confirmation-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="root-path-modal-title">
         <div class="modal-content">
-            <h2>CONFIRM ROOT DIRECTORY CHANGE</h2>
+            <h2 id="root-path-modal-title">CONFIRM ROOT DIRECTORY CHANGE</h2>
             <p id="root-path-confirmation-text">Are you sure you want to change the root directory? This will clear all
                 selected file paths.</p>
             <div style="display:flex; gap:10px; margin-top:15px;">
-                <button onclick="confirmRootPathChangeProceed()" class="btn-sm" style="background:#a03030; flex:1;">YES,
+                <button onclick="confirmRootPathChangeProceed()" class="btn-sm" style="background:#a03030; flex:1;" aria-label="Confirm root directory change">YES,
                     CLEAR PATHS</button>
-                <button onclick="cancelRootPathChange()" class="btn-sm" style="flex:1;">CANCEL</button>
+                <button onclick="cancelRootPathChange()" class="btn-sm" style="flex:1;" aria-label="Cancel root directory change">CANCEL</button>
             </div>
         </div>
     </div>
 
-    <div id="actions-modal" class="modal">
+    <div id="actions-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="actions-modal-title">
         <div class="modal-content" style="max-width: 700px;">
-            <h2>INCOMPLETE ACTIONS</h2>
+            <h2 id="actions-modal-title">INCOMPLETE ACTIONS</h2>
             <pre id="actions-modal-content"
-                style="white-space: pre-wrap; font-family: monospace; font-size: 12px; background: #222; padding: 10px; border: 2px solid #444; max-height: 400px; overflow-y: auto; text-align: left;"></pre>
+                style="white-space: pre-wrap; font-family: monospace; font-size: 12px; background: #222; padding: 10px; border: 2px solid #444; max-height: 400px; overflow-y: auto; text-align: left;" role="region" aria-label="Incomplete actions content"></pre>
             <div style="display:flex; gap:10px; margin-top:15px;">
-                <button onclick="closeActionsModal()" class="btn-sm" style="flex:1;">CLOSE</button>
+                <button onclick="closeActionsModal()" class="btn-sm" style="flex:1;" aria-label="Close incomplete actions modal">CLOSE</button>
             </div>
         </div>
     </div>

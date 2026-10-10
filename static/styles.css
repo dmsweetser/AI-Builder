@@ -274,6 +274,15 @@ textarea:focus {
     border-color: var(--grass);
 }
 
+input:focus-visible,
+textarea:focus-visible,
+button:focus-visible,
+a:focus-visible,
+select:focus-visible {
+    outline: 3px solid var(--grass);
+    outline-offset: 2px;
+}
+
 button {
     background: var(--grass);
     color: #fff;
