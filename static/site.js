@@ -1,4 +1,151 @@
-// === Global State ===
+// === Fling Game State ===
+let flingCount = 0;
+let logoX = 40, logoY = 40;
+let velX = 0, velY = 0;
+let isDragging = false;
+let dragStartX = 0, dragStartY = 0;
+let dragLogoStartX = 0, dragLogoStartY = 0;
+let flingAnimFrame = null;
+const GOAL_ZONE = { x: 40, y: 40, w: 120, h: 120 };
+const FRICTION = 0.98;
+const MIN_VEL = 0.5;
+
+function startFlingLoop() {
+    if (flingAnimFrame) return;
+    function animate() {
+        if (isDragging) { flingAnimFrame = requestAnimationFrame(animate); return; }
+        logoX += velX;
+        logoY += velY;
+        velX *= FRICTION;
+        velY *= FRICTION;
+        // Bounce off viewport edges
+        const el = document.getElementById('draggable-logo');
+        if (el) {
+            const rect = el.getBoundingClientRect();
+            if (logoX <= 0) { logoX = 0; velX = -velX * 0.7; }
+            if (logoY <= 0) { logoY = 0; velY = -velY * 0.7; }
+            if (logoX + rect.width >= window.innerWidth) { logoX = window.innerWidth - rect.width; velX = -velX * 0.7; }
+            if (logoY + rect.height >= window.innerHeight) { logoY = window.innerHeight - rect.height; velY = -velY * 0.7; }
+        }
+        const logo = document.getElementById('draggable-logo');
+        if (logo) {
+            logo.style.left = logoX + 'px';
+            logo.style.top = logoY + 'px';
+        }
+        // Check goal zone
+        const goalZone = document.getElementById('goal-zone');
+        const flingCounter = document.getElementById('fling-counter');
+        if (logoX >= GOAL_ZONE.x && logoX + (logo ? logo.offsetWidth : 120) >= GOAL_ZONE.x + GOAL_ZONE.w &&
+            logoY >= GOAL_ZONE.y && logoY + (logo ? logo.offsetHeight : 120) >= GOAL_ZONE.y + GOAL_ZONE.h) {
+            if (goalZone) goalZone.style.display = 'block';
+            if (flingCounter) flingCounter.style.display = 'block';
+            flingCounter.textContent = 'FLINGS: ' + flingCount;
+        } else {
+            if (goalZone) goalZone.style.display = 'none';
+            if (flingCounter) flingCounter.style.display = 'none';
+        }
+        // Stop animation when velocity is tiny
+        if (Math.abs(velX) < MIN_VEL && Math.abs(velY) < MIN_VEL) {
+            flingAnimFrame = null;
+            return;
+        }
+        flingAnimFrame = requestAnimationFrame(animate);
+    }
+    flingAnimFrame = requestAnimationFrame(animate);
+}
+
+function checkWinCondition() {
+    const goalZone = document.getElementById('goal-zone');
+    if (logoX >= GOAL_ZONE.x && logoX + 120 >= GOAL_ZONE.x + GOAL_ZONE.w &&
+        logoY >= GOAL_ZONE.y && logoY + 120 >= GOAL_ZONE.y + GOAL_ZONE.h) {
+        flingCount++;
+        const flingCounter = document.getElementById('fling-counter');
+        if (flingCounter) flingCounter.textContent = 'FLINGS: ' + flingCount;
+        // Show win message after 3 flings
+        if (flingCount >= 3) {
+            const winMsg = document.getElementById('win-message');
+            if (winMsg) {
+                document.getElementById('win-fling-count').textContent = flingCount + ' FLINGS';
+                winMsg.style.display = 'block';
+                setTimeout(() => { if (winMsg) winMsg.style.display = 'none'; }, 5000);
+            }
+        }
+        // Reset position
+        logoX = window.innerWidth - 160;
+        logoY = window.innerHeight - 160;
+        velX = 0;
+        velY = 0;
+        if (goalZone) goalZone.style.display = 'none';
+    }
+}
+
+// Fling game event handlers
+document.addEventListener('DOMContentLoaded', () => {
+    const logo = document.getElementById('draggable-logo');
+    if (logo) {
+        logo.addEventListener('mousedown', (e) => {
+            isDragging = true;
+            dragStartX = e.clientX;
+            dragStartY = e.clientY;
+            dragLogoStartX = logoX;
+            dragLogoStartY = logoY;
+            logo.style.cursor = 'grabbing';
+            e.preventDefault();
+        });
+        document.addEventListener('mousemove', (e) => {
+            if (!isDragging) return;
+            const dx = e.clientX - dragStartX;
+            const dy = e.clientY - dragStartY;
+            logoX = dragLogoStartX + dx;
+            logoY = dragLogoStartY + dy;
+            velX = dx * 0.3;
+            velY = dy * 0.3;
+            const el = document.getElementById('draggable-logo');
+            if (el) {
+                el.style.left = logoX + 'px';
+                el.style.top = logoY + 'px';
+            }
+        });
+        document.addEventListener('mouseup', () => {
+            if (!isDragging) return;
+            isDragging = false;
+            logo.style.cursor = 'grab';
+            checkWinCondition();
+            startFlingLoop();
+        });
+        // Touch support
+        logo.addEventListener('touchstart', (e) => {
+            const touch = e.touches[0];
+            isDragging = true;
+            dragStartX = touch.clientX;
+            dragStartY = touch.clientY;
+            dragLogoStartX = logoX;
+            dragLogoStartY = logoY;
+            e.preventDefault();
+        });
+        document.addEventListener('touchmove', (e) => {
+            if (!isDragging) return;
+            const touch = e.touches[0];
+            const dx = touch.clientX - dragStartX;
+            const dy = touch.clientY - dragStartY;
+            logoX = dragLogoStartX + dx;
+            logoY = dragLogoStartY + dy;
+            velX = dx * 0.3;
+            velY = dy * 0.3;
+            const el = document.getElementById('draggable-logo');
+            if (el) {
+                el.style.left = logoX + 'px';
+                el.style.top = logoY + 'px';
+            }
+        });
+        document.addEventListener('touchend', () => {
+            if (!isDragging) return;
+            isDragging = false;
+            checkWinCondition();
+            startFlingLoop();
+        });
+    }
+});
 let currentProjectId = localStorage.getItem('currentProjectId') || null;
 let currentChatId = localStorage.getItem('currentChatId') || null;
 let fileTreePage = 0;
@@ -393,14 +540,16 @@ function renderJobs(queueData, history) {
                         </button>
                     </div>
                 ` : '';
-        // Step results for agentic jobs
-        const stepsHtml = job.steps && job.steps.length > 0 ? `
+        // Step results for agentic jobs (check step_history array first, then legacy steps)
+        const stepsData = (job.step_history && job.step_history.length > 0) ? job.step_history :
+                          (job.steps && Array.isArray(job.steps)) ? job.steps : null;
+        const stepsHtml = stepsData ? `
                     <div style="margin-top:5px;">
                         <button class="job-steps-toggle" onclick="event.stopPropagation(); toggleJobSteps('${job.job_id}')">
-                            ▼ SHOW STEPS (${job.steps.length})
+                            ▼ SHOW STEPS (${stepsData.length})
                         </button>
                         <div id="job-steps-${job.job_id}" class="job-steps-list" style="display:none;">
-                            ${job.steps.map((s, i) => {
+                            ${stepsData.map((s, i) => {
             const ok = s.result && s.result.success !== false;
             const resultText = s.result ? (s.result.content || '').substring(0, 200) : 'no result';
             return `<div class="job-step-item">
@@ -1065,7 +1214,15 @@ function renderPagination(container, currentPage, total, limit, callback, isDeta
 
 function selectAll() {
     showTreeOverlay('file-tree');
-    document.querySelectorAll('#file-tree-container input[type="checkbox"]').forEach(cb => { cb.checked = true; });
+    const checkboxes = document.querySelectorAll('#file-tree-container input[type="checkbox"]');
+    const container = document.getElementById('selected-paths-container');
+    const currentPaths = new Set(Array.from(container.querySelectorAll('.path-item')).map(el => el.dataset.path));
+    checkboxes.forEach(cb => {
+        cb.checked = true;
+        if (!currentPaths.has(cb.dataset.path)) {
+            addPathToList(cb.dataset.path);
+        }
+    });
     updateSelectedPatterns();
     hideTreeOverlay('file-tree');
 }
@@ -1079,7 +1236,15 @@ function deselectAll() {
 
 function detailsSelectAll() {
     showTreeOverlay('details-file-tree');
-    document.querySelectorAll('#details-file-tree-container input[type="checkbox"]').forEach(cb => { cb.checked = true; });
+    const checkboxes = document.querySelectorAll('#details-file-tree-container input[type="checkbox"]');
+    const container = document.getElementById('details-selected-paths-container');
+    const currentPaths = new Set(Array.from(container.querySelectorAll('.path-item')).map(el => el.dataset.path));
+    checkboxes.forEach(cb => {
+        cb.checked = true;
+        if (!currentPaths.has(cb.dataset.path)) {
+            addPathToDetailsList(cb.dataset.path);
+        }
+    });
     detailsUpdateSelectedPatterns();
     hideTreeOverlay('details-file-tree');
 }
@@ -1089,6 +1254,23 @@ function detailsDeselectAll() {
     document.querySelectorAll('#details-file-tree-container input[type="checkbox"]').forEach(cb => { cb.checked = false; });
     detailsUpdateSelectedPatterns();
     hideTreeOverlay('details-file-tree');
+}
+
+function addPathToList(path) {
+    const container = document.getElementById('selected-paths-container');
+    if (!container) return;
+    const pathItem = document.createElement('div');
+    pathItem.className = 'path-item';
+    pathItem.dataset.path = path;
+    const pathText = document.createElement('span');
+    pathText.textContent = escapeHtml(path);
+    const removeBtn = document.createElement('button');
+    removeBtn.className = 'remove-btn';
+    removeBtn.textContent = 'X';
+    removeBtn.onclick = () => { pathItem.remove(); updateSelectedPatterns(); };
+    pathItem.appendChild(pathText);
+    pathItem.appendChild(removeBtn);
+    container.appendChild(pathItem);
 }
 
 function filterTree() {

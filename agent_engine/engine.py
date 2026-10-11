@@ -410,6 +410,8 @@ class AgentEngine:
 
                 # Call LLM
                 try:
+                    msg_summary = f"{sum(1 for m in self.messages if m['role']=='system')}S/{sum(1 for m in self.messages if m['role']=='user')}U/{sum(1 for m in self.messages if m['role']=='assistant')}A"
+                    self.logger.info(f"Calling LLM with {len(self.messages)} messages ({msg_summary})")
                     response = self.llm.call(self.messages, self.response_file)
                 except Exception as e:
                     self.logger.error(f"LLM call failed: {e}")
@@ -431,6 +433,7 @@ class AgentEngine:
                 if not tool_calls:
                     # No tool calls found - LLM may be reasoning or stuck
                     # Check if we're in a loop (same response pattern repeated)
+                    self.logger.warning(f"No tool calls in response (step {self.step_count}). Response preview: {response[:200]}")
                     last_user_msg = ""
                     for msg in reversed(self.messages):
                         if msg["role"] == "user":
@@ -516,10 +519,12 @@ class AgentEngine:
 
                     # Feed tool result back to conversation as a user message
                     # so the LLM properly sees and processes the result.
-                    self.messages.append({
+                    tool_result_msg = {
                         "role": "user",
                         "content": f"[TOOL RESULT for {tool_name}]\n{result_text}\n[END TOOL RESULT]\n\nNow continue with your next action."
-                    })
+                    }
+                    self.messages.append(tool_result_msg)
+                    self.logger.info(f"  Fed tool result for '{tool_name}' back to LLM (msg length: {len(tool_result_msg['content'])} chars)")
 
                 # Track recent tool calls for loop detection
                 for tool_name, _ in tool_calls:

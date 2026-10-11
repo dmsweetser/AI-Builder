@@ -101,7 +101,7 @@ def _load_settings_unlocked():
     loaded.setdefault('generate_but_do_not_apply', os.getenv("GENERATE_BUT_DO_NOT_APPLY", "false").lower() == "true")
     loaded.setdefault('use_git_diff', os.getenv("USE_GIT_DIFF", "false").lower() == "true")
     loaded.setdefault('generate_output_only', os.getenv("GENERATE_OUTPUT_ONLY", "false").lower() == "true")
-    loaded.setdefault('engine_mode', os.getenv("AIB_ENGINE_MODE", "agent"))
+    loaded.setdefault('engine_mode', 'agent')  # Default for ad-hoc agent runs; project mode is stored per-project
     loaded.setdefault('root_directory', os.getenv("ROOT_DIRECTORY", ""))
     loaded.setdefault('jd_cli_path', os.getenv("JD_CLI_PATH", ""))
     loaded.setdefault('java_home', os.getenv("JAVA_HOME", ""))
@@ -251,7 +251,10 @@ def worker():
 
         try:
             if project:
-                if ENGINE_MODE == "agent" or project.get("mode") == "agentic":
+                # Project-specific mode takes priority over global engine_mode setting
+                project_mode = project.get("mode")
+                use_agent = (project_mode == "agentic") if project_mode else (ENGINE_MODE == "agent")
+                if use_agent:
                     # Use the new multi-step agentic engine
                     result = run_with_agent_engine(project)
                     job_history[-1]["status"] = result.get("status", "completed")
@@ -1009,7 +1012,7 @@ def api_agent_run():
             job_history[-1]["steps"] = result.get("steps", 0)
             job_history[-1]["step_count"] = result.get("steps", 0)
             # Save step results to history for display
-            job_history[-1]["steps"] = engine.step_history  # Override step count with step list
+            job_history[-1]["step_history"] = engine.step_history  # Save step list for display
             if result.get("status") == "error":
                 job_history[-1]["error"] = result.get("error", "Unknown error")
             save_job_history()
