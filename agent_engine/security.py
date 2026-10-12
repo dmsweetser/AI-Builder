@@ -18,11 +18,24 @@ class EngineError(Exception):
     pass
 
 
+# Well-known directories where absolute paths are allowed (for task instructions)
+ALLOWED_ABSOLUTE_PREFIXES = [
+    "/tmp/", "/tmp",
+    "/var/tmp/", "/var/tmp",
+]
+
+
 def ensure_under_root(filepath: str, root_dir: str) -> str:
-    """Resolve and validate that a path stays within root_dir."""
+    """Resolve and validate that a path stays within root_dir,
+    unless it's an absolute path in a well-known writable directory."""
     root_dir = _normalize_path(root_dir)
     if os.path.isabs(filepath):
         full = _normalize_path(filepath)
+        # Allow absolute paths in well-known writable directories
+        for prefix in ALLOWED_ABSOLUTE_PREFIXES:
+            if full == prefix or full.startswith(prefix):
+                return full
+        raise SecurityError(f"Absolute path escapes project root and is not in a permitted directory: {filepath} -> {full}")
     else:
         full = _normalize_path(os.path.join(root_dir, filepath))
     if full == root_dir or full.startswith(root_dir + os.sep) or full.startswith(root_dir + '\\'):

@@ -267,8 +267,9 @@ You may interleave thinking/reasoning text between tool calls, but tool calls MU
 Each [TOOL:...] call will be executed and the result will be fed back to you.
 You may call multiple tools in one response by listing them on separate lines.
 
-IMPORTANT: You are bounded to the project root directory. All file paths are relative to it.
-You CANNOT read or write files outside the project root.
+IMPORTANT: You are bounded to the project root directory by default. All file paths are relative to it.
+You CANNOT read or write files outside the project root unless the task instructions explicitly specify an absolute path (e.g., /tmp/something.py).
+When the instructions specify an absolute path, use it directly.
 """
 
 

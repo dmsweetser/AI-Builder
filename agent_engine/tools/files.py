@@ -182,6 +182,9 @@ class WriteFileTool(BaseTool):
         path = ensure_under_root(params["path"], self.root_dir)
         content = params["content"]
 
+        # Interpret literal \n and \t sequences as actual newlines/tabs
+        content = content.replace("\\n", "\n").replace("\\t", "\t").replace("\\r", "\r")
+
         try:
             dir_path = os.path.dirname(path)
             if dir_path:
@@ -209,6 +212,10 @@ class EditFileTool(BaseTool):
         path = ensure_under_root(params["path"], self.root_dir)
         original = params["original_text"]
         new_text = params["new_text"]
+
+        # Interpret literal \n and \t sequences as actual newlines/tabs
+        original = original.replace("\\n", "\n").replace("\\t", "\t").replace("\\r", "\r")
+        new_text = new_text.replace("\\n", "\n").replace("\\t", "\t").replace("\\r", "\r")
 
         if not os.path.isfile(path):
             return ToolResult(False, "", error=f"File not found: {params['path']}")

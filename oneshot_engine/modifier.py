@@ -209,25 +209,54 @@ class FileModifier:
             )
 
             if match_original in match_content:
-                modified_content = content.replace(
-                    original_content.strip(), new_section_str
-                )
-                with open(filepath, 'w', encoding='utf-8') as f:
-                    f.write(modified_content)
-                logging.info(f"Replaced section in: {filepath}")
-                return True
-            else:
-                logging.warning(f"Original content not found in: {filepath}")
-                if (original_content.strip().lower().replace(" ", "").replace("\t", "")
-                        in content.lower().replace(" ", "").replace("\t", "")):
-                    modified_content = content.replace(
-                        original_content.strip(), new_section_str
-                    )
+                # Use the first actual occurrence of original_content.strip() in content
+                orig_stripped = original_content.strip()
+                idx = content.find(orig_stripped)
+                if idx != -1:
+                    modified_content = content[:idx] + new_section_str + content[idx + len(orig_stripped):]
                     with open(filepath, 'w', encoding='utf-8') as f:
                         f.write(modified_content)
-                    logging.info(f"Replaced section in: {filepath} (flexible match)")
+                    logging.info(f"Replaced section in: {filepath}")
                     return True
-                return False
+            # Fallback: flexible match on whitespace-normalized text
+            logging.warning(f"Original content not found in: {filepath}")
+            norm_orig = original_content.strip().lower().replace(" ", "").replace("\t", "")
+            norm_content = content.lower().replace(" ", "").replace("\t", "")
+            if norm_orig in norm_content:
+                # Find the position using the normalized content, then map back
+                norm_idx = norm_content.find(norm_orig)
+                # Reconstruct the original text from the content at that position
+                # by undoing the normalization
+                orig_start = 0
+                norm_pos = 0
+                content_pos = 0
+                while norm_pos < len(norm_orig) and content_pos < len(content):
+                    c = content[content_pos]
+                    nc = c.lower().replace(" ", "").replace("\t", "")
+                    if nc and nc == norm_orig[norm_pos]:
+                        if norm_pos == 0:
+                            orig_start = content_pos
+                        content_pos += 1
+                        norm_pos += 1
+                    else:
+                        content_pos += 1
+                # Now find where the original text ends in the actual content
+                # by scanning forward from orig_start, skipping whitespace
+                end_pos = orig_start
+                norm_remaining = norm_orig
+                while end_pos < len(content) and norm_remaining:
+                    c = content[end_pos]
+                    nc = c.lower().replace(" ", "").replace("\t", "")
+                    if nc and nc == norm_remaining[0]:
+                        norm_remaining = norm_remaining[1:]
+                    end_pos += 1
+                original_text = content[orig_start:end_pos]
+                modified_content = content[:orig_start] + new_section_str + content[end_pos:]
+                with open(filepath, 'w', encoding='utf-8') as f:
+                    f.write(modified_content)
+                logging.info(f"Replaced section in: {filepath} (flexible match)")
+                return True
+            return False
         except Exception as e:
             logging.error(f"Error replacing section: {e}")
             raise
