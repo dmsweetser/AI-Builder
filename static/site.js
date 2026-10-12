@@ -366,29 +366,14 @@ function loadSettingsUI() {
                 endpointType = 'azure';
             }
             set('set-endpoint-type', endpointType);
-
-            set('set-model-path', settings.model_path || '');
-            set('set-llama-binary', settings.llama_binary || '');
-            set('set-temperature', settings.temperature ?? '0.1');
-            set('set-top-p', settings.top_p ?? '0.9');
-            set('set-top-k', settings.top_k ?? '40');
-            set('set-min-p', settings.min_p ?? '0.0');
-            set('set-output-tokens', settings.output_tokens ?? '8192');
-            set('set-model-context', settings.model_context ?? '128000');
-            set('set-max-steps', settings.max_steps ?? '50');
             set('set-endpoint', settings.endpoint || '');
             set('set-model-name', settings.model_name || '');
             set('set-api-key', settings.api_key || '');
             set('set-verify-ssl', settings.verify_ssl ?? 'false');
-            set('set-generate-only', settings.generate_but_do_not_apply ?? 'false');
-            set('set-git-diff', settings.use_git_diff ?? 'false');
-            set('set-output-only', settings.generate_output_only ?? 'false');
-            set('set-engine-mode', settings.engine_mode || 'agent');
             set('set-root-dir', settings.root_directory || '');
             set('set-jd-cli', settings.jd_cli_path || '');
             set('set-java-home', settings.java_home || '');
             set('set-dotnet-cli', settings.dotnet_cli_path || '');
-            set('set-git-diff-cmd', settings.git_diff_command || 'git diff --name-only');
             set('set-custom-endpoint-url', settings.custom_endpoint_url || '');
             set('set-custom-api-key', settings.custom_api_key || '');
             set('set-custom-model-name', settings.custom_model_name || '');
@@ -404,15 +389,10 @@ function loadSettingsUI() {
 
 function onSettingsEndpointTypeChange() {
     const type = document.getElementById('set-endpoint-type').value;
-    document.getElementById('set-local-section').style.display = type === 'local' ? 'block' : 'none';
     document.getElementById('set-custom-endpoint-section').style.display = type === 'custom' ? 'block' : 'none';
     document.getElementById('set-azure-section').style.display = type === 'azure' ? 'block' : 'none';
 }
 
-function onSettingsLocalChange() {
-    const isLocal = document.getElementById('set-use-local')?.checked;
-    document.getElementById('set-local-section').style.display = isLocal ? 'block' : 'none';
-}
 
 function onSettingsCustomEndpointChange() {
     const isCustom = document.getElementById('set-use-custom-endpoint')?.checked;
@@ -423,30 +403,15 @@ function saveSettings() {
     const endpointType = document.getElementById('set-endpoint-type').value;
     const settings = {
         // Endpoint type determines which backend is active
-        use_local_model: endpointType === 'local',
         use_custom_endpoint: endpointType === 'custom',
-        model_path: document.getElementById('set-model-path').value,
-        llama_binary: document.getElementById('set-llama-binary').value,
-        temperature: document.getElementById('set-temperature').value,
-        top_p: document.getElementById('set-top-p').value,
-        top_k: document.getElementById('set-top-k').value,
-        min_p: document.getElementById('set-min-p').value,
-        output_tokens: document.getElementById('set-output-tokens').value,
-        model_context: document.getElementById('set-model-context').value,
-        max_steps: document.getElementById('set-max-steps').value,
         endpoint: document.getElementById('set-endpoint').value,
         model_name: document.getElementById('set-model-name').value,
         api_key: document.getElementById('set-api-key').value,
         verify_ssl: document.getElementById('set-verify-ssl').checked,
-        generate_but_do_not_apply: document.getElementById('set-generate-only').checked,
-        use_git_diff: document.getElementById('set-git-diff').checked,
-        generate_output_only: document.getElementById('set-output-only').checked,
-        engine_mode: document.getElementById('set-engine-mode').value,
         root_directory: document.getElementById('set-root-dir').value,
         jd_cli_path: document.getElementById('set-jd-cli').value,
         java_home: document.getElementById('set-java-home').value,
         dotnet_cli_path: document.getElementById('set-dotnet-cli').value,
-        git_diff_command: document.getElementById('set-git-diff-cmd').value,
         custom_endpoint_url: document.getElementById('set-custom-endpoint-url').value,
         custom_api_key: document.getElementById('set-custom-api-key').value,
         custom_model_name: document.getElementById('set-custom-model-name').value,

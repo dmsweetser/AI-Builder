@@ -731,13 +731,6 @@ class TestEngineConfigEdgeCases(unittest.TestCase):
             importlib.reload(config)
             self.assertEqual(config.EngineConfig.get_max_steps(), 200)
 
-    def test_get_temperature_from_env(self):
-        with patch.dict(os.environ, {'TEMPERATURE': '0.7'}):
-            import importlib
-            from agent_engine import config
-            importlib.reload(config)
-            self.assertEqual(config.EngineConfig.get_temperature(), 0.7)
-
     def test_get_root_directory_default(self):
         result = EngineConfig.get_root_directory()
         self.assertIsInstance(result, str)

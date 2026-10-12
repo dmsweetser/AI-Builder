@@ -33,34 +33,6 @@ class EngineConfig:
         return os.getenv("API_KEY")
 
     @staticmethod
-    def use_local_model() -> bool:
-        return os.getenv("USE_LOCAL_MODEL", "false").lower() == "true"
-
-    @staticmethod
-    def get_model_path() -> Optional[str]:
-        return os.getenv("MODEL_PATH")
-
-    @staticmethod
-    def get_llama_binary_path() -> Optional[str]:
-        return os.getenv("LLAMA_BINARY_PATH")
-
-    @staticmethod
-    def get_temperature() -> float:
-        return float(os.getenv("TEMPERATURE", "0.1"))
-
-    @staticmethod
-    def get_top_p() -> float:
-        return float(os.getenv("TOP_P", "0.9"))
-
-    @staticmethod
-    def get_top_k() -> int:
-        return int(os.getenv("TOP_K", "40"))
-
-    @staticmethod
-    def get_min_p() -> float:
-        return float(os.getenv("MIN_P", "0.0"))
-
-    @staticmethod
     def get_output_tokens() -> int:
         return int(os.getenv("OUTPUT_TOKENS", "8192"))
 
@@ -83,10 +55,6 @@ class EngineConfig:
     @staticmethod
     def verify_ssl() -> bool:
         return os.getenv("VERIFY_SSL", "false").lower() == "true"
-
-    @staticmethod
-    def generate_but_do_not_apply() -> bool:
-        return os.getenv("GENERATE_BUT_DO_NOT_APPLY", "false").lower() == "true"
 
     @staticmethod
     def get_pre_script() -> str:

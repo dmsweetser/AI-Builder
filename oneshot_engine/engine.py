@@ -41,7 +41,6 @@ class AIBuilder:
     def __init__(self, job_id: str, project_config: Optional[Dict[str, Any]] = None):
         self.project_config = project_config
         self.clean_mode = project_config is not None
-        self.use_git_diff = False
 
         if self.clean_mode:
             self.root_directory = project_config.get("rootDirectory", None)
@@ -56,7 +55,6 @@ class AIBuilder:
         else:
             self.root_directory = Config.get_root_directory()
             self.ai_builder_dir = Config.get_ai_builder_dir(self.root_directory)
-            self.use_git_diff = Config.get_use_git_diff()
 
         os.makedirs(self.ai_builder_dir, exist_ok=True)
         self.response_file = os.path.join(self.ai_builder_dir, "current_response.txt")
@@ -77,22 +75,6 @@ class AIBuilder:
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
-    def get_git_diff_files(self) -> List[str]:
-        try:
-            git_diff_command = Config.get_git_diff_command()
-            result = subprocess.run(
-                git_diff_command.split(),
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                check=True,
-                cwd=self.root_directory if self.root_directory else None,
-            )
-            return [line.strip() for line in result.stdout.splitlines() if line.strip()]
-        except Exception as e:
-            logging.error(f"Error getting git diff files: {e}")
-            return []
-
     def run_pre_post_scripts(self, script_name: str) -> None:
         try:
             if self.clean_mode:
@@ -241,105 +223,48 @@ Reply ONLY in the specified format with no commentary. THAT'S AN ORDER, SOLDIER!
 
     def run_model(self, prompt: str) -> str:
         response_content = ""
-        if Config.use_local_model():
-            model_path = Config.get_model_path()
-            if not model_path:
-                raise ValueError("MODEL_PATH environment variable not set for local model.")
-            llama_binary = Config.get_llama_binary_path()
-            if not os.path.isfile(llama_binary):
-                raise FileNotFoundError(f"llama binary not found at: {llama_binary}")
 
-            ticks = int(time.time() * 1000)
-            filename = os.path.join(self.ai_builder_dir, f"aibuilder_prompt_{ticks}.txt")
-
-            if not os.path.dirname(filename).startswith(self.ai_builder_dir):
-                raise ValueError("Prompt file path is outside allowed directory")
-
-            with open(filename, "w", encoding='utf-8') as f:
-                f.write(prompt)
-
-            cmd = [
-                llama_binary,
-                "-m", model_path,
-                "-f", filename,
-                "--temp", str(Config.get_temperature()),
-                "--top-p", str(Config.get_top_p()),
-                "--top-k", str(Config.get_top_k()),
-                "--min-p", str(Config.get_min_p()),
-                "-n", str(Config.get_output_tokens()),
-                "--ctx-size", str(Config.get_model_context()),
-                "--jinja",
-                "--no-display-prompt",
-                "-st",
-            ]
-
-            process = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                bufsize=1,
+        endpoint = Config.get_endpoint()
+        model_name = Config.get_model_name()
+        api_key = Config.get_api_key()
+        verify_ssl = Config.verify_ssl()
+        if not all([endpoint, model_name, api_key]):
+            logging.error(
+                "Missing one or more required environment variables: "
+                "ENDPOINT, MODEL_NAME, API_KEY"
             )
+            raise ValueError("Missing required environment variables.")
 
-            current_iteration = 0
-            while True:
-                token = process.stdout.read(1)
-                if current_iteration % 100 == 0 or not token:
-                    with open(self.response_file, 'w', encoding='utf-8') as response_log:
-                        response_log.write(response_content)
-                if not token:
-                    if os.path.exists(filename):
-                        try:
-                            os.remove(filename)
-                        except Exception as e:
-                            logging.error(f"Failed to remove temporary prompt file: {e}")
+        client = ChatCompletionsClient(
+            endpoint=endpoint,
+            credential=AzureKeyCredential(api_key),
+            api_version="2024-05-01-preview",
+            connection_verify=verify_ssl,
+        )
+        response = client.complete(
+            stream=True,
+            messages=[
+                SystemMessage(content="You are a helpful assistant."),
+                UserMessage(content=prompt),
+            ],
+            max_tokens=Config.get_output_tokens(),
+            model=model_name,
+        )
+        current_iteration = 0
+        try:
+            for update in response:
+                if update.choices and isinstance(update.choices, list) and len(update.choices) > 0:
+                    content = update.choices[0].get("delta", {}).get("content", "")
+                    if content is not None:
+                        response_content += content
+                    if current_iteration % 100 == 0:
+                        with open(self.response_file, 'w', encoding='utf-8') as response_log:
+                            response_log.write(response_content)
+                    current_iteration += 1
+                else:
                     break
-                response_content += token
-                current_iteration += 1
-
-            process.wait()
-        else:
-            endpoint = Config.get_endpoint()
-            model_name = Config.get_model_name()
-            api_key = Config.get_api_key()
-            verify_ssl = Config.verify_ssl()
-            if not all([endpoint, model_name, api_key]):
-                logging.error(
-                    "Missing one or more required environment variables: "
-                    "ENDPOINT, MODEL_NAME, API_KEY"
-                )
-                raise ValueError("Missing required environment variables.")
-
-            client = ChatCompletionsClient(
-                endpoint=endpoint,
-                credential=AzureKeyCredential(api_key),
-                api_version="2024-05-01-preview",
-                connection_verify=verify_ssl,
-            )
-            response = client.complete(
-                stream=True,
-                messages=[
-                    SystemMessage(content="You are a helpful assistant."),
-                    UserMessage(content=prompt),
-                ],
-                max_tokens=Config.get_output_tokens(),
-                model=model_name,
-            )
-            current_iteration = 0
-            try:
-                for update in response:
-                    if update.choices and isinstance(update.choices, list) and len(update.choices) > 0:
-                        content = update.choices[0].get("delta", {}).get("content", "")
-                        if content is not None:
-                            response_content += content
-                        if current_iteration % 100 == 0:
-                            with open(self.response_file, 'w', encoding='utf-8') as response_log:
-                                response_log.write(response_content)
-                        current_iteration += 1
-                    else:
-                        break
-            finally:
-                response.close()
+        finally:
+            response.close()    
 
         logging.info("Successfully obtained response from client.")
         return response_content
@@ -392,7 +317,7 @@ Reply ONLY in the specified format with no commentary. THAT'S AN ORDER, SOLDIER!
                 logging.info("Successfully read instructions.txt")
 
             self.utility = CodeUtility(
-                self.root_directory, self.ai_builder_dir, self.use_git_diff
+                self.root_directory, self.ai_builder_dir
             )
             actions_file_path = os.path.join(self.ai_builder_dir, "actions.txt")
 
@@ -410,25 +335,9 @@ Reply ONLY in the specified format with no commentary. THAT'S AN ORDER, SOLDIER!
                         if os.path.exists(self.utility.output_file):
                             os.remove(self.utility.output_file)
 
-                        if self.use_git_diff:
-                            logging.info(
-                                "use_git_diff enabled — collecting files from git diff "
-                                "instead of walking directory."
-                            )
-                            diff_files = self.get_git_diff_files()
-                            if diff_files:
-                                self.utility.collect_files(diff_files)
-                            else:
-                                logging.info(
-                                    "No files in git diff, falling back to directory walk."
-                                )
-                                self.utility.process_directory(
-                                    self.root_directory, exclude_patterns, patterns, mode
-                                )
-                        else:
-                            self.utility.process_directory(
-                                "", exclude_patterns, diff_files, mode
-                            )
+                        self.utility.process_directory(
+                            "", exclude_patterns, diff_files, mode
+                        )
 
                         if not os.path.exists(self.utility.output_file):
                             logging.warning("output.txt was not created by process_directory.")
@@ -449,16 +358,15 @@ Reply ONLY in the specified format with no commentary. THAT'S AN ORDER, SOLDIER!
                             f"{modifications_format_path}"
                         )
 
-                    if not Config.generate_but_do_not_apply():
-                        changes = FileParser.parse_custom_format(response_content)
-                        incomplete_actions = FileModifier.apply_modifications(
-                            changes,
-                            self.root_directory,
-                            dry_run=False,
-                            output_dir=self.ai_builder_dir,
-                            scope_paths=diff_files,
-                        )
-                        ActionManager.save_actions(incomplete_actions, actions_file_path)
+                    changes = FileParser.parse_custom_format(response_content)
+                    incomplete_actions = FileModifier.apply_modifications(
+                        changes,
+                        self.root_directory,
+                        dry_run=False,
+                        output_dir=self.ai_builder_dir,
+                        scope_paths=diff_files,
+                    )
+                    ActionManager.save_actions(incomplete_actions, actions_file_path)
 
                 except Exception as e:
                     logging.error(f"An error occurred: {str(e)}", exc_info=True)

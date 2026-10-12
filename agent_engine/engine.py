@@ -22,84 +22,10 @@ class LLMClient:
         self._prompt_file_counter = 0
 
     def call(self, messages: List[Dict[str, str]], response_file: str = None) -> str:
-        if EngineConfig.use_local_model():
-            return self._call_local(messages, response_file)
-        elif EngineConfig.use_custom_endpoint():
+        if EngineConfig.use_custom_endpoint():
             return self._call_custom_endpoint(messages, response_file)
         else:
             return self._call_azure(messages)
-
-    def _call_local(self, messages: List[Dict[str, str]], response_file: str) -> str:
-        model_path = EngineConfig.get_model_path()
-        if not model_path:
-            raise EngineError("MODEL_PATH not set for local model")
-
-        llama_binary = EngineConfig.get_llama_binary_path()
-        if not llama_binary or not os.path.isfile(llama_binary):
-            raise EngineError(f"llama binary not found at: {llama_binary}")
-
-        # Write prompt to temp file
-        self._prompt_file_counter += 1
-        filename = f"aibuilder_prompt_{self._prompt_file_counter}.txt"
-        if response_file:
-            prompt_dir = os.path.dirname(response_file)
-        else:
-            prompt_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aib_instance", "output")
-        os.makedirs(prompt_dir, exist_ok=True)
-        full_path = os.path.join(prompt_dir, filename)
-
-        # Build llama.cpp prompt from messages
-        prompt_text = ""
-        for msg in messages:
-            role = msg["role"]
-            content = msg["content"]
-            if role == "system":
-                prompt_text += f"<|system|>\n{content}\n<|end|>\n"
-            elif role == "user":
-                prompt_text += f"<|user|>\n{content}\n<|end|>\n"
-            elif role == "assistant":
-                prompt_text += f"<|assistant|>\n{content}\n<|end|>\n"
-
-        with open(full_path, "w", encoding='utf-8') as f:
-            f.write(prompt_text)
-
-        cmd = [
-            llama_binary,
-            "-m", model_path,
-            "-f", full_path,
-            "--temp", str(EngineConfig.get_temperature()),
-            "--top-p", str(EngineConfig.get_top_p()),
-            "--top-k", str(EngineConfig.get_top_k()),
-            "--min-p", str(EngineConfig.get_min_p()),
-            "-n", str(EngineConfig.get_output_tokens()),
-            "--ctx-size", str(EngineConfig.get_model_context()),
-            "--jinja",
-            "--no-display-prompt",
-            "-st",
-        ]
-
-        response_content = ""
-        try:
-            process = subprocess.Popen(
-                cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                text=True, bufsize=1
-            )
-            while True:
-                token = process.stdout.read(1)
-                if not token:
-                    break
-                response_content += token
-                if response_file and len(response_content) % 100 == 0:
-                    with open(response_file, 'w', encoding='utf-8') as rf:
-                        rf.write(response_content)
-            process.wait()
-        finally:
-            try:
-                os.remove(full_path)
-            except OSError:
-                pass
-
-        return response_content
 
     def _call_azure(self, messages: List[Dict[str, str]]) -> str:
         from azure.ai.inference import ChatCompletionsClient
@@ -172,8 +98,6 @@ class LLMClient:
         payload = {
             "model": model_name,
             "messages": openai_messages,
-            "temperature": EngineConfig.get_temperature(),
-            "top_p": EngineConfig.get_top_p(),
             "max_tokens": EngineConfig.get_custom_max_tokens(),
             "stream": True,
         }

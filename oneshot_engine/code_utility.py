@@ -8,11 +8,10 @@ from typing import List
 class CodeUtility:
     """Collects source code from a project directory for LLM context."""
 
-    def __init__(self, base_dir: str, ai_builder_dir: str, use_git_diff: bool):
+    def __init__(self, base_dir: str, ai_builder_dir: str):
         self.base_dir = base_dir
         self.output_file = os.path.join(ai_builder_dir, "output.txt")
         self.log_file = os.path.join(ai_builder_dir, "utility.log")
-        self.use_git_diff = use_git_diff
         self.processed_files = set()
 
     def parse_gitignore(self, directory: str) -> List[str]:

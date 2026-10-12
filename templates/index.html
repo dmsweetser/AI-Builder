@@ -342,51 +342,9 @@
                         <div class="setting-row">
                             <label>ENDPOINT TYPE:</label>
                             <select id="set-endpoint-type" onchange="onSettingsEndpointTypeChange()">
-                                <option value="local">LOCAL MODEL</option>
                                 <option value="custom">CUSTOM ENDPOINT (OpenAI-Compatible)</option>
                                 <option value="azure">AZURE AI / REMOTE</option>
                             </select>
-                        </div>
-                    </div>
-
-                    <div class="settings-section" id="set-local-section">
-                        <h3>LOCAL MODEL</h3>
-                        <div class="setting-row">
-                            <label>MODEL PATH:</label>
-                            <input type="text" id="set-model-path" placeholder="Path to .gguf model file">
-                        </div>
-                        <div class="setting-row">
-                            <label>LLAMA BINARY:</label>
-                            <input type="text" id="set-llama-binary"
-                                placeholder="Path to llama-server or llama-cli binary">
-                        </div>
-                        <div class="setting-row">
-                            <label>TEMPERATURE:</label>
-                            <input type="number" id="set-temperature" step="0.1" min="0" max="2" value="0.1">
-                        </div>
-                        <div class="setting-row">
-                            <label>TOP_P:</label>
-                            <input type="number" id="set-top-p" step="0.01" min="0" max="1" value="0.9">
-                        </div>
-                        <div class="setting-row">
-                            <label>TOP_K:</label>
-                            <input type="number" id="set-top-k" min="0" value="40">
-                        </div>
-                        <div class="setting-row">
-                            <label>MIN_P:</label>
-                            <input type="number" id="set-min-p" step="0.01" min="0" max="1" value="0.0">
-                        </div>
-                        <div class="setting-row">
-                            <label>OUTPUT TOKENS:</label>
-                            <input type="number" id="set-output-tokens" min="1" value="8192">
-                        </div>
-                        <div class="setting-row">
-                            <label>CONTEXT SIZE:</label>
-                            <input type="number" id="set-model-context" min="1" value="128000">
-                        </div>
-                        <div class="setting-row">
-                            <label>MAX AGENT STEPS:</label>
-                            <input type="number" id="set-max-steps" min="1" value="50">
                         </div>
                     </div>
 
@@ -442,29 +400,6 @@
                     </div>
 
                     <div class="settings-section">
-                        <h3>BEHAVIOR</h3>
-                        <div class="setting-row">
-                            <label>GENERATE BUT NOT APPLY:</label>
-                            <input type="checkbox" id="set-generate-only">
-                        </div>
-                        <div class="setting-row">
-                            <label>USE GIT DIFF:</label>
-                            <input type="checkbox" id="set-git-diff">
-                        </div>
-                        <div class="setting-row">
-                            <label>GENERATE OUTPUT ONLY:</label>
-                            <input type="checkbox" id="set-output-only">
-                        </div>
-                        <div class="setting-row">
-                            <label>ENGINE MODE:</label>
-                            <select id="set-engine-mode">
-                                <option value="agent">AGENT (Multi-Step)</option>
-                                <option value="legacy">LEGACY (Single-Pass)</option>
-                            </select>
-                        </div>
-                    </div>
-
-                    <div class="settings-section">
                         <h3>PATHS</h3>
                         <div class="setting-row">
                             <label>ROOT DIRECTORY:</label>
@@ -481,10 +416,6 @@
                         <div class="setting-row">
                             <label>DOTNET CLI PATH:</label>
                             <input type="text" id="set-dotnet-cli" placeholder="Path to dotnet CLI">
-                        </div>
-                        <div class="setting-row">
-                            <label>GIT DIFF COMMAND:</label>
-                            <input type="text" id="set-git-diff-cmd" value="git diff --name-only">
                         </div>
                     </div>
 

@@ -77,9 +77,6 @@ def _load_settings_unlocked():
             loaded = {}
 
     # Fill defaults from env vars for anything not in settings file
-    loaded.setdefault('use_local_model', os.getenv("USE_LOCAL_MODEL", "false").lower() == "true")
-    loaded.setdefault('model_path', os.getenv("MODEL_PATH", ""))
-    loaded.setdefault('llama_binary', os.getenv("LLAMA_BINARY_PATH", ""))
     loaded.setdefault('use_custom_endpoint', os.getenv("USE_CUSTOM_ENDPOINT", "false").lower() == "true")
     loaded.setdefault('custom_endpoint_url', os.getenv("CUSTOM_ENDPOINT_URL", ""))
     loaded.setdefault('custom_api_key', os.getenv("CUSTOM_API_KEY", ""))
@@ -87,10 +84,6 @@ def _load_settings_unlocked():
     loaded.setdefault('custom_api_version', os.getenv("CUSTOM_API_VERSION", "v1"))
     loaded.setdefault('custom_verify_ssl', os.getenv("CUSTOM_VERIFY_SSL", "false").lower() == "true")
     loaded.setdefault('custom_max_tokens', int(os.getenv("CUSTOM_MAX_TOKENS", "8192")))
-    loaded.setdefault('temperature', float(os.getenv("TEMPERATURE", "0.1")))
-    loaded.setdefault('top_p', float(os.getenv("TOP_P", "0.9")))
-    loaded.setdefault('top_k', int(os.getenv("TOP_K", "40")))
-    loaded.setdefault('min_p', float(os.getenv("MIN_P", "0.0")))
     loaded.setdefault('output_tokens', int(os.getenv("OUTPUT_TOKENS", "8192")))
     loaded.setdefault('model_context', int(os.getenv("MODEL_CONTEXT", "128000")))
     loaded.setdefault('max_steps', int(os.getenv("AIB_MAX_STEPS", "50")))
@@ -98,15 +91,11 @@ def _load_settings_unlocked():
     loaded.setdefault('model_name', os.getenv("MODEL_NAME", ""))
     loaded.setdefault('api_key', os.getenv("API_KEY", ""))
     loaded.setdefault('verify_ssl', os.getenv("VERIFY_SSL", "false").lower() == "true")
-    loaded.setdefault('generate_but_do_not_apply', os.getenv("GENERATE_BUT_DO_NOT_APPLY", "false").lower() == "true")
-    loaded.setdefault('use_git_diff', os.getenv("USE_GIT_DIFF", "false").lower() == "true")
-    loaded.setdefault('generate_output_only', os.getenv("GENERATE_OUTPUT_ONLY", "false").lower() == "true")
     loaded.setdefault('engine_mode', 'agent')  # Default for ad-hoc agent runs; project mode is stored per-project
     loaded.setdefault('root_directory', os.getenv("ROOT_DIRECTORY", ""))
     loaded.setdefault('jd_cli_path', os.getenv("JD_CLI_PATH", ""))
     loaded.setdefault('java_home', os.getenv("JAVA_HOME", ""))
     loaded.setdefault('dotnet_cli_path', os.getenv("DOTNET_CLI_PATH", ""))
-    loaded.setdefault('git_diff_command', os.getenv("GIT_DIFF_COMMAND", "git diff --name-only"))
 
     return loaded
 
@@ -138,15 +127,6 @@ def save_settings(settings):
 def apply_settings_to_env():
     """Apply settings to environment variables for engine config."""
     s = load_settings()
-    os.environ["USE_LOCAL_MODEL"] = str(s.get('use_local_model', False)).lower()
-    if s.get('model_path'):
-        os.environ["MODEL_PATH"] = s['model_path']
-    if s.get('llama_binary'):
-        os.environ["LLAMA_BINARY_PATH"] = s['llama_binary']
-    os.environ["TEMPERATURE"] = str(s.get('temperature', 0.1))
-    os.environ["TOP_P"] = str(s.get('top_p', 0.9))
-    os.environ["TOP_K"] = str(s.get('top_k', 40))
-    os.environ["MIN_P"] = str(s.get('min_p', 0.0))
     os.environ["OUTPUT_TOKENS"] = str(s.get('output_tokens', 8192))
     os.environ["MODEL_CONTEXT"] = str(s.get('model_context', 128000))
     os.environ["AIB_MAX_STEPS"] = str(s.get('max_steps', 50))
@@ -157,9 +137,6 @@ def apply_settings_to_env():
     if s.get('api_key'):
         os.environ["API_KEY"] = s['api_key']
     os.environ["VERIFY_SSL"] = str(s.get('verify_ssl', False)).lower()
-    os.environ["GENERATE_BUT_DO_NOT_APPLY"] = str(s.get('generate_but_do_not_apply', False)).lower()
-    os.environ["USE_GIT_DIFF"] = str(s.get('use_git_diff', False)).lower()
-    os.environ["GENERATE_OUTPUT_ONLY"] = str(s.get('generate_output_only', False)).lower()
     os.environ["AIB_ENGINE_MODE"] = s.get('engine_mode', 'agent')
     if s.get('root_directory'):
         os.environ["ROOT_DIRECTORY"] = s['root_directory']
@@ -169,8 +146,6 @@ def apply_settings_to_env():
         os.environ["JAVA_HOME"] = s['java_home']
     if s.get('dotnet_cli_path'):
         os.environ["DOTNET_CLI_PATH"] = s['dotnet_cli_path']
-    if s.get('git_diff_command'):
-        os.environ["GIT_DIFF_COMMAND"] = s['git_diff_command']
     # Custom endpoint settings
     os.environ["USE_CUSTOM_ENDPOINT"] = str(s.get('use_custom_endpoint', False)).lower()
     if s.get('custom_endpoint_url'):
@@ -713,47 +688,7 @@ def api_send_message(chat_id):
         def generate():
             response_content = ""
             try:
-                if Config.use_local_model():
-                    model_path = Config.get_model_path()
-                    if not model_path:
-                        raise ValueError("MODEL_PATH environment variable not set for local model.")
-                    llama_binary = Config.get_llama_binary_path()
-                    if not os.path.isfile(llama_binary):
-                        raise FileNotFoundError(f"llama binary not found at: {llama_binary}")
-                    ticks = int(time.time() * 1000)
-                    filename = os.path.join(CHATS_DIR, f"chat_prompt_{ticks}.txt")
-                    with open(filename, "w", encoding='utf-8') as f:
-                        f.write(prompt)
-                    cmd = [
-                        llama_binary, "-m", model_path, "-f", filename,
-                        "--temp", str(Config.get_temperature()),
-                        "--top-p", str(Config.get_top_p()),
-                        "--top-k", str(Config.get_top_k()),
-                        "--min-p", str(Config.get_min_p()),
-                        "-n", str(Config.get_output_tokens()),
-                        "--ctx-size", str(Config.get_model_context()),
-                        "--jinja", "--no-display-prompt", "-st"
-                    ]
-                    process = subprocess.Popen(
-                        cmd,
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE,
-                        text=True,
-                        bufsize=1,
-                        universal_newlines=True
-                    )
-                    for line in process.stdout:
-                        response_content += line
-                        yield line
-                        if len(response_content) % 20 == 0:
-                            chat_data["messages"] = [m for m in chat_data["messages"] if m["role"] != "assistant"]
-                            chat_data["messages"].append({"role": "assistant", "content": response_content})
-                            with open(chat_path, "w", encoding="utf-8") as f:
-                                json.dump(chat_data, f, indent=2)
-                    process.wait()
-                    if os.path.exists(filename):
-                        os.remove(filename)
-                elif Config.use_custom_endpoint():
+                if Config.use_custom_endpoint():
                     import urllib.request
                     import ssl
                     endpoint_url = Config.get_custom_endpoint_url()
@@ -767,8 +702,6 @@ def api_send_message(chat_id):
                     payload = {
                         "model": model_name,
                         "messages": openai_messages,
-                        "temperature": Config.get_temperature(),
-                        "top_p": Config.get_top_p(),
                         "max_tokens": Config.get_output_tokens(),
                         "stream": True,
                     }

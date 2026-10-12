@@ -33,42 +33,6 @@ fi
 pip install --upgrade pip
 pip install -r requirements.txt
 
-# Generate a basic .env template (user must fill in their own values)
-cat > .env << 'EOF'
-# AI-Builder Configuration
-# Set USE_LOCAL_MODEL=true for local GGUF models via llama.cpp
-# Set USE_CUSTOM_ENDPOINT=true for OpenAI-compatible APIs (Ollama, LM Studio, vLLM, etc.)
-# Set Azure AI credentials (ENDPOINT, MODEL_NAME, API_KEY) for cloud inference
-
-USE_LOCAL_MODEL=false
-# MODEL_PATH=path/to/your/model.gguf
-# LLAMA_BINARY_PATH=path/to/llama-cli
-
-USE_CUSTOM_ENDPOINT=false
-# CUSTOM_ENDPOINT_URL=https://localhost:11434/v1/chat/completions
-# CUSTOM_API_KEY=your-api-key
-# CUSTOM_MODEL_NAME=llama3
-
-# Azure AI Settings
-# ENDPOINT=https://your-endpoint.ai.azure.com
-# MODEL_NAME=your-model-name
-# API_KEY=your-api-key
-
-# Common settings
-TEMPERATURE=0.1
-TOP_P=0.9
-TOP_K=40
-MIN_P=0.0
-OUTPUT_TOKENS=8192
-MODEL_CONTEXT=128000
-AIB_MAX_STEPS=50
-GENERATE_BUT_DO_NOT_APPLY=false
-GENERATE_OUTPUT_ONLY=false
-USE_GIT_DIFF=false
-AIB_ENGINE_MODE=agent
-EOF
-
-echo "Created .env template - please edit with your settings"
 echo "Installation complete"
 
 # Make run script executable
