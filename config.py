@@ -1,86 +1,11 @@
-import os
-from typing import Optional
+"""Centralized configuration class for environment variables and defaults.
 
-class Config:
-    """Centralized configuration class for environment variables and defaults."""
+This module is a thin re-export of EngineConfig from agent_engine.config
+for backward compatibility. New code should import directly from
+agent_engine.config.
+"""
 
-    @staticmethod
-    def get_root_directory() -> str:
-        """Returns the root directory, defaulting to the current working directory."""
-        return os.getenv("ROOT_DIRECTORY", os.getcwd())
+from agent_engine.config import EngineConfig as Config  # noqa: F401
 
-    @staticmethod
-    def get_ai_builder_dir(root_dir: str) -> str:
-        """Returns the path to the ai_builder directory."""
-        return os.path.join(root_dir, "aib_instance", "output")
-    
-   
-    @staticmethod
-    def get_output_tokens() -> int:
-        """Returns the maximum number of output tokens."""
-        return int(os.getenv("OUTPUT_TOKENS", 0))
-    
-    @staticmethod
-    def get_endpoint() -> Optional[str]:
-        """Returns the Azure endpoint for the remote model."""
-        return os.getenv("ENDPOINT")
-
-    @staticmethod
-    def get_model_name() -> Optional[str]:
-        """Returns the model name for the remote model."""
-        return os.getenv("MODEL_NAME")
-
-    @staticmethod
-    def get_api_key() -> Optional[str]:
-        """Returns the API key for the remote model."""
-        return os.getenv("API_KEY")
-
-    @staticmethod
-    def get_log_file_path(root_dir: str) -> str:
-        """Returns the path to the log file."""
-        return os.path.join(root_dir, "aib_instance", "output", "utility.log")
-
-    @staticmethod
-    def get_output_file_path(root_dir: str) -> str:
-        """Returns the path to the output file."""
-        return os.path.join(root_dir, "aib_instance", "output", "output.txt")
-    
-    @staticmethod
-    def verify_ssl() -> bool:
-        """Returns whether to verify SSL for Azure AI Foundry or not"""
-        return os.getenv("VERIFY_SSL", "false").lower() == "true"
-    
-    @staticmethod
-    def use_custom_endpoint() -> bool:
-        """Returns whether to use a custom OpenAI-compatible endpoint."""
-        return os.getenv("USE_CUSTOM_ENDPOINT", "false").lower() == "true"
-
-    @staticmethod
-    def get_custom_endpoint_url() -> Optional[str]:
-        """Returns the custom endpoint URL."""
-        return os.getenv("CUSTOM_ENDPOINT_URL")
-
-    @staticmethod
-    def get_custom_api_key() -> Optional[str]:
-        """Returns the API key for the custom endpoint."""
-        return os.getenv("CUSTOM_API_KEY")
-
-    @staticmethod
-    def get_custom_model_name() -> Optional[str]:
-        """Returns the model name for the custom endpoint."""
-        return os.getenv("CUSTOM_MODEL_NAME")
-
-    @staticmethod
-    def get_custom_api_version() -> str:
-        """Returns the API version for the custom endpoint (default: v1)."""
-        return os.getenv("CUSTOM_API_VERSION", "v1")
-
-    @staticmethod
-    def get_custom_verify_ssl() -> bool:
-        """Returns whether to verify SSL for the custom endpoint."""
-        return os.getenv("CUSTOM_VERIFY_SSL", "false").lower() == "true"
-
-    @staticmethod
-    def get_custom_max_tokens() -> int:
-        """Returns max tokens for the custom endpoint."""
-        return int(os.getenv("CUSTOM_MAX_TOKENS", "8192"))
+# Re-export all public symbols for backward compatibility
+__all__ = ["Config"]

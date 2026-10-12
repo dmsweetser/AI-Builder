@@ -64,7 +64,7 @@ if _os.path.isfile(_config_xml):
     aib_data.append((_config_xml, "."))
 
 a = Analysis(
-    ['ui.py'],
+    ['app.py'],
     pathex=[],
     binaries=[],
     datas=aib_data,

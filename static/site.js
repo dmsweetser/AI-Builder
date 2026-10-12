@@ -380,6 +380,12 @@ function loadSettingsUI() {
             set('set-custom-api-version', settings.custom_api_version || 'v1');
             set('set-custom-verify-ssl', settings.custom_verify_ssl ?? 'false');
             set('set-custom-max-tokens', settings.custom_max_tokens ?? '8192');
+            set('set-output-tokens', settings.output_tokens ?? '8192');
+            set('set-model-context', settings.model_context ?? '128000');
+            set('set-max-steps', settings.max_steps ?? '50');
+            set('set-top-k', settings.top_k ?? '50');
+            set('set-min-p', settings.min_p ?? '0.0');
+            set('set-engine-mode', settings.engine_mode || 'agent');
 
             // Show/hide sections based on selected endpoint type
             onSettingsEndpointTypeChange();
@@ -408,6 +414,7 @@ function saveSettings() {
         model_name: document.getElementById('set-model-name').value,
         api_key: document.getElementById('set-api-key').value,
         verify_ssl: document.getElementById('set-verify-ssl').checked,
+        engine_mode: document.getElementById('set-engine-mode').value,
         root_directory: document.getElementById('set-root-dir').value,
         jd_cli_path: document.getElementById('set-jd-cli').value,
         java_home: document.getElementById('set-java-home').value,
@@ -418,6 +425,11 @@ function saveSettings() {
         custom_api_version: document.getElementById('set-custom-api-version').value,
         custom_verify_ssl: document.getElementById('set-custom-verify-ssl').checked,
         custom_max_tokens: document.getElementById('set-custom-max-tokens').value,
+        output_tokens: document.getElementById('set-output-tokens').value,
+        model_context: document.getElementById('set-model-context').value,
+        max_steps: document.getElementById('set-max-steps').value,
+        top_k: document.getElementById('set-top-k').value,
+        min_p: document.getElementById('set-min-p').value,
     };
     fetch('/api/settings', {
         method: 'POST',

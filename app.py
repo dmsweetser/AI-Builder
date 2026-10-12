@@ -96,6 +96,8 @@ def _load_settings_unlocked():
     loaded.setdefault('jd_cli_path', os.getenv("JD_CLI_PATH", ""))
     loaded.setdefault('java_home', os.getenv("JAVA_HOME", ""))
     loaded.setdefault('dotnet_cli_path', os.getenv("DOTNET_CLI_PATH", ""))
+    loaded.setdefault('top_k', int(os.getenv("TOP_K", "50")))
+    loaded.setdefault('min_p', float(os.getenv("MIN_P", "0.0")))
 
     return loaded
 
@@ -157,6 +159,8 @@ def apply_settings_to_env():
     os.environ["CUSTOM_API_VERSION"] = s.get('custom_api_version', 'v1')
     os.environ["CUSTOM_VERIFY_SSL"] = str(s.get('custom_verify_ssl', False)).lower()
     os.environ["CUSTOM_MAX_TOKENS"] = str(s.get('custom_max_tokens', 8192))
+    os.environ["TOP_K"] = str(s.get('top_k', 50))
+    os.environ["MIN_P"] = str(s.get('min_p', 0.0))
 
 
 # --- Initialization ---

@@ -61,7 +61,7 @@ pyinstaller \
     --add-data "base_config.xml:." \
     --add-data "oneshot_engine:oneshot_engine" \
     --add-data "agent_engine:agent_engine" \
-    ui.py
+    "$(dirname "$0")/../app.py"
 
 # Check build success
 if [ -f "dist/ai_builder.bin" ]; then

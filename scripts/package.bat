@@ -59,7 +59,7 @@ pyinstaller ^
     --add-data "base_config.xml;." ^
     --add-data "oneshot_engine;oneshot_engine" ^
     --add-data "agent_engine;agent_engine" ^
-    ui.py
+    "%~dp0..\app.py"
 
 REM Check build success
 if exist "dist\ai_builder.exe" (

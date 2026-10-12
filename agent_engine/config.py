@@ -142,3 +142,13 @@ class EngineConfig:
     def get_custom_max_tokens() -> int:
         """Returns max tokens for the custom endpoint."""
         return int(os.getenv("CUSTOM_MAX_TOKENS", "8192"))
+
+    @staticmethod
+    def get_top_k() -> int:
+        """Returns top_k sampling parameter."""
+        return int(os.getenv("TOP_K", "50"))
+
+    @staticmethod
+    def get_min_p() -> float:
+        """Returns min_p sampling parameter."""
+        return float(os.getenv("MIN_P", "0.0"))
