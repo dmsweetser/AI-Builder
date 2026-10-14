@@ -338,32 +338,19 @@
                         NEXT RUN.</p>
 
                     <div class="settings-section">
-                        <h3>MODEL BACKEND</h3>
-                        <div class="setting-row">
-                            <label>ENDPOINT TYPE:</label>
-                            <select id="set-endpoint-type" onchange="onSettingsEndpointTypeChange()">
-                                <option value="custom">CUSTOM ENDPOINT (OpenAI-Compatible)</option>
-                                <option value="azure">AZURE AI / REMOTE</option>
-                            </select>
-                        </div>
-                    </div>
-
-                    <div class="settings-section" id="set-custom-endpoint-section">
-                        <h3>CUSTOM ENDPOINT (OpenAI-Compatible)</h3>
-                        <p class="note">Use any OpenAI-compatible API endpoint (e.g., Ollama, LM Studio, vLLM).</p>
+                        <h3>MODEL BACKEND (OpenAI-Compatible)</h3>
+                        <p class="note">Configure your preferred OpenAI-compatible API endpoint (e.g., Ollama, LM Studio, vLLM, OpenAI).</p>
                         <div class="setting-row">
                             <label>ENDPOINT URL:</label>
-                            <input type="text" id="set-custom-endpoint-url"
-                                placeholder="https://localhost:11434/v1/chat/completions">
+                            <input type="text" id="set-custom-endpoint-url" placeholder="https://localhost:11434/v1/chat/completions">
                         </div>
                         <div class="setting-row">
                             <label>API KEY:</label>
-                            <input type="password" id="set-custom-api-key"
-                                placeholder="API key (or 'ollama' for Ollama)">
+                            <input type="password" id="set-custom-api-key" placeholder="API key (or leave blank for local models)">
                         </div>
                         <div class="setting-row">
                             <label>MODEL NAME:</label>
-                            <input type="text" id="set-custom-model-name" placeholder="e.g., llama3, qwen2.5-coder">
+                            <input type="text" id="set-custom-model-name" placeholder="e.g., llama3, qwen2.5-coder, gpt-4">
                         </div>
                         <div class="setting-row">
                             <label>API VERSION:</label>
@@ -376,26 +363,6 @@
                         <div class="setting-row">
                             <label>VERIFY SSL:</label>
                             <input type="checkbox" id="set-custom-verify-ssl">
-                        </div>
-                    </div>
-
-                    <div class="settings-section" id="set-azure-section">
-                        <h3>AZURE AI / REMOTE</h3>
-                        <div class="setting-row">
-                            <label>ENDPOINT:</label>
-                            <input type="text" id="set-endpoint" placeholder="https://...">
-                        </div>
-                        <div class="setting-row">
-                            <label>MODEL NAME:</label>
-                            <input type="text" id="set-model-name" placeholder="Model name">
-                        </div>
-                        <div class="setting-row">
-                            <label>API KEY:</label>
-                            <input type="password" id="set-api-key" placeholder="Azure AI API key">
-                        </div>
-                        <div class="setting-row">
-                            <label>VERIFY SSL:</label>
-                            <input type="checkbox" id="set-verify-ssl">
                         </div>
                     </div>
 

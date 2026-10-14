@@ -16,64 +16,13 @@ from agent_engine.tools.base import ToolResult
 
 
 class LLMClient:
-    """Interface for calling the LLM (local or Azure)."""
+    """Interface for calling the LLM (OpenAI-compatible endpoint)."""
 
     def __init__(self):
         self._prompt_file_counter = 0
 
     def call(self, messages: List[Dict[str, str]], response_file: str = None) -> str:
-        if EngineConfig.use_custom_endpoint():
-            return self._call_custom_endpoint(messages, response_file)
-        else:
-            return self._call_azure(messages)
-
-    def _call_azure(self, messages: List[Dict[str, str]]) -> str:
-        from azure.ai.inference import ChatCompletionsClient
-        from azure.ai.inference.models import SystemMessage, UserMessage, AssistantMessage
-        from azure.core.credentials import AzureKeyCredential
-
-        endpoint = EngineConfig.get_endpoint()
-        model_name = EngineConfig.get_model_name()
-        api_key = EngineConfig.get_api_key()
-
-        if not all([endpoint, model_name, api_key]):
-            raise EngineError("Missing Azure AI credentials")
-
-        client = ChatCompletionsClient(
-            endpoint=endpoint,
-            credential=AzureKeyCredential(api_key),
-            api_version="2024-05-01-preview",
-            connection_verify=EngineConfig.verify_ssl()
-        )
-
-        azure_messages = []
-        for msg in messages:
-            if msg["role"] == "system":
-                azure_messages.append(SystemMessage(content=msg["content"]))
-            elif msg["role"] == "user":
-                azure_messages.append(UserMessage(content=msg["content"]))
-            elif msg["role"] == "assistant":
-                azure_messages.append(AssistantMessage(content=msg["content"]))
-
-        response = client.complete(
-            stream=True,
-            messages=azure_messages,
-            max_tokens=EngineConfig.get_output_tokens(),
-            model=model_name,
-        )
-
-        content = ""
-        try:
-            for update in response:
-                if update.choices and len(update.choices) > 0:
-                    delta = update.choices[0].get("delta", {})
-                    c = delta.get("content")
-                    if c:
-                        content += c
-        finally:
-            response.close()
-
-        return content
+        return self._call_custom_endpoint(messages, response_file)
 
     def _call_custom_endpoint(self, messages: List[Dict[str, str]], response_file: str) -> str:
         """Call a custom OpenAI-compatible endpoint (Ollama, LM Studio, vLLM, etc.)."""

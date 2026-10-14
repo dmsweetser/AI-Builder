@@ -18,25 +18,25 @@ function startFlingLoop() {
         logoY += velY;
         velX *= FRICTION;
         velY *= FRICTION;
-        // Bounce off viewport edges
-        const el = document.getElementById('draggable-logo');
-        if (el) {
-            const rect = el.getBoundingClientRect();
-            if (logoX <= 0) { logoX = 0; velX = -velX * 0.7; }
-            if (logoY <= 0) { logoY = 0; velY = -velY * 0.7; }
-            if (logoX + rect.width >= window.innerWidth) { logoX = window.innerWidth - rect.width; velX = -velX * 0.7; }
-            if (logoY + rect.height >= window.innerHeight) { logoY = window.innerHeight - rect.height; velY = -velY * 0.7; }
-        }
         const logo = document.getElementById('draggable-logo');
         if (logo) {
+            const rect = logo.getBoundingClientRect();
+            // Clamp to viewport
+            if (logoX < 0) { logoX = 0; velX = -velX * 0.7; }
+            if (logoY < 0) { logoY = 0; velY = -velY * 0.7; }
+            if (logoX + rect.width > window.innerWidth) { logoX = window.innerWidth - rect.width; velX = -velX * 0.7; }
+            if (logoY + rect.height > window.innerHeight) { logoY = window.innerHeight - rect.height; velY = -velY * 0.7; }
             logo.style.left = logoX + 'px';
             logo.style.top = logoY + 'px';
         }
         // Check goal zone
         const goalZone = document.getElementById('goal-zone');
         const flingCounter = document.getElementById('fling-counter');
-        if (logoX >= GOAL_ZONE.x && logoX + (logo ? logo.offsetWidth : 120) >= GOAL_ZONE.x + GOAL_ZONE.w &&
-            logoY >= GOAL_ZONE.y && logoY + (logo ? logo.offsetHeight : 120) >= GOAL_ZONE.y + GOAL_ZONE.h) {
+        const logoEl = document.getElementById('draggable-logo');
+        const logoW = logoEl ? logoEl.offsetWidth : 120;
+        const logoH = logoEl ? logoEl.offsetHeight : 120;
+        if (logoX >= GOAL_ZONE.x && logoX + logoW >= GOAL_ZONE.x + GOAL_ZONE.w &&
+            logoY >= GOAL_ZONE.y && logoY + logoH >= GOAL_ZONE.y + GOAL_ZONE.h) {
             if (goalZone) goalZone.style.display = 'block';
             if (flingCounter) flingCounter.style.display = 'block';
             flingCounter.textContent = 'FLINGS: ' + flingCount;
@@ -56,8 +56,11 @@ function startFlingLoop() {
 
 function checkWinCondition() {
     const goalZone = document.getElementById('goal-zone');
-    if (logoX >= GOAL_ZONE.x && logoX + 120 >= GOAL_ZONE.x + GOAL_ZONE.w &&
-        logoY >= GOAL_ZONE.y && logoY + 120 >= GOAL_ZONE.y + GOAL_ZONE.h) {
+    const logoEl = document.getElementById('draggable-logo');
+    const logoW = logoEl ? logoEl.offsetWidth : 120;
+    const logoH = logoEl ? logoEl.offsetHeight : 120;
+    if (logoX >= GOAL_ZONE.x && logoX + logoW >= GOAL_ZONE.x + GOAL_ZONE.w &&
+        logoY >= GOAL_ZONE.y && logoY + logoH >= GOAL_ZONE.y + GOAL_ZONE.h) {
         flingCount++;
         const flingCounter = document.getElementById('fling-counter');
         if (flingCounter) flingCounter.textContent = 'FLINGS: ' + flingCount;
@@ -70,9 +73,9 @@ function checkWinCondition() {
                 setTimeout(() => { if (winMsg) winMsg.style.display = 'none'; }, 5000);
             }
         }
-        // Reset position
-        logoX = window.innerWidth - 160;
-        logoY = window.innerHeight - 160;
+        // Reset position to bottom-right
+        logoX = window.innerWidth - logoW - 20;
+        logoY = window.innerHeight - logoH - 20;
         velX = 0;
         velY = 0;
         if (goalZone) goalZone.style.display = 'none';
@@ -358,22 +361,6 @@ function loadSettingsUI() {
                 const el = document.getElementById(id);
                 if (el) el.value = val;
             };
-            // Determine endpoint type from settings
-            let endpointType = 'local';
-            if (settings.use_custom_endpoint) {
-                endpointType = 'custom';
-            } else if (settings.endpoint || settings.api_key) {
-                endpointType = 'azure';
-            }
-            set('set-endpoint-type', endpointType);
-            set('set-endpoint', settings.endpoint || '');
-            set('set-model-name', settings.model_name || '');
-            set('set-api-key', settings.api_key || '');
-            set('set-verify-ssl', settings.verify_ssl ?? 'false');
-            set('set-root-dir', settings.root_directory || '');
-            set('set-jd-cli', settings.jd_cli_path || '');
-            set('set-java-home', settings.java_home || '');
-            set('set-dotnet-cli', settings.dotnet_cli_path || '');
             set('set-custom-endpoint-url', settings.custom_endpoint_url || '');
             set('set-custom-api-key', settings.custom_api_key || '');
             set('set-custom-model-name', settings.custom_model_name || '');
@@ -385,35 +372,17 @@ function loadSettingsUI() {
             set('set-max-steps', settings.max_steps ?? '50');
             set('set-top-k', settings.top_k ?? '50');
             set('set-min-p', settings.min_p ?? '0.0');
+            set('set-root-dir', settings.root_directory || '');
+            set('set-jd-cli', settings.jd_cli_path || '');
+            set('set-java-home', settings.java_home || '');
+            set('set-dotnet-cli', settings.dotnet_cli_path || '');
             set('set-engine-mode', settings.engine_mode || 'agent');
-
-            // Show/hide sections based on selected endpoint type
-            onSettingsEndpointTypeChange();
         })
         .catch(err => console.error('Failed to load settings:', err));
 }
 
-function onSettingsEndpointTypeChange() {
-    const type = document.getElementById('set-endpoint-type').value;
-    document.getElementById('set-custom-endpoint-section').style.display = type === 'custom' ? 'block' : 'none';
-    document.getElementById('set-azure-section').style.display = type === 'azure' ? 'block' : 'none';
-}
-
-
-function onSettingsCustomEndpointChange() {
-    const isCustom = document.getElementById('set-use-custom-endpoint')?.checked;
-    document.getElementById('set-custom-endpoint-section').style.display = isCustom ? 'block' : 'none';
-}
-
 function saveSettings() {
-    const endpointType = document.getElementById('set-endpoint-type').value;
     const settings = {
-        // Endpoint type determines which backend is active
-        use_custom_endpoint: endpointType === 'custom',
-        endpoint: document.getElementById('set-endpoint').value,
-        model_name: document.getElementById('set-model-name').value,
-        api_key: document.getElementById('set-api-key').value,
-        verify_ssl: document.getElementById('set-verify-ssl').checked,
         engine_mode: document.getElementById('set-engine-mode').value,
         root_directory: document.getElementById('set-root-dir').value,
         jd_cli_path: document.getElementById('set-jd-cli').value,

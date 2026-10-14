@@ -34,9 +34,6 @@ from oneshot_engine import AIBuilder
 from oneshot_engine.engine import run_with_agent_engine
 from agent_engine import AgentEngine, EngineConfig, ToolResult
 from config import Config
-from azure.ai.inference import ChatCompletionsClient
-from azure.ai.inference.models import SystemMessage, UserMessage
-from azure.core.credentials import AzureKeyCredential
 
 # Engine mode: 'agent' (multi-step tool-based) or 'legacy' (single-pass)
 ENGINE_MODE = os.getenv("AIB_ENGINE_MODE", "agent").lower()
@@ -77,7 +74,6 @@ def _load_settings_unlocked():
             loaded = {}
 
     # Fill defaults from env vars for anything not in settings file
-    loaded.setdefault('use_custom_endpoint', os.getenv("USE_CUSTOM_ENDPOINT", "false").lower() == "true")
     loaded.setdefault('custom_endpoint_url', os.getenv("CUSTOM_ENDPOINT_URL", ""))
     loaded.setdefault('custom_api_key', os.getenv("CUSTOM_API_KEY", ""))
     loaded.setdefault('custom_model_name', os.getenv("CUSTOM_MODEL_NAME", ""))
@@ -87,10 +83,6 @@ def _load_settings_unlocked():
     loaded.setdefault('output_tokens', int(os.getenv("OUTPUT_TOKENS", "8192")))
     loaded.setdefault('model_context', int(os.getenv("MODEL_CONTEXT", "128000")))
     loaded.setdefault('max_steps', int(os.getenv("AIB_MAX_STEPS", "50")))
-    loaded.setdefault('endpoint', os.getenv("ENDPOINT", ""))
-    loaded.setdefault('model_name', os.getenv("MODEL_NAME", ""))
-    loaded.setdefault('api_key', os.getenv("API_KEY", ""))
-    loaded.setdefault('verify_ssl', os.getenv("VERIFY_SSL", "false").lower() == "true")
     loaded.setdefault('engine_mode', 'agent')  # Default for ad-hoc agent runs; project mode is stored per-project
     loaded.setdefault('root_directory', os.getenv("ROOT_DIRECTORY", ""))
     loaded.setdefault('jd_cli_path', os.getenv("JD_CLI_PATH", ""))
@@ -132,13 +124,6 @@ def apply_settings_to_env():
     os.environ["OUTPUT_TOKENS"] = str(s.get('output_tokens', 8192))
     os.environ["MODEL_CONTEXT"] = str(s.get('model_context', 128000))
     os.environ["AIB_MAX_STEPS"] = str(s.get('max_steps', 50))
-    if s.get('endpoint'):
-        os.environ["ENDPOINT"] = s['endpoint']
-    if s.get('model_name'):
-        os.environ["MODEL_NAME"] = s['model_name']
-    if s.get('api_key'):
-        os.environ["API_KEY"] = s['api_key']
-    os.environ["VERIFY_SSL"] = str(s.get('verify_ssl', False)).lower()
     os.environ["AIB_ENGINE_MODE"] = s.get('engine_mode', 'agent')
     if s.get('root_directory'):
         os.environ["ROOT_DIRECTORY"] = s['root_directory']
@@ -148,8 +133,7 @@ def apply_settings_to_env():
         os.environ["JAVA_HOME"] = s['java_home']
     if s.get('dotnet_cli_path'):
         os.environ["DOTNET_CLI_PATH"] = s['dotnet_cli_path']
-    # Custom endpoint settings
-    os.environ["USE_CUSTOM_ENDPOINT"] = str(s.get('use_custom_endpoint', False)).lower()
+    # OpenAI-compatible endpoint settings (always used now)
     if s.get('custom_endpoint_url'):
         os.environ["CUSTOM_ENDPOINT_URL"] = s['custom_endpoint_url']
     if s.get('custom_api_key'):
@@ -692,86 +676,54 @@ def api_send_message(chat_id):
         def generate():
             response_content = ""
             try:
-                if Config.use_custom_endpoint():
-                    import urllib.request
-                    import ssl
-                    endpoint_url = Config.get_custom_endpoint_url()
-                    api_key = Config.get_custom_api_key()
-                    model_name = Config.get_custom_model_name()
-                    if not all([endpoint_url, model_name]):
-                        raise ValueError("Missing custom endpoint credentials")
-                    openai_messages = []
-                    for msg in chat_data["messages"]:
-                        openai_messages.append({"role": msg["role"], "content": msg["content"]})
-                    payload = {
-                        "model": model_name,
-                        "messages": openai_messages,
-                        "max_tokens": Config.get_output_tokens(),
-                        "stream": True,
-                    }
-                    headers = {"Content-Type": "application/json"}
-                    if api_key:
-                        headers["Authorization"] = f"Bearer {api_key}"
-                    verify_ssl = Config.verify_ssl()
-                    if verify_ssl:
-                        context = ssl.create_default_context()
-                    else:
-                        context = ssl._create_unverified_context()
-                    data = json.dumps(payload).encode('utf-8')
-                    req = urllib.request.Request(endpoint_url, data=data, headers=headers, method='POST')
-                    with urllib.request.urlopen(req, context=context, timeout=300) as response:
-                        for line in response:
-                            line = line.decode('utf-8').strip()
-                            if not line.startswith('data: '):
-                                continue
-                            data_str = line[6:]
-                            if data_str == '[DONE]':
-                                break
-                            try:
-                                chunk = json.loads(data_str)
-                                delta = chunk.get('choices', [{}])[0].get('delta', {})
-                                c = delta.get('content', '')
-                                if c:
-                                    response_content += c
-                                    yield c
-                                    if len(response_content) % 20 == 0:
-                                        chat_data["messages"] = [m for m in chat_data["messages"] if m["role"] != "assistant"]
-                                        chat_data["messages"].append({"role": "assistant", "content": response_content})
-                                        with open(chat_path, "w", encoding="utf-8") as f:
-                                            json.dump(chat_data, f, indent=2)
-                            except json.JSONDecodeError:
-                                continue
+                import urllib.request
+                import ssl
+                endpoint_url = Config.get_custom_endpoint_url()
+                api_key = Config.get_custom_api_key()
+                model_name = Config.get_custom_model_name()
+                if not all([endpoint_url, model_name]):
+                    raise ValueError("Missing custom endpoint credentials")
+                openai_messages = []
+                for msg in chat_data["messages"]:
+                    openai_messages.append({"role": msg["role"], "content": msg["content"]})
+                payload = {
+                    "model": model_name,
+                    "messages": openai_messages,
+                    "max_tokens": Config.get_custom_max_tokens(),
+                    "stream": True,
+                }
+                headers = {"Content-Type": "application/json"}
+                if api_key:
+                    headers["Authorization"] = f"Bearer {api_key}"
+                verify_ssl = Config.get_custom_verify_ssl()
+                if verify_ssl:
+                    context = ssl.create_default_context()
                 else:
-                    endpoint = Config.get_endpoint()
-                    model_name = Config.get_model_name()
-                    api_key = Config.get_api_key()
-                    verify_ssl = Config.verify_ssl()
-                    if not all([endpoint, model_name, api_key]):
-                        raise ValueError("Missing one or more required environment variables: ENDPOINT, MODEL_NAME, API_KEY")
-                    client = ChatCompletionsClient(
-                        endpoint=endpoint,
-                        credential=AzureKeyCredential(api_key),
-                        api_version="2024-05-01-preview",
-                        connection_verify=verify_ssl
-                    )
-                    response = client.complete(
-                        stream=True,
-                        messages=[SystemMessage(content="You are a helpful coding assistant."), UserMessage(content=prompt)],
-                        max_tokens=Config.get_output_tokens(),
-                        model=model_name
-                    )
-                    for update in response:
-                        if update.choices and isinstance(update.choices, list) and len(update.choices) > 0:
-                            content = update.choices[0].get("delta", {}).get("content", "")
-                            if content is not None:
-                                response_content += content
-                                yield content
+                    context = ssl._create_unverified_context()
+                data = json.dumps(payload).encode('utf-8')
+                req = urllib.request.Request(endpoint_url, data=data, headers=headers, method='POST')
+                with urllib.request.urlopen(req, context=context, timeout=300) as response:
+                    for line in response:
+                        line = line.decode('utf-8').strip()
+                        if not line.startswith('data: '):
+                            continue
+                        data_str = line[6:]
+                        if data_str == '[DONE]':
+                            break
+                        try:
+                            chunk = json.loads(data_str)
+                            delta = chunk.get('choices', [{}])[0].get('delta', {})
+                            c = delta.get('content', '')
+                            if c:
+                                response_content += c
+                                yield c
                                 if len(response_content) % 20 == 0:
                                     chat_data["messages"] = [m for m in chat_data["messages"] if m["role"] != "assistant"]
                                     chat_data["messages"].append({"role": "assistant", "content": response_content})
                                     with open(chat_path, "w", encoding="utf-8") as f:
                                         json.dump(chat_data, f, indent=2)
-                    response.close()
+                        except json.JSONDecodeError:
+                            continue
 
                 chat_data["messages"] = [m for m in chat_data["messages"] if m["role"] != "assistant"]
                 chat_data["messages"].append({"role": "assistant", "content": response_content})
@@ -906,6 +858,12 @@ def api_agent_run():
     os.environ["AIB_INSTRUCTIONS"] = instructions
     os.environ["AIB_PRE_SCRIPT"] = project.get("preScript", "") if project else ""
     os.environ["AIB_POST_SCRIPT"] = project.get("postScript", "") if project else ""
+    os.environ["CUSTOM_ENDPOINT_URL"] = os.getenv("CUSTOM_ENDPOINT_URL", "")
+    os.environ["CUSTOM_API_KEY"] = os.getenv("CUSTOM_API_KEY", "")
+    os.environ["CUSTOM_MODEL_NAME"] = os.getenv("CUSTOM_MODEL_NAME", "")
+    os.environ["CUSTOM_API_VERSION"] = os.getenv("CUSTOM_API_VERSION", "v1")
+    os.environ["CUSTOM_VERIFY_SSL"] = os.getenv("CUSTOM_VERIFY_SSL", "false")
+    os.environ["CUSTOM_MAX_TOKENS"] = os.getenv("CUSTOM_MAX_TOKENS", "8192")
 
     def generate():
         yield "event: status\ndata: " + json.dumps({"type": "start", "job_id": job_id}) + "\n\n"
