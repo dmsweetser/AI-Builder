@@ -224,14 +224,14 @@ Reply ONLY in the specified format with no commentary. THAT'S AN ORDER, SOLDIER!
     def run_model(self, prompt: str) -> str:
         response_content = ""
 
-        endpoint = Config.get_endpoint()
-        model_name = Config.get_model_name()
-        api_key = Config.get_api_key()
-        verify_ssl = Config.verify_ssl()
-        if not all([endpoint, model_name, api_key]):
+        endpoint = Config.get_custom_endpoint_url()
+        model_name = Config.get_custom_model_name()
+        api_key = Config.get_custom_api_key()
+        verify_ssl = Config.get_custom_verify_ssl()
+        if not all([endpoint]):
             logging.error(
                 "Missing one or more required environment variables: "
-                "ENDPOINT, MODEL_NAME, API_KEY"
+                "ENDPOINT"
             )
             raise ValueError("Missing required environment variables.")
 
@@ -323,7 +323,6 @@ Reply ONLY in the specified format with no commentary. THAT'S AN ORDER, SOLDIER!
 
             for iteration in range(iterations):
                 logging.info(f"Starting iteration {iteration + 1}")
-                self.run_pre_post_scripts("pre.ps1")
                 try:
                     modifications_format_path = os.path.join(
                         self.ai_builder_dir, "modifications.txt"
@@ -376,7 +375,6 @@ Reply ONLY in the specified format with no commentary. THAT'S AN ORDER, SOLDIER!
                     except Exception as save_err:
                         logging.error(f"Failed to save error to actions.txt: {save_err}")
 
-                self.run_pre_post_scripts("post.ps1")
                 self.cleanup_bak_files(self.root_directory, patterns)
 
         except Exception as e:

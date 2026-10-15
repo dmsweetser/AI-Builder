@@ -323,8 +323,6 @@ def api_create_project():
         "excludePatterns": request.form.get("excludePatterns", ""),
         "iterations": 1,
         "instructions": request.form.get("instructions", ""),
-        "preScript": request.form.get("preScript", ""),
-        "postScript": request.form.get("postScript", ""),
         "isArchived": False,
         "enabled_tools": []  # Will be set when running in agentic mode
     }
@@ -365,8 +363,6 @@ def api_update_project(pid):
         "excludePatterns": request.form.get("excludePatterns", project.get("excludePatterns", "")),
         "iterations": 1,
         "instructions": request.form.get("instructions", project.get("instructions", "")),
-        "preScript": request.form.get("preScript", project.get("preScript", "")),
-        "postScript": request.form.get("postScript", project.get("postScript", "")),
     })
 
     save_projects(projects)

@@ -152,17 +152,6 @@
                         <textarea name="instructions" id="add-instructions" rows="4"
                             placeholder="What changes do you want?"></textarea>
 
-                        <div class="form-grid">
-                            <div>
-                                <label>PRE-SCRIPT</label>
-                                <textarea name="preScript" id="add-pre-script" rows="3"></textarea>
-                            </div>
-                            <div>
-                                <label>POST-SCRIPT</label>
-                                <textarea name="postScript" id="add-post-script" rows="3"></textarea>
-                            </div>
-                        </div>
-
                         <button type="submit">CREATE PROJECT</button>
                     </form>
                 </div>
@@ -236,19 +225,6 @@
                             <label>INSTRUCTIONS</label>
                             <textarea name="instructions" id="details-instructions" rows="6"
                                 oninput="autoSaveProject()"></textarea>
-                        </div>
-
-                        <div class="form-grid">
-                            <div>
-                                <label>PRE-SCRIPT</label>
-                                <textarea name="preScript" id="details-pre-script" rows="3"
-                                    oninput="autoSaveProject()"></textarea>
-                            </div>
-                            <div>
-                                <label>POST-SCRIPT</label>
-                                <textarea name="postScript" id="details-post-script" rows="3"
-                                    oninput="autoSaveProject()"></textarea>
-                            </div>
                         </div>
 
                         <input type="hidden" name="iterations" value="1">

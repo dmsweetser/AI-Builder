@@ -1384,7 +1384,7 @@ document.getElementById('add-project-form').addEventListener('submit', function 
         .then(res => res.json())
         .then(data => {
             if (data.error) { alert('Error: ' + data.error); }
-            else { loadProjects(); this.reset(); selectedPaths = []; renderSelectedPaths(); onAddModeChange(); }
+            else { loadProjects(); this.reset(); onAddModeChange(); }
         })
         .catch(err => console.error('Failed to create project:', err));
 });
