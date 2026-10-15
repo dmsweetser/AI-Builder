@@ -1,6 +1,7 @@
 import os
 import json
 import tempfile
+from typing import Any, Dict
 import uuid
 import time
 import subprocess
@@ -14,6 +15,7 @@ import re
 import logging
 from datetime import datetime
 from flask import Flask, Response, request, jsonify, render_template, send_from_directory
+from agent_engine import run as agent_run
 
 # --- Resolve app directory (works for both dev and PyInstaller one-file builds) ---
 def _get_app_dir():
@@ -211,11 +213,6 @@ def worker():
                     job_history[-1]["steps"] = result.get("steps", 0)
                     if result.get("status") == "error":
                         job_history[-1]["error"] = result.get("error", "Unknown error")
-                else:
-                    # Legacy single-pass mode
-                    ai = AIBuilder(job_id, project)
-                    ai.run()
-                    job_history[-1]["status"] = "completed"
             else:
                 job_history[-1]["status"] = "error"
                 job_history[-1]["error"] = "Project not found"
@@ -230,6 +227,28 @@ def worker():
             save_job_history()
             with job_queue_lock:
                 running_job = None
+
+
+def run_with_agent_engine(project_config: Dict[str, Any]) -> Dict[str, Any]:
+    """Run the multi-step agentic engine (delegates to agent_engine)."""
+    
+    if "job_id" not in project_config:
+        project_config["job_id"] = str(int(time.time() * 1000))
+
+    root_dir = project_config.get("rootDirectory", "")
+    output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aib_instance", "output", project_config["job_id"])
+    
+    os.environ["AIB_ROOT"] = root_dir
+    os.environ["AIB_INSTRUCTIONS"] = project_config.get("instructions", "")
+    os.environ["AIB_PRE_SCRIPT"] = project_config.get("preScript", "")
+    os.environ["AIB_POST_SCRIPT"] = project_config.get("postScript", "")
+
+    enabled_tools = project_config.get("enabled_tools")
+    if enabled_tools:
+        os.environ["AIB_ENABLED_TOOLS"] = json.dumps(enabled_tools)
+
+    return agent_run(project_config, output_dir=output_dir)
+
 
 def start_worker():
     global worker_thread
