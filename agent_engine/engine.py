@@ -32,6 +32,7 @@ class LLMClient:
         endpoint_url = EngineConfig.get_custom_endpoint_url()
         api_key = EngineConfig.get_custom_api_key()
         model_name = EngineConfig.get_custom_model_name()
+        timeout = EngineConfig.get_timeout()
 
         if not all([endpoint_url, model_name]):
             raise EngineError("Missing custom endpoint credentials: CUSTOM_ENDPOINT_URL and CUSTOM_MODEL_NAME required")
@@ -73,7 +74,7 @@ class LLMClient:
 
         content = ""
         try:
-            with urllib.request.urlopen(req, context=context, timeout=300) as response:
+            with urllib.request.urlopen(req, context=context, timeout=timeout) as response:
                 for line in response:
                     line = line.decode('utf-8').strip()
                     if not line.startswith('data: '):
@@ -96,6 +97,7 @@ class LLMClient:
             raise EngineError(f"Custom endpoint call failed: {e}")
 
         return content
+
 
 
 def build_system_prompt(tools: List[Dict[str, Any]]) -> str:
@@ -130,6 +132,7 @@ RULES:
 - You have a maximum of {EngineConfig.get_max_steps()} steps total. Use them wisely.
 - After making changes, verify them. If check_syntax fails, fix the errors.
 - When done, respond with: [DONE] followed by a summary of all changes made.
+- To execute Python code, use execute_python. It will request permission. Wait for approval in the live feed.
 
 RESPONSE FORMAT:
 After each tool result, you will respond with either:
@@ -144,7 +147,6 @@ IMPORTANT: You are bounded to the project root directory by default. All file pa
 You CANNOT read or write files outside the project root unless the task instructions explicitly specify an absolute path (e.g., /tmp/something.py).
 When the instructions specify an absolute path, use it directly.
 """
-
 
 def build_user_prompt(instructions: str, context: str = "") -> str:
     """Build the initial user prompt with the task instructions."""
@@ -249,16 +251,13 @@ class AgentEngine:
         self.max_steps = EngineConfig.get_max_steps()
         self.step_history: List[Dict[str, Any]] = []
         self._recent_tool_calls: List[str] = []  # Track recent tool names for loop detection
+        self._permission_requested = False
+        self._continue_requested = False
 
     def run(self) -> Dict[str, Any]:
         """Execute the agentic revision loop."""
         self.logger.info(f"Starting agentic engine for: {self.root_dir}")
         self.logger.info(f"Instructions: {self.instructions[:200]}...")
-
-        # Run pre-script if configured
-        pre_script = EngineConfig.get_pre_script()
-        if pre_script:
-            self._run_script("pre", pre_script)
 
         try:
             # Build initial prompt
@@ -267,7 +266,17 @@ class AgentEngine:
 
             # Main loop
             final_summary = ""
-            while self.step_count < self.max_steps:
+            while self.step_count < self.max_steps or self._continue_requested:
+                if self.step_count >= self.max_steps and not self._continue_requested:
+                    self.logger.info("Max steps reached. Waiting for user continuation.")
+                    return {
+                        "status": "max_steps_reached",
+                        "steps": self.step_count,
+                        "summary": final_summary,
+                        "max_steps": self.max_steps,
+                        "step_history": self.step_history,
+                    }
+
                 self.step_count += 1
                 self.logger.info(f"Step {self.step_count}/{self.max_steps}")
 
@@ -424,11 +433,6 @@ class AgentEngine:
                     )
                     self.messages.append({"role": "user", "content": intervention})
                     continue
-
-            # Run post-script
-            post_script = EngineConfig.get_post_script()
-            if post_script:
-                self._run_script("post", post_script)
 
             return {
                 "status": "completed" if final_summary else "max_steps_reached",

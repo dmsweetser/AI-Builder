@@ -141,3 +141,34 @@ class GetFileInfoTool(BaseTool):
             }, indent=2), summary=f"{language} file, {size} bytes, {line_count} lines")
         except Exception as e:
             return ToolResult(False, "", error=str(e))
+
+
+class ExecutePythonTool(BaseTool):
+    name = "execute_python"
+    description = (
+        "Execute arbitrary Python code. "
+        "REQUIRES explicit permission before execution. "
+        "Returns a permission request status. Wait for approval in the live feed."
+    )
+    parameters = {"code": "string"}
+
+    def execute(self, params: Dict[str, str]) -> ToolResult:
+        # Check for permission flag
+        job_id = os.getenv("AIB_JOB_ID", "")
+        perm_file = os.path.join(self.root_dir, "aib_instance", "output", job_id, "execute_python_permission.txt")
+        if os.path.exists(perm_file):
+            try:
+                with open(perm_file, 'r') as f:
+                    status = f.read().strip()
+                os.remove(perm_file)
+                if status == "approved":
+                    try:
+                        exec(params["code"])
+                        return ToolResult(True, "Code executed successfully.", summary="Python execution approved")
+                    except Exception as e:
+                        return ToolResult(False, "", error=f"Execution error: {e}")
+                else:
+                    return ToolResult(False, "", error="Permission denied by user.")
+            except Exception:
+                pass
+        return ToolResult(False, "", error="PENDING_PERMISSION", summary="Permission request sent to user")

@@ -35,9 +35,6 @@ from oneshot_engine.engine import run_with_agent_engine
 from agent_engine import AgentEngine, EngineConfig, ToolResult
 from config import Config
 
-# Engine mode: 'agent' (multi-step tool-based) or 'legacy' (single-pass)
-ENGINE_MODE = os.getenv("AIB_ENGINE_MODE", "agent").lower()
-
 app = Flask(__name__,
             template_folder=os.path.join(_app_dir, 'templates'),
             static_folder=os.path.join(_app_dir, 'static'))
@@ -77,19 +74,15 @@ def _load_settings_unlocked():
     loaded.setdefault('custom_endpoint_url', os.getenv("CUSTOM_ENDPOINT_URL", ""))
     loaded.setdefault('custom_api_key', os.getenv("CUSTOM_API_KEY", ""))
     loaded.setdefault('custom_model_name', os.getenv("CUSTOM_MODEL_NAME", ""))
-    loaded.setdefault('custom_api_version', os.getenv("CUSTOM_API_VERSION", "v1"))
     loaded.setdefault('custom_verify_ssl', os.getenv("CUSTOM_VERIFY_SSL", "false").lower() == "true")
-    loaded.setdefault('custom_max_tokens', int(os.getenv("CUSTOM_MAX_TOKENS", "8192")))
-    loaded.setdefault('output_tokens', int(os.getenv("OUTPUT_TOKENS", "8192")))
-    loaded.setdefault('model_context', int(os.getenv("MODEL_CONTEXT", "128000")))
+    loaded.setdefault('custom_max_tokens', int(os.getenv("CUSTOM_MAX_TOKENS", "131072")))
+    loaded.setdefault('model_context', int(os.getenv("MODEL_CONTEXT", "262144")))
     loaded.setdefault('max_steps', int(os.getenv("AIB_MAX_STEPS", "50")))
-    loaded.setdefault('engine_mode', 'agent')  # Default for ad-hoc agent runs; project mode is stored per-project
+    loaded.setdefault('timeout', int(os.getenv("CUSTOM_TIMEOUT", "3600")))
     loaded.setdefault('root_directory', os.getenv("ROOT_DIRECTORY", ""))
     loaded.setdefault('jd_cli_path', os.getenv("JD_CLI_PATH", ""))
     loaded.setdefault('java_home', os.getenv("JAVA_HOME", ""))
     loaded.setdefault('dotnet_cli_path', os.getenv("DOTNET_CLI_PATH", ""))
-    loaded.setdefault('top_k', int(os.getenv("TOP_K", "50")))
-    loaded.setdefault('min_p', float(os.getenv("MIN_P", "0.0")))
 
     return loaded
 
@@ -121,10 +114,9 @@ def save_settings(settings):
 def apply_settings_to_env():
     """Apply settings to environment variables for engine config."""
     s = load_settings()
-    os.environ["OUTPUT_TOKENS"] = str(s.get('output_tokens', 8192))
-    os.environ["MODEL_CONTEXT"] = str(s.get('model_context', 128000))
+    os.environ["MODEL_CONTEXT"] = str(s.get('model_context', 262144))
     os.environ["AIB_MAX_STEPS"] = str(s.get('max_steps', 50))
-    os.environ["AIB_ENGINE_MODE"] = s.get('engine_mode', 'agent')
+    os.environ["CUSTOM_TIMEOUT"] = str(s.get('timeout', 3600))
     if s.get('root_directory'):
         os.environ["ROOT_DIRECTORY"] = s['root_directory']
     if s.get('jd_cli_path'):
@@ -140,11 +132,8 @@ def apply_settings_to_env():
         os.environ["CUSTOM_API_KEY"] = s['custom_api_key']
     if s.get('custom_model_name'):
         os.environ["CUSTOM_MODEL_NAME"] = s['custom_model_name']
-    os.environ["CUSTOM_API_VERSION"] = s.get('custom_api_version', 'v1')
     os.environ["CUSTOM_VERIFY_SSL"] = str(s.get('custom_verify_ssl', False)).lower()
-    os.environ["CUSTOM_MAX_TOKENS"] = str(s.get('custom_max_tokens', 8192))
-    os.environ["TOP_K"] = str(s.get('top_k', 50))
-    os.environ["MIN_P"] = str(s.get('min_p', 0.0))
+    os.environ["CUSTOM_MAX_TOKENS"] = str(s.get('custom_max_tokens', 131072))
 
 
 # --- Initialization ---
@@ -214,9 +203,8 @@ def worker():
 
         try:
             if project:
-                # Project-specific mode takes priority over global engine_mode setting
                 project_mode = project.get("mode")
-                use_agent = (project_mode == "agentic") if project_mode else (ENGINE_MODE == "agent")
+                use_agent = (project_mode == "agentic") if project_mode else False
                 if use_agent:
                     # Use the new multi-step agentic engine
                     result = run_with_agent_engine(project)
@@ -856,14 +844,13 @@ def api_agent_run():
     # Set environment variables for the engine
     os.environ["AIB_ROOT"] = root_dir
     os.environ["AIB_INSTRUCTIONS"] = instructions
-    os.environ["AIB_PRE_SCRIPT"] = project.get("preScript", "") if project else ""
-    os.environ["AIB_POST_SCRIPT"] = project.get("postScript", "") if project else ""
+    os.environ["AIB_JOB_ID"] = job_id
     os.environ["CUSTOM_ENDPOINT_URL"] = os.getenv("CUSTOM_ENDPOINT_URL", "")
     os.environ["CUSTOM_API_KEY"] = os.getenv("CUSTOM_API_KEY", "")
     os.environ["CUSTOM_MODEL_NAME"] = os.getenv("CUSTOM_MODEL_NAME", "")
-    os.environ["CUSTOM_API_VERSION"] = os.getenv("CUSTOM_API_VERSION", "v1")
     os.environ["CUSTOM_VERIFY_SSL"] = os.getenv("CUSTOM_VERIFY_SSL", "false")
-    os.environ["CUSTOM_MAX_TOKENS"] = os.getenv("CUSTOM_MAX_TOKENS", "8192")
+    os.environ["CUSTOM_MAX_TOKENS"] = os.getenv("CUSTOM_MAX_TOKENS", "131072")
+    os.environ["CUSTOM_TIMEOUT"] = os.getenv("CUSTOM_TIMEOUT", "3600")
 
     def generate():
         yield "event: status\ndata: " + json.dumps({"type": "start", "job_id": job_id}) + "\n\n"
@@ -873,8 +860,6 @@ def api_agent_run():
                 "rootDirectory": root_dir,
                 "instructions": instructions,
                 "job_id": job_id,
-                "preScript": project.get("preScript", "") if project else "",
-                "postScript": project.get("postScript", "") if project else "",
                 "enabled_tools": enabled_tools if enabled_tools else None,
             }
 
@@ -889,8 +874,8 @@ def api_agent_run():
                     "tool": step["tool"],
                     "params": step.get("params", {}),
                     "result": step.get("result", {}),
-                }) + "\n\n"
-                time.sleep(0.01)
+                }) + "\n"
+
 
             # Final result
             yield "event: status\ndata: " + json.dumps({
@@ -917,12 +902,9 @@ def api_agent_run():
                 "type": "error",
                 "error": str(e),
             }) + "\n\n"
-            job_history[-1]["status"] = "error"
-            job_history[-1]["error"] = str(e)
-            save_job_history()
+
 
     return Response(generate(), mimetype='text/event-stream')
-
 
 @app.route("/api/agent/history/<job_id>", methods=["GET"])
 def api_agent_history(job_id):
@@ -985,6 +967,25 @@ def api_agent_inject():
         with open(instruction_file, 'w') as f:
             f.write(instruction)
         return jsonify({"status": "injected"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/agent/permission", methods=["POST"])
+def api_agent_permission():
+    """Handle permission requests (e.g., execute_python)."""
+    data = request.json
+    job_id = data.get("job_id")
+    decision = data.get("decision", "")  # "approved" or "rejected"
+
+    if not job_id or not decision:
+        return jsonify({"error": "job_id and decision required"}), 400
+
+    perm_file = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                             "aib_instance", "output", job_id, "execute_python_permission.txt")
+    try:
+        with open(perm_file, 'w') as f:
+            f.write(decision)
+        return jsonify({"status": "decision_recorded"})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 

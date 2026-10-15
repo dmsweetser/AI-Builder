@@ -1,5 +1,4 @@
 """Runtime configuration for the agentic engine."""
-
 import os
 import json
 from typing import Optional
@@ -33,10 +32,6 @@ class EngineConfig:
         return os.getenv("CUSTOM_MODEL_NAME")
 
     @staticmethod
-    def get_custom_api_version() -> str:
-        return os.getenv("CUSTOM_API_VERSION", "v1")
-
-    @staticmethod
     def get_custom_verify_ssl() -> bool:
         return os.getenv("CUSTOM_VERIFY_SSL", "false").lower() == "true"
 
@@ -45,12 +40,8 @@ class EngineConfig:
         return int(os.getenv("CUSTOM_MAX_TOKENS", "8192"))
 
     @staticmethod
-    def get_top_k() -> int:
-        return int(os.getenv("TOP_K", "50"))
-
-    @staticmethod
-    def get_min_p() -> float:
-        return float(os.getenv("MIN_P", "0.0"))
+    def get_timeout() -> int:
+        return int(os.getenv("CUSTOM_TIMEOUT", "300"))
 
     @staticmethod
     def get_max_steps() -> int:
@@ -63,18 +54,6 @@ class EngineConfig:
     @staticmethod
     def get_java_home() -> Optional[str]:
         return os.getenv("JAVA_HOME")
-
-    @staticmethod
-    def get_pre_script() -> str:
-        return os.getenv("AIB_PRE_SCRIPT", "")
-
-    @staticmethod
-    def get_post_script() -> str:
-        return os.getenv("AIB_POST_SCRIPT", "")
-
-    @staticmethod
-    def get_dotnet_cli_path() -> Optional[str]:
-        return os.getenv("DOTNET_CLI_PATH")
 
     @staticmethod
     def get_enabled_tools() -> Optional[list]:

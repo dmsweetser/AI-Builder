@@ -92,50 +92,46 @@ class GrepCodeTool(BaseTool):
     parameters = {"pattern": "string", "search_dir": "string"}
 
     def execute(self, params: Dict[str, str]) -> ToolResult:
-        pattern = params["pattern"]
-        search_dir = params.get("search_dir", "")
-        search_full = ensure_under_root(search_dir, self.root_dir) if search_dir else self.root_dir
-        # Handle optional params - may be int or string from LLM
-        max_results_raw = params.get("max_results", "50")
-        max_results = int(max_results_raw) if isinstance(max_results_raw, str) else max_results_raw
-        file_pattern = params.get("file_pattern", "")
+        path = ensure_under_root(params["path"], self.root_dir)
+        original = params["original_text"]
+        new_text = params["new_text"]
+
+        # Interpret literal \n and \t sequences as actual newlines/tabs
+        original = original.replace("\\n", "\n").replace("\t", "	").replace("\r", "\n")
+        new_text = new_text.replace("\\n", "\n").replace("\t", "	").replace("\r", "\n")
+
+        if not os.path.isfile(path):
+            return ToolResult(False, "", error=f"File not found: {params['path']}")
 
         try:
-            compiled = re.compile(pattern)
-        except re.error as e:
-            return ToolResult(False, "", error=f"Invalid regex: {e}")
+            with open(path, 'r', encoding='utf-8') as f:
+                content = f.read()
+        except (OSError, PermissionError) as e:
+            return ToolResult(False, "", error=f"Cannot read file: {e}")
 
-        results = []
+        # Try exact match first
+        if original in content:
+            content = content.replace(original, new_text, 1)
+        else:
+            # Fallback: normalize whitespace for flexible matching
+            norm_orig = re.sub(r'\s+', ' ', original.strip())
+            norm_content = re.sub(r'\s+', ' ', content)
+            if norm_orig in norm_content:
+                # Find original text in content ignoring whitespace differences
+                idx = content.find(original.strip())
+                if idx != -1:
+                    content = content[:idx] + new_text + content[idx + len(original.strip()):]
+                else:
+                    return ToolResult(False, "", error="Original text not found (flexible match found but exact text differs). Use read_file to get the exact original text.")
+            else:
+                return ToolResult(False, "", error="Original text not found in file. Use read_file to get the exact text to replace.")
+
         try:
-            for root, dirs, files in os.walk(search_full):
-                dirs[:] = [d for d in dirs if not d.startswith('.') and d not in ('node_modules', '__pycache__', 'venv', '.git', 'bin', 'obj', 'Target')]
-                for fname in files:
-                    if file_pattern and not fnmatch.fnmatch(fname, file_pattern):
-                        continue
-                    full = os.path.join(root, fname)
-                    try:
-                        with open(full, 'r', encoding='utf-8', errors='replace') as f:
-                            for i, line in enumerate(f, 1):
-                                if compiled.search(line):
-                                    rel = os.path.relpath(full, self.root_dir)
-                                    results.append({
-                                        "file": rel,
-                                        "line": i,
-                                        "text": line.rstrip('\n'),
-                                    })
-                                    if len(results) >= max_results:
-                                        return ToolResult(True, json.dumps(results, indent=2),
-                                                          summary=f"{len(results)} matches (truncated)",
-                                                          file_paths=list({r["file"] for r in results}))
-                    except (OSError, PermissionError):
-                        continue
+            with open(path, 'w', encoding='utf-8') as f:
+                f.write(content)
+            return ToolResult(True, f"Edited {params['path']}", summary=f"Replaced section in: {params['path']}")
         except OSError as e:
-            return ToolResult(False, "", error=str(e))
-
-        return ToolResult(True, json.dumps(results, indent=2),
-                          summary=f"{len(results)} matches",
-                          file_paths=list({r["file"] for r in results}))
-
+            return ToolResult(False, "", error=f"Cannot write file: {e}")
 
 class ReadFileTool(BaseTool):
     name = "read_file"

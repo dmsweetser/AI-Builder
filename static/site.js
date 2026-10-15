@@ -57,8 +57,9 @@ function startFlingLoop() {
 function checkWinCondition() {
     const goalZone = document.getElementById('goal-zone');
     const logoEl = document.getElementById('draggable-logo');
-    const logoW = logoEl ? logoEl.offsetWidth : 120;
-    const logoH = logoEl ? logoEl.offsetHeight : 120;
+    if (!logoEl) return;
+    const logoW = logoEl.offsetWidth;
+    const logoH = logoEl.offsetHeight;
     if (logoX >= GOAL_ZONE.x && logoX + logoW >= GOAL_ZONE.x + GOAL_ZONE.w &&
         logoY >= GOAL_ZONE.y && logoY + logoH >= GOAL_ZONE.y + GOAL_ZONE.h) {
         flingCount++;
@@ -73,12 +74,15 @@ function checkWinCondition() {
                 setTimeout(() => { if (winMsg) winMsg.style.display = 'none'; }, 5000);
             }
         }
-        // Reset position to bottom-right
+        // Reset position to bottom-right and clear velocity
         logoX = window.innerWidth - logoW - 20;
         logoY = window.innerHeight - logoH - 20;
         velX = 0;
         velY = 0;
         if (goalZone) goalZone.style.display = 'none';
+        // Update logo position immediately
+        logoEl.style.left = logoX + 'px';
+        logoEl.style.top = logoY + 'px';
     }
 }
 
@@ -364,26 +368,21 @@ function loadSettingsUI() {
             set('set-custom-endpoint-url', settings.custom_endpoint_url || '');
             set('set-custom-api-key', settings.custom_api_key || '');
             set('set-custom-model-name', settings.custom_model_name || '');
-            set('set-custom-api-version', settings.custom_api_version || 'v1');
             set('set-custom-verify-ssl', settings.custom_verify_ssl ?? 'false');
-            set('set-custom-max-tokens', settings.custom_max_tokens ?? '8192');
-            set('set-output-tokens', settings.output_tokens ?? '8192');
-            set('set-model-context', settings.model_context ?? '128000');
+            set('set-custom-max-tokens', settings.custom_max_tokens ?? '131072');
+            set('set-model-context', settings.model_context ?? '262144');
             set('set-max-steps', settings.max_steps ?? '50');
-            set('set-top-k', settings.top_k ?? '50');
-            set('set-min-p', settings.min_p ?? '0.0');
+            set('set-timeout', settings.timeout ?? '3600');
             set('set-root-dir', settings.root_directory || '');
             set('set-jd-cli', settings.jd_cli_path || '');
             set('set-java-home', settings.java_home || '');
             set('set-dotnet-cli', settings.dotnet_cli_path || '');
-            set('set-engine-mode', settings.engine_mode || 'agent');
         })
         .catch(err => console.error('Failed to load settings:', err));
 }
 
 function saveSettings() {
     const settings = {
-        engine_mode: document.getElementById('set-engine-mode').value,
         root_directory: document.getElementById('set-root-dir').value,
         jd_cli_path: document.getElementById('set-jd-cli').value,
         java_home: document.getElementById('set-java-home').value,
@@ -391,14 +390,11 @@ function saveSettings() {
         custom_endpoint_url: document.getElementById('set-custom-endpoint-url').value,
         custom_api_key: document.getElementById('set-custom-api-key').value,
         custom_model_name: document.getElementById('set-custom-model-name').value,
-        custom_api_version: document.getElementById('set-custom-api-version').value,
         custom_verify_ssl: document.getElementById('set-custom-verify-ssl').checked,
         custom_max_tokens: document.getElementById('set-custom-max-tokens').value,
-        output_tokens: document.getElementById('set-output-tokens').value,
         model_context: document.getElementById('set-model-context').value,
         max_steps: document.getElementById('set-max-steps').value,
-        top_k: document.getElementById('set-top-k').value,
-        min_p: document.getElementById('set-min-p').value,
+        timeout: document.getElementById('set-timeout').value,
     };
     fetch('/api/settings', {
         method: 'POST',
@@ -682,7 +678,7 @@ function runLegacyProject(projectId) {
             if (data.job_id) {
                 loadJobs();
                 updateRunButtonState(projectId, true);
-                showLiveStatus(projectId);
+                // Do not show agent live panel for legacy mode
             } else {
                 throw new Error(data.error || 'Failed to queue job');
             }
@@ -794,6 +790,7 @@ function startAgentSSE(projectId, enabledTools) {
         });
 }
 
+
 function handleAgentStatus(data, statusBox) {
     if (!statusBox) return;
     if (data.type === 'start') {
@@ -808,9 +805,20 @@ function handleAgentStatus(data, statusBox) {
         statusBox.innerHTML += `\n[ERROR] ${data.error}\n`;
         loadJobs();
         agentRunning = false;
+    } else if (data.type === 'max_steps_reached') {
+        statusBox.innerHTML += `
+[MAX STEPS REACHED] Steps: ${data.steps}/${data.max_steps}
+`;
+        // Show continue button
+        const continueBtn = document.createElement('button');
+        continueBtn.className = 'btn-sm';
+        continueBtn.textContent = 'CONTINUE AGENT';
+        continueBtn.onclick = () => continueAgentRun(currentRunningJobId);
+        statusBox.appendChild(continueBtn);
     }
     if (statusBox) statusBox.scrollTop = statusBox.scrollHeight;
 }
+
 
 function handleAgentStep(data, agentBox, statusBox) {
     if (!agentBox) return;
@@ -824,7 +832,7 @@ function handleAgentStep(data, agentBox, statusBox) {
                 <div class="step-result">${escapeHtml(resultPreview)}</div>
             `;
     agentBox.appendChild(entry);
-    if (agentBox) agentBox.scrollTop = agentBox.scrollHeight;
+    agentBox.scrollTop = agentBox.scrollHeight;
     if (statusBox) {
         statusBox.innerHTML += `[Step ${data.step}] ${data.tool}: ${ok ? '✓' : '✗'} ${resultPreview.substring(0, 80)}\n`;
         statusBox.scrollTop = statusBox.scrollHeight;
@@ -847,6 +855,64 @@ function stopProject(projectId) {
             resetRunButtons();
         })
         .catch(err => console.error('Failed to stop project:', err));
+}
+
+function continueAgentRun(jobId) {
+    if (!jobId) return;
+    agentRunning = true;
+    liveInjectActive = true;
+    fetch('/api/agent/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ job_id: jobId, continue: true })
+    })
+    .then(response => {
+        if (!response.ok) throw new Error('Failed to continue agent run');
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        function processChunk() {
+            reader.read().then(({ done, value }) => {
+                if (done || !agentRunning) {
+                    agentRunning = false;
+                    liveInjectActive = false;
+                    resetRunButtons();
+                    return;
+                }
+                buffer += decoder.decode(value, { stream: true });
+                let doubleNewlineIdx;
+                while ((doubleNewlineIdx = buffer.indexOf('\n')) !== -1) {
+                    const message = buffer.substring(0, doubleNewlineIdx);
+                    buffer = buffer.substring(doubleNewlineIdx + 2);
+                    const lines = message.split('\n');
+                    let eventType = 'message';
+                    let dataStr = '';
+                    for (const line of lines) {
+                        if (line.startsWith('event: ')) {
+                            eventType = line.substring(7).trim();
+                        } else if (line.startsWith('data: ')) {
+                            dataStr = line.substring(6);
+                        }
+                    }
+                    if (dataStr) {
+                        try {
+                            const data = JSON.parse(dataStr);
+                            if (eventType === 'status') handleAgentStatus(data, document.getElementById('live-status-box'));
+                            else if (eventType === 'step') handleAgentStep(data, document.getElementById('agent-live-box'), document.getElementById('live-status-box'));
+                        } catch (e) { console.warn('Failed to parse SSE data:', e); }
+                    }
+                }
+                processChunk();
+            });
+        }
+        processChunk();
+    })
+    .catch(err => {
+        console.error('Agent run error:', err);
+        agentRunning = false;
+        liveInjectActive = false;
+        resetRunButtons();
+    });
 }
 
 function resetRunButtons() {
