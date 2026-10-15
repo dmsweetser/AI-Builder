@@ -94,11 +94,8 @@
 
                         <label>MODE</label>
                         <select name="mode" id="add-project-mode" onchange="onAddModeChange()">
-                            <option value="oneshot">ONE-SHOT (Single Pass)</option>
                             <option value="agentic">AGENTIC (Multi-Step)</option>
                         </select>
-                        <p class="note" id="add-mode-note">One-Shot: Select files/folders to include. Agentic: Agent
-                            explores and modifies files autonomously — only root path required.</p>
 
                         <label>ROOT DIRECTORY</label>
                         <input type="text" name="rootDirectory" id="add-root-path"
@@ -162,7 +159,7 @@
                         aria-label="Back to projects list">← BACK TO
                         PROJECTS</button>
                     <h2>PROJECT - <span id="details-project-name" aria-live="polite"></span>
-                        <span id="details-mode-badge" class="mode-indicator oneshot" aria-live="polite">ONE-SHOT</span>
+                        <span id="details-mode-badge" class="mode-indicator" aria-live="polite"></span>
                     </h2>
                     <div id="project-error-display" class="error-display" role="alert" aria-live="assertive"></div>
                     <form id="project-details-form" aria-label="Project configuration form">
@@ -172,7 +169,6 @@
 
                         <label>MODE</label>
                         <select name="mode" id="details-mode" onchange="onDetailsModeChange()">
-                            <option value="oneshot">ONE-SHOT (Single Pass)</option>
                             <option value="agentic">AGENTIC (Multi-Step)</option>
                         </select>
 

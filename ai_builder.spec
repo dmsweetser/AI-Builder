@@ -6,7 +6,7 @@ Produces a single executable that:
   - Bundles all Python dependencies
   - Uses a RELATIVE ./aib_instance directory (next to the executable)
     for configs, model downloads, chat history, etc.
-  - Includes templates/, static/, oneshot_engine/, and agent_engine/
+  - Includes templates/, static/, and agent_engine/
 """
 
 import os
@@ -34,13 +34,7 @@ hidden_imports = [
     "agent_engine.tools.checkers",
     "agent_engine.tools.files",
     "agent_engine.tools.misc",
-    "agent_engine.tools.search",
-    "oneshot_engine",
-    "oneshot_engine.parser",
-    "oneshot_engine.modifier",
-    "oneshot_engine.action_manager",
-    "oneshot_engine.code_utility",
-    "oneshot_engine.engine",
+    "agent_engine.tools.search"    
 ]
 
 # Collect data files (templates, static, etc.)
@@ -50,10 +44,9 @@ for pkg_dir in ["templates", "static"]:
     if _os.path.isdir(pkg_path):
         aib_data.append((pkg_path, pkg_dir))
 
-# Also bundle oneshot_engine and agent_engine as data so they're
-# findable at runtime (they're importable as packages but PyInstaller
-# sometimes misses submodules in one-shot mode).
-for pkg_dir in ["oneshot_engine", "agent_engine"]:
+# Also bundle agent_engine as data so it is
+# findable at runtime (it is importable as a package).
+for pkg_dir in ["agent_engine"]:
     pkg_path = _os.path.join(app_dir, pkg_dir)
     if _os.path.isdir(pkg_path):
         aib_data.append((pkg_path, pkg_dir))

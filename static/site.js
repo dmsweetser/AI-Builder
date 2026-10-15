@@ -236,8 +236,8 @@ function onDetailsModeChange() {
     if (fileSelector) fileSelector.style.display = mode === 'agentic' ? 'none' : 'block';
     if (agentSettings) agentSettings.style.display = mode === 'agentic' ? 'block' : 'none';
     if (modeBadge) {
-        modeBadge.className = `mode-indicator ${mode === 'agentic' ? 'agentic' : 'oneshot'}`;
-        modeBadge.textContent = mode === 'agentic' ? 'AGENTIC' : 'ONE-SHOT';
+        modeBadge.className = `mode-indicator ${mode === 'agentic' ? 'agentic' : ''}`;
+        modeBadge.textContent = mode === 'agentic' ? 'AGENTIC' : '';
     }
     if (mode === 'agentic') {
         buildToolSelector([]);
@@ -596,7 +596,7 @@ function loadProjects() {
                 projectItem.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectProject(project.id); } };
                 const modeBadge = project.mode === 'agentic'
                     ? '<span class="mode-indicator agentic">AGENTIC</span>'
-                    : '<span class="mode-indicator oneshot">ONE-SHOT</span>';
+                    : '';
                 const archiveBtnText = project.isArchived ? 'UNARCHIVE' : 'ARCHIVE';
                 const archiveBtnAction = project.isArchived ? `unarchiveProject('${project.id}')` : `archiveProject('${project.id}')`;
                 projectItem.innerHTML = `
@@ -1011,15 +1011,15 @@ function selectProject(projectId) {
             if (nameFormEl) nameFormEl.value = project.name || '';
             const fileListContainer = document.getElementById('details-file-tree-container');
             if (fileListContainer) fileListContainer.innerHTML = '';
-            const mode = project.mode || 'oneshot';
+            const mode = project.mode || 'agentic';
             const modeSelect = document.getElementById('details-mode');
             const modeInput = document.getElementById('details-mode-input');
             const modeBadge = document.getElementById('details-mode-badge');
             if (modeSelect) modeSelect.value = mode;
             if (modeInput) modeInput.value = mode;
             if (modeBadge) {
-                modeBadge.className = `mode-indicator ${mode === 'agentic' ? 'agentic' : 'oneshot'}`;
-                modeBadge.textContent = mode === 'agentic' ? 'AGENTIC' : 'ONE-SHOT';
+                modeBadge.className = `mode-indicator ${mode === 'agentic' ? 'agentic' : ''}`;
+                modeBadge.textContent = mode === 'agentic' ? 'AGENTIC' : '';
             }
             const fileSelector = document.getElementById('details-file-selector');
             const agentSettings = document.getElementById('details-agent-settings');

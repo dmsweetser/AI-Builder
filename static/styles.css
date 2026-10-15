@@ -944,11 +944,6 @@ button:disabled {
     color: #fff;
 }
 
-.mode-indicator.oneshot {
-    background: #444;
-    color: #aaa;
-}
-
 /* Tool selector grid */
 .tool-selector-grid {
     display: grid;

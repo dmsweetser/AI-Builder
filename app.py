@@ -30,8 +30,6 @@ def _get_app_dir():
 import sys
 _app_dir = _get_app_dir()
 
-from oneshot_engine import AIBuilder
-from oneshot_engine.engine import run_with_agent_engine
 from agent_engine import AgentEngine, EngineConfig, ToolResult
 from config import Config
 
@@ -294,25 +292,13 @@ def api_create_project():
     if not name:
         return jsonify({"error": "Project name is required"}), 400
 
-    mode = request.form.get("mode", "oneshot")
+    mode = request.form.get("mode", "agentic")
     root_directory = request.form.get("rootDirectory", "")
     if not root_directory:
         return jsonify({"error": "Root directory is required"}), 400
 
-    # For oneshot mode, require include patterns
-    if mode == "oneshot":
-        include_patterns = request.form.get("includePatterns", "")
-        if not include_patterns:
-            return jsonify({"error": "At least one include pattern is required for One-Shot mode"}), 400
-        patterns = [p.strip() for p in include_patterns.split(",") if p.strip()]
-        has_absolute = any(os.path.isabs(p) for p in patterns)
-        has_relative = any(not os.path.isabs(p) for p in patterns)
-        if has_relative and not root_directory and not has_absolute:
-            return jsonify({"error": "rootDirectory is required if includePatterns contain relative paths and no absolute paths"}), 400
-    else:
-        # Agentic mode: root directory is sufficient
-        include_patterns = ""
-        patterns = []
+    # Agentic mode: root directory is sufficient
+    include_patterns = ""
 
     project = {
         "id": pid,
@@ -337,23 +323,12 @@ def api_update_project(pid):
     if not project:
         return jsonify({"error": "Project not found"}), 404
 
-    mode = request.form.get("mode", project.get("mode", "oneshot"))
+    mode = request.form.get("mode", project.get("mode", "agentic"))
     root_directory = request.form.get("rootDirectory", project.get("rootDirectory", ""))
     if not root_directory:
         return jsonify({"error": "Root directory is required"}), 400
 
-    # For oneshot mode, require include patterns
-    if mode == "oneshot":
-        include_patterns = request.form.get("includePatterns", project.get("includePatterns", ""))
-        if not include_patterns:
-            return jsonify({"error": "At least one include pattern is required for One-Shot mode"}), 400
-        patterns = [p.strip() for p in include_patterns.split(",") if p.strip()]
-        has_absolute = any(os.path.isabs(p) for p in patterns)
-        has_relative = any(not os.path.isabs(p) for p in patterns)
-        if has_relative and not root_directory and not has_absolute:
-            return jsonify({"error": "rootDirectory is required if includePatterns contain relative paths and no absolute paths"}), 400
-    else:
-        include_patterns = project.get("includePatterns", "")
+    include_patterns = project.get("includePatterns", "")
 
     project.update({
         "name": request.form.get("name", project["name"]),

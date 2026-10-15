@@ -1,6 +1,6 @@
 # AI Builder
 
-AI Builder is an agentic code revision engine that automates software development tasks through multi-step planning, tool execution, and autonomous code modification. It supports both a legacy one-shot mode and a modern agentic mode that iteratively explores, modifies, and verifies codebases.
+AI Builder is an agentic code revision engine that automates software development tasks through multi-step planning, tool execution, and autonomous code modification. It supports a modern agentic mode that iteratively explores, modifies, and verifies codebases.
 
 ## Features
 
@@ -88,16 +88,10 @@ API endpoints are available at `/api/...`. Use `curl` or Postman to interact wit
    - Verify syntax and fix errors.
    - Return a summary of changes.
 
-### Legacy Mode
-1. Create a project with mode set to `oneshot`.
-2. Specify file patterns to include/exclude.
-3. Run the project. The engine collects code, prompts the LLM, and applies changes in a single pass.
-
 ## Architecture
 
 ### Core Components
 - **`agent_engine/`**: Agentic multi-step engine, tool registry, security helpers, and configuration.
-- **`oneshot_engine/`**: Legacy single-pass engine, code collection, modification parser, and action manager.
 - **`app.py`**: Flask web server, API routes, job queue, and settings management.
 - **`static/`**: Frontend JavaScript and CSS.
 - **`templates/`**: HTML templates for the web UI.
