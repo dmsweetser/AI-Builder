@@ -75,8 +75,6 @@ def _load_settings_unlocked():
     loaded.setdefault('custom_api_key', os.getenv("CUSTOM_API_KEY", ""))
     loaded.setdefault('custom_model_name', os.getenv("CUSTOM_MODEL_NAME", ""))
     loaded.setdefault('custom_verify_ssl', os.getenv("CUSTOM_VERIFY_SSL", "false").lower() == "true")
-    loaded.setdefault('custom_max_tokens', int(os.getenv("CUSTOM_MAX_TOKENS", "131072")))
-    loaded.setdefault('model_context', int(os.getenv("MODEL_CONTEXT", "262144")))
     loaded.setdefault('max_steps', int(os.getenv("AIB_MAX_STEPS", "50")))
     loaded.setdefault('timeout', int(os.getenv("CUSTOM_TIMEOUT", "3600")))
     loaded.setdefault('root_directory', os.getenv("ROOT_DIRECTORY", ""))
@@ -114,7 +112,6 @@ def save_settings(settings):
 def apply_settings_to_env():
     """Apply settings to environment variables for engine config."""
     s = load_settings()
-    os.environ["MODEL_CONTEXT"] = str(s.get('model_context', 262144))
     os.environ["AIB_MAX_STEPS"] = str(s.get('max_steps', 50))
     os.environ["CUSTOM_TIMEOUT"] = str(s.get('timeout', 3600))
     if s.get('root_directory'):
@@ -133,7 +130,6 @@ def apply_settings_to_env():
     if s.get('custom_model_name'):
         os.environ["CUSTOM_MODEL_NAME"] = s['custom_model_name']
     os.environ["CUSTOM_VERIFY_SSL"] = str(s.get('custom_verify_ssl', False)).lower()
-    os.environ["CUSTOM_MAX_TOKENS"] = str(s.get('custom_max_tokens', 131072))
 
 
 # --- Initialization ---
@@ -572,7 +568,6 @@ def api_send_message(chat_id):
                 payload = {
                     "model": model_name,
                     "messages": openai_messages,
-                    "max_tokens": Config.get_custom_max_tokens(),
                     "stream": True,
                 }
                 headers = {"Content-Type": "application/json"}
@@ -744,7 +739,6 @@ def api_agent_run():
     os.environ["CUSTOM_API_KEY"] = os.getenv("CUSTOM_API_KEY", "")
     os.environ["CUSTOM_MODEL_NAME"] = os.getenv("CUSTOM_MODEL_NAME", "")
     os.environ["CUSTOM_VERIFY_SSL"] = os.getenv("CUSTOM_VERIFY_SSL", "false")
-    os.environ["CUSTOM_MAX_TOKENS"] = os.getenv("CUSTOM_MAX_TOKENS", "131072")
     os.environ["CUSTOM_TIMEOUT"] = os.getenv("CUSTOM_TIMEOUT", "3600")
 
     def generate():

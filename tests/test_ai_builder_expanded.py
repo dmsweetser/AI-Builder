@@ -51,9 +51,7 @@ class TestAgentEngineE2E(unittest.TestCase):
             'CUSTOM_ENDPOINT_URL': 'http://localhost:11434/v1',
             'CUSTOM_MODEL_NAME': 'test-model',
             'CUSTOM_API_KEY': '',
-            'CUSTOM_API_VERSION': 'v1',
             'CUSTOM_VERIFY_SSL': 'false',
-            'CUSTOM_MAX_TOKENS': '8192',
             'AIB_MAX_STEPS': '10',
         })
         self.env_patch.start()

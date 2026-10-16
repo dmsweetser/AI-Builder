@@ -48,7 +48,6 @@ class LLMClient:
         payload = {
             "model": model_name,
             "messages": openai_messages,
-            "max_tokens": EngineConfig.get_custom_max_tokens(),
             "stream": True,
         }
 

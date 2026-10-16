@@ -36,10 +36,6 @@ class EngineConfig:
         return os.getenv("CUSTOM_VERIFY_SSL", "false").lower() == "true"
 
     @staticmethod
-    def get_custom_max_tokens() -> int:
-        return int(os.getenv("CUSTOM_MAX_TOKENS", "8192"))
-
-    @staticmethod
     def get_timeout() -> int:
         return int(os.getenv("CUSTOM_TIMEOUT", "300"))
 

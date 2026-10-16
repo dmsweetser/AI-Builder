@@ -369,8 +369,6 @@ function loadSettingsUI() {
             set('set-custom-api-key', settings.custom_api_key || '');
             set('set-custom-model-name', settings.custom_model_name || '');
             set('set-custom-verify-ssl', settings.custom_verify_ssl ?? 'false');
-            set('set-custom-max-tokens', settings.custom_max_tokens ?? '131072');
-            set('set-model-context', settings.model_context ?? '262144');
             set('set-max-steps', settings.max_steps ?? '50');
             set('set-timeout', settings.timeout ?? '3600');
             set('set-root-dir', settings.root_directory || '');
@@ -391,8 +389,6 @@ function saveSettings() {
         custom_api_key: document.getElementById('set-custom-api-key').value,
         custom_model_name: document.getElementById('set-custom-model-name').value,
         custom_verify_ssl: document.getElementById('set-custom-verify-ssl').checked,
-        custom_max_tokens: document.getElementById('set-custom-max-tokens').value,
-        model_context: document.getElementById('set-model-context').value,
         max_steps: document.getElementById('set-max-steps').value,
         timeout: document.getElementById('set-timeout').value,
     };
