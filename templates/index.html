@@ -120,56 +120,12 @@
                     <form id="project-details-form" aria-label="Project configuration form">
                         <input type="hidden" name="name" id="details-project-name-form">
                         <input type="hidden" name="id" id="run-project-id">
-                        <input type="hidden" name="mode" id="details-mode-input">
-
-                        <label>MODE</label>
-                        <select name="mode" id="details-mode" onchange="onDetailsModeChange()">
-                            <option value="agentic">AGENTIC (Multi-Step)</option>
-                        </select>
+                        <input type="hidden" name="mode" id="details-mode-input" value="agentic">
 
                         <div>
                             <label>ROOT DIRECTORY</label>
                             <input name="rootDirectory" id="details-root-dir" onchange="confirmDetailsRootPathChange()"
                                 required>
-                        </div>
-
-                        <div id="details-file-selector" style="margin-top:15px;">
-                            <label>INCLUDED FILES/FOLDERS</label>
-                            <div class="selector-controls">
-                                <button type="button" id="details-load-tree-btn" onclick="loadDetailsFileTree()">
-                                    <span id="details-load-tree-text">LOAD TREE</span>
-                                    <span id="details-load-tree-spinner" class="spinner" style="display: none;"></span>
-                                </button>
-                                <button type="button" onclick="detailsSelectAll()">SELECT ALL</button>
-                                <button type="button" onclick="detailsDeselectAll()">DESELECT ALL</button>
-                                <div class="sort-controls">
-                                    <button type="button" onclick="setDetailsSortMode('name')" class="btn-sm"
-                                        id="details-sort-name-btn">SORT: NAME</button>
-                                    <button type="button" onclick="setDetailsSortMode('size')" class="btn-sm"
-                                        id="details-sort-size-btn">SORT: SIZE</button>
-                                </div>
-                                <label style="display: flex; align-items: center; gap: 5px; margin: 0; width:200px;">
-                                    <input type="checkbox" id="details-show-selected-only" style="width:50px;"
-                                        onchange="detailsFilterTree()">
-                                    <span style="font-size: 11px;">SHOW SELECTED ONLY</span>
-                                </label>
-                            </div>
-                            <input type="text" id="details-tree-search"
-                                placeholder="Search (comma=OR, !=exclude, e.g., 'main,test,!venv')..."
-                                oninput="detailsFilterTree()">
-                            <div id="details-file-tree-container"
-                                style="max-height: 400px; overflow-y: auto; position: relative;">
-                                <div id="details-file-tree-loading-overlay" class="file-tree-overlay">PROCESSING...
-                                </div>
-                            </div>
-                            <div id="details-file-tree-pagination" style="margin: 10px 0;"></div>
-                            <label>SELECTED PATHS</label>
-                            <div class="selected-paths-list" id="details-selected-paths-container"></div>
-                            <div class="flex-row">
-                                <input type="text" id="details-new-path-input" placeholder="Add file path...">
-                                <button type="button" onclick="detailsAddNewPath()" class="btn-sm">ADD</button>
-                            </div>
-                            <input type="hidden" name="includePatterns" id="details-patterns-input">
                         </div>
 
                         <div>
