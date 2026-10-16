@@ -203,16 +203,12 @@ def worker():
 
         try:
             if project:
-                project_mode = project.get("mode")
-                use_agent = (project_mode == "agentic") if project_mode else False
-                if use_agent:
-                    # Use the new multi-step agentic engine
-                    result = run_with_agent_engine(project)
-                    job_history[-1]["status"] = result.get("status", "completed")
-                    job_history[-1]["summary"] = result.get("summary", "")
-                    job_history[-1]["steps"] = result.get("steps", 0)
-                    if result.get("status") == "error":
-                        job_history[-1]["error"] = result.get("error", "Unknown error")
+                result = run_with_agent_engine(project)
+                job_history[-1]["status"] = result.get("status", "completed")
+                job_history[-1]["summary"] = result.get("summary", "")
+                job_history[-1]["steps"] = result.get("steps", 0)
+                if result.get("status") == "error":
+                    job_history[-1]["error"] = result.get("error", "Unknown error")
             else:
                 job_history[-1]["status"] = "error"
                 job_history[-1]["error"] = "Project not found"
@@ -298,8 +294,6 @@ def api_get_project(pid):
     if not project:
         return jsonify({"error": "Project not found"}), 404
     project.pop("modelConfig", None)
-    if not isinstance(project.get("includePatterns"), str):
-        project["includePatterns"] = ""
     return jsonify(project)
 
 @app.route("/api/projects", methods=["POST"])
@@ -311,25 +305,19 @@ def api_create_project():
     if not name:
         return jsonify({"error": "Project name is required"}), 400
 
-    mode = request.form.get("mode", "agentic")
     root_directory = request.form.get("rootDirectory", "")
     if not root_directory:
         return jsonify({"error": "Root directory is required"}), 400
 
-    # Agentic mode: root directory is sufficient
-    include_patterns = ""
-
     project = {
         "id": pid,
         "name": name,
-        "mode": mode,
         "rootDirectory": root_directory,
-        "includePatterns": include_patterns,
-        "excludePatterns": request.form.get("excludePatterns", ""),
-        "iterations": 1,
         "instructions": request.form.get("instructions", ""),
+        "preScript": request.form.get("preScript", ""),
+        "postScript": request.form.get("postScript", ""),
         "isArchived": False,
-        "enabled_tools": []  # Will be set when running in agentic mode
+        "enabled_tools": []
     }
 
     projects.append(project)
@@ -342,21 +330,16 @@ def api_update_project(pid):
     if not project:
         return jsonify({"error": "Project not found"}), 404
 
-    mode = request.form.get("mode", project.get("mode", "agentic"))
     root_directory = request.form.get("rootDirectory", project.get("rootDirectory", ""))
     if not root_directory:
         return jsonify({"error": "Root directory is required"}), 400
 
-    include_patterns = project.get("includePatterns", "")
-
     project.update({
         "name": request.form.get("name", project["name"]),
-        "mode": mode,
         "rootDirectory": root_directory,
-        "includePatterns": include_patterns,
-        "excludePatterns": request.form.get("excludePatterns", project.get("excludePatterns", "")),
-        "iterations": 1,
         "instructions": request.form.get("instructions", project.get("instructions", "")),
+        "preScript": request.form.get("preScript", project.get("preScript", "")),
+        "postScript": request.form.get("postScript", project.get("postScript", "")),
     })
 
     save_projects(projects)
@@ -416,27 +399,6 @@ def api_add_to_queue():
     project, _ = get_project(pid)
     if not project:
         return jsonify({"error": "Project not found"}), 404
-
-    # Agentic mode doesn't need include patterns
-    if project.get("mode") != "agentic":
-        if not project.get("includePatterns"):
-            return jsonify({"error": "No includePatterns specified"}), 400
-
-        include_patterns = [p.strip() for p in project["includePatterns"].split(",") if p.strip()]
-        has_absolute = any(os.path.isabs(p) for p in include_patterns)
-        has_relative = any(not os.path.isabs(p) for p in include_patterns)
-
-        if has_relative and not project.get("rootDirectory") and not has_absolute:
-            return jsonify({"error": "rootDirectory required if includePatterns contain relative paths and no absolute paths"}), 400
-
-        root_dir = project.get("rootDirectory", "")
-        if root_dir and os.path.isdir(root_dir):
-            all_files_pattern = any(p.strip() in (".", "./", "") for p in include_patterns)
-            if all_files_pattern and not project.get("excludePatterns"):
-                return jsonify({
-                    "error": "Pattern includes entire directory without exclusion filters. This is not allowed for safety reasons.",
-                    "suggestion": "Add specific file patterns or exclusion patterns to limit the scope."
-                }), 400
 
     job_id = str(int(time.time() * 1000))
     output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aib_instance", "output", job_id)
@@ -513,63 +475,6 @@ def api_clear_history():
         job_history.clear()
         save_job_history()
     return jsonify({"status": "cleared"})
-
-# --- Routes: Files ---
-@app.route("/api/files", methods=["GET"])
-def api_files():
-    path = request.args.get("path", ".")
-    search = request.args.get("search", "").lower()
-    limit = int(request.args.get("limit", 50))
-    offset = int(request.args.get("offset", 0))
-
-    try:
-        base_dir = os.path.dirname(os.path.abspath(__file__))
-        if not os.path.isabs(path):
-            path = os.path.abspath(os.path.join(base_dir, path))
-        path = os.path.normpath(path)
-
-        # Security: Block access to sensitive directories
-        blocked_prefixes = [
-            '/etc', '/usr', '/var', '/bin', '/sbin', '/lib', '/dev',
-            'C:\\\\Windows', 'C:\\\\Program Files', 'C:\\\\ProgramData'
-        ]
-        if any(path.startswith(prefix) for prefix in blocked_prefixes):
-            return jsonify({"error": "Access to system directories is not allowed"}), 403
-
-        if not os.path.exists(path):
-            return jsonify({"error": f"Path does not exist: {path}"}), 400
-
-        all_paths = []
-        for root, dirs, files in os.walk(path):
-            rel_root = os.path.relpath(root, path)
-            if rel_root == ".":
-                rel_root = ""
-            for f in files:
-                rel_path = os.path.join(rel_root, f) if rel_root else f
-                if search:
-                    criteria = [c.strip() for c in search.split(',') if c.strip()]
-                    pos_pats = [c for c in criteria if not c.startswith('!')]
-                    neg_pats = [c[1:].strip() for c in criteria if c.startswith('!')]
-
-                    has_positive_match = any(re.search(re.escape(p).replace(r'\*', '.*'), rel_path, re.IGNORECASE) for p in pos_pats)
-                    has_negative_match = any(re.search(re.escape(p).replace(r'\*', '.*'), rel_path, re.IGNORECASE) for p in neg_pats)
-
-                    if pos_pats and not has_positive_match:
-                        continue
-                    if has_negative_match:
-                        continue
-                try:
-                    file_size = os.path.getsize(os.path.join(root, f))
-                    all_paths.append({"path": rel_path, "size": file_size})
-                except (OSError, PermissionError):
-                    continue
-
-        all_paths.sort(key=lambda x: x["path"])
-        total = len(all_paths)
-        paginated = all_paths[offset:offset + limit]
-        return jsonify({"files": paginated, "total": total, "offset": offset, "limit": limit})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 400
 
 # --- Routes: Chat ---
 @app.route("/api/chats", methods=["GET"])

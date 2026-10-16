@@ -638,55 +638,22 @@ function loadProjects() {
 }
 
 function runProject(projectId) {
-    // First check _loadedProjects cache
     let project = getProjectById(projectId);
-    // If not found in cache, try to fetch it directly from the API
     if (!project) {
         fetch(`/api/projects/${projectId}`)
             .then(r => r.json())
             .then(data => {
                 if (data.error) { alert('Project not found'); return; }
-                // Cache it for future lookups
                 _loadedProjects = _loadedProjects || [];
                 if (!_loadedProjects.find(p => p.id === projectId)) {
                     _loadedProjects.push(data);
                 }
-                if (data.mode === 'agentic') {
-                    runAgenticProject(projectId);
-                } else {
-                    runLegacyProject(projectId);
-                }
+                runAgenticProject(projectId);
             })
             .catch(err => { console.error('Failed to fetch project:', err); alert('Failed to load project details'); });
         return;
     }
-    if (project.mode === 'agentic') {
-        runAgenticProject(projectId);
-    } else {
-        runLegacyProject(projectId);
-    }
-}
-
-function runLegacyProject(projectId) {
-    fetch('/api/queue', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ project_id: projectId })
-    })
-        .then(response => response.json())
-        .then(data => {
-            if (data.job_id) {
-                loadJobs();
-                updateRunButtonState(projectId, true);
-                // Do not show agent live panel for legacy mode
-            } else {
-                throw new Error(data.error || 'Failed to queue job');
-            }
-        })
-        .catch(error => {
-            console.error('Error running project:', error);
-            alert(error.message);
-        });
+    runAgenticProject(projectId);
 }
 
 function runAgenticProject(projectId) {
@@ -837,8 +804,6 @@ function handleAgentStep(data, agentBox, statusBox) {
         statusBox.innerHTML += `[Step ${data.step}] ${data.tool}: ${ok ? '✓' : '✗'} ${resultPreview.substring(0, 80)}\n`;
         statusBox.scrollTop = statusBox.scrollHeight;
     }
-    // Also update the job history steps list in real-time
-    pollAgentSteps();
 }
 
 function stopProject(projectId) {
@@ -988,7 +953,6 @@ function selectProject(projectId) {
     const detailsPanel = document.getElementById('project-details-panel');
     if (projectsPanel) { projectsPanel.classList.add('hidden'); projectsPanel.classList.remove('active'); }
     if (detailsPanel) { detailsPanel.classList.remove('hidden'); detailsPanel.classList.add('active'); }
-    // Hide all other panels to prevent overlap
     document.querySelectorAll('.panel').forEach(p => {
         if (p.id !== 'projects-panel' && p.id !== 'project-details-panel') {
             p.classList.add('hidden');
@@ -998,7 +962,6 @@ function selectProject(projectId) {
     fetch(`/api/projects/${projectId}`)
         .then(response => response.json())
         .then(project => {
-            // Cache in _loadedProjects so runProject can find it
             if (!_loadedProjects) _loadedProjects = [];
             const idx = _loadedProjects.findIndex(p => p.id === projectId);
             if (idx === -1) _loadedProjects.push(project);
@@ -1009,37 +972,14 @@ function selectProject(projectId) {
             if (nameEl) nameEl.textContent = escapeHtml(project.name || 'Untitled');
             const nameFormEl = document.getElementById('details-project-name-form');
             if (nameFormEl) nameFormEl.value = project.name || '';
-            const fileListContainer = document.getElementById('details-file-tree-container');
-            if (fileListContainer) fileListContainer.innerHTML = '';
-            const mode = project.mode || 'agentic';
-            const modeSelect = document.getElementById('details-mode');
-            const modeInput = document.getElementById('details-mode-input');
-            const modeBadge = document.getElementById('details-mode-badge');
-            if (modeSelect) modeSelect.value = mode;
-            if (modeInput) modeInput.value = mode;
-            if (modeBadge) {
-                modeBadge.className = `mode-indicator ${mode === 'agentic' ? 'agentic' : ''}`;
-                modeBadge.textContent = mode === 'agentic' ? 'AGENTIC' : '';
-            }
-            const fileSelector = document.getElementById('details-file-selector');
             const agentSettings = document.getElementById('details-agent-settings');
-            if (fileSelector) fileSelector.style.display = mode === 'agentic' ? 'none' : 'block';
-            if (agentSettings) agentSettings.style.display = mode === 'agentic' ? 'block' : 'none';
+            if (agentSettings) agentSettings.style.display = 'block';
             const rootDir = project.rootDirectory || '';
             safeSet('details-root-dir', rootDir);
-            const patterns = project.includePatterns ? project.includePatterns.split(',').map(p => p.trim()) : [];
-            const container = document.getElementById('details-selected-paths-container');
-            if (container) {
-                container.innerHTML = '';
-                patterns.forEach(path => { if (path) addPathToDetailsList(path); });
-            }
-            updateDetailsPatternsInput();
             safeSet('details-instructions', project.instructions || '');
             safeSet('details-pre-script', project.preScript || '');
             safeSet('details-post-script', project.postScript || '');
-            safeSet('details-exclude-patterns', project.excludePatterns || '');
-            if (mode === 'agentic') buildToolSelector(project.enabled_tools || []);
-            loadDetailsFileTree();
+            buildToolSelector(project.enabled_tools || []);
             loadJobs();
         })
         .catch(err => console.error('Failed to load project details:', err));
@@ -1063,242 +1003,6 @@ function goBackToProjects() {
     currentProjectId = null;
     loadProjects();
 }
-
-// === File Tree Management ===
-function loadFileTree(isSearch = false) {
-    if (isSearch) fileTreePage = 0;
-    const rootPath = document.getElementById('add-root-path')?.value;
-    if (!rootPath) { alert('Please enter a root directory first'); return; }
-    fileTreePath = rootPath;
-    fileTreeSearch = document.getElementById('tree-search').value.toLowerCase();
-    const loadTreeBtn = document.getElementById('load-tree-btn');
-    const loadTreeText = document.getElementById('load-tree-text');
-    const loadTreeSpinner = document.getElementById('load-tree-spinner');
-    const container = document.getElementById('file-tree-container');
-    const paginationDiv = document.getElementById('file-tree-pagination');
-    if (loadTreeBtn) loadTreeBtn.disabled = true;
-    if (loadTreeText) loadTreeText.style.display = 'none';
-    if (loadTreeSpinner) loadTreeSpinner.style.display = 'inline-block';
-    if (container) container.innerHTML = '<span class="spinner" style="display:inline-block; margin:10px;"></span><span style="margin-left: 10px;">Loading files...</span>';
-    if (paginationDiv) paginationDiv.innerHTML = '';
-    const pathToUse = fileTreePath.startsWith('/') || fileTreePath.match(/^[a-zA-Z]:\\\\/) ? fileTreePath : `./${fileTreePath}`;
-    fetch(`/api/files?path=${encodeURIComponent(pathToUse)}&limit=50&offset=${fileTreePage * 50}&search=${encodeURIComponent(fileTreeSearch)}`)
-        .then(response => response.json())
-        .then(data => {
-            if (!container) return;
-            container.innerHTML = '';
-            let paths = data.files || [];
-            fileTreeTotal = data.total || 0;
-            const showSelectedOnly = document.getElementById('show-selected-only-new')?.checked;
-            if (showSelectedOnly) {
-                const selectedPaths = Array.from(document.querySelectorAll('#selected-paths-container .path-item')).map(el => el.dataset.path);
-                paths = paths.filter(p => selectedPaths.includes(p.path));
-                fileTreeTotal = paths.length;
-            }
-            const currentPaths = Array.from(document.querySelectorAll('#selected-paths-container .path-item')).map(el => el.dataset.path);
-            paths.forEach(item => {
-                const isDir = item.path.endsWith('/');
-                const itemElement = document.createElement('div');
-                itemElement.className = `tree-item ${isDir ? 'dir' : 'file'}`;
-                itemElement.style.cursor = 'pointer';
-                itemElement.style.padding = '5px 0';
-                const checkbox = document.createElement('input');
-                checkbox.type = 'checkbox';
-                checkbox.checked = currentPaths.includes(item.path);
-                checkbox.onchange = () => updateSelectedPatterns();
-                checkbox.dataset.path = item.path;
-                checkbox.style.width = '10%';
-                const label = document.createElement('label');
-                label.textContent = item.path;
-                label.style.marginLeft = '5px';
-                label.style.display = 'inline-block';
-                const sizeLabel = document.createElement('span');
-                sizeLabel.textContent = ` (${formatSize(item.size)})`;
-                sizeLabel.style.color = '#888';
-                sizeLabel.style.fontSize = '11px';
-                label.appendChild(sizeLabel);
-                itemElement.appendChild(checkbox);
-                itemElement.appendChild(label);
-                itemElement.onclick = (e) => { if (e.target !== checkbox) { checkbox.checked = !checkbox.checked; checkbox.onchange(); } };
-                container.appendChild(itemElement);
-            });
-            updateSelectedPatterns();
-            if (loadTreeBtn) loadTreeBtn.disabled = false;
-            if (loadTreeText) loadTreeText.style.display = 'inline';
-            if (loadTreeSpinner) loadTreeSpinner.style.display = 'none';
-            if (paginationDiv) renderPagination(paginationDiv, fileTreePage, fileTreeTotal, 50, loadFileTree, false);
-        })
-        .catch(err => {
-            console.error('Failed to load file tree:', err);
-            if (loadTreeBtn) loadTreeBtn.disabled = false;
-            if (loadTreeText) loadTreeText.style.display = 'inline';
-            if (loadTreeSpinner) loadTreeSpinner.style.display = 'none';
-            if (container) container.innerHTML = '<div class="note warning">Failed to load files. Check path and try again.</div>';
-        });
-}
-
-function loadDetailsFileTree(isSearch = false) {
-    if (isSearch) detailsFileTreePage = 0;
-    const rootPath = document.getElementById('details-root-dir')?.value;
-    if (!rootPath) { alert('Please enter a root directory first'); return; }
-    detailsFileTreePath = rootPath;
-    detailsFileTreeSearch = document.getElementById('details-tree-search').value.toLowerCase();
-    const loadTreeBtn = document.getElementById('details-load-tree-btn');
-    const loadTreeText = document.getElementById('details-load-tree-text');
-    const loadTreeSpinner = document.getElementById('details-load-tree-spinner');
-    const container = document.getElementById('details-file-tree-container');
-    const paginationDiv = document.getElementById('details-file-tree-pagination');
-    if (loadTreeBtn) loadTreeBtn.disabled = true;
-    if (loadTreeText) loadTreeText.style.display = 'none';
-    if (loadTreeSpinner) loadTreeSpinner.style.display = 'inline-block';
-    if (container) container.innerHTML = '<span class="spinner" style="display:inline-block; margin:10px;"></span><span style="margin-left: 10px;">Loading files...</span>';
-    if (paginationDiv) paginationDiv.innerHTML = '';
-    const pathToUse = detailsFileTreePath.startsWith('/') || detailsFileTreePath.match(/^[a-zA-Z]:\\\\/) ? detailsFileTreePath : `./${detailsFileTreePath}`;
-    fetch(`/api/files?path=${encodeURIComponent(pathToUse)}&limit=50&offset=${detailsFileTreePage * 50}&search=${encodeURIComponent(detailsFileTreeSearch)}`)
-        .then(response => response.json())
-        .then(data => {
-            if (!container) return;
-            container.innerHTML = '';
-            let paths = data.files || [];
-            detailsFileTreeTotal = data.total || 0;
-            const showSelectedOnly = document.getElementById('details-show-selected-only')?.checked;
-            if (showSelectedOnly) {
-                const selectedPaths = Array.from(document.querySelectorAll('#details-selected-paths-container .path-item')).map(el => el.dataset.path);
-                paths = paths.filter(p => selectedPaths.includes(p.path));
-                detailsFileTreeTotal = paths.length;
-            }
-            const currentPaths = Array.from(document.querySelectorAll('#details-selected-paths-container .path-item')).map(el => el.dataset.path);
-            paths.forEach(item => {
-                const isDir = item.path.endsWith('/');
-                const itemElement = document.createElement('div');
-                itemElement.className = `tree-item ${isDir ? 'dir' : 'file'}`;
-                itemElement.style.cursor = 'pointer';
-                itemElement.style.padding = '5px 0';
-                const checkbox = document.createElement('input');
-                checkbox.type = 'checkbox';
-                checkbox.checked = currentPaths.includes(item.path);
-                checkbox.onchange = () => detailsUpdateSelectedPatterns();
-                checkbox.dataset.path = item.path;
-                checkbox.style.width = '10%';
-                const label = document.createElement('label');
-                label.textContent = item.path;
-                label.style.marginLeft = '5px';
-                label.style.display = 'inline-block';
-                const sizeLabel = document.createElement('span');
-                sizeLabel.textContent = ` (${formatSize(item.size)})`;
-                sizeLabel.style.color = '#888';
-                sizeLabel.style.fontSize = '11px';
-                label.appendChild(sizeLabel);
-                itemElement.appendChild(checkbox);
-                itemElement.appendChild(label);
-                itemElement.onclick = (e) => { if (e.target !== checkbox) { checkbox.checked = !checkbox.checked; checkbox.onchange(); } };
-                container.appendChild(itemElement);
-            });
-            detailsUpdateSelectedPatterns();
-            if (loadTreeBtn) loadTreeBtn.disabled = false;
-            if (loadTreeText) loadTreeText.style.display = 'inline';
-            if (loadTreeSpinner) loadTreeSpinner.style.display = 'none';
-            if (paginationDiv) renderPagination(paginationDiv, detailsFileTreePage, detailsFileTreeTotal, 50, loadDetailsFileTree, true);
-        })
-        .catch(err => {
-            console.error('Failed to load details file tree:', err);
-            if (loadTreeBtn) loadTreeBtn.disabled = false;
-            if (loadTreeText) loadTreeText.style.display = 'inline';
-            if (loadTreeSpinner) loadTreeSpinner.style.display = 'none';
-            if (container) container.innerHTML = '<div class="note warning">Failed to load files. Check path and try again.</div>';
-        });
-}
-
-function renderPagination(container, currentPage, total, limit, callback, isDetails = false) {
-    const totalPages = Math.ceil(total / limit);
-    if (totalPages <= 1) return;
-    const pageVar = isDetails ? 'detailsFileTreePage' : 'fileTreePage';
-    container.innerHTML = `
-                <div style="display:flex; justify-content:center; gap:10px; margin-top:10px;">
-                    <button class="btn-sm" onclick="event.stopPropagation(); ${pageVar} = Math.max(0, ${pageVar} - 1); ${callback.name}(false)"
-                            ${currentPage === 0 ? 'disabled' : ''}>PREV</button>
-                    <span style="align-self:center;">Page ${currentPage + 1} of ${totalPages} (${total} files)</span>
-                    <button class="btn-sm" onclick="event.stopPropagation(); ${pageVar} = Math.min(${totalPages - 1}, ${pageVar} + 1); ${callback.name}(false)"
-                            ${currentPage >= totalPages - 1 ? 'disabled' : ''}>NEXT</button>
-                </div>
-            `;
-}
-
-function selectAll() {
-    showTreeOverlay('file-tree');
-    const checkboxes = document.querySelectorAll('#file-tree-container input[type="checkbox"]');
-    const container = document.getElementById('selected-paths-container');
-    const currentPaths = new Set(Array.from(container.querySelectorAll('.path-item')).map(el => el.dataset.path));
-    checkboxes.forEach(cb => {
-        cb.checked = true;
-        if (!currentPaths.has(cb.dataset.path)) {
-            addPathToList(cb.dataset.path);
-        }
-    });
-    updateSelectedPatterns();
-    hideTreeOverlay('file-tree');
-}
-
-function deselectAll() {
-    showTreeOverlay('file-tree');
-    document.querySelectorAll('#file-tree-container input[type="checkbox"]').forEach(cb => { cb.checked = false; });
-    updateSelectedPatterns();
-    hideTreeOverlay('file-tree');
-}
-
-function detailsSelectAll() {
-    showTreeOverlay('details-file-tree');
-    const checkboxes = document.querySelectorAll('#details-file-tree-container input[type="checkbox"]');
-    const container = document.getElementById('details-selected-paths-container');
-    const currentPaths = new Set(Array.from(container.querySelectorAll('.path-item')).map(el => el.dataset.path));
-    checkboxes.forEach(cb => {
-        cb.checked = true;
-        if (!currentPaths.has(cb.dataset.path)) {
-            addPathToDetailsList(cb.dataset.path);
-        }
-    });
-    detailsUpdateSelectedPatterns();
-    hideTreeOverlay('details-file-tree');
-}
-
-function detailsDeselectAll() {
-    showTreeOverlay('details-file-tree');
-    document.querySelectorAll('#details-file-tree-container input[type="checkbox"]').forEach(cb => { cb.checked = false; });
-    detailsUpdateSelectedPatterns();
-    hideTreeOverlay('details-file-tree');
-}
-
-function addPathToList(path) {
-    const container = document.getElementById('selected-paths-container');
-    if (!container) return;
-    const pathItem = document.createElement('div');
-    pathItem.className = 'path-item';
-    pathItem.dataset.path = path;
-    const pathText = document.createElement('span');
-    pathText.textContent = escapeHtml(path);
-    const removeBtn = document.createElement('button');
-    removeBtn.className = 'remove-btn';
-    removeBtn.textContent = 'X';
-    removeBtn.onclick = () => { pathItem.remove(); updateSelectedPatterns(); };
-    pathItem.appendChild(pathText);
-    pathItem.appendChild(removeBtn);
-    container.appendChild(pathItem);
-}
-
-function filterTree() {
-    clearTimeout(filterTreeTimeout);
-    showTreeOverlay('file-tree');
-    filterTreeTimeout = setTimeout(() => { loadFileTree(true); }, 300);
-}
-
-function detailsFilterTree() {
-    clearTimeout(detailsFilterTreeTimeout);
-    showTreeOverlay('details-file-tree');
-    detailsFilterTreeTimeout = setTimeout(() => { loadDetailsFileTree(true); }, 300);
-}
-
-function showTreeOverlay(id) { const overlay = document.getElementById(id + '-loading-overlay'); if (overlay) overlay.style.display = 'flex'; }
-function hideTreeOverlay(id) { const overlay = document.getElementById(id + '-loading-overlay'); if (overlay) overlay.style.display = 'none'; }
 
 // === Path Management ===
 function addPathToDetailsList(path) {
@@ -1423,8 +1127,6 @@ function saveProjectChanges() {
     const projectId = document.getElementById('run-project-id')?.value;
     if (!projectId) return;
     const formData = new FormData(document.getElementById('project-details-form'));
-    formData.set('includePatterns', document.getElementById('details-patterns-input')?.value || '');
-    formData.set('mode', document.getElementById('details-mode').value);
     fetch(`/api/projects/${projectId}`, { method: 'POST', body: formData })
         .then(res => res.json())
         .then(data => { if (data.status === 'saved') console.log('Project saved'); })

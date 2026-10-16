@@ -92,58 +92,13 @@
                         <label>PROJECT NAME</label>
                         <input name="name" id="add-project-name" required placeholder="My Cool Project">
 
-                        <label>MODE</label>
-                        <select name="mode" id="add-project-mode" onchange="onAddModeChange()">
-                            <option value="agentic">AGENTIC (Multi-Step)</option>
-                        </select>
+                        
 
                         <label>ROOT DIRECTORY</label>
                         <input type="text" name="rootDirectory" id="add-root-path"
                             placeholder="e.g., /home/user/project" required>
 
-                        <div id="add-file-selector" style="display:block;">
-                            <div class="selector-controls">
-                                <button type="button" id="load-tree-btn" onclick="loadFileTree()">
-                                    <span id="load-tree-text">LOAD TREE</span>
-                                    <span id="load-tree-spinner" class="spinner" style="display: none;"></span>
-                                </button>
-                                <button type="button" onclick="selectAll()">SELECT ALL</button>
-                                <button type="button" onclick="deselectAll()">DESELECT ALL</button>
-                                <div class="sort-controls">
-                                    <button type="button" onclick="setSortMode('name')" class="btn-sm"
-                                        id="sort-name-btn">SORT: NAME</button>
-                                    <button type="button" onclick="setSortMode('size')" class="btn-sm"
-                                        id="sort-size-btn">SORT: SIZE</button>
-                                </div>
-                                <label style="display: flex; align-items: center; gap: 5px; margin: 0; width:200px;">
-                                    <input type="checkbox" id="show-selected-only-new" style="width:50px;"
-                                        onchange="filterTree()">
-                                    <span style="font-size: 11px;">SHOW SELECTED ONLY</span>
-                                </label>
-                            </div>
-                            <input type="text" id="tree-search"
-                                placeholder="Search (comma=OR, !=exclude, e.g., 'main,test,!venv')..."
-                                oninput="filterTree()">
-                            <div id="file-tree-container"
-                                style="position: relative; max-height: 400px; overflow-y: auto;">
-                                <div id="file-tree-loading-overlay" class="file-tree-overlay">PROCESSING...</div>
-                            </div>
-                            <div id="file-tree-pagination" style="margin: 10px 0;"></div>
-                            <label>SELECTED PATHS</label>
-                            <div class="selected-paths-list" id="selected-paths-container"></div>
-                            <div class="flex-row">
-                                <input type="text" id="new-path-input" placeholder="Add file path..."
-                                    onkeydown="if(event.key==='Enter') { event.preventDefault(); addNewPath(); }">
-                                <button type="button" onclick="addNewPath()" class="btn-sm">ADD</button>
-                            </div>
-                        </div>
-
-                        <input type="hidden" name="includePatterns" id="patterns-input">
-                        <input type="hidden" name="iterations" value="1">
-
-                        <label>EXCLUDE PATTERNS (comma-sep)</label>
-                        <input type="text" name="excludePatterns" id="add-exclude-patterns"
-                            placeholder="venv, __pycache__, .git">
+                        
 
                         <label>INSTRUCTIONS</label>
                         <textarea name="instructions" id="add-instructions" rows="4"
@@ -223,10 +178,8 @@
                                 oninput="autoSaveProject()"></textarea>
                         </div>
 
-                        <input type="hidden" name="iterations" value="1">
-
                         <!-- Agent-specific settings -->
-                        <div id="details-agent-settings" style="display:none; margin-top:15px;">
+                        <div id="details-agent-settings" style="display:block; margin-top:15px;">
                             <label>AGENT TOOLS (check which tools the agent may use)</label>
                             <div class="tool-selector-grid" id="details-tool-selector"></div>
                         </div>
