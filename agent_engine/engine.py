@@ -105,11 +105,23 @@ def build_system_prompt(tools: List[Dict[str, Any]]) -> str:
     for t in tools:
         tool_defs += f"\n  - {t['name']}: {t['description']}"
         if t.get('parameters'):
-            tool_defs += "\n    Parameters:"
+            tool_defs += "\n    Required parameters:"
             for pk, pv in t['parameters'].items():
-                tool_defs += f" {pk} ({pv})"
+                tool_defs += f"\n      - {pk}: {pv}"
 
-    return f"""You are an expert code engineer working inside a bounded tool environment.
+    example_block = (
+        "[TOOL:write_file]\n"
+        "path:src/hello.py\n"
+        "content:\n"
+        '"""Hello module."""\n'
+        "from src.main import greet\n"
+        "\n"
+        'if __name__ == "__main__":\n'
+        '    print(greet("World"))\n'
+        "[TOOL_END]"
+    )
+
+    return f'''You are an expert code engineer working inside a bounded tool environment.
 You NEVER execute code directly. You ONLY use the tools below to explore, read, modify, and verify code.
 
 AVAILABLE TOOLS:{tool_defs}
@@ -122,8 +134,11 @@ WORKFLOW:
 5. VERIFY: Use check_syntax to validate your changes before moving on.
 6. ITERATE: If syntax errors or issues are found, fix them. Repeat until done.
 
+CRITICAL: You MUST take at least one tool call before using [DONE]. You cannot complete the task without using tools.
+
 RULES:
 - ALWAYS use read_file before edit_file to get the exact text to replace.
+- ALWAYS include ALL required parameters for every tool call. Missing parameters will cause errors.
 - ALWAYS use check_syntax after editing to verify correctness.
 - Keep edits focused and small - one change at a time.
 - For Java projects with JAR dependencies, use decompile_jar to inspect them.
@@ -133,47 +148,86 @@ RULES:
 - When done, respond with: [DONE] followed by a summary of all changes made.
 - To execute Python code, use execute_python. It will request permission. Wait for approval in the live feed.
 
+PARAMETER FORMAT (tag-based, no escaping needed):
+- Start a tool call: [TOOL:tool_name]
+- Each parameter is a line:  param_name:value
+  - If the value is on the same line after the colon, it is single-line.
+  - If the line is just  param_name:  (colon with nothing after), the value
+    continues on subsequent lines until the next  param_name:  line or [TOOL_END].
+- End a tool call: [TOOL_END]
+- You may call multiple tools in one response by listing them sequentially.
+
+Example:
+{example_block}
+
 RESPONSE FORMAT:
 After each tool result, you will respond with either:
-1. A tool call: [TOOL:tool_name{{param1:"value1",param2:"value2"}}]
+1. A tool call block (see PARAMETER FORMAT above)
 2. Or a final response: [DONE] Your summary of changes.
 
-You may interleave thinking/reasoning text between tool calls, but tool calls MUST use the exact format above.
-Each [TOOL:...] call will be executed and the result will be fed back to you.
-You may call multiple tools in one response by listing them on separate lines.
+You may interleave thinking/reasoning text between tool calls.
+Each [TOOL:...] block will be executed and the result will be fed back to you.
 
 IMPORTANT: You are bounded to the project root directory by default. All file paths are relative to it.
 You CANNOT read or write files outside the project root unless the task instructions explicitly specify an absolute path (e.g., /tmp/something.py).
 When the instructions specify an absolute path, use it directly.
-"""
+'''
 
 def build_user_prompt(instructions: str, context: str = "") -> str:
     """Build the initial user prompt with the task instructions."""
     prompt = f"TASK INSTRUCTIONS:\n{instructions}\n\n"
     if context:
         prompt += f"RELEVANT CONTEXT:\n{context}\n\n"
-    prompt += "Begin by exploring the project structure. Use list_directory to understand the layout."
+    prompt += "STEP 1: Use list_directory to explore the project structure. Do NOT use [DONE] yet - you must take action first."
     return prompt
 
 
 def parse_tool_calls(response: str) -> List[Tuple[str, Dict[str, str]]]:
-    """
-    Parse tool calls from LLM response.
-    Format: [TOOL:tool_name{param1:"value1",param2:"value2"}]
-    Supports optional whitespace around colons/braces and mixed-case tool names.
-    Returns list of (tool_name, params_dict) tuples.
+    """Parse tool calls from LLM response using the tag-based format.
+
+    Format:
+        [TOOL:tool_name]
+        param1:value1
+        param2:
+        multi-line value
+        [TOOL_END]
+
+    A parameter line is any line starting with an identifier followed by ':'
+    at the start of the line (no leading whitespace). Everything else is a
+    continuation of the previous parameter's value.
     """
     calls = []
-    # More permissive: allow optional whitespace around ':', '{', '}',
-    # and support hyphens in tool names
-    pattern = r'\[TOOL:\s*([a-zA-Z_][a-zA-Z0-9_-]*)\s*\{([^}]*)\}\s*\]'
-    for match in re.finditer(pattern, response):
+    # Find all [TOOL:tool_name] ... [TOOL_END] blocks
+    tool_pattern = r'\[TOOL:([a-zA-Z_][a-zA-Z0-9_-]*)\]\n(.*?)\[TOOL_END\]'
+    for match in re.finditer(tool_pattern, response, re.DOTALL):
         tool_name = match.group(1)
-        params_str = match.group(2)
+        block = match.group(2).rstrip('\n')  # strip trailing newline before [TOOL_END]
 
-        params = {}
-        for pm in re.finditer(r'(\w+)\s*:\s*"([^"]*)"', params_str):
-            params[pm.group(1)] = pm.group(2)
+        # Parse key:value pairs
+        params: Dict[str, str] = {}
+        current_key: Optional[str] = None
+        current_value_lines: List[str] = []
+
+        for line in block.split('\n'):
+            # A new parameter line starts with an identifier followed by ':'
+            # at column 0 (no leading whitespace).  This avoids matching
+            # Python lines like  if __name__ == "__main__":
+            new_param = re.match(r'^([a-zA-Z_][a-zA-Z0-9_]*):(.*)', line)
+
+            if new_param:
+                # Save previous parameter
+                if current_key is not None:
+                    params[current_key] = '\n'.join(current_value_lines)
+                current_key = new_param.group(1)
+                current_value_lines = [new_param.group(2)]
+            else:
+                # Continuation of previous value (or blank line)
+                if current_key is not None:
+                    current_value_lines.append(line)
+
+        # Save last parameter
+        if current_key is not None:
+            params[current_key] = '\n'.join(current_value_lines)
 
         calls.append((tool_name, params))
 
@@ -345,19 +399,22 @@ class AgentEngine:
                     else:
                         reminder = (
                             "\n\n[REMINDER] You must take action using the available tools. "
-                            "Use [TOOL:tool_name{param:\"value\"}] format to call tools, "
-                            "or [DONE] when you have finished all changes."
+                            "Use the [TOOL:tool_name] ... [TOOL_END] block format, "
+                            "with each parameter on its own line as  key:value. "
+                            "Or [DONE] when you have finished all changes."
                         )
                         self.messages.append({"role": "user", "content": reminder})
                     continue
 
-                # Strip tool call markers from the response before appending to history.
-                # This prevents the LLM from seeing its own tool calls in the conversation,
-                # which causes it to repeat them verbatim.
+                # Strip tool call blocks from the response before appending to
+                # history.  This prevents the LLM from seeing its own tool
+                # calls in the conversation, which causes it to repeat them
+                # verbatim.
                 cleaned_response = re.sub(
-                    r'\[TOOL:\s*[a-zA-Z_][a-zA-Z0-9_-]*\s*\{[^}]*\}\s*\]\s*',
+                    r'\[TOOL:[a-zA-Z_][a-zA-Z0-9_-]*\].*?\[TOOL_END\]',
                     '',
-                    response
+                    response,
+                    flags=re.DOTALL,
                 ).strip()
 
                 # Append cleaned response once (before all tool results)
@@ -380,18 +437,14 @@ class AgentEngine:
                     try:
                         result = self.tools.execute(tool_name, params)
                         step_entry["result"] = result.to_dict()
-                        result_text = json.dumps(result.to_dict(), indent=2)
                     except SecurityError as e:
                         step_entry["result"] = ToolResult(False, "", error=f"SECURITY: {e}").to_dict()
-                        result_text = json.dumps(ToolResult(False, "", error=f"SECURITY: {e}").to_dict())
                         self.logger.warning(f"Security violation: {e}")
                     except ToolError as e:
                         step_entry["result"] = ToolResult(False, "", error=str(e)).to_dict()
-                        result_text = json.dumps(ToolResult(False, "", error=str(e)).to_dict())
                         self.logger.warning(f"Tool error: {e}")
                     except Exception as e:
                         step_entry["result"] = ToolResult(False, "", error=f"Unexpected error: {e}").to_dict()
-                        result_text = json.dumps(ToolResult(False, "", error=f"Unexpected error: {e}").to_dict())
                         self.logger.error(f"Unexpected tool error: {e}")
 
                     # Save step to history
@@ -401,9 +454,23 @@ class AgentEngine:
 
                     # Feed tool result back to conversation as a user message
                     # so the LLM properly sees and processes the result.
+                    # Format results in a readable way (not raw JSON) so the LLM
+                    # can easily extract file content for edit_file operations.
+                    res_dict = step_entry.get("result", {})
+                    if res_dict.get("error"):
+                        result_display = f"Error: {res_dict['error']}"
+                    elif res_dict.get("summary"):
+                        result_display = res_dict["summary"]
+                        if res_dict.get("content"):
+                            result_display += f"\n\nOutput:\n{res_dict['content']}\n"
+                    elif res_dict.get("content"):
+                        result_display = res_dict["content"]
+                    else:
+                        result_display = "(no output)"
+                    
                     tool_result_msg = {
                         "role": "user",
-                        "content": f"[TOOL RESULT for {tool_name}]\n{result_text}\n[END TOOL RESULT]\n\nNow continue with your next action."
+                        "content": f"[TOOL RESULT for {tool_name}]\n{result_display}\n[END TOOL RESULT]\n\nNow continue with your next action."
                     }
                     self.messages.append(tool_result_msg)
                     self.logger.info(f"  Fed tool result for '{tool_name}' back to LLM (msg length: {len(tool_result_msg['content'])} chars)")
