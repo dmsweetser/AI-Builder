@@ -146,7 +146,7 @@ RULES:
 - You have a maximum of {EngineConfig.get_max_steps()} steps total. Use them wisely.
 - After making changes, verify them. If check_syntax fails, fix the errors.
 - When done, respond with: [DONE] followed by a summary of all changes made.
-- To execute Python code, use execute_python. It will request permission. Wait for approval in the live feed.
+- To create a new tool, use create_tool. It proposes the tool for user approval — it does NOT execute arbitrary code. Wait for user approval in the live feed before expecting the tool to be available.
 
 PARAMETER FORMAT (tag-based, no escaping needed):
 - Start a tool call: [TOOL:tool_name]
@@ -492,7 +492,7 @@ class AgentEngine:
                         f"\n\n[LOOP DETECTED] You have called {repeated_tool} {len(self._recent_tool_calls)} times in a row without making progress. "
                         f"This is not productive. You MUST choose a DIFFERENT tool or take a different action. "
                         f"Available tools: list_directory, search_files, grep_code, read_file, write_file, edit_file, delete_file, "
-                        f"find_symbol, decompile_jar, list_dependencies, check_syntax, get_file_info. "
+                        f"find_symbol, decompile_jar, list_dependencies, check_syntax, get_file_info, create_tool. "
                         f"Think about what you've learned so far and what you need to do next. "
                         f"Either make a concrete change with write_file/edit_file, or gather specific information with a different tool. "
                         f"DO NOT call {repeated_tool} again."

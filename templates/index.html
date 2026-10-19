@@ -71,6 +71,8 @@
                     onclick="showTab('chat')" tabindex="-1">CHAT</button>
                 <button class="tab-btn" role="menuitem" aria-selected="false" aria-controls="settings-panel"
                     onclick="showTab('settings')" tabindex="-1">SETTINGS</button>
+                <button class="tab-btn" role="menuitem" aria-selected="false" aria-controls="tools-panel"
+                    onclick="showTab('tools')" tabindex="-1">TOOLS</button>
             </nav>
         </aside>
         <main id="main-content" class="main-content" role="main" aria-live="polite" aria-atomic="false">
@@ -274,6 +276,27 @@
                     <button type="button" class="settings-save-btn" onclick="saveSettings()">SAVE SETTINGS</button>
                     <button type="button" class="settings-save-btn" onclick="loadSettingsUI()"
                         style="background:var(--wood);">RELOAD FROM DISK</button>
+                </div>
+            </div>
+            <div id="tools-panel" class="panel" role="tabpanel" aria-label="Tool management panel">
+                <div class="block">
+                    <h2>
+                        PENDING TOOLS
+                        <button type="button" onclick="loadPendingTools()" class="btn-sm" style="float:right;"
+                            aria-label="Refresh pending tools list">REFRESH</button>
+                    </h2>
+                    <p class="note">New tools proposed by the agent appear here. Review each tool's code before
+                        approving — approved tools are immediately available to the agent.</p>
+                    <div id="pending-tools-list" role="list" aria-label="Pending tool proposals">
+                        <div class="note">LOADING PENDING TOOLS...</div>
+                    </div>
+                </div>
+                <div class="block">
+                    <h2>APPROVED TOOLS</h2>
+                    <p class="note">Tools that have been approved and are currently registered.</p>
+                    <div id="approved-tools-list" role="list" aria-label="Approved tools">
+                        <div class="note">NO APPROVED TOOLS YET.</div>
+                    </div>
                 </div>
             </div>
         </main>

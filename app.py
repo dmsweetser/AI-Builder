@@ -33,6 +33,7 @@ import sys
 _app_dir = _get_app_dir()
 
 from agent_engine import AgentEngine, EngineConfig, ToolResult
+from agent_engine.tools import ToolRegistry
 from config import Config
 
 app = Flask(__name__,
@@ -877,6 +878,54 @@ def api_agent_permission():
         return jsonify({"status": "decision_recorded"})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+# --- Routes: Pending Tools ---
+@app.route("/api/tools/pending", methods=["GET"])
+def api_get_pending_tools():
+    """List all pending tool proposals awaiting user review."""
+    # We need a registry instance to query pending tools
+    root_dir = os.getenv("AIB_ROOT", os.getenv("ROOT_DIRECTORY", os.getcwd()))
+    registry = ToolRegistry(root_dir)
+    pending = registry.get_pending_tools()
+    return jsonify(pending)
+
+
+@app.route("/api/tools/pending/<tool_id>/approve", methods=["POST"])
+def api_approve_tool(tool_id):
+    """Approve a pending tool proposal — registers it immediately."""
+    root_dir = os.getenv("AIB_ROOT", os.getenv("ROOT_DIRECTORY", os.getcwd()))
+    registry = ToolRegistry(root_dir)
+    result = registry.approve_tool(tool_id)
+    if result["status"] == "approved":
+        return jsonify(result)
+    return jsonify(result), 404
+
+
+@app.route("/api/tools/pending/<tool_id>/reject", methods=["POST"])
+def api_reject_tool(tool_id):
+    """Reject a pending tool proposal — removes it from pending."""
+    root_dir = os.getenv("AIB_ROOT", os.getenv("ROOT_DIRECTORY", os.getcwd()))
+    registry = ToolRegistry(root_dir)
+    result = registry.reject_tool(tool_id)
+    if result["status"] == "rejected":
+        return jsonify(result)
+    return jsonify(result), 404
+
+
+@app.route("/api/tools/approved", methods=["GET"])
+def api_get_approved_tools():
+    """List all approved (registered) dynamic tools."""
+    root_dir = os.getenv("AIB_ROOT", os.getenv("ROOT_DIRECTORY", os.getcwd()))
+    registry = ToolRegistry(root_dir)
+    all_tools = registry.list_tools()
+    built_in = {
+        'list_directory', 'search_files', 'grep_code', 'read_file',
+        'write_file', 'edit_file', 'delete_file', 'find_symbol',
+        'decompile_jar', 'list_dependencies', 'check_syntax', 'get_file_info', 'create_tool'
+    }
+    dynamic = [t for t in all_tools if t['name'] not in built_in]
+    return jsonify(dynamic)
 
 
 # --- Start Worker on App Start ---

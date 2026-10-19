@@ -469,7 +469,7 @@ class TestToolRegistry(unittest.TestCase):
             'list_directory', 'search_files', 'grep_code',
             'read_file', 'write_file', 'edit_file', 'delete_file',
             'find_symbol', 'decompile_jar', 'list_dependencies',
-            'check_syntax', 'get_file_info',
+            'check_syntax', 'get_file_info', 'create_tool',
         ]
         for name in expected:
             self.assertIn(name, tool_names, f"Tool '{name}' not registered")

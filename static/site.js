@@ -170,7 +170,7 @@ let liveInjectActive = false;
 const AVAILABLE_TOOLS = [
     "list_directory", "search_files", "grep_code", "read_file",
     "write_file", "edit_file", "delete_file", "find_symbol",
-    "decompile_jar", "list_dependencies", "check_syntax", "get_file_info"
+    "decompile_jar", "list_dependencies", "check_syntax", "get_file_info", "create_tool"
 ];
 
 // === Tab Management ===
@@ -201,6 +201,7 @@ function showTab(tabName) {
     });
     if (tabName === 'jobs') loadJobs();
     if (tabName === 'settings') loadSettingsUI();
+    if (tabName === 'tools') loadPendingTools();
 }
 
 // === Utility ===
@@ -1178,6 +1179,126 @@ function sendChat() {
             read();
         })
         .catch(err => { console.error('Chat error:', err); sendBtn.disabled = false; });
+}
+
+// === Pending Tools Management ===
+function loadPendingTools() {
+    fetch('/api/tools/pending')
+        .then(r => r.json())
+        .then(tools => {
+            renderPendingTools(tools);
+            renderApprovedTools();
+        })
+        .catch(err => {
+            console.error('Failed to load pending tools:', err);
+            const list = document.getElementById('pending-tools-list');
+            if (list) list.innerHTML = '<div class="note warning">Failed to load pending tools.</div>';
+        });
+}
+
+function renderApprovedTools() {
+    const list = document.getElementById('approved-tools-list');
+    if (!list) return;
+
+    fetch('/api/tools/approved')
+        .then(r => r.json())
+        .then(tools => {
+            if (!tools || tools.length === 0) {
+                list.innerHTML = '<div class="note">NO APPROVED TOOLS YET.</div>';
+                return;
+            }
+            list.innerHTML = tools.map(t => `
+                <div style="padding:8px; border:1px solid #444; border-radius:4px; margin-bottom:6px;">
+                    <strong style="color:var(--grass);">${escapeHtml(t.name)}</strong>
+                    <span style="color:#aaa; font-size:11px; margin-left:8px;">${escapeHtml(t.description)}</span>
+                </div>
+            `).join('');
+        })
+        .catch(err => {
+            console.error('Failed to load approved tools:', err);
+            list.innerHTML = '<div class="note warning">Failed to load approved tools.</div>';
+        });
+}
+
+function renderPendingTools(pendingTools) {
+    const list = document.getElementById('pending-tools-list');
+    if (!list) return;
+    list.innerHTML = '';
+
+    if (!pendingTools || pendingTools.length === 0) {
+        list.innerHTML = '<div class="note">NO PENDING TOOLS. The agent has not proposed any new tools yet.</div>';
+    } else {
+        pendingTools.forEach(tool => {
+            const item = document.createElement('div');
+            item.className = 'pending-tool-item';
+            item.style.cssText = 'border:1px solid #444; padding:12px; margin-bottom:10px; border-radius:4px;';
+
+            const codePreview = tool.code ? tool.code.substring(0, 500) : '(no code)';
+            const paramsStr = tool.parameters ? JSON.stringify(tool.parameters, null, 2) : '(none)';
+
+            item.innerHTML = `
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                    <strong style="color:var(--grass); font-size:14px;">${escapeHtml(tool.name)}</strong>
+                    <span style="color:#aaa; font-size:10px;">Submitted: ${escapeHtml(tool.submitted_at || 'unknown')}</span>
+                </div>
+                <p style="margin:4px 0; color:#ccc; font-size:12px;">${escapeHtml(tool.description)}</p>
+                <details style="margin:8px 0;">
+                    <summary style="cursor:pointer; color:var(--accent); font-size:11px;">View Parameters & Code</summary>
+                    <div style="margin-top:8px;">
+                        <div style="margin-bottom:8px;">
+                            <strong style="color:#aaa; font-size:11px;">Parameters:</strong>
+                            <pre style="background:#111; padding:8px; border-radius:4px; font-size:10px; overflow-x:auto; margin-top:4px;">${escapeHtml(paramsStr)}</pre>
+                        </div>
+                        <div>
+                            <strong style="color:#aaa; font-size:11px;">Implementation Code:</strong>
+                            <pre style="background:#111; padding:8px; border-radius:4px; font-size:10px; overflow-x:auto; max-height:300px; margin-top:4px; white-space:pre-wrap;">${escapeHtml(codePreview)}${tool.code && tool.code.length > 500 ? '\n... (truncated)' : ''}</pre>
+                        </div>
+                    </div>
+                </details>
+                <div style="display:flex; gap:8px; margin-top:10px;">
+                    <button class="btn-sm" onclick="approvePendingTool('${tool.id}', '${escapeHtml(tool.name)}')" style="background:var(--grass);">✓ APPROVE</button>
+                    <button class="btn-sm" onclick="rejectPendingTool('${tool.id}', '${escapeHtml(tool.name)}')" style="background:#a03030;">✗ REJECT</button>
+                </div>
+            `;
+            list.appendChild(item);
+        });
+    }
+}
+
+function approvePendingTool(toolId, toolName) {
+    if (!confirm(`Approve tool "${toolName}"? It will be immediately available to the agent.`)) return;
+    fetch(`/api/tools/pending/${toolId}/approve`, { method: 'POST' })
+        .then(r => r.json())
+        .then(data => {
+            if (data.status === 'approved') {
+                alert(`Tool "${toolName}" approved and registered!`);
+                loadPendingTools();
+            } else {
+                alert('Failed to approve tool: ' + (data.error || 'Unknown error'));
+            }
+        })
+        .catch(err => {
+            console.error('Failed to approve tool:', err);
+            alert('Failed to approve tool.');
+        });
+}
+
+function rejectPendingTool(toolId, toolName) {
+    if (!confirm(`Reject tool "${toolName}"?`)) return;
+    fetch(`/api/tools/pending/${toolId}/reject`, { method: 'POST' })
+        .then(r => r.json())
+        .then(data => {
+            if (data.status === 'rejected') {
+                alert(`Tool "${toolName}" rejected and removed.`);
+                loadPendingTools();
+            } else {
+                alert('Failed to reject tool: ' + (data.error || 'Unknown error'));
+            }
+        })
+        .catch(err => {
+            console.error('Failed to reject tool:', err);
+            alert('Failed to reject tool.');
+        });
 }
 
 // === Init ===
