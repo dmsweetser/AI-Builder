@@ -31,6 +31,9 @@ def ensure_under_root(filepath: str, root_dir: str) -> str:
     root_dir = _normalize_path(root_dir)
     if os.path.isabs(filepath):
         full = _normalize_path(filepath)
+        # Allow absolute paths that equal the root_dir itself
+        if full == root_dir:
+            return full
         # Allow absolute paths in well-known writable directories
         for prefix in ALLOWED_ABSOLUTE_PREFIXES:
             if full == prefix or full.startswith(prefix):

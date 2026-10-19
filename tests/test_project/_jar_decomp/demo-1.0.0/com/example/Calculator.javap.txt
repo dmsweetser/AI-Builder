@@ -1,0 +1,60 @@
+Compiled from "Calculator.java"
+public class com.example.Calculator {
+  public com.example.Calculator();
+    descriptor: ()V
+    Code:
+       0: aload_0
+       1: invokespecial #1                  // Method java/lang/Object."<init>":()V
+       4: return
+
+  public static int add(int, int);
+    descriptor: (II)I
+    Code:
+       0: iload_0
+       1: iload_1
+       2: iadd
+       3: ireturn
+
+  public static int subtract(int, int);
+    descriptor: (II)I
+    Code:
+       0: iload_0
+       1: iload_1
+       2: isub
+       3: ireturn
+
+  public static double divide(double, double);
+    descriptor: (DD)D
+    Code:
+       0: dload_2
+       1: dconst_0
+       2: dcmpl
+       3: ifne          16
+       6: new           #7                  // class java/lang/ArithmeticException
+       9: dup
+      10: ldc           #9                  // String Division by zero
+      12: invokespecial #11                 // Method java/lang/ArithmeticException."<init>":(Ljava/lang/String;)V
+      15: athrow
+      16: dload_0
+      17: dload_2
+      18: ddiv
+      19: dreturn
+
+  public static java.lang.String formatResult(java.lang.String, double);
+    descriptor: (Ljava/lang/String;D)Ljava/lang/String;
+    Code:
+       0: ldc           #14                 // String %s: %.2f
+       2: iconst_2
+       3: anewarray     #2                  // class java/lang/Object
+       6: dup
+       7: iconst_0
+       8: aload_0
+       9: aastore
+      10: dup
+      11: iconst_1
+      12: dload_1
+      13: invokestatic  #16                 // Method java/lang/Double.valueOf:(D)Ljava/lang/Double;
+      16: aastore
+      17: invokestatic  #22                 // Method java/lang/String.format:(Ljava/lang/String;[Ljava/lang/Object;)Ljava/lang/String;
+      20: areturn
+}

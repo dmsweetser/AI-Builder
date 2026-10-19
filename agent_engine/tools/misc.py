@@ -21,7 +21,11 @@ class ListDependenciesTool(BaseTool):
     parameters = {"search_dir": "string"}
 
     def execute(self, params: Dict[str, str]) -> ToolResult:
-        search_dir = ensure_under_root(params.get("search_dir", ""), self.root_dir)
+        search_dir_param = params.get("search_dir", "")
+        if not search_dir_param:
+            search_dir = self.root_dir
+        else:
+            search_dir = ensure_under_root(search_dir_param, self.root_dir)
 
         deps = []
 

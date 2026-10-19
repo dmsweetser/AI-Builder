@@ -62,8 +62,8 @@ class SearchFilesTool(BaseTool):
 
     def execute(self, params: Dict[str, str]) -> ToolResult:
         pattern = params["pattern"]
-        search_dir = params.get("search_dir", "")
-        search_full = ensure_under_root(search_dir, self.root_dir) if search_dir else self.root_dir
+        search_dir_param = params.get("search_dir", "")
+        search_full = self.root_dir if not search_dir_param else ensure_under_root(search_dir_param, self.root_dir)
 
         matches = []
         try:

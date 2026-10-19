@@ -69,12 +69,24 @@ class CheckSyntaxTool(BaseTool):
         javac = None
         if java_home:
             javac = os.path.join(java_home, "bin", "javac")
-        else:
-            javac = "javac"
+        if not javac or not os.path.isfile(javac):
+            candidates = [
+                "/usr/bin/javac",
+                "/usr/lib/jvm/default/bin/javac",
+                "/usr/lib/jvm/java-17/bin/javac",
+                "javac",
+            ]
+            for c in candidates:
+                if os.path.isfile(c) or (c == "javac" and subprocess.run(["which", "javac"], capture_output=True).returncode == 0):
+                    javac = c
+                    break
+
+        if not javac:
+            return self._check_java_braces(path)
 
         try:
             result = subprocess.run(
-                [javac, "-d", "/tmp", "-Xlint:-all", path],
+                [javac, "-d", "/tmp", "-Xlint:none", path],
                 capture_output=True, text=True, timeout=60
             )
             if result.returncode == 0:
@@ -135,6 +147,8 @@ class CheckSyntaxTool(BaseTool):
                 "/usr/share/dotnet/dotnet",
                 "/usr/bin/dotnet",
                 "/usr/local/bin/dotnet",
+                "/opt/homebrew/bin/dotnet",
+                "/opt/homebrew/opt/dotnet/libexec/bin/dotnet",
                 "dotnet",
             ]
             for c in candidates:
@@ -146,17 +160,64 @@ class CheckSyntaxTool(BaseTool):
             return self._check_csharp_braces(path)
 
         try:
+            # Try to find the .csproj file that owns this .cs file
+            csproj_dir = None
+            # First check the same directory as the .cs file
+            search_dir = os.path.dirname(path)
+            for fname in os.listdir(search_dir):
+                if fname.endswith('.csproj'):
+                    csproj_dir = search_dir
+                    break
+            # If not found, search up to 4 parent dirs
+            if not csproj_dir:
+                for i in range(4):
+                    search_dir = os.path.dirname(search_dir)
+                    if not search_dir or search_dir == '/':
+                        break
+                    for fname in os.listdir(search_dir):
+                        if fname.endswith('.csproj'):
+                            csproj_dir = search_dir
+                            break
+                    if csproj_dir:
+                        break
+
+            if csproj_dir:
+                # Find the actual .csproj file in that directory
+                csproj_file = None
+                for fname in os.listdir(csproj_dir):
+                    if fname.endswith('.csproj'):
+                        csproj_file = os.path.join(csproj_dir, fname)
+                        break
+
+                if csproj_file:
+                    # Build using the explicit .csproj file path
+                    result = subprocess.run(
+                        [dotnet, "build", csproj_file, "-v", "q"],
+                        capture_output=True, text=True, timeout=120
+                    )
+                    if result.returncode == 0:
+                        return ToolResult(True, f"C# syntax OK ({path})", summary="Syntax check passed")
+                    errors = []
+                    for line in result.stderr.split('\n'):
+                        if 'error CS' in line or 'Error ' in line:
+                            errors.append(line.strip())
+                    if errors:
+                        return ToolResult(False, "\n".join(errors[:10]), error=errors[0])
+                    return ToolResult(False, result.stderr[:500], error=f"Error: C# compilation failed")
+                # No .csproj file in directory, fall through to temp project fallback
+
+            # Fallback: create a temp project with just this file
             with tempfile.TemporaryDirectory() as tmpdir:
                 proj_file = os.path.join(tmpdir, "check.csproj")
                 with open(proj_file, 'w') as f:
-                    f.write('<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net8.0</TargetFramework></PropertyGroup></Project>')
+                    f.write('<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup></Project>')
 
                 src_dir = os.path.join(tmpdir, "src")
                 os.makedirs(src_dir)
                 shutil.copy2(path, os.path.join(src_dir, os.path.basename(path)))
 
                 result = subprocess.run(
-                    [dotnet, "build", tmpdir, "--no-restore", "-v", "q"],
+                    [dotnet, "build", tmpdir, "-v", "q"],
                     capture_output=True, text=True, timeout=60
                 )
                 if result.returncode == 0:
@@ -167,7 +228,7 @@ class CheckSyntaxTool(BaseTool):
                         errors.append(line.strip())
                 if errors:
                     return ToolResult(False, "\n".join(errors[:10]), error=errors[0])
-                return ToolResult(False, result.stderr[:500], error="C# compilation failed")
+                return ToolResult(False, result.stderr[:500], error=f"Error: C# compilation failed")
         except FileNotFoundError:
             return self._check_csharp_braces(path)
         except subprocess.TimeoutExpired:

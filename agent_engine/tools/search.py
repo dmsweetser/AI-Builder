@@ -201,13 +201,16 @@ class DecompileJarTool(BaseTool):
         java_home = EngineConfig.get_java_home()
         if java_home:
             javap = os.path.join(java_home, "bin", "javap")
+            jar_cmd = os.path.join(java_home, "bin", "jar")
         else:
             javap = "javap"
+            jar_cmd = "jar"
 
         try:
             os.makedirs(output_dir, exist_ok=True)
+            # Run jar extraction in the output directory
             subprocess.run(
-                ["jar", "xf", jar_path],
+                [jar_cmd, "xf", jar_path],
                 cwd=output_dir, capture_output=True, text=True, timeout=120
             )
             for root, dirs, files in os.walk(output_dir):
@@ -215,14 +218,22 @@ class DecompileJarTool(BaseTool):
                     if fname.endswith('.class'):
                         class_file = os.path.join(root, fname)
                         try:
-                            subprocess.run(
+                            result = subprocess.run(
                                 [javap, "-p", "-s", "-c", class_file],
                                 capture_output=True, text=True, timeout=30,
                                 cwd=output_dir
                             )
-                            extracted.append(os.path.relpath(class_file, self.root_dir))
+                            if result.returncode == 0:
+                                # Write javap output as a .java-like file
+                                class_name = os.path.splitext(fname)[0]
+                                decompiled_file = os.path.join(root, class_name + ".javap.txt")
+                                with open(decompiled_file, 'w', encoding='utf-8') as df:
+                                    df.write(result.stdout)
+                                extracted.append(os.path.relpath(decompiled_file, self.root_dir))
+                            else:
+                                extracted.append(os.path.relpath(class_file, self.root_dir))
                         except Exception:
-                            pass
+                            extracted.append(os.path.relpath(class_file, self.root_dir))
             return ToolResult(True, json.dumps(extracted[:20], indent=2),
                               summary=f"Extracted/decompiled {len(extracted)} class files",
                               file_paths=extracted)

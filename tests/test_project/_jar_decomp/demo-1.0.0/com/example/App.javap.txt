@@ -1,0 +1,68 @@
+Compiled from "App.java"
+public class com.example.App {
+  private java.lang.String name;
+    descriptor: Ljava/lang/String;
+
+  private int count;
+    descriptor: I
+
+  public com.example.App(java.lang.String);
+    descriptor: (Ljava/lang/String;)V
+    Code:
+       0: aload_0
+       1: invokespecial #1                  // Method java/lang/Object."<init>":()V
+       4: aload_0
+       5: aload_1
+       6: putfield      #7                  // Field name:Ljava/lang/String;
+       9: aload_0
+      10: iconst_0
+      11: putfield      #13                 // Field count:I
+      14: return
+
+  public java.lang.String greet();
+    descriptor: ()Ljava/lang/String;
+    Code:
+       0: aload_0
+       1: getfield      #7                  // Field name:Ljava/lang/String;
+       4: invokedynamic #17,  0             // InvokeDynamic #0:makeConcatWithConstants:(Ljava/lang/String;)Ljava/lang/String;
+       9: areturn
+
+  public void increment();
+    descriptor: ()V
+    Code:
+       0: aload_0
+       1: dup
+       2: getfield      #13                 // Field count:I
+       5: iconst_1
+       6: iadd
+       7: putfield      #13                 // Field count:I
+      10: return
+
+  public int getCount();
+    descriptor: ()I
+    Code:
+       0: aload_0
+       1: getfield      #13                 // Field count:I
+       4: ireturn
+
+  public static void main(java.lang.String[]);
+    descriptor: ([Ljava/lang/String;)V
+    Code:
+       0: new           #8                  // class com/example/App
+       3: dup
+       4: ldc           #21                 // String World
+       6: invokespecial #23                 // Method "<init>":(Ljava/lang/String;)V
+       9: astore_1
+      10: getstatic     #26                 // Field java/lang/System.out:Ljava/io/PrintStream;
+      13: aload_1
+      14: invokevirtual #32                 // Method greet:()Ljava/lang/String;
+      17: invokevirtual #36                 // Method java/io/PrintStream.println:(Ljava/lang/String;)V
+      20: aload_1
+      21: invokevirtual #41                 // Method increment:()V
+      24: getstatic     #26                 // Field java/lang/System.out:Ljava/io/PrintStream;
+      27: aload_1
+      28: invokevirtual #44                 // Method getCount:()I
+      31: invokedynamic #48,  0             // InvokeDynamic #1:makeConcatWithConstants:(I)Ljava/lang/String;
+      36: invokevirtual #36                 // Method java/io/PrintStream.println:(Ljava/lang/String;)V
+      39: return
+}
