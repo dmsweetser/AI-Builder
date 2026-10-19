@@ -856,6 +856,7 @@ def api_agent_inject():
     # For now, we'll store it in the job's output directory
     instruction_file = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                     "aib_instance", "output", job_id, "live_instruction.txt")
+    os.makedirs(os.path.dirname(instruction_file), exist_ok=True)
     try:
         with open(instruction_file, 'w') as f:
             f.write(instruction)
@@ -875,6 +876,7 @@ def api_agent_permission():
 
     perm_file = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                              "aib_instance", "output", job_id, "execute_python_permission.txt")
+    os.makedirs(os.path.dirname(perm_file), exist_ok=True)
     try:
         with open(perm_file, 'w') as f:
             f.write(decision)
