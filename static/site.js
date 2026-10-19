@@ -60,8 +60,9 @@ function checkWinCondition() {
     if (!logoEl) return;
     const logoW = logoEl.offsetWidth;
     const logoH = logoEl.offsetHeight;
-    if (logoX >= GOAL_ZONE.x && logoX + logoW >= GOAL_ZONE.x + GOAL_ZONE.w &&
-        logoY >= GOAL_ZONE.y && logoY + logoH >= GOAL_ZONE.y + GOAL_ZONE.h) {
+    // Check logo is fully contained within the goal zone
+    if (logoX >= GOAL_ZONE.x && logoX + logoW <= GOAL_ZONE.x + GOAL_ZONE.w &&
+        logoY >= GOAL_ZONE.y && logoY + logoH <= GOAL_ZONE.y + GOAL_ZONE.h) {
         flingCount++;
         const flingCounter = document.getElementById('fling-counter');
         if (flingCounter) flingCounter.textContent = 'FLINGS: ' + flingCount;
@@ -706,7 +707,7 @@ function startAgentSSE(projectId, enabledTools) {
                         return;
                     }
                     buffer += decoder.decode(value, { stream: true });
-                    // Process complete SSE messages (delimited by \n\n)
+    // Process complete SSE messages (delimited by \n\n or \n)
                     // This handles multi-chunk messages correctly
                     let doubleNewlineIdx;
                     while ((doubleNewlineIdx = buffer.indexOf('\n\n')) !== -1) {
@@ -731,6 +732,32 @@ function startAgentSSE(projectId, enabledTools) {
                                 if (eventType === 'status') handleAgentStatus(data, statusBox);
                                 else if (eventType === 'step') handleAgentStep(data, agentBox, statusBox);
                             } catch (e) { console.warn('Failed to parse SSE data:', e); }
+                        }
+                    }
+                    // Fallback: process single-line SSE messages (delimited by \n)
+                    // The backend sends step events as single-line SSE: event: step\ndata: {...}\n
+                    let singleNewlineIdx;
+                    while ((singleNewlineIdx = buffer.indexOf('\n')) !== -1) {
+                        const line = buffer.substring(0, singleNewlineIdx).trim();
+                        buffer = buffer.substring(singleNewlineIdx + 1);
+                        if (!line) continue;
+                        // Parse single-line SSE: event: ...\ndata: ...
+                        if (line.startsWith('event: ')) {
+                            const eventType = line.substring(7).trim();
+                            // Next line should be data: ...
+                            const dataIdx = buffer.indexOf('\n');
+                            if (dataIdx !== -1) {
+                                const dataLine = buffer.substring(0, dataIdx).trim();
+                                buffer = buffer.substring(dataIdx + 1);
+                                if (dataLine.startsWith('data: ')) {
+                                    const dataStr = dataLine.substring(6);
+                                    try {
+                                        const data = JSON.parse(dataStr);
+                                        if (eventType === 'status') handleAgentStatus(data, statusBox);
+                                        else if (eventType === 'step') handleAgentStep(data, agentBox, statusBox);
+                                    } catch (e) { /* ignore parse errors */ }
+                                }
+                            }
                         }
                     }
                     processChunk();
@@ -841,19 +868,17 @@ function continueAgentRun(jobId) {
                     return;
                 }
                 buffer += decoder.decode(value, { stream: true });
-                let doubleNewlineIdx;
-                while ((doubleNewlineIdx = buffer.indexOf('\n')) !== -1) {
-                    const message = buffer.substring(0, doubleNewlineIdx);
-                    buffer = buffer.substring(doubleNewlineIdx + 2);
+                // Process SSE messages: try \n\n first, then \n
+                let delimIdx;
+                while ((delimIdx = buffer.indexOf('\n\n')) !== -1) {
+                    const message = buffer.substring(0, delimIdx);
+                    buffer = buffer.substring(delimIdx + 2);
                     const lines = message.split('\n');
                     let eventType = 'message';
                     let dataStr = '';
                     for (const line of lines) {
-                        if (line.startsWith('event: ')) {
-                            eventType = line.substring(7).trim();
-                        } else if (line.startsWith('data: ')) {
-                            dataStr = line.substring(6);
-                        }
+                        if (line.startsWith('event: ')) eventType = line.substring(7).trim();
+                        else if (line.startsWith('data: ')) dataStr = line.substring(6);
                     }
                     if (dataStr) {
                         try {
@@ -861,6 +886,28 @@ function continueAgentRun(jobId) {
                             if (eventType === 'status') handleAgentStatus(data, document.getElementById('live-status-box'));
                             else if (eventType === 'step') handleAgentStep(data, document.getElementById('agent-live-box'), document.getElementById('live-status-box'));
                         } catch (e) { console.warn('Failed to parse SSE data:', e); }
+                    }
+                }
+                // Fallback: single-line SSE messages
+                while ((delimIdx = buffer.indexOf('\n')) !== -1) {
+                    const line = buffer.substring(0, delimIdx).trim();
+                    buffer = buffer.substring(delimIdx + 1);
+                    if (!line) continue;
+                    if (line.startsWith('event: ')) {
+                        const eventType = line.substring(7).trim();
+                        const dataIdx = buffer.indexOf('\n');
+                        if (dataIdx !== -1) {
+                            const dataLine = buffer.substring(0, dataIdx).trim();
+                            buffer = buffer.substring(dataIdx + 1);
+                            if (dataLine.startsWith('data: ')) {
+                                const dataStr = dataLine.substring(6);
+                                try {
+                                    const data = JSON.parse(dataStr);
+                                    if (eventType === 'status') handleAgentStatus(data, document.getElementById('live-status-box'));
+                                    else if (eventType === 'step') handleAgentStep(data, document.getElementById('agent-live-box'), document.getElementById('live-status-box'));
+                                } catch (e) { /* ignore */ }
+                            }
+                        }
                     }
                 }
                 processChunk();
@@ -1258,6 +1305,8 @@ document.addEventListener('DOMContentLoaded', () => {
     loadProjectsCached();
     loadJobs();
     setInterval(() => { if (currentProjectId) pollJobStatus(); }, 3000);
+    // Poll agent steps during active runs (every 2s)
+    setInterval(() => { if (agentRunning) pollAgentSteps(); }, 2000);
 
     // Keyboard navigation for sidebar tabs
     const sidebarNav = document.querySelector('.sidebar-nav');

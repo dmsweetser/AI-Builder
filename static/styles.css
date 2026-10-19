@@ -86,10 +86,10 @@ body {
     cursor: grab;
     user-select: none;
     image-rendering: pixelated;
-    position: fixed !important;
-    left: 40px !important;
-    top: 40px !important;
-    z-index: 9999 !important;
+    position: fixed;
+    left: 40px;
+    top: 40px;
+    z-index: 9999;
 }
 
 .logo-spinner:active {
