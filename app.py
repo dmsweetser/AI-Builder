@@ -413,6 +413,7 @@ def api_add_to_queue():
 
 @app.route("/api/queue/<job_id>", methods=["DELETE"])
 def api_delete_from_queue(job_id):
+    global running_job
     with job_queue_lock:
         job_queue[:] = [j for j in job_queue if j["job_id"] != job_id]
         if running_job and running_job["job_id"] == job_id:
@@ -422,6 +423,7 @@ def api_delete_from_queue(job_id):
 
 @app.route("/api/queue/running/stop", methods=["POST"])
 def api_stop_running():
+    global running_job
     with job_queue_lock:
         running_job = None
     start_worker()
@@ -429,6 +431,7 @@ def api_stop_running():
 
 @app.route("/api/projects/<pid>", methods=["DELETE"])
 def api_delete_project(pid):
+    global running_job
     with job_queue_lock:
         job_queue[:] = [j for j in job_queue if j["project_id"] != pid]
         if running_job and running_job["project_id"] == pid:
