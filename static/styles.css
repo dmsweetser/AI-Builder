@@ -750,51 +750,6 @@ button:disabled {
     box-shadow: 8px 8px 0px #000;
 }
 
-.selected-paths-list {
-    background: #2a2a2a;
-    border: 1px solid #555;
-    padding: 8px;
-    max-height: 150px;
-    overflow-y: auto;
-    margin-bottom: 10px;
-}
-
-.path-item {
-    background: #3a3a3a;
-    padding: 5px 8px;
-    margin: 4px 0;
-    border-radius: 3px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    font-size: 12px;
-}
-
-.path-item .remove-btn {
-    background: #a03030;
-    padding: 2px 6px;
-    font-size: 10px;
-    cursor: pointer;
-    border: 1px solid #000;
-    width: 50px;
-}
-
-.path-item .remove-btn:hover {
-    background: #c04040;
-}
-
-.tree-item {
-    padding: 5px 8px;
-    margin: 2px 0;
-    border-radius: 3px;
-    transition: background-color 0.15s ease;
-}
-
-.tree-item:hover {
-    background-color: rgba(255, 255, 255, 0.08);
-    cursor: pointer;
-}
-
 .fling-counter {
     position: fixed;
     top: 135px;
@@ -928,20 +883,6 @@ button:disabled {
 
 .settings-save-btn {
     margin-top: 15px;
-}
-
-/* Mode indicator badge */
-.mode-indicator {
-    display: inline-block;
-    padding: 2px 6px;
-    border-radius: 3px;
-    font-size: 8px;
-    margin-left: 8px;
-}
-
-.mode-indicator.agentic {
-    background: #6a3a9a;
-    color: #fff;
 }
 
 /* Tool selector grid */

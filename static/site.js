@@ -156,18 +156,6 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 let currentProjectId = localStorage.getItem('currentProjectId') || null;
 let currentChatId = localStorage.getItem('currentChatId') || null;
-let fileTreePage = 0;
-let fileTreeTotal = 0;
-let fileTreeSearch = '';
-let fileTreePath = '';
-let detailsFileTreePage = 0;
-let detailsFileTreeTotal = 0;
-let detailsFileTreeSearch = '';
-let detailsFileTreePath = '';
-let sortMode = 'name';
-let detailsSortMode = 'name';
-let filterTreeTimeout = null;
-let detailsFilterTreeTimeout = null;
 let autoSaveTimeout = null;
 let pendingRootPathChange = null;
 let pendingRootPathElementId = null;
@@ -179,7 +167,6 @@ let agentSSEController = null;
 let agentRunning = false;
 let liveInjectActive = false;
 
-// === Available tools for agent mode ===
 const AVAILABLE_TOOLS = [
     "list_directory", "search_files", "grep_code", "read_file",
     "write_file", "edit_file", "delete_file", "find_symbol",
@@ -220,30 +207,6 @@ function showTab(tabName) {
 function escapeHtml(str) {
     if (!str) return '';
     return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
-
-// === Mode handling for add form ===
-function onAddModeChange() {
-    const mode = document.getElementById('add-project-mode').value;
-    const fileSelector = document.getElementById('add-file-selector');
-    if (fileSelector) fileSelector.style.display = mode === 'agentic' ? 'none' : 'block';
-}
-
-function onDetailsModeChange() {
-    const mode = document.getElementById('details-mode').value;
-    const fileSelector = document.getElementById('details-file-selector');
-    const agentSettings = document.getElementById('details-agent-settings');
-    const modeBadge = document.getElementById('details-mode-badge');
-    if (fileSelector) fileSelector.style.display = mode === 'agentic' ? 'none' : 'block';
-    if (agentSettings) agentSettings.style.display = mode === 'agentic' ? 'block' : 'none';
-    if (modeBadge) {
-        modeBadge.className = `mode-indicator ${mode === 'agentic' ? 'agentic' : ''}`;
-        modeBadge.textContent = mode === 'agentic' ? 'AGENTIC' : '';
-    }
-    if (mode === 'agentic') {
-        buildToolSelector([]);
-    }
-    autoSaveProject();
 }
 
 // === Tool selector ===
@@ -591,16 +554,12 @@ function loadProjects() {
                 projectItem.setAttribute('tabindex', '0');
                 projectItem.onclick = () => selectProject(project.id);
                 projectItem.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectProject(project.id); } };
-                const modeBadge = project.mode === 'agentic'
-                    ? '<span class="mode-indicator agentic">AGENTIC</span>'
-                    : '';
                 const archiveBtnText = project.isArchived ? 'UNARCHIVE' : 'ARCHIVE';
                 const archiveBtnAction = project.isArchived ? `unarchiveProject('${project.id}')` : `archiveProject('${project.id}')`;
                 projectItem.innerHTML = `
                             <div class="project-item-header">
                                 <div class="project-item-name-container">
                                     <span class="project-item-name">${escapeHtml(project.name || 'Untitled')}</span>
-                                    ${modeBadge}
                                 </div>
                                 <div class="project-item-actions">
                                     <button class="btn-sm" id="run-btn-${project.id}"
@@ -1047,91 +1006,15 @@ function goBackToProjects() {
     loadProjects();
 }
 
-// === Path Management ===
-function addPathToDetailsList(path) {
-    const container = document.getElementById('details-selected-paths-container');
-    if (!container) return;
-    const pathItem = document.createElement('div');
-    pathItem.className = 'path-item';
-    pathItem.dataset.path = path;
-    const pathText = document.createElement('span');
-    pathText.textContent = escapeHtml(path);
-    const removeBtn = document.createElement('button');
-    removeBtn.className = 'remove-btn';
-    removeBtn.textContent = 'X';
-    removeBtn.onclick = () => { pathItem.remove(); updateDetailsPatternsInput(); autoSaveProject(); };
-    pathItem.appendChild(pathText);
-    pathItem.appendChild(removeBtn);
-    container.appendChild(pathItem);
-}
-
-function updateDetailsPatternsInput() {
-    const container = document.getElementById('details-selected-paths-container');
-    const input = document.getElementById('details-patterns-input');
-    if (!container || !input) return;
-    const paths = Array.from(container.children).map(el => el.dataset.path);
-    input.value = paths.join(',');
-}
-
-function detailsUpdateSelectedPatterns() { updateDetailsPatternsInput(); autoSaveProject(); }
-
-function addNewPath() {
-    const input = document.getElementById('new-path-input');
-    const path = input.value.trim();
-    if (!path) return;
-    const container = document.getElementById('selected-paths-container');
-    if (!container) return;
-    const pathItem = document.createElement('div');
-    pathItem.className = 'path-item';
-    pathItem.dataset.path = path;
-    const pathText = document.createElement('span');
-    pathText.textContent = escapeHtml(path);
-    const removeBtn = document.createElement('button');
-    removeBtn.className = 'remove-btn';
-    removeBtn.textContent = 'X';
-    removeBtn.onclick = () => { pathItem.remove(); updateSelectedPatterns(); };
-    pathItem.appendChild(pathText);
-    pathItem.appendChild(removeBtn);
-    container.appendChild(pathItem);
-    input.value = '';
-    updateSelectedPatterns();
-}
-
-function detailsAddNewPath() {
-    const input = document.getElementById('details-new-path-input');
-    const path = input.value.trim();
-    if (!path) return;
-    addPathToDetailsList(path);
-    input.value = '';
-    updateDetailsPatternsInput();
-    autoSaveProject();
-}
-
-function updateSelectedPatterns() {
-    const container = document.getElementById('selected-paths-container');
-    const input = document.getElementById('patterns-input');
-    if (!container || !input) return;
-    const paths = Array.from(container.children).map(el => el.dataset.path);
-    input.value = paths.join(',');
-}
-
-function formatSize(bytes) {
-    if (bytes === null || bytes === undefined) return '';
-    if (bytes < 1024) return bytes + ' B';
-    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
-    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
-}
-
 // === Project Form Submit ===
 document.getElementById('add-project-form').addEventListener('submit', function (e) {
     e.preventDefault();
     const formData = new FormData(this);
-    formData.set('includePatterns', document.getElementById('patterns-input').value);
     fetch('/api/projects', { method: 'POST', body: formData })
         .then(res => res.json())
         .then(data => {
             if (data.error) { alert('Error: ' + data.error); }
-            else { loadProjects(); this.reset(); onAddModeChange(); }
+            else { loadProjects(); this.reset(); }
         })
         .catch(err => console.error('Failed to create project:', err));
 });
@@ -1184,9 +1067,6 @@ function confirmDetailsRootPathChange() {
 
 function confirmRootPathChangeProceed() {
     document.getElementById('root-path-confirmation-modal').style.display = 'none';
-    const container = document.getElementById('details-selected-paths-container');
-    if (container) container.innerHTML = '';
-    updateDetailsPatternsInput();
     autoSaveProject();
 }
 
