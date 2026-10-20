@@ -151,7 +151,8 @@ RULES:
 
 PARAMETER FORMAT (tag-based, no escaping needed):
 - Start a tool call with [TOOL_START] on its own line.
-- On the NEXT line, specify the tool name as the first parameter:  tool_name:tool_name_here
+- On the NEXT line, specify the tool name as the first parameter:  tool_name:YOUR_TOOL_NAME
+  - NOTE: The format is very specific: "tool_name:" as a prefix, then the name of the tool you are calling
 - Each additional parameter is a line:  param_name:value
   - If the value is on the same line after the colon, it is single-line.
   - If the line is just  param_name:  (colon with nothing after), the value
