@@ -235,33 +235,52 @@ function getEnabledTools() {
 
 // === Directory Picker ===
 function pickFolder(inputId) {
-    const input = document.getElementById(inputId);
-    if (!input) return;
-
-    if ('showDirectoryPicker' in window) {
-        // Modern browsers: Chrome, Edge, Opera
-        showDirectoryPicker({ mode: 'readwrite' })
-            .then(async (handle) => {
-                let path = handle.name || 'selected directory';
-                try {
-                    // Try to get the full path (Chrome on desktop)
-                    path = await handle.getPath();
-                } catch (e) {
-                    // getPath() may throw if permission not granted or not supported
-                    // Fall back to just the directory name
-                }
-                input.value = path;
-                input.dispatchEvent(new Event('change'));
-            })
-            .catch(err => {
-                if (err.name !== 'AbortError') {
-                    console.error('Directory picker failed:', err);
-                    input.value = '';
-                }
-            });
-    } else {
-        alert('Directory picker requires a modern browser (Chrome, Edge, or Opera). You can type the path manually.');
+    // Create a hidden file input that only accepts directories
+    let input = document.getElementById('_hidden_dir_picker_' + inputId);
+    if (!input) {
+        input = document.createElement('input');
+        input.type = 'file';
+        input.id = '_hidden_dir_picker_' + inputId;
+        input.style.display = 'none';
+        // @ts-ignore - webkitdirectory is non-standard but widely supported
+        input.webkitdirectory = true;
+        // @ts-ignore - mozdirectory is Firefox-specific
+        input.mozdirectory = true;
+        document.body.appendChild(input);
     }
+    input.value = ''; // Reset so change fires even on same selection
+    input.click();
+
+    input.onchange = function () {
+        // The value contains the full path on most browsers
+        // On some browsers (Chrome) it may be just the directory name
+        let path = this.value;
+
+        // Handle the case where value includes a fake path (Chrome sends "C:\fakepath\dir")
+        // Extract just the directory name from the fakepath
+        if (path.includes('\\')) {
+            // Chrome on Windows: "C:\\fakepath\\selected_dir" or just "selected_dir"
+            const parts = path.split('\\');
+            path = parts[parts.length - 1];
+            // If it was just the name (no fakepath), that's fine too
+        } else if (path.includes('/')) {
+            // macOS/Linux: value may be full path or just name
+            // Check if it looks like a full path (starts with /)
+            if (path.startsWith('/')) {
+                // Keep the full path
+            } else {
+                // Just the directory name — keep as-is
+            }
+        }
+
+        // For Chrome/Edge with showDirectoryPicker-like behavior,
+        // the value is often just the directory name.
+        // If the user typed a full path before, we should not overwrite it
+        // with just a name. But since this is a file dialog, the OS gives us
+        // what it gives us. For maximum compatibility, we use the value as-is.
+        input.value = path;
+        input.dispatchEvent(new Event('change'));
+    };
 }
 
 // === Live instruction injection ===
@@ -376,6 +395,9 @@ function loadSettingsUI() {
             set('set-custom-verify-ssl', settings.custom_verify_ssl ?? 'false');
             set('set-max-steps', settings.max_steps ?? '50');
             set('set-timeout', settings.timeout ?? '3600');
+            set('set-max-context-tokens', settings.max_context_tokens ?? '0');
+            set('set-max-output-tokens', settings.max_output_tokens ?? '0');
+            set('set-max-tool-result-length', settings.max_tool_result_length ?? '2000');
             set('set-root-dir', settings.root_directory || '');
             set('set-jd-cli', settings.jd_cli_path || '');
             set('set-java-home', settings.java_home || '');
@@ -396,6 +418,9 @@ function saveSettings() {
         custom_verify_ssl: document.getElementById('set-custom-verify-ssl').checked,
         max_steps: document.getElementById('set-max-steps').value,
         timeout: document.getElementById('set-timeout').value,
+        max_context_tokens: document.getElementById('set-max-context-tokens').value,
+        max_output_tokens: document.getElementById('set-max-output-tokens').value,
+        max_tool_result_length: document.getElementById('set-max-tool-result-length').value,
     };
     fetch('/api/settings', {
         method: 'POST',

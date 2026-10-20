@@ -63,6 +63,21 @@ class EngineConfig:
         return None
 
     @staticmethod
+    def get_max_context_tokens() -> int:
+        """Maximum tokens for the LLM context window. 0 = unlimited."""
+        return int(os.getenv("AIB_MAX_CONTEXT_TOKENS", "0"))
+
+    @staticmethod
+    def get_max_output_tokens() -> int:
+        """Maximum tokens the LLM should generate per call. 0 = model default."""
+        return int(os.getenv("AIB_MAX_OUTPUT_TOKENS", "0"))
+
+    @staticmethod
+    def get_max_tool_result_length() -> int:
+        """Maximum characters for a tool result before truncation. 0 = no truncation."""
+        return int(os.getenv("AIB_MAX_TOOL_RESULT_LENGTH", "2000"))
+
+    @staticmethod
     def get_live_instruction(job_id: str, base_dir: Optional[str] = None) -> Optional[str]:
         """Read a live instruction file for a running job.
 

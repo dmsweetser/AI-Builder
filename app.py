@@ -78,6 +78,9 @@ def _load_settings_unlocked():
     loaded.setdefault('custom_verify_ssl', os.getenv("CUSTOM_VERIFY_SSL", "false").lower() == "true")
     loaded.setdefault('max_steps', int(os.getenv("AIB_MAX_STEPS", "50")))
     loaded.setdefault('timeout', int(os.getenv("CUSTOM_TIMEOUT", "3600")))
+    loaded.setdefault('max_context_tokens', int(os.getenv("AIB_MAX_CONTEXT_TOKENS", "0")))
+    loaded.setdefault('max_output_tokens', int(os.getenv("AIB_MAX_OUTPUT_TOKENS", "0")))
+    loaded.setdefault('max_tool_result_length', int(os.getenv("AIB_MAX_TOOL_RESULT_LENGTH", "2000")))
     loaded.setdefault('root_directory', os.getenv("ROOT_DIRECTORY", ""))
     loaded.setdefault('jd_cli_path', os.getenv("JD_CLI_PATH", ""))
     loaded.setdefault('java_home', os.getenv("JAVA_HOME", ""))
@@ -115,6 +118,9 @@ def apply_settings_to_env():
     s = load_settings()
     os.environ["AIB_MAX_STEPS"] = str(s.get('max_steps', 50))
     os.environ["CUSTOM_TIMEOUT"] = str(s.get('timeout', 3600))
+    os.environ["AIB_MAX_CONTEXT_TOKENS"] = str(s.get('max_context_tokens', 0))
+    os.environ["AIB_MAX_OUTPUT_TOKENS"] = str(s.get('max_output_tokens', 0))
+    os.environ["AIB_MAX_TOOL_RESULT_LENGTH"] = str(s.get('max_tool_result_length', 2000))
     if s.get('root_directory'):
         os.environ["ROOT_DIRECTORY"] = s['root_directory']
     if s.get('jd_cli_path'):
@@ -746,75 +752,112 @@ def api_agent_run():
     os.environ["CUSTOM_TIMEOUT"] = os.getenv("CUSTOM_TIMEOUT", "3600")
 
     def generate():
-        # Collect events via callback for real-time streaming
-        event_queue: list = []
-        engine_done = threading.Event()
+        # Queue for events from background thread
+        event_queue: queue.Queue = queue.Queue()
         engine_result: list = [None]
+        engine_error: list = [None]
+        engine_step_history: list = [None]
 
         def on_event(event):
-            event_queue.append(event)
-            engine_done.set()  # Signal that at least one event arrived
+            event_queue.put(event)
+
+        def run_engine():
+            """Run the engine in a background thread."""
+            try:
+                config = {
+                    "rootDirectory": root_dir,
+                    "instructions": instructions,
+                    "job_id": job_id,
+                    "enabled_tools": enabled_tools if enabled_tools else None,
+                }
+                engine = AgentEngine(config, output_dir=output_dir, step_callback=on_event)
+                result = engine.run()
+                engine_result[0] = result
+                engine_step_history[0] = engine.step_history
+                # Push a sentinel to signal completion
+                event_queue.put({"type": "__done__"})
+            except Exception as e:
+                engine_error[0] = e
+                event_queue.put({"type": "__error__", "error": str(e)})
+
+        # Start engine in background thread
+        bg_thread = threading.Thread(target=run_engine, daemon=True)
+        bg_thread.start()
 
         yield "event: status\ndata: " + json.dumps({"type": "start", "job_id": job_id}) + "\n\n"
 
-        try:
-            config = {
-                "rootDirectory": root_dir,
-                "instructions": instructions,
-                "job_id": job_id,
-                "enabled_tools": enabled_tools if enabled_tools else None,
-            }
+        # Process events as they arrive
+        for ev in iter(event_queue.get, None):
+            if ev.get("type") == "__done__":
+                result = engine_result[0] or {}
+                # Yield any remaining events from the queue
+                while not event_queue.empty():
+                    try:
+                        ev = event_queue.get_nowait()
+                        if ev["type"] == "step":
+                            yield "event: step\ndata: " + json.dumps({
+                                "type": "step",
+                                "step": ev["step"],
+                                "tool": ev["tool"],
+                                "params": ev.get("params", {}),
+                                "result": ev.get("result", {}),
+                            }) + "\n"
+                        elif ev["type"] == "llm_call":
+                            yield "event: step\ndata: " + json.dumps({
+                                "type": "llm_call",
+                                "step": ev["step"],
+                                "tool": "llm_call",
+                                "params": ev.get("params", {}),
+                                "result": {"content": "", "success": True},
+                            }) + "\n"
+                    except queue.Empty:
+                        break
+                # Final result
+                yield "event: status\ndata: " + json.dumps({
+                    "type": "complete",
+                    "status": result.get("status", "completed"),
+                    "summary": result.get("summary", ""),
+                    "steps": result.get("steps", 0),
+                    "max_steps": result.get("max_steps", 50),
+                }) + "\n\n"
 
-            engine = AgentEngine(config, output_dir=output_dir, step_callback=on_event)
-            result = engine.run()
-            engine_result[0] = result
+                # Update history with step results
+                job_history[-1]["status"] = result.get("status", "completed")
+                job_history[-1]["summary"] = result.get("summary", "")
+                job_history[-1]["steps"] = result.get("steps", 0)
+                job_history[-1]["step_count"] = result.get("steps", 0)
+                job_history[-1]["step_history"] = engine_step_history[0] or []
+                if result.get("status") == "error":
+                    job_history[-1]["error"] = result.get("error", "Unknown error")
+                save_job_history()
+                break
 
-            # Yield any remaining events that accumulated
-            while event_queue:
-                ev = event_queue.pop(0)
-                if ev["type"] == "step":
-                    yield "event: step\ndata: " + json.dumps({
-                        "type": "step",
-                        "step": ev["step"],
-                        "tool": ev["tool"],
-                        "params": ev.get("params", {}),
-                        "result": ev.get("result", {}),
-                    }) + "\n"
-                elif ev["type"] == "llm_call":
-                    yield "event: step\ndata: " + json.dumps({
-                        "type": "llm_call",
-                        "step": ev["step"],
-                        "tool": "llm_call",
-                        "params": ev.get("params", {}),
-                        "result": {"content": "", "success": True},
-                    }) + "\n"
+            elif ev.get("type") == "__error__":
+                yield "event: status\ndata: " + json.dumps({
+                    "type": "error",
+                    "error": ev.get("error", str(engine_error[0] or "Unknown error")),
+                }) + "\n\n"
+                job_history[-1]["status"] = "error"
+                job_history[-1]["error"] = ev.get("error", str(engine_error[0] or "Unknown error"))
+                save_job_history()
+                break
 
-            # Final result
-            yield "event: status\ndata: " + json.dumps({
-                "type": "complete",
-                "status": result.get("status", "completed"),
-                "summary": result.get("summary", ""),
-                "steps": result.get("steps", 0),
-                "max_steps": result.get("max_steps", 50),
-            }) + "\n\n"
-
-            # Update history with step results
-            job_history[-1]["status"] = result.get("status", "completed")
-            job_history[-1]["summary"] = result.get("summary", "")
-            job_history[-1]["steps"] = result.get("steps", 0)
-            job_history[-1]["step_count"] = result.get("steps", 0)
-            # Save step results to history for display
-            job_history[-1]["step_history"] = engine.step_history  # Save step list for display
-            if result.get("status") == "error":
-                job_history[-1]["error"] = result.get("error", "Unknown error")
-            save_job_history()
-
-        except Exception as e:
-            yield "event: status\ndata: " + json.dumps({
-                "type": "error",
-                "error": str(e),
-            }) + "\n\n"
-
+            elif ev["type"] == "step":
+                yield "event: step\ndata: " + json.dumps({
+                    "type": "step",
+                    "step": ev["step"],
+                    "tool": ev["tool"],
+                    "params": ev.get("params", {}),
+                    "result": ev.get("result", {}),
+                }) + "\n"
+            elif ev["type"] == "llm_call":
+                yield "event: step\ndata: " + json.dumps({
+                    "type": "llm_call",
+                    "step": ev["step"],
+                    "tool": "llm_call",
+                    "params": ev.get("params", {}),
+                    "result": {"content": "", "success": True},
+                }) + "\n"
 
     return Response(generate(), mimetype='text/event-stream')
 

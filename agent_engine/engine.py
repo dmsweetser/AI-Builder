@@ -15,16 +15,68 @@ from agent_engine.tools import ToolRegistry
 from agent_engine.tools.base import ToolResult
 
 
+import random as _random
+import time as _time
+import urllib.error as _urllib_error
+
+
+def _estimate_tokens(text: str) -> int:
+    """Rough token estimate: ~4 chars per token for English/code."""
+    return max(1, len(text) // 4)
+
+
+def _trim_messages_to_context(messages: List[Dict[str, str]], system_prompt: str,
+                               max_tokens: int) -> List[Dict[str, str]]:
+    """Trim conversation history so total tokens stay within max_tokens.
+
+    Keeps system prompt + last N messages.  max_tokens==0 means unlimited.
+    Only trims when the total actually exceeds the budget.
+    """
+    if max_tokens <= 0:
+        return messages
+
+    system_tokens = _estimate_tokens(system_prompt)
+
+    # Start with all messages, trim from the beginning (oldest) until we fit
+    trimmed = list(messages)
+    while len(trimmed) > 1:  # keep at least the system prompt
+        total = system_tokens + sum(_estimate_tokens(m.get("content", "")) for m in trimmed[1:])
+        if total <= max_tokens:
+            break
+        # Remove the oldest non-system message (index 1)
+        trimmed.pop(1)
+
+    return trimmed
+
+
 class LLMClient:
     """Interface for calling the LLM (OpenAI-compatible endpoint)."""
 
-    def __init__(self):
+    MAX_RETRIES = 3
+    BASE_DELAY = 2.0  # seconds
+
+    def __init__(self, max_context_tokens: int = 0, max_output_tokens: int = 0):
         self._prompt_file_counter = 0
+        self._max_context_tokens = max_context_tokens
+        self._max_output_tokens = max_output_tokens
 
-    def call(self, messages: List[Dict[str, str]], response_file: str = None) -> str:
-        return self._call_custom_endpoint(messages, response_file)
+    def call(self, messages: List[Dict[str, str]], response_file: Optional[str] = None,
+             system_prompt: str = "") -> str:
+        """Call the LLM with retry logic and context trimming."""
+        last_err = None
+        for attempt in range(1, self.MAX_RETRIES + 1):
+            try:
+                return self._call_custom_endpoint(messages, response_file, system_prompt)
+            except Exception as e:
+                last_err = e
+                if attempt < self.MAX_RETRIES:
+                    delay = self.BASE_DELAY * (2 ** (attempt - 1))
+                    jitter = delay * (0.5 + 0.5 * _random.random())
+                    _time.sleep(jitter)
+        raise EngineError(f"LLM call failed after {self.MAX_RETRIES} attempts: {last_err}")
 
-    def _call_custom_endpoint(self, messages: List[Dict[str, str]], response_file: str) -> str:
+    def _call_custom_endpoint(self, messages: List[Dict[str, str]],
+                              response_file: Optional[str], system_prompt: str) -> str:
         """Call a custom OpenAI-compatible endpoint (Ollama, LM Studio, vLLM, etc.)."""
         import urllib.request
         import ssl
@@ -37,6 +89,10 @@ class LLMClient:
         if not all([endpoint_url, model_name]):
             raise EngineError("Missing custom endpoint credentials: CUSTOM_ENDPOINT_URL and CUSTOM_MODEL_NAME required")
 
+        # Trim messages to context budget
+        if self._max_context_tokens > 0 and system_prompt:
+            messages = _trim_messages_to_context(messages, system_prompt, self._max_context_tokens)
+
         # Build OpenAI-format messages
         openai_messages = []
         for msg in messages:
@@ -45,11 +101,13 @@ class LLMClient:
                 "content": msg["content"],
             })
 
-        payload = {
+        payload: Dict[str, Any] = {
             "model": model_name,
             "messages": openai_messages,
             "stream": True,
         }
+        if self._max_output_tokens > 0:
+            payload["max_tokens"] = self._max_output_tokens
 
         # Build headers
         headers = {"Content-Type": "application/json"}
@@ -92,6 +150,9 @@ class LLMClient:
                                     rf.write(content)
                     except json.JSONDecodeError:
                         continue
+        except _urllib_error.HTTPError as e:
+            body = e.read().decode('utf-8', errors='replace') if hasattr(e, 'read') else ''
+            raise EngineError(f"Custom endpoint HTTP {e.code}: {body}")
         except Exception as e:
             raise EngineError(f"Custom endpoint call failed: {e}")
 
@@ -148,6 +209,14 @@ RULES:
 - After making changes, verify them. If check_syntax fails, fix the errors.
 - When done, respond with: [DONE] followed by a summary of all changes made.
 - To create a new tool, use create_tool. It proposes the tool for user approval - it does NOT execute arbitrary code. Wait for user approval in the live feed before expecting the tool to be available.
+
+TRUNCATION HANDLING:
+- Tool results may be truncated if they exceed the configured max length (default 2000 chars).
+- If a result says [TRUNCATED], the output was cut off. You should retry with more specific parameters:
+  * list_directory: add a 'path' to target a subdirectory, or 'pattern' to filter by name
+  * search_files: use a more specific 'pattern' to narrow results
+  * grep_code: use a more specific 'pattern' to narrow results
+- When you see [TRUNCATED], do NOT assume the result is complete. Narrow your query and try again.
 
 PARAMETER FORMAT (tag-based, no escaping needed):
 - Start a tool call with [TOOL_START] on its own line.
@@ -327,6 +396,36 @@ def is_done(response: str) -> Tuple[bool, str]:
     return False, ""
 
 
+# Tools that support filtering (for when results are truncated)
+TOOLS_WITH_FILTERS = {
+    "list_directory": "Use a 'path' parameter to narrow to a specific subdirectory, or add a 'pattern' parameter to filter by name.",
+    "search_files": "Use a 'pattern' parameter to narrow the search scope.",
+    "grep_code": "Use a 'pattern' parameter to narrow the search scope.",
+}
+
+
+def truncate_tool_result(content: str, max_length: int, tool_name: str) -> Tuple[str, bool]:
+    """Truncate a tool result if it exceeds max_length characters.
+
+    Returns (truncated_content, was_truncated).
+    When truncated, appends a notice telling the LLM it can use filters.
+    """
+    if max_length <= 0 or len(content) <= max_length:
+        return content, False
+
+    # Keep first N chars + last 200 for context
+    tail = content[-200:] if len(content) > max_length + 200 else ""
+    truncated = content[:max_length] + "\n\n... [TRUNCATED - output was too long, "
+    truncated += f"showing first {max_length} of {len(content)} characters]"
+
+    # Add guidance on how to filter
+    filter_hint = TOOLS_WITH_FILTERS.get(tool_name)
+    if filter_hint:
+        truncated += f"\n\n[HINT] Result was truncated. Try narrowing your query: {filter_hint}"
+
+    return truncated, True
+
+
 class AgentEngine:
     """
     Multi-step agentic code revision engine.
@@ -378,7 +477,13 @@ class AgentEngine:
         # Initialize tools with optional filtering
         enabled_tools = EngineConfig.get_enabled_tools()
         self.tools = ToolRegistry(self.root_dir, enabled_tools=enabled_tools)
-        self.llm = LLMClient()
+        self.max_context_tokens = EngineConfig.get_max_context_tokens()
+        self.max_output_tokens = EngineConfig.get_max_output_tokens()
+        self.max_tool_result_length = EngineConfig.get_max_tool_result_length()
+        self.llm = LLMClient(
+            max_context_tokens=self.max_context_tokens,
+            max_output_tokens=self.max_output_tokens,
+        )
 
         # Conversation history
         self.messages: List[Dict[str, str]] = []
@@ -451,7 +556,7 @@ class AgentEngine:
                                                  "params": llm_entry["params"]})
                         except Exception:
                             pass
-                    response = self.llm.call(self.messages, self.response_file)
+                    response = self.llm.call(self.messages, self.response_file, system_prompt=self.system_prompt)
                 except Exception as e:
                     self.logger.error(f"LLM call failed: {e}")
                     return {"status": "error", "error": str(e), "steps": self.step_count}
@@ -569,7 +674,9 @@ class AgentEngine:
                     # so the LLM properly sees and processes the result.
                     # Format results in a readable way (not raw JSON) so the LLM
                     # can easily extract file content for edit_file operations.
+                    # Apply truncation to prevent context overflow.
                     res_dict = step_entry.get("result", {})
+                    raw_content = ""
                     if res_dict.get("error"):
                         result_display = f"Error: {res_dict['error']}"
                     elif res_dict.get("summary"):
@@ -580,6 +687,19 @@ class AgentEngine:
                         result_display = res_dict["content"]
                     else:
                         result_display = "(no output)"
+
+                    # Truncate if needed
+                    if res_dict.get("content"):
+                        raw_content = res_dict["content"]
+                        result_display, was_truncated = truncate_tool_result(
+                            raw_content, self.max_tool_result_length, tool_name
+                        )
+                        if was_truncated:
+                            result_display += (
+                                f"\n\n[NOTE: This result was truncated from {len(raw_content)} "
+                                f"to {self.max_tool_result_length} characters. "
+                                f"The LLM was notified and can retry with filter parameters.]"
+                            )
                     
                     tool_result_msg = {
                         "role": "user",
