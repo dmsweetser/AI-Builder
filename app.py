@@ -280,6 +280,17 @@ def is_project_running(pid):
             return True
         return any(job["project_id"] == pid for job in job_queue)
 
+
+def get_concurrent_job_info(pid):
+    """Return (is_running, is_queued, existing_job_id) for a project."""
+    with job_queue_lock:
+        if running_job and running_job["project_id"] == pid:
+            return True, False, running_job["job_id"]
+        for job in job_queue:
+            if job["project_id"] == pid:
+                return False, True, job["job_id"]
+        return False, False, None
+
 # --- Routes: Projects ---
 @app.route("/")
 def index():
@@ -402,6 +413,13 @@ def api_add_to_queue():
     project, _ = get_project(pid)
     if not project:
         return jsonify({"error": "Project not found"}), 404
+
+    # Guard: reject if project is already running or queued
+    is_running, is_queued, existing_job_id = get_concurrent_job_info(pid)
+    if is_running:
+        return jsonify({"error": "Project is already running", "job_id": existing_job_id}), 409
+    if is_queued:
+        return jsonify({"error": "Project is already queued", "job_id": existing_job_id}), 409
 
     job_id = str(int(time.time() * 1000))
     output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aib_instance", "output", job_id)
@@ -704,6 +722,7 @@ def api_agent_run():
     instructions = data.get("instructions", "")
     root_dir = data.get("rootDirectory", "")
     enabled_tools = data.get("enabled_tools", [])
+    continue_from_job = data.get("continue_from_job")  # job_id to continue from
 
     if not project_id and not instructions:
         return jsonify({"error": "project_id or instructions required"}), 400
@@ -719,6 +738,23 @@ def api_agent_run():
 
     if not root_dir:
         return jsonify({"error": "rootDirectory required"}), 400
+
+    # Guard: reject if project is already running or queued
+    if project_id:
+        is_running, is_queued, existing_job_id = get_concurrent_job_info(project_id)
+        if is_running:
+            return jsonify({"error": "Project is already running", "job_id": existing_job_id}), 409
+        if is_queued:
+            return jsonify({"error": "Project is already queued", "job_id": existing_job_id}), 409
+
+    # --- Handle continuation from a previous completed job ---
+    prev_step_history = None
+    if continue_from_job:
+        # Load previous step history from job history
+        for h in job_history:
+            if h.get("job_id") == continue_from_job and h.get("step_history"):
+                prev_step_history = h["step_history"]
+                break
 
     job_id = str(int(time.time() * 1000))
     output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
@@ -771,6 +807,23 @@ def api_agent_run():
                     "enabled_tools": enabled_tools if enabled_tools else None,
                 }
                 engine = AgentEngine(config, output_dir=output_dir, step_callback=on_event)
+
+                # If continuing, load previous step history into the engine
+                if prev_step_history:
+                    engine.step_history = prev_step_history
+                    engine.step_count = len(prev_step_history)
+                    # Inject a user message so the agent knows to continue
+                    engine.messages.append({
+                        "role": "user",
+                        "content": (
+                            f"[CONTINUATION] Your previous run completed. "
+                            f"The user has new instructions for you. "
+                            f"Please continue working on the project with these new instructions:\n\n"
+                            f"{instructions}\n\n"
+                            f"Explore the project again and take action."
+                        )
+                    })
+
                 result = engine.run()
                 engine_result[0] = result
                 engine_step_history[0] = engine.step_history

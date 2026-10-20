@@ -989,6 +989,8 @@ button:disabled {
     max-height: 400px;
     overflow-y: auto;
     font-family: 'Courier New', monospace;
+    display: flex;
+    flex-direction: column-reverse;
 }
 
 #agent-live-box .step-entry {
