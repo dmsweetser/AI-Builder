@@ -22,7 +22,7 @@ An agentic, multi-step code-revision engine with a web UI. You give it a project
 - **Multi-step agentic loop** — The engine calls an LLM, parses tool calls, executes tools, feeds results back, and repeats until the task is complete or `max_steps` is reached.
 - **11 built-in tools** — Filesystem exploration, reading, writing, editing, searching, syntax checking, symbol finding, JAR decompilation, dependency listing, and file info.
 - **OpenAI-compatible LLM endpoint** — Works with Ollama, LM Studio, vLLM, Azure AI, or any OpenAI-compatible API.
-- **Tag-based tool-call protocol** — No JSON escaping nightmares. Tool calls use a clean `[TOOL:...] ... [TOOL_END]` block format that handles any content including quotes, newlines, and indentation.
+- **Tag-based tool-call protocol** — No JSON escaping nightmares. Tool calls use a clean `[TOOL_START]` / `[TOOL_END]` block format with `tool_name:` as the first parameter, handling any content including quotes, newlines, and indentation.
 - **Bounded tool execution** — Every tool call is validated against a security layer that prevents path traversal outside the project root.
 - **Loop detection** — The engine detects when the LLM gets stuck in a repetition loop and intervenes with a corrective message.
 - **Live instruction injection** — While a job is running, drop a `live_instruction.txt` file into the output directory to give the agent mid-run updates.
@@ -116,15 +116,20 @@ An agentic, multi-step code-revision engine with a web UI. You give it a project
 ### Tool-call format
 
 ```
-[TOOL:tool_name]
+[TOOL_START]
+tool_name:tool_name_here
 param1:value1
 param2:
 multi-line value here
 [TOOL_END]
 ```
 
-- `param1:value1` — single-line value
+- `[TOOL_START]` on its own line — opens a tool call block
+- `tool_name:tool_name_here` — first parameter specifies which tool to call
+- `param1:value1` — single-line parameter value
 - `param2:` followed by lines — multi-line value (continues until the next `identifier:` line or `[TOOL_END]`)
+- `[TOOL_END]` on its own line — closes the tool call block
+- Both `[TOOL_START]` and `[TOOL_END]` are required; missing either will prevent execution
 - No escaping needed — quotes, newlines, indentation all work naturally
 
 ---

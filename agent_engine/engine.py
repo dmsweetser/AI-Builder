@@ -110,7 +110,8 @@ def build_system_prompt(tools: List[Dict[str, Any]]) -> str:
                 tool_defs += f"\n      - {pk}: {pv}"
 
     example_block = (
-        "[TOOL:write_file]\n"
+        "[TOOL_START]\n"
+        "tool_name:write_file\n"
         "path:src/hello.py\n"
         "content:\n"
         '"""Hello module."""\n'
@@ -146,15 +147,17 @@ RULES:
 - You have a maximum of {EngineConfig.get_max_steps()} steps total. Use them wisely.
 - After making changes, verify them. If check_syntax fails, fix the errors.
 - When done, respond with: [DONE] followed by a summary of all changes made.
-- To create a new tool, use create_tool. It proposes the tool for user approval — it does NOT execute arbitrary code. Wait for user approval in the live feed before expecting the tool to be available.
+- To create a new tool, use create_tool. It proposes the tool for user approval - it does NOT execute arbitrary code. Wait for user approval in the live feed before expecting the tool to be available.
 
 PARAMETER FORMAT (tag-based, no escaping needed):
-- Start a tool call: [TOOL:tool_name]
-- Each parameter is a line:  param_name:value
+- Start a tool call with [TOOL_START] on its own line.
+- On the NEXT line, specify the tool name as the first parameter:  tool_name:tool_name_here
+- Each additional parameter is a line:  param_name:value
   - If the value is on the same line after the colon, it is single-line.
   - If the line is just  param_name:  (colon with nothing after), the value
     continues on subsequent lines until the next  param_name:  line or [TOOL_END].
-- End a tool call: [TOOL_END]
+- End a tool call with [TOOL_END] on its own line.
+- You MUST include both [TOOL_START] and [TOOL_END]. A tool call without both tags will NOT be executed.
 - You may call multiple tools in one response by listing them sequentially.
 
 Example:
@@ -166,7 +169,7 @@ After each tool result, you will respond with either:
 2. Or a final response: [DONE] Your summary of changes.
 
 You may interleave thinking/reasoning text between tool calls.
-Each [TOOL:...] block will be executed and the result will be fed back to you.
+Each [TOOL_START]...[TOOL_END] block will be executed and the result will be fed back to you.
 
 IMPORTANT: You are bounded to the project root directory by default. All file paths are relative to it.
 You CANNOT read or write files outside the project root unless the task instructions explicitly specify an absolute path (e.g., /tmp/something.py).
@@ -186,50 +189,131 @@ def parse_tool_calls(response: str) -> List[Tuple[str, Dict[str, str]]]:
     """Parse tool calls from LLM response using the tag-based format.
 
     Format:
-        [TOOL:tool_name]
+        [TOOL_START]
+        tool_name:tool_name_here
         param1:value1
         param2:
         multi-line value
         [TOOL_END]
 
-    A parameter line is any line starting with an identifier followed by ':'
-    at the start of the line (no leading whitespace). Everything else is a
-    continuation of the previous parameter's value.
+    A parameter line (other than tool_name) is any line starting with an
+    identifier followed by ':' at the start of the line (no leading
+    whitespace). Everything else is a continuation of the previous
+    parameter's value.
+
+    Handles both strict format (with [TOOL_END]) and lenient format
+    (AI omits [TOOL_END] due to truncation).
     """
     calls = []
-    # Find all [TOOL:tool_name] ... [TOOL_END] blocks
-    tool_pattern = r'\[TOOL:([a-zA-Z_][a-zA-Z0-9_-]*)\]\n(.*?)\[TOOL_END\]'
-    for match in re.finditer(tool_pattern, response, re.DOTALL):
-        tool_name = match.group(1)
-        block = match.group(2).rstrip('\n')  # strip trailing newline before [TOOL_END]
 
-        # Parse key:value pairs
-        params: Dict[str, str] = {}
-        current_key: Optional[str] = None
-        current_value_lines: List[str] = []
+    # Strict pattern: requires [TOOL_END]
+    strict_pattern = r'\[TOOL_START\]\n(.*?)\[TOOL_END\]'
+    strict_matches = list(re.finditer(strict_pattern, response, re.DOTALL))
 
-        for line in block.split('\n'):
-            # A new parameter line starts with an identifier followed by ':'
-            # at column 0 (no leading whitespace).  This avoids matching
-            # Python lines like  if __name__ == "__main__":
-            new_param = re.match(r'^([a-zA-Z_][a-zA-Z0-9_]*):(.*)', line)
+    if strict_matches:
+        # Found all tool calls with proper closing tags
+        for match in strict_matches:
+            block = match.group(1).rstrip('\n')
+            tool_name, params = _parse_tool_block(block)
+            if tool_name is not None:
+                calls.append((tool_name, params))
+    else:
+        # Fallback: parse line-by-line for tool calls without [TOOL_END]
+        # This handles truncated responses where AI forgets the closing tag
+        calls = _parse_tool_calls_lenient(response)
 
-            if new_param:
-                # Save previous parameter
+    return calls
+
+
+def _parse_tool_block(block: str, expected_tool_name: Optional[str] = None) -> Tuple[Optional[str], Optional[Dict[str, str]]]:
+    """Parse parameters from a tool call block.
+
+    If expected_tool_name is provided (lenient mode), validates that the
+    first param is tool_name:expected_tool_name. Otherwise, expects
+    tool_name:tool_name_here as the first parameter.
+
+    Returns (tool_name, params) or (None, None) if invalid.
+    """
+    params: Dict[str, str] = {}
+    current_key: Optional[str] = None
+    current_value_lines: List[str] = []
+    tool_name: Optional[str] = expected_tool_name
+
+    for line in block.split('\n'):
+        new_param = re.match(r'^([a-zA-Z_][a-zA-Z0-9_]*):(.*)', line)
+
+        if new_param:
+            key = new_param.group(1)
+            value = new_param.group(2)
+
+            if key == 'tool_name':
+                # First parameter is always the tool name
+                if tool_name is not None:
+                    # Already saved previous param
+                    params[tool_name] = '\n'.join(current_value_lines)
+                tool_name = value.strip()
+                current_value_lines = []
+            else:
+                if tool_name is None:
+                    # No tool_name param found yet - skip this block
+                    return None, None
                 if current_key is not None:
                     params[current_key] = '\n'.join(current_value_lines)
-                current_key = new_param.group(1)
-                current_value_lines = [new_param.group(2)]
-            else:
-                # Continuation of previous value (or blank line)
-                if current_key is not None:
-                    current_value_lines.append(line)
+                current_key = key
+                current_value_lines = [value]
+        else:
+            if current_key is not None:
+                current_value_lines.append(line)
 
-        # Save last parameter
-        if current_key is not None:
-            params[current_key] = '\n'.join(current_value_lines)
+    if current_key is not None and tool_name is not None:
+        params[current_key] = '\n'.join(current_value_lines)
 
-        calls.append((tool_name, params))
+    if tool_name is None:
+        return None, None
+
+    return tool_name, params
+
+
+def _parse_tool_calls_lenient(response: str) -> List[Tuple[str, Dict[str, str]]]:
+    """Parse tool calls by splitting on [TOOL_START] markers.
+
+    Handles cases where the AI omits [TOOL_END] (truncation, format confusion).
+    Each [TOOL_START] line starts a new tool call; the next [TOOL_START] or end
+    of string marks the boundary.
+    """
+    calls = []
+    # Split on [TOOL_START] to get individual tool blocks
+    parts = response.split('[TOOL_START]')
+
+    for part in parts:
+        # Skip non-tool-call content (before first [TOOL_START])
+        stripped = part.lstrip('\n')
+        if not stripped:
+            continue
+
+        # First line should be tool_name:tool_name_here
+        first_nl = stripped.find('\n')
+        if first_nl == -1:
+            continue  # No content after tool name line
+
+        first_line = stripped[:first_nl]
+        tool_name_match = re.match(r'^tool_name:(.+)$', first_line)
+        if not tool_name_match:
+            continue  # Not a valid tool call
+
+        tool_name = tool_name_match.group(1).strip()
+        if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_-]*$', tool_name):
+            continue
+
+        # Rest is the parameter block (may contain [TOOL_END] or not)
+        block = stripped[first_nl + 1:]
+
+        # Strip trailing [TOOL_END] if present
+        block = re.sub(r'\[TOOL_END\]\s*$', '', block)
+
+        _, params = _parse_tool_block(block, expected_tool_name=tool_name)
+        if params is not None:
+            calls.append((tool_name, params))
 
     return calls
 
@@ -407,7 +491,7 @@ class AgentEngine:
                     )
 
                     if is_repeating:
-                        # LLM is stuck in a loop — tell it to stop and use [DONE]
+                        # LLM is stuck in a loop - tell it to stop and use [DONE]
                         stuck_msg = (
                             "\n\n[LOOP DETECTED] You are repeating the same output. "
                             "Either complete the task with [DONE] and a summary, "
@@ -417,9 +501,9 @@ class AgentEngine:
                     else:
                         reminder = (
                             "\n\n[REMINDER] You must take action using the available tools. "
-                            "Use the [TOOL:tool_name] ... [TOOL_END] block format, "
-                            "with each parameter on its own line as  key:value. "
-                            "Or [DONE] when you have finished all changes."
+                            "Use the [TOOL_START] / [TOOL_END] block format with the tool name "
+                            "as the first parameter (tool_name:tool_name_here) on the line after "
+                            "[TOOL_START]. Or [DONE] when you have finished all changes."
                         )
                         self.messages.append({"role": "user", "content": reminder})
                     continue
@@ -429,7 +513,7 @@ class AgentEngine:
                 # calls in the conversation, which causes it to repeat them
                 # verbatim.
                 cleaned_response = re.sub(
-                    r'\[TOOL:[a-zA-Z_][a-zA-Z0-9_-]*\].*?\[TOOL_END\]',
+                    r'\[TOOL_START\].*?\[TOOL_END\]',
                     '',
                     response,
                     flags=re.DOTALL,

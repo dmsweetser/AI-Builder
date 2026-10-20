@@ -583,32 +583,33 @@ class TestParserEdgeCases(unittest.TestCase):
         """Parameter values containing colons should be preserved."""
         # Note: "key:" at start of line is treated as a new param by the parser.
         # Use a value that doesn't start with an identifier followed by colon.
-        response = '[TOOL:write_file]\npath:config.yaml\ncontent:\n--value with colons: in middle\n[TOOL_END]'
+        response = '[TOOL_START]\ntool_name:write_file\npath:config.yaml\ncontent:\n--value with colons: in middle[TOOL_END]'
         calls = parse_tool_calls(response)
         # Parser includes leading newline for multi-line values
         self.assertEqual(calls[0][1]['content'].strip(), '--value with colons: in middle')
 
     def test_empty_tool_block(self):
         """Empty tool block should return empty params."""
-        response = '[TOOL:list_directory]\n[TOOL_END]'
+        response = '[TOOL_START]\ntool_name:list_directory\n[TOOL_END]'
         calls = parse_tool_calls(response)
         self.assertEqual(calls[0][1], {})
 
     def test_tool_name_with_hyphen(self):
         """Tool names with hyphens should be parsed."""
-        response = '[TOOL:my-tool]\nparam:value\n[TOOL_END]'
+        response = '[TOOL_START]\ntool_name:my-tool\nparam:value\n[TOOL_END]'
         calls = parse_tool_calls(response)
         self.assertEqual(calls[0][0], 'my-tool')
 
     def test_tool_name_with_underscore(self):
         """Tool names with underscores should be parsed."""
-        response = '[TOOL:my_tool]\nparam:value\n[TOOL_END]'
+        response = '[TOOL_START]\ntool_name:my_tool\nparam:value\n[TOOL_END]'
         calls = parse_tool_calls(response)
         self.assertEqual(calls[0][0], 'my_tool')
 
     def test_mixed_single_and_multiline_params(self):
         """Mix of single-line and multi-line params should parse correctly."""
-        response = '''[TOOL:write_file]
+        response = '''[TOOL_START]
+tool_name:write_file
 path:src/app.py
 content:
 def hello():
@@ -625,16 +626,19 @@ if __name__ == "__main__":
 
     def test_multiple_tools_with_different_params(self):
         """Multiple tools with different parameter sets should parse correctly."""
-        response = '''[TOOL:list_directory]
+        response = '''[TOOL_START]
+tool_name:list_directory
 path:src
 max_depth:2
 [TOOL_END]
-[TOOL:read_file]
+[TOOL_START]
+tool_name:read_file
 path:src/main.py
 start_line:1
 end_line:10
 [TOOL_END]
-[TOOL:check_syntax]
+[TOOL_START]
+tool_name:check_syntax
 path:src/main.py
 [TOOL_END]'''
         calls = parse_tool_calls(response)

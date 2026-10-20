@@ -33,19 +33,20 @@ class TestParseToolCalls(unittest.TestCase):
     """Tests for the parse_tool_calls function with the new tag-based format."""
 
     def test_simple_single_line(self):
-        response = '[TOOL:list_directory]\npath:\nmax_depth:2\n[TOOL_END]'
+        response = '[TOOL_START]\ntool_name:list_directory\npath:\nmax_depth:2[TOOL_END]'
         calls = parse_tool_calls(response)
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0][0], 'list_directory')
         self.assertEqual(calls[0][1], {'path': '', 'max_depth': '2'})
 
     def test_single_line_param_value(self):
-        response = '[TOOL:check_syntax]\npath:src/hello.py\n[TOOL_END]'
+        response = '[TOOL_START]\ntool_name:check_syntax\npath:src/hello.py[TOOL_END]'
         calls = parse_tool_calls(response)
         self.assertEqual(calls[0][1], {'path': 'src/hello.py'})
 
     def test_multiline_content(self):
-        response = '''[TOOL:write_file]
+        response = '''[TOOL_START]
+tool_name:write_file
 path:src/hello.py
 content:
 """Hello module."""
@@ -63,11 +64,13 @@ if __name__ == "__main__":
         self.assertIn('print(greet("World"))', content)
 
     def test_multiple_tools(self):
-        response = '''[TOOL:list_directory]
+        response = '''[TOOL_START]
+tool_name:list_directory
 path:
 max_depth:1
 [TOOL_END]
-[TOOL:read_file]
+[TOOL_START]
+tool_name:read_file
 path:src/main.py
 [TOOL_END]'''
         calls = parse_tool_calls(response)
@@ -81,7 +84,8 @@ path:src/main.py
         self.assertEqual(calls, [])
 
     def test_edit_file_multiline(self):
-        response = '''[TOOL:edit_file]
+        response = '''[TOOL_START]
+tool_name:edit_file
 path:calc.py
 original_text:def add(a, b):
     return a + b
@@ -97,17 +101,17 @@ def subtract(a, b):
         self.assertIn('def subtract(a, b):', params['new_text'])
 
     def test_search_files(self):
-        response = '[TOOL:search_files]\npattern:*.py\nsearch_dir:\n[TOOL_END]'
+        response = '[TOOL_START]\ntool_name:search_files\npattern:*.py\nsearch_dir:[TOOL_END]'
         calls = parse_tool_calls(response)
         self.assertEqual(calls[0][1], {'pattern': '*.py', 'search_dir': ''})
 
     def test_grep_code(self):
-        response = '[TOOL:grep_code]\npath:app.py\noriginal_text:world\nnew_text:universe\n[TOOL_END]'
+        response = '[TOOL_START]\ntool_name:grep_code\npath:app.py\noriginal_text:world\nnew_text:universe[TOOL_END]'
         calls = parse_tool_calls(response)
         self.assertEqual(calls[0][1], {'path': 'app.py', 'original_text': 'world', 'new_text': 'universe'})
 
     def test_empty_param_value(self):
-        response = '[TOOL:read_file]\npath:\n[TOOL_END]'
+        response = '[TOOL_START]\ntool_name:read_file\npath:[TOOL_END]'
         calls = parse_tool_calls(response)
         self.assertEqual(calls[0][1], {'path': ''})
 
@@ -176,11 +180,11 @@ class TestAgentEngineE2E(unittest.TestCase):
             # New tag-based format LLM responses
             llm_responses = [
                 # Step 1: Agent reads file
-                '[TOOL:read_file]\npath:main.py\n[TOOL_END]',
+                '[TOOL_START]\ntool_name:read_file\npath:main.py[TOOL_END]',
                 # Step 2: Agent edits file
-                '[TOOL:edit_file]\npath:main.py\noriginal_text:def hello():\n    print("Hello World")\n\nnew_text:def hello():\n    print("Hello World")\n\ndef goodbye():\n    print("Goodbye World")\n\n[TOOL_END]',
+                '[TOOL_START]\ntool_name:edit_file\npath:main.py\noriginal_text:def hello():\n    print("Hello World")\n\nnew_text:def hello():\n    print("Hello World")\n\ndef goodbye():\n    print("Goodbye World")\n[TOOL_END]',
                 # Step 3: Agent checks syntax
-                '[TOOL:check_syntax]\npath:main.py\n[TOOL_END]',
+                '[TOOL_START]\ntool_name:check_syntax\npath:main.py[TOOL_END]',
                 # Step 4: Agent completes
                 '[DONE] Added goodbye function to main.py and verified syntax.',
             ]
@@ -213,7 +217,11 @@ class TestAgentEngineE2E(unittest.TestCase):
                 self.assertEqual(result['status'], 'completed')
                 self.assertIn('Added goodbye function', result['summary'])
                 self.assertEqual(result['steps'], 4)
-                self.assertEqual(len(engine.step_history), 3)
+                # step_history includes both LLM calls and tool executions
+                llm_calls = [s for s in engine.step_history if s['tool'] == 'llm_call']
+                tool_steps = [s for s in engine.step_history if s['tool'] != 'llm_call']
+                self.assertEqual(len(llm_calls), 4)  # 4 LLM calls (one per step)
+                self.assertEqual(len(tool_steps), 3)  # 3 tool executions
 
     def test_e2e_agentic_loop_detection(self):
         """Test that the engine detects and breaks out of tool call loops."""
@@ -227,10 +235,10 @@ class TestAgentEngineE2E(unittest.TestCase):
         with patch.object(ToolRegistry, 'execute', mock_execute):
             # LLM keeps calling the same tool repeatedly
             llm_responses = [
-                '[TOOL:read_file]\npath:main.py\n[TOOL_END]',
-                '[TOOL:read_file]\npath:main.py\n[TOOL_END]',
-                '[TOOL:read_file]\npath:main.py\n[TOOL_END]',
-                '[TOOL:read_file]\npath:main.py\n[TOOL_END]',
+                '[TOOL_START]\ntool_name:read_file\npath:main.py[TOOL_END]',
+                '[TOOL_START]\ntool_name:read_file\npath:main.py[TOOL_END]',
+                '[TOOL_START]\ntool_name:read_file\npath:main.py[TOOL_END]',
+                '[TOOL_START]\ntool_name:read_file\npath:main.py[TOOL_END]',
             ]
 
             call_count = [0]

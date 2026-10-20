@@ -84,54 +84,41 @@ class SearchFilesTool(BaseTool):
 class GrepCodeTool(BaseTool):
     name = "grep_code"
     description = (
-        "Search file contents for a text pattern (plain text or regex). "
+        "Search file contents for a text pattern (plain text). "
         "Use this to find code references, function usages, or specific strings. "
-        "Options: max_results (default 50), file_pattern (optional glob filter). "
         "Returns matching file paths and line numbers."
     )
-    parameters = {"pattern": "string", "search_dir": "string"}
+    parameters = {"pattern": "string", "search_dir": "string", "max_results": "string", "file_pattern": "string"}
 
     def execute(self, params: Dict[str, str]) -> ToolResult:
-        path = ensure_under_root(params["path"], self.root_dir)
-        original = params["original_text"]
-        new_text = params["new_text"]
+        search_dir_param = params.get("search_dir", "")
+        search_full = self.root_dir if not search_dir_param else ensure_under_root(search_dir_param, self.root_dir)
+        pattern = params["pattern"]
+        max_results = int(params.get("max_results", "50"))
+        file_pattern = params.get("file_pattern", "")
 
-        # Interpret literal \n and \t sequences as actual newlines/tabs
-        original = original.replace("\\n", "\n").replace("\t", "	").replace("\r", "\n")
-        new_text = new_text.replace("\\n", "\n").replace("\t", "	").replace("\r", "\n")
-
-        if not os.path.isfile(path):
-            return ToolResult(False, "", error=f"File not found: {params['path']}")
-
+        matches = []
         try:
-            with open(path, 'r', encoding='utf-8') as f:
-                content = f.read()
-        except (OSError, PermissionError) as e:
-            return ToolResult(False, "", error=f"Cannot read file: {e}")
-
-        # Try exact match first
-        if original in content:
-            content = content.replace(original, new_text, 1)
-        else:
-            # Fallback: normalize whitespace for flexible matching
-            norm_orig = re.sub(r'\s+', ' ', original.strip())
-            norm_content = re.sub(r'\s+', ' ', content)
-            if norm_orig in norm_content:
-                # Find original text in content ignoring whitespace differences
-                idx = content.find(original.strip())
-                if idx != -1:
-                    content = content[:idx] + new_text + content[idx + len(original.strip()):]
-                else:
-                    return ToolResult(False, "", error="Original text not found (flexible match found but exact text differs). Use read_file to get the exact original text.")
-            else:
-                return ToolResult(False, "", error="Original text not found in file. Use read_file to get the exact text to replace.")
-
-        try:
-            with open(path, 'w', encoding='utf-8') as f:
-                f.write(content)
-            return ToolResult(True, f"Edited {params['path']}", summary=f"Replaced section in: {params['path']}")
+            for root, dirs, files in os.walk(search_full):
+                dirs[:] = [d for d in dirs if not d.startswith('.') and d not in ('node_modules', '__pycache__', 'venv', '.git', 'bin', 'obj', 'Target')]
+                for fname in sorted(files):
+                    if file_pattern and not fnmatch.fnmatch(fname, file_pattern):
+                        continue
+                    fpath = os.path.join(root, fname)
+                    try:
+                        with open(fpath, 'r', encoding='utf-8', errors='replace') as f:
+                            for line_no, line in enumerate(f, 1):
+                                if pattern in line:
+                                    rel = os.path.relpath(fpath, self.root_dir)
+                                    matches.append(f"{rel}:{line_no}: {line.rstrip()}")
+                                    if len(matches) >= max_results:
+                                        return ToolResult(True, "\n".join(matches), summary=f"{len(matches)} matches")
+                    except (OSError, PermissionError):
+                        continue
         except OSError as e:
-            return ToolResult(False, "", error=f"Cannot write file: {e}")
+            return ToolResult(False, "", error=str(e))
+
+        return ToolResult(True, "\n".join(matches), summary=f"{len(matches)} matches")
 
 class ReadFileTool(BaseTool):
     name = "read_file"

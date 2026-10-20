@@ -91,9 +91,9 @@ class TestRealProjectPython(unittest.TestCase):
             return make_mock_execute(registry.root_dir)(registry, tool_name, params)
 
         llm_responses = [
-            '[TOOL:read_file]\npath:main.py\n[TOOL_END]',
-            '[TOOL:edit_file]\npath:main.py\noriginal_text:def add(a, b):\n    return a + b\n\nnew_text:def add(a, b):\n    return a + b\n\ndef subtract(a, b):\n    return a - b\n\n[TOOL_END]',
-            '[TOOL:check_syntax]\npath:main.py\n[TOOL_END]',
+            '[TOOL_START]\ntool_name:read_file\npath:main.py[TOOL_END]',
+            '[TOOL_START]\ntool_name:edit_file\npath:main.py\noriginal_text:def add(a, b):\n    return a + b\n\nnew_text:def add(a, b):\n    return a + b\n\ndef subtract(a, b):\n    return a - b\n[TOOL_END]',
+            '[TOOL_START]\ntool_name:check_syntax\npath:main.py[TOOL_END]',
             '[DONE] Added subtract function to main.py and verified syntax.',
         ]
 
@@ -162,9 +162,9 @@ class TestRealProjectJavaScript(unittest.TestCase):
             return make_mock_execute(registry.root_dir)(registry, tool_name, params)
 
         llm_responses = [
-            '[TOOL:read_file]\npath:utils.js\n[TOOL_END]',
-            '[TOOL:edit_file]\npath:utils.js\noriginal_text:function greet(name) {\n    return "Hello, " + name;\n}\n\nnew_text:function greet(name) {\n    return "Hello, " + name;\n}\n\nfunction farewell(name) {\n    return "Goodbye, " + name;\n}\n\n[TOOL_END]',
-            '[TOOL:check_syntax]\npath:utils.js\n[TOOL_END]',
+            '[TOOL_START]\ntool_name:read_file\npath:utils.js[TOOL_END]',
+            '[TOOL_START]\ntool_name:edit_file\npath:utils.js\noriginal_text:function greet(name) {\n    return "Hello, " + name;\n}\n\nnew_text:function greet(name) {\n    return "Hello, " + name;\n}\n\nfunction farewell(name) {\n    return "Goodbye, " + name;\n}\n[TOOL_END]',
+            '[TOOL_START]\ntool_name:check_syntax\npath:utils.js[TOOL_END]',
             '[DONE] Added farewell function to utils.js.',
         ]
 
@@ -235,11 +235,11 @@ class TestRealProjectMultiFile(unittest.TestCase):
             return make_mock_execute(registry.root_dir)(registry, tool_name, params)
 
         llm_responses = [
-            '[TOOL:list_directory]\npath:\nmax_depth:2\n[TOOL_END]',
-            '[TOOL:read_file]\npath:src/main.py\n[TOOL_END]',
-            '[TOOL:write_file]\npath:src/utils.py\ncontent:def helper():\n    return "Hello from utils"\n\n[TOOL_END]',
-            '[TOOL:edit_file]\npath:src/main.py\noriginal_text:def helper():\n    return "Hello from utils"\n\ndef run():\n    return helper()\n\nnew_text:def helper():\n    return "Hello from utils"\n\ndef run():\n    return helper()\n\n[TOOL_END]',
-            '[TOOL:check_syntax]\npath:src/main.py\n[TOOL_END]',
+            '[TOOL_START]\ntool_name:list_directory\npath:\nmax_depth:2[TOOL_END]',
+            '[TOOL_START]\ntool_name:read_file\npath:src/main.py[TOOL_END]',
+            '[TOOL_START]\ntool_name:write_file\npath:src/utils.py\ncontent:def helper():\n    return "Hello from utils"\n[TOOL_END]',
+            '[TOOL_START]\ntool_name:edit_file\npath:src/main.py\noriginal_text:def helper():\n    return "Hello from utils"\n\ndef run():\n    return helper()\n\nnew_text:def helper():\n    return "Hello from utils"\n\ndef run():\n    return helper()\n[TOOL_END]',
+            '[TOOL_START]\ntool_name:check_syntax\npath:src/main.py[TOOL_END]',
             '[DONE] Created utils.py with helper function and updated imports.',
         ]
 
