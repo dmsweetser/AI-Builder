@@ -1,5 +1,6 @@
 """Runtime configuration for the agentic engine."""
 import os
+import sys
 import json
 from typing import Optional
 
@@ -10,6 +11,18 @@ class EngineConfig:
     @staticmethod
     def get_root_directory() -> str:
         return os.getenv("AIB_ROOT", os.getenv("ROOT_DIRECTORY", os.getcwd()))
+
+    @staticmethod
+    def get_pending_tools_file() -> str:
+        """Return the global pending tools file path (app-level, not per-project)."""
+        # Resolve the app directory (works for both dev and PyInstaller builds)
+        if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+            app_dir = sys._MEIPASS
+        else:
+            # config.py lives in agent_engine/; go up one level to app root
+            app_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        instance_dir = os.path.join(app_dir, "aib_instance", "output")
+        return os.path.join(instance_dir, "pending_tools.json")
 
     @staticmethod
     def get_ai_builder_dir(root_dir: str) -> str:

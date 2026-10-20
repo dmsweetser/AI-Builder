@@ -1038,10 +1038,8 @@ def api_reject_tool(tool_id):
 @app.route("/api/tools/approved", methods=["GET"])
 def api_get_approved_tools():
     """List all approved (registered) dynamic tools."""
-    root_dir = os.getenv("AIB_ROOT", os.getenv("ROOT_DIRECTORY", os.getcwd()))
-    # Read pending_tools.json directly to find approved tools
-    instance_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aib_instance", "output")
-    pending_file = os.path.join(instance_dir, "pending_tools.json")
+    from agent_engine.config import EngineConfig
+    pending_file = EngineConfig.get_pending_tools_file()
     approved_tools = []
     if os.path.exists(pending_file):
         try:

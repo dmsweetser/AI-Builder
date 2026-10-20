@@ -208,10 +208,9 @@ class CreateToolTool(BaseTool):
             "submitted_at": timestamp,
         }
 
-        # Persist to pending tools file
-        instance_dir = os.path.join(EngineConfig.get_ai_builder_dir(self.root_dir))
-        os.makedirs(instance_dir, exist_ok=True)
-        pending_file = os.path.join(instance_dir, "pending_tools.json")
+        # Persist to pending tools file (global, app-level)
+        pending_file = EngineConfig.get_pending_tools_file()
+        os.makedirs(os.path.dirname(pending_file), exist_ok=True)
 
         pending_tools = []
         if os.path.exists(pending_file):

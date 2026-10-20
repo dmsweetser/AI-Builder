@@ -475,7 +475,10 @@ class AgentEngine:
         self.logger.addHandler(sh)
 
         # Initialize tools with optional filtering
-        enabled_tools = EngineConfig.get_enabled_tools()
+        # Prefer enabled_tools from project_config, fall back to env var
+        enabled_tools = project_config.get("enabled_tools")
+        if enabled_tools is None:
+            enabled_tools = EngineConfig.get_enabled_tools()
         self.tools = ToolRegistry(self.root_dir, enabled_tools=enabled_tools)
         self.max_context_tokens = EngineConfig.get_max_context_tokens()
         self.max_output_tokens = EngineConfig.get_max_output_tokens()

@@ -66,8 +66,7 @@ class ToolRegistry:
     @staticmethod
     def _pending_tools_file(root_dir: str) -> str:
         from agent_engine.config import EngineConfig
-        instance_dir = EngineConfig.get_ai_builder_dir(root_dir)
-        return os.path.join(instance_dir, "pending_tools.json")
+        return EngineConfig.get_pending_tools_file()
 
     def _load_approved_tools(self):
         """Load any previously-approved dynamic tools from disk."""

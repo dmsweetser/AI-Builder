@@ -963,6 +963,9 @@ function continueAgentRunWithInstruction(projectId, prevJobId, newInstruction) {
     agentRunning = true;
     liveInjectActive = true;
 
+    // Get enabled tools from the project
+    const enabledTools = getEnabledTools();
+
     // Update UI to show running state
     const runBtn = document.getElementById('details-run-btn');
     const stopBtn = document.getElementById('details-stop-btn');
@@ -989,6 +992,7 @@ function continueAgentRunWithInstruction(projectId, prevJobId, newInstruction) {
             project_id: projectId,
             instructions: newInstruction,
             continue_from_job: prevJobId,
+            enabled_tools: enabledTools,
         }),
         signal: agentSSEController.signal
     })
