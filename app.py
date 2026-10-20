@@ -746,6 +746,15 @@ def api_agent_run():
     os.environ["CUSTOM_TIMEOUT"] = os.getenv("CUSTOM_TIMEOUT", "3600")
 
     def generate():
+        # Collect events via callback for real-time streaming
+        event_queue: list = []
+        engine_done = threading.Event()
+        engine_result: list = [None]
+
+        def on_event(event):
+            event_queue.append(event)
+            engine_done.set()  # Signal that at least one event arrived
+
         yield "event: status\ndata: " + json.dumps({"type": "start", "job_id": job_id}) + "\n\n"
 
         try:
@@ -756,19 +765,29 @@ def api_agent_run():
                 "enabled_tools": enabled_tools if enabled_tools else None,
             }
 
-            engine = AgentEngine(config, output_dir=output_dir)
+            engine = AgentEngine(config, output_dir=output_dir, step_callback=on_event)
             result = engine.run()
+            engine_result[0] = result
 
-            # Stream step history
-            for step in engine.step_history:
-                yield "event: step\ndata: " + json.dumps({
-                    "type": "step",
-                    "step": step["step"],
-                    "tool": step["tool"],
-                    "params": step.get("params", {}),
-                    "result": step.get("result", {}),
-                }) + "\n"
-
+            # Yield any remaining events that accumulated
+            while event_queue:
+                ev = event_queue.pop(0)
+                if ev["type"] == "step":
+                    yield "event: step\ndata: " + json.dumps({
+                        "type": "step",
+                        "step": ev["step"],
+                        "tool": ev["tool"],
+                        "params": ev.get("params", {}),
+                        "result": ev.get("result", {}),
+                    }) + "\n"
+                elif ev["type"] == "llm_call":
+                    yield "event: step\ndata: " + json.dumps({
+                        "type": "llm_call",
+                        "step": ev["step"],
+                        "tool": "llm_call",
+                        "params": ev.get("params", {}),
+                        "result": {"content": "", "success": True},
+                    }) + "\n"
 
             # Final result
             yield "event: status\ndata: " + json.dumps({

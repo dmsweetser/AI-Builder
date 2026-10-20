@@ -233,6 +233,37 @@ function getEnabledTools() {
     return enabled;
 }
 
+// === Directory Picker ===
+function pickFolder(inputId) {
+    const input = document.getElementById(inputId);
+    if (!input) return;
+
+    if ('showDirectoryPicker' in window) {
+        // Modern browsers: Chrome, Edge, Opera
+        showDirectoryPicker({ mode: 'readwrite' })
+            .then(async (handle) => {
+                let path = handle.name || 'selected directory';
+                try {
+                    // Try to get the full path (Chrome on desktop)
+                    path = await handle.getPath();
+                } catch (e) {
+                    // getPath() may throw if permission not granted or not supported
+                    // Fall back to just the directory name
+                }
+                input.value = path;
+                input.dispatchEvent(new Event('change'));
+            })
+            .catch(err => {
+                if (err.name !== 'AbortError') {
+                    console.error('Directory picker failed:', err);
+                    input.value = '';
+                }
+            });
+    } else {
+        alert('Directory picker requires a modern browser (Chrome, Edge, or Opera). You can type the path manually.');
+    }
+}
+
 // === Live instruction injection ===
 function injectLiveInstruction() {
     if (!liveInjectActive) return;
@@ -303,6 +334,15 @@ function pollAgentSteps() {
                     const stepsList = historyItem.querySelector('.job-steps-list');
                     if (stepsList) {
                         stepsList.innerHTML = data.steps.map((s, i) => {
+                            if (s.tool === 'llm_call') {
+                                const msgCount = s.params?.messages || 0;
+                                return `<div class="job-step-item">
+                                    <span class="step-num">Step ${s.step}</span>
+                                    <span class="step-tool-name">[🧠 Thinking]</span>
+                                    <span class="step-status-ok">✓</span>
+                                    <span style="color:#888;">LLM processing (${msgCount} msgs)</span>
+                                </div>`;
+                            }
                             const ok = s.result && s.result.success !== false;
                             const resultText = s.result ? (s.result.content || '').substring(0, 200) : 'no result';
                             return `<div class="job-step-item">
@@ -453,6 +493,15 @@ function renderJobs(queueData, history) {
                         </button>
                         <div id="job-steps-${job.job_id}" class="job-steps-list" style="display:none;">
                             ${stepsData.map((s, i) => {
+            if (s.tool === 'llm_call') {
+                const msgCount = s.params?.messages || 0;
+                return `<div class="job-step-item">
+                                    <span class="step-num">Step ${s.step}</span>
+                                    <span class="step-tool-name">[🧠 Thinking]</span>
+                                    <span class="step-status-ok">✓</span>
+                                    <span style="color:#888;">LLM processing (${msgCount} msgs)</span>
+                                </div>`;
+            }
             const ok = s.result && s.result.success !== false;
             const resultText = s.result ? (s.result.content || '').substring(0, 200) : 'no result';
             return `<div class="job-step-item">
@@ -772,19 +821,36 @@ function handleAgentStatus(data, statusBox) {
 
 function handleAgentStep(data, agentBox, statusBox) {
     if (!agentBox) return;
-    const ok = data.result && data.result.success !== false;
-    const resultPreview = data.result ? (data.result.content || '').substring(0, 300) : 'no result';
     const entry = document.createElement('div');
-    entry.className = `step-entry ${ok ? 'success' : 'error'}`;
-    entry.innerHTML = `
+
+    if (data.tool === 'llm_call') {
+        // LLM call - show as thinking/reasoning step
+        const msgCount = data.params?.messages || 0;
+        entry.className = 'step-entry llm-step';
+        entry.innerHTML = `
+                <div><span class="step-tool">🧠 Step ${data.step}: Thinking (${msgCount} messages)</span></div>
+                <div class="step-result" style="color:#888;font-size:9px;">LLM processing request...</div>
+            `;
+    } else {
+        // Tool call
+        const ok = data.result && data.result.success !== false;
+        const resultPreview = data.result ? (data.result.content || '').substring(0, 300) : 'no result';
+        entry.className = `step-entry ${ok ? 'success' : 'error'}`;
+        entry.innerHTML = `
                 <div><span class="step-tool">Step ${data.step}: ${data.tool}</span></div>
                 ${data.params && Object.keys(data.params).length ? `<div style="color:#aaa;font-size:9px;">Params: ${escapeHtml(JSON.stringify(data.params))}</div>` : ''}
                 <div class="step-result">${escapeHtml(resultPreview)}</div>
             `;
+    }
     agentBox.appendChild(entry);
     agentBox.scrollTop = agentBox.scrollHeight;
     if (statusBox) {
-        statusBox.innerHTML += `[Step ${data.step}] ${data.tool}: ${ok ? '✓' : '✗'} ${resultPreview.substring(0, 80)}\n`;
+        if (data.tool === 'llm_call') {
+            statusBox.innerHTML += `[Step ${data.step}] 🧠 Thinking (${data.params?.messages || 0} msgs)\n`;
+        } else {
+            const ok = data.result && data.result.success !== false;
+            statusBox.innerHTML += `[Step ${data.step}] ${data.tool}: ${ok ? '✓' : '✗'} ${(data.result?.content || '').substring(0, 80)}\n`;
+        }
         statusBox.scrollTop = statusBox.scrollHeight;
     }
 }

@@ -1007,6 +1007,11 @@ button:disabled {
     border-left-color: #f55;
 }
 
+#agent-live-box .step-entry.llm-step {
+    border-left-color: #888;
+    color: #888;
+}
+
 #agent-live-box .step-entry .step-tool {
     color: var(--sky);
     font-weight: bold;

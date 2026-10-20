@@ -96,9 +96,12 @@
 
                         
 
-                        <label>ROOT DIRECTORY</label>
-                        <input type="text" name="rootDirectory" id="add-root-path"
-                            placeholder="e.g., /home/user/project" required>
+                        <label>ROOT DIRECTORY *</label>
+                        <div class="flex-row">
+                            <input type="text" name="rootDirectory" id="add-root-path"
+                                placeholder="e.g., /home/user/project" required style="flex:1;">
+                            <button type="button" class="btn-sm" onclick="pickFolder('add-root-path')" style="white-space:nowrap;">BROWSE</button>
+                        </div>
 
                         
 
@@ -125,9 +128,12 @@
                         <input type="hidden" name="mode" id="details-mode-input" value="agentic">
 
                         <div>
-                            <label>ROOT DIRECTORY</label>
-                            <input name="rootDirectory" id="details-root-dir" onchange="confirmDetailsRootPathChange()"
-                                required>
+                            <label>ROOT DIRECTORY *</label>
+                            <div class="flex-row">
+                                <input name="rootDirectory" id="details-root-dir" onchange="confirmDetailsRootPathChange()"
+                                    required style="flex:1;">
+                                <button type="button" class="btn-sm" onclick="pickFolder('details-root-dir')" style="white-space:nowrap;">BROWSE</button>
+                            </div>
                         </div>
 
                         <div>

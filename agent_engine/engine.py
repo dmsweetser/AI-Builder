@@ -254,7 +254,8 @@ class AgentEngine:
     5. Repeat until [DONE] or max_steps reached
     """
 
-    def __init__(self, project_config: Dict[str, Any], output_dir: Optional[str] = None):
+    def __init__(self, project_config: Dict[str, Any], output_dir: Optional[str] = None,
+                 step_callback=None):
         self.project_config = project_config
         self.root_dir = project_config.get("rootDirectory", EngineConfig.get_root_directory())
         self.instructions = project_config.get("instructions", "")
@@ -307,6 +308,9 @@ class AgentEngine:
         self._permission_requested = False
         self._continue_requested = False
 
+        # Callback for real-time event streaming (called from worker thread)
+        self._step_callback = step_callback
+
     def run(self) -> Dict[str, Any]:
         """Execute the agentic revision loop."""
         self.logger.info(f"Starting agentic engine for: {self.root_dir}")
@@ -348,6 +352,20 @@ class AgentEngine:
                 try:
                     msg_summary = f"{sum(1 for m in self.messages if m['role']=='system')}S/{sum(1 for m in self.messages if m['role']=='user')}U/{sum(1 for m in self.messages if m['role']=='assistant')}A"
                     self.logger.info(f"Calling LLM with {len(self.messages)} messages ({msg_summary})")
+                    # Record LLM call for live feed
+                    llm_entry = {
+                        "step": self.step_count,
+                        "tool": "llm_call",
+                        "params": {"messages": len(self.messages), "msg_summary": msg_summary},
+                        "result": {"content": "", "success": True},
+                    }
+                    self.step_history.append(llm_entry)
+                    if self._step_callback:
+                        try:
+                            self._step_callback({"type": "llm_call", "step": self.step_count,
+                                                 "params": llm_entry["params"]})
+                        except Exception:
+                            pass
                     response = self.llm.call(self.messages, self.response_file)
                 except Exception as e:
                     self.logger.error(f"LLM call failed: {e}")
@@ -452,6 +470,16 @@ class AgentEngine:
                     with open(self.step_log_file, 'a', encoding='utf-8') as f:
                         f.write(json.dumps(step_entry) + '\n')
 
+                    # Notify callback for real-time streaming
+                    if self._step_callback:
+                        try:
+                            self._step_callback({"type": "step", "step": step_entry["step"],
+                                                 "tool": step_entry["tool"],
+                                                 "params": step_entry.get("params", {}),
+                                                 "result": step_entry.get("result", {})})
+                        except Exception:
+                            pass
+
                     # Feed tool result back to conversation as a user message
                     # so the LLM properly sees and processes the result.
                     # Format results in a readable way (not raw JSON) so the LLM
@@ -536,13 +564,15 @@ class AgentEngine:
                 pass
 
 
-def run(project_config: Dict[str, Any], output_dir: Optional[str] = None) -> Dict[str, Any]:
+def run(project_config: Dict[str, Any], output_dir: Optional[str] = None,
+        step_callback=None) -> Dict[str, Any]:
     """Run the agentic engine with the given project configuration."""
     if output_dir is None:
         root_dir = project_config.get("rootDirectory", EngineConfig.get_root_directory())
         output_dir = os.path.join(root_dir, "aib_instance", "output",
                                    project_config.get("job_id", ""))
-    engine = AgentEngine(project_config, output_dir=output_dir)
+    engine = AgentEngine(project_config, output_dir=output_dir,
+                         step_callback=step_callback)
     return engine.run()
 
 
