@@ -174,6 +174,12 @@ class WriteFileTool(BaseTool):
                 os.makedirs(dir_path, exist_ok=True)
             with open(path, 'w', encoding='utf-8') as f:
                 f.write(content)
+            # Verify the file was actually written by reading it back
+            with open(path, 'r', encoding='utf-8') as f:
+                written = f.read()
+            if written != content:
+                return ToolResult(False, "",
+                                  error=f"File verification failed: written content does not match requested content")
             return ToolResult(True, f"Written {len(content)} chars to {params['path']}",
                               summary=f"Created/overwrote: {params['path']}")
         except OSError as e:
@@ -215,7 +221,7 @@ class EditFileTool(BaseTool):
             norm_content = re.sub(r'\s+', ' ', content)
             if norm_orig in norm_content:
                 if original.strip() in content:
-                    content = content.replace(original, new_text, 1)
+                    new_content = content.replace(original, new_text, 1)
                 else:
                     return ToolResult(False, "",
                                       error="Original text not found (flexible match found but exact text differs). "
@@ -226,11 +232,20 @@ class EditFileTool(BaseTool):
                                         "Use read_file to get the exact text to replace.")
         else:
             # Original text found - do the replacement
-            content = content.replace(original, new_text, 1)
+            new_content = content.replace(original, new_text, 1)
 
         try:
             with open(path, 'w', encoding='utf-8') as f:
-                f.write(content)
+                f.write(new_content)
+            # Verify the file content actually changed
+            with open(path, 'r', encoding='utf-8') as f:
+                actual = f.read()
+            if actual != new_content:
+                return ToolResult(False, "",
+                                  error="File verification failed: content does not match after write")
+            if actual == content:
+                return ToolResult(False, "",
+                                  error="Edit verification failed: file content did not change")
             return ToolResult(True, f"Edited {params['path']}",
                               summary=f"Replaced section in: {params['path']}")
         except OSError as e:

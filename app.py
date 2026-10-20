@@ -733,8 +733,10 @@ def api_agent_run():
         project, _ = get_project(project_id)
         if not project:
             return jsonify({"error": "Project not found"}), 404
-        instructions = project.get("instructions", "")
+        # Use project's root dir, but prefer user-provided instructions for continuation
         root_dir = project.get("rootDirectory", "")
+        if not instructions:
+            instructions = project.get("instructions", "")
 
     if not root_dir:
         return jsonify({"error": "rootDirectory required"}), 400
@@ -1037,15 +1039,25 @@ def api_reject_tool(tool_id):
 def api_get_approved_tools():
     """List all approved (registered) dynamic tools."""
     root_dir = os.getenv("AIB_ROOT", os.getenv("ROOT_DIRECTORY", os.getcwd()))
-    registry = ToolRegistry(root_dir)
-    all_tools = registry.list_tools()
-    built_in = {
-        'list_directory', 'search_files', 'grep_code', 'read_file',
-        'write_file', 'edit_file', 'delete_file', 'find_symbol',
-        'decompile_jar', 'list_dependencies', 'check_syntax', 'get_file_info', 'create_tool'
-    }
-    dynamic = [t for t in all_tools if t['name'] not in built_in]
-    return jsonify(dynamic)
+    # Read pending_tools.json directly to find approved tools
+    instance_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aib_instance", "output")
+    pending_file = os.path.join(instance_dir, "pending_tools.json")
+    approved_tools = []
+    if os.path.exists(pending_file):
+        try:
+            with open(pending_file, 'r') as f:
+                pending_tools = json.load(f)
+            for entry in pending_tools:
+                if entry.get("status") == "approved":
+                    approved_tools.append({
+                        "name": entry["name"],
+                        "description": entry.get("description", ""),
+                        "parameters": entry.get("parameters", {}),
+                        "approved_at": entry.get("approved_at", ""),
+                    })
+        except Exception:
+            pass
+    return jsonify(approved_tools)
 
 
 # --- Start Worker on App Start ---

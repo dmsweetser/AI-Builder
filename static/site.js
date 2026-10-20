@@ -246,14 +246,14 @@ function pickFolder(inputId) {
         input.webkitdirectory = true;
         // @ts-ignore - mozdirectory is Firefox-specific
         input.mozdirectory = true;
+        // Use directory="" attribute for native directory picker (works on macOS/Chrome)
+        input.directory = '';
         document.body.appendChild(input);
     }
     input.value = ''; // Reset so change fires even on same selection
     input.click();
 
     input.onchange = function () {
-        // The value contains the full path on most browsers
-        // On some browsers (Chrome) it may be just the directory name
         let path = this.value;
 
         // Handle the case where value includes a fake path (Chrome sends "C:\fakepath\dir")
@@ -262,24 +262,18 @@ function pickFolder(inputId) {
             // Chrome on Windows: "C:\\fakepath\\selected_dir" or just "selected_dir"
             const parts = path.split('\\');
             path = parts[parts.length - 1];
-            // If it was just the name (no fakepath), that's fine too
         } else if (path.includes('/')) {
             // macOS/Linux: value may be full path or just name
-            // Check if it looks like a full path (starts with /)
-            if (path.startsWith('/')) {
-                // Keep the full path
-            } else {
-                // Just the directory name — keep as-is
-            }
+            // If it starts with / it's a full path — keep it
+            // If not, it's just the directory name — keep as-is
         }
 
-        // For Chrome/Edge with showDirectoryPicker-like behavior,
-        // the value is often just the directory name.
-        // If the user typed a full path before, we should not overwrite it
-        // with just a name. But since this is a file dialog, the OS gives us
-        // what it gives us. For maximum compatibility, we use the value as-is.
-        input.value = path;
-        input.dispatchEvent(new Event('change'));
+        // Write the selected path back to the associated text input
+        const targetInput = document.getElementById(inputId);
+        if (targetInput) {
+            targetInput.value = path;
+            targetInput.dispatchEvent(new Event('change'));
+        }
     };
 }
 
@@ -1440,7 +1434,6 @@ function renderPendingTools(pendingTools) {
             item.className = 'pending-tool-item';
             item.style.cssText = 'border:1px solid #444; padding:12px; margin-bottom:10px; border-radius:4px;';
 
-            const codePreview = tool.code ? tool.code.substring(0, 500) : '(no code)';
             const paramsStr = tool.parameters ? JSON.stringify(tool.parameters, null, 2) : '(none)';
 
             item.innerHTML = `
@@ -1449,7 +1442,7 @@ function renderPendingTools(pendingTools) {
                     <span style="color:#aaa; font-size:10px;">Submitted: ${escapeHtml(tool.submitted_at || 'unknown')}</span>
                 </div>
                 <p style="margin:4px 0; color:#ccc; font-size:12px;">${escapeHtml(tool.description)}</p>
-                <details style="margin:8px 0;">
+                <details style="margin:8px 0;" open>
                     <summary style="cursor:pointer; color:var(--accent); font-size:11px;">View Parameters & Code</summary>
                     <div style="margin-top:8px;">
                         <div style="margin-bottom:8px;">
@@ -1458,7 +1451,7 @@ function renderPendingTools(pendingTools) {
                         </div>
                         <div>
                             <strong style="color:#aaa; font-size:11px;">Implementation Code:</strong>
-                            <pre style="background:#111; padding:8px; border-radius:4px; font-size:10px; overflow-x:auto; max-height:300px; margin-top:4px; white-space:pre-wrap;">${escapeHtml(codePreview)}${tool.code && tool.code.length > 500 ? '\n... (truncated)' : ''}</pre>
+                            <pre style="background:#111; padding:8px; border-radius:4px; font-size:10px; overflow-x:auto; margin-top:4px; white-space:pre-wrap;">${escapeHtml(tool.code || '(no code)')}</pre>
                         </div>
                     </div>
                 </details>
