@@ -259,7 +259,7 @@ function pickFolder(inputId) {
         // Handle the case where value includes a fake path (Chrome sends "C:\fakepath\dir")
         // Extract just the directory name from the fakepath
         if (path.includes('\\')) {
-            // Chrome on Windows: "C:\\fakepath\\selected_dir" or just "selected_dir"
+            // Chrome on Windows: "C:\fakepath\selected_dir" or just "selected_dir"
             const parts = path.split('\\');
             path = parts[parts.length - 1];
         } else if (path.includes('/')) {
@@ -718,6 +718,52 @@ function runAgenticProject(projectId) {
     startAgentSSE(projectId, enabledTools);
 }
 
+// === Shared SSE Parser ===
+function parseSSEMessage(buffer, onEvent) {
+    // Process complete SSE messages (delimited by \n\n)
+    let delimIdx;
+    while ((delimIdx = buffer.indexOf('\n\n')) !== -1) {
+        const message = buffer.substring(0, delimIdx);
+        buffer = buffer.substring(delimIdx + 2);
+        const lines = message.split('\n');
+        let eventType = 'message';
+        let dataStr = '';
+        for (const line of lines) {
+            if (line.startsWith('event: ')) eventType = line.substring(7).trim();
+            else if (line.startsWith('data: ')) dataStr = line.substring(6);
+        }
+        if (dataStr) {
+            try {
+                const data = JSON.parse(dataStr);
+                onEvent(eventType, data);
+            } catch (e) { console.warn('Failed to parse SSE data:', e); }
+        }
+    }
+    // Fallback: single-line SSE messages (delimited by \n)
+    while ((delimIdx = buffer.indexOf('\n')) !== -1) {
+        const line = buffer.substring(0, delimIdx).trim();
+        buffer = buffer.substring(delimIdx + 1);
+        if (!line) continue;
+        if (line.startsWith('event: ')) {
+            const eventType = line.substring(7).trim();
+            const dataIdx = buffer.indexOf('\n');
+            if (dataIdx !== -1) {
+                const dataLine = buffer.substring(0, dataIdx).trim();
+                buffer = buffer.substring(dataIdx + 1);
+                if (dataLine.startsWith('data: ')) {
+                    const dataStr = dataLine.substring(6);
+                    try {
+                        const data = JSON.parse(dataStr);
+                        onEvent(eventType, data);
+                    } catch (e) { /* ignore */ }
+                }
+            }
+        }
+    }
+    return buffer;
+}
+
+// === Agent SSE Streaming ===
 function startAgentSSE(projectId, enabledTools) {
     if (agentSSEController) agentSSEController.abort();
     agentSSEController = new AbortController();
@@ -747,59 +793,10 @@ function startAgentSSE(projectId, enabledTools) {
                         return;
                     }
                     buffer += decoder.decode(value, { stream: true });
-    // Process complete SSE messages (delimited by \n\n or \n)
-                    // This handles multi-chunk messages correctly
-                    let doubleNewlineIdx;
-                    while ((doubleNewlineIdx = buffer.indexOf('\n\n')) !== -1) {
-                        const message = buffer.substring(0, doubleNewlineIdx);
-                        buffer = buffer.substring(doubleNewlineIdx + 2); // skip \n\n
-
-                        const lines = message.split('\n');
-                        let eventType = 'message'; // default SSE event type
-                        let dataStr = '';
-
-                        for (const line of lines) {
-                            if (line.startsWith('event: ')) {
-                                eventType = line.substring(7).trim();
-                            } else if (line.startsWith('data: ')) {
-                                dataStr = line.substring(6);
-                            }
-                        }
-
-                        if (dataStr) {
-                            try {
-                                const data = JSON.parse(dataStr);
-                                if (eventType === 'status') handleAgentStatus(data, statusBox);
-                                else if (eventType === 'step') handleAgentStep(data, agentBox, statusBox);
-                            } catch (e) { console.warn('Failed to parse SSE data:', e); }
-                        }
-                    }
-                    // Fallback: process single-line SSE messages (delimited by \n)
-                    // The backend sends step events as single-line SSE: event: step\ndata: {...}\n
-                    let singleNewlineIdx;
-                    while ((singleNewlineIdx = buffer.indexOf('\n')) !== -1) {
-                        const line = buffer.substring(0, singleNewlineIdx).trim();
-                        buffer = buffer.substring(singleNewlineIdx + 1);
-                        if (!line) continue;
-                        // Parse single-line SSE: event: ...\ndata: ...
-                        if (line.startsWith('event: ')) {
-                            const eventType = line.substring(7).trim();
-                            // Next line should be data: ...
-                            const dataIdx = buffer.indexOf('\n');
-                            if (dataIdx !== -1) {
-                                const dataLine = buffer.substring(0, dataIdx).trim();
-                                buffer = buffer.substring(dataIdx + 1);
-                                if (dataLine.startsWith('data: ')) {
-                                    const dataStr = dataLine.substring(6);
-                                    try {
-                                        const data = JSON.parse(dataStr);
-                                        if (eventType === 'status') handleAgentStatus(data, statusBox);
-                                        else if (eventType === 'step') handleAgentStep(data, agentBox, statusBox);
-                                    } catch (e) { /* ignore parse errors */ }
-                                }
-                            }
-                        }
-                    }
+                    buffer = parseSSEMessage(buffer, (eventType, data) => {
+                        if (eventType === 'status') handleAgentStatus(data, statusBox);
+                        else if (eventType === 'step') handleAgentStep(data, agentBox, statusBox);
+                    });
                     processChunk();
                 });
             }
@@ -1016,48 +1013,10 @@ function continueAgentRunWithInstruction(projectId, prevJobId, newInstruction) {
                     return;
                 }
                 buffer += decoder.decode(value, { stream: true });
-                // Process SSE messages: try \n\n first, then \n
-                let delimIdx;
-                while ((delimIdx = buffer.indexOf('\n\n')) !== -1) {
-                    const message = buffer.substring(0, delimIdx);
-                    buffer = buffer.substring(delimIdx + 2);
-                    const lines = message.split('\n');
-                    let eventType = 'message';
-                    let dataStr = '';
-                    for (const line of lines) {
-                        if (line.startsWith('event: ')) eventType = line.substring(7).trim();
-                        else if (line.startsWith('data: ')) dataStr = line.substring(6);
-                    }
-                    if (dataStr) {
-                        try {
-                            const data = JSON.parse(dataStr);
-                            if (eventType === 'status') handleAgentStatus(data, statusBox);
-                            else if (eventType === 'step') handleAgentStep(data, agentBox, statusBox);
-                        } catch (e) { console.warn('Failed to parse SSE data:', e); }
-                    }
-                }
-                // Fallback: single-line SSE messages
-                while ((delimIdx = buffer.indexOf('\n')) !== -1) {
-                    const line = buffer.substring(0, delimIdx).trim();
-                    buffer = buffer.substring(delimIdx + 1);
-                    if (!line) continue;
-                    if (line.startsWith('event: ')) {
-                        const eventType = line.substring(7).trim();
-                        const dataIdx = buffer.indexOf('\n');
-                        if (dataIdx !== -1) {
-                            const dataLine = buffer.substring(0, dataIdx).trim();
-                            buffer = buffer.substring(dataIdx + 1);
-                            if (dataLine.startsWith('data: ')) {
-                                const dataStr = dataLine.substring(6);
-                                try {
-                                    const data = JSON.parse(dataStr);
-                                    if (eventType === 'status') handleAgentStatus(data, statusBox);
-                                    else if (eventType === 'step') handleAgentStep(data, agentBox, statusBox);
-                                } catch (e) { /* ignore */ }
-                            }
-                        }
-                    }
-                }
+                buffer = parseSSEMessage(buffer, (eventType, data) => {
+                    if (eventType === 'status') handleAgentStatus(data, statusBox);
+                    else if (eventType === 'step') handleAgentStep(data, agentBox, statusBox);
+                });
                 processChunk();
             });
         }

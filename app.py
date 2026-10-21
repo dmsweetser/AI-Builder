@@ -55,6 +55,7 @@ job_history = []
 job_queue_lock = threading.Lock()
 stop_event = threading.Event()
 worker_thread = None
+_worker_wake = threading.Event()  # Signals the worker to check the queue
 
 # --- Settings State ---
 settings_lock = threading.RLock()  # RLock allows re-entrant locking
@@ -141,11 +142,16 @@ def apply_settings_to_env():
 
 # --- Initialization ---
 def init_directories():
+    """Create all persistent data directories."""
+    # Ensure the parent aib_instance directory exists first
+    os.makedirs(_AIB_INSTANCE, exist_ok=True)
     os.makedirs(os.path.dirname(STATUS_FILE), exist_ok=True)
     os.makedirs(os.path.dirname(HISTORY_FILE), exist_ok=True)
     os.makedirs(os.path.dirname(PROJECTS_FILE), exist_ok=True)
     os.makedirs(CHATS_DIR, exist_ok=True)
     os.makedirs(os.path.dirname(SETTINGS_FILE), exist_ok=True)
+    # Ensure output directory exists for agent engine
+    os.makedirs(os.path.join(_AIB_INSTANCE, "output"), exist_ok=True)
 
 def load_job_history():
     global job_history
@@ -183,11 +189,13 @@ def save_projects(projects):
 def worker():
     global running_job
     while not stop_event.is_set():
+        _worker_wake.clear()
         with job_queue_lock:
             if running_job is None and job_queue:
                 running_job = job_queue.pop(0)
             else:
-                time.sleep(0.5)
+                # Wait for wake signal or timeout (max 0.5s)
+                _worker_wake.wait(timeout=0.5)
                 continue
 
         job_id = running_job["job_id"]
@@ -252,6 +260,8 @@ def run_with_agent_engine(project_config: Dict[str, Any]) -> Dict[str, Any]:
 def start_worker():
     global worker_thread
     if worker_thread and worker_thread.is_alive():
+        # Worker is alive, signal it to check the queue
+        _worker_wake.set()
         return
     stop_event.clear()
     worker_thread = threading.Thread(target=worker, daemon=True)
