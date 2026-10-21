@@ -246,7 +246,12 @@ def run_with_agent_engine(project_config: Dict[str, Any]) -> Dict[str, Any]:
     output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aib_instance", "output", project_config["job_id"])
     
     os.environ["AIB_ROOT"] = root_dir
-    os.environ["AIB_INSTRUCTIONS"] = project_config.get("instructions", "")
+    # Write instructions to a file to avoid env var length limits
+    instructions_file = os.path.join(output_dir, "instructions.txt")
+    os.makedirs(output_dir, exist_ok=True)
+    with open(instructions_file, 'w', encoding='utf-8') as f:
+        f.write(project_config.get("instructions", ""))
+    os.environ["AIB_INSTRUCTIONS_FILE"] = instructions_file
     os.environ["AIB_PRE_SCRIPT"] = project_config.get("preScript", "")
     os.environ["AIB_POST_SCRIPT"] = project_config.get("postScript", "")
 
@@ -809,7 +814,12 @@ def api_agent_run():
 
     # Set environment variables for the engine
     os.environ["AIB_ROOT"] = root_dir
-    os.environ["AIB_INSTRUCTIONS"] = instructions
+    # Write instructions to a file to avoid env var length limits
+    instructions_file = os.path.join(output_dir, "instructions.txt")
+    os.makedirs(output_dir, exist_ok=True)
+    with open(instructions_file, 'w', encoding='utf-8') as f:
+        f.write(instructions)
+    os.environ["AIB_INSTRUCTIONS_FILE"] = instructions_file
     os.environ["AIB_JOB_ID"] = job_id
     os.environ["CUSTOM_ENDPOINT_URL"] = os.getenv("CUSTOM_ENDPOINT_URL", "")
     os.environ["CUSTOM_API_KEY"] = os.getenv("CUSTOM_API_KEY", "")

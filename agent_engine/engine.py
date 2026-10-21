@@ -240,7 +240,7 @@ PARAMETER FORMAT (tag-based, no escaping needed):
   - Repeat the NAME/VALUE pair for each additional parameter.
 - End a tool call with [TOOL_END] on its own line.
 - You MUST include both [TOOL_START] and [TOOL_END]. A tool call without both tags will NOT be executed.
-- You may call multiple tools in one response by listing them sequentially.
+- Make exactly ONE tool call per response.
 
 Example:
 {example_block}
@@ -252,6 +252,8 @@ After each tool result, you will respond with either:
 
 You may interleave thinking/reasoning text between tool calls.
 Each [TOOL_START]...[TOOL_END] block will be executed and the result will be fed back to you.
+
+CRITICAL: Make EXACTLY ONE tool call per response. Do not include multiple tool call blocks.
 
 IMPORTANT: You are bounded to the project root directory by default. All file paths are relative to it.
 You CANNOT read or write files outside the project root unless the task instructions explicitly specify an absolute path (e.g., /tmp/something.py).
@@ -581,6 +583,10 @@ class AgentEngine:
                         self.messages.append({"role": "user", "content": reminder})
                     continue
 
+                # Only process the first tool call per step (enforce single-call rule)
+                if tool_calls:
+                    tool_calls = [tool_calls[0]]
+
                 # Strip tool call blocks from the response before appending to
                 # history.  This prevents the LLM from seeing its own tool
                 # calls in the conversation, which causes it to repeat them
@@ -762,9 +768,16 @@ if __name__ == "__main__":
     if config_json:
         config = json.loads(config_json)
     else:
+        # Load instructions from file (to avoid env var length limits)
+        instructions_file = os.environ.get("AIB_INSTRUCTIONS_FILE", "")
+        if instructions_file and os.path.exists(instructions_file):
+            with open(instructions_file, 'r', encoding='utf-8') as f:
+                instructions = f.read()
+        else:
+            instructions = os.environ.get("AIB_INSTRUCTIONS", "")
         config = {
             "rootDirectory": EngineConfig.get_root_directory(),
-            "instructions": os.getenv("AIB_INSTRUCTIONS", ""),
+            "instructions": instructions,
             "job_id": str(int(time.time() * 1000)),
         }
 
