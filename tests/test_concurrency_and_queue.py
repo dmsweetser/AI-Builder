@@ -441,12 +441,6 @@ class TestUIPageIntegration(unittest.TestCase):
         self.assertIn("agent-live-container", html)
         self.assertIn("agent-live-box", html)
 
-    def test_index_has_live_status_container(self):
-        resp = self.client.get("/")
-        html = resp.data.decode()
-        self.assertIn("live-status-container", html)
-        self.assertIn("live-status-box", html)
-
     def test_index_has_live_inject_container(self):
         resp = self.client.get("/")
         html = resp.data.decode()

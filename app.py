@@ -254,6 +254,8 @@ def run_with_agent_engine(project_config: Dict[str, Any]) -> Dict[str, Any]:
     if enabled_tools:
         os.environ["AIB_ENABLED_TOOLS"] = json.dumps(enabled_tools)
 
+    os.environ["AIB_OUTPUT_DIR"] = output_dir
+
     return agent_run(project_config, output_dir=output_dir)
 
 
@@ -727,6 +729,17 @@ def api_save_settings():
     save_settings(current)
     apply_settings_to_env()
     return jsonify({"status": "saved"})
+
+
+@app.route("/api/settings/reload", methods=["POST"])
+def api_reload_settings():
+    """Force reload settings from disk, bypassing cache."""
+    global settings_cache
+    with settings_lock:
+        settings_cache.clear()
+    settings = load_settings()
+    apply_settings_to_env()
+    return jsonify({"status": "reloaded", "settings": settings})
 
 # --- Agent Routes ---
 @app.route("/api/agent/run", methods=["POST"])

@@ -263,6 +263,11 @@ After calling create_tool, do NOT call the new tool in the same response. Wait f
 If the tool is approved, it will appear in the tool selector. You can then use it in subsequent steps.
 If the tool is rejected, do not use it. Choose a different approach or use existing tools.
 You will see a "PENDING TOOL APPROVAL" message in the live feed while waiting for user review.
+
+CONTEXT MANAGEMENT:
+- If you have accumulated many tool results and the conversation is getting long, use the compress_context tool to summarize prior steps into a compact summary.
+- This helps free up context space for new work. Provide a summary that captures what was learned, what files were modified, and the current state of the project.
+- After compressing, continue with your next action using the compressed context.
 '''
 
 def build_user_prompt(instructions: str, context: str = "") -> str:
@@ -343,99 +348,6 @@ def _parse_new_format_params(params_block: str) -> Optional[Dict[str, str]]:
         params[key] = value
 
     return params if params else None
-
-
-def _parse_tool_block(block: str, expected_tool_name: Optional[str] = None) -> Tuple[Optional[str], Optional[Dict[str, str]]]:
-    """Parse parameters from a tool call block.
-
-    If expected_tool_name is provided (lenient mode), validates that the
-    first param is tool_name:expected_tool_name. Otherwise, expects
-    tool_name:tool_name_here as the first parameter.
-
-    Returns (tool_name, params) or (None, None) if invalid.
-    """
-    params: Dict[str, str] = {}
-    current_key: Optional[str] = None
-    current_value_lines: List[str] = []
-    tool_name: Optional[str] = expected_tool_name
-
-    for line in block.split('\n'):
-        new_param = re.match(r'^([a-zA-Z_][a-zA-Z0-9_]*):(.*)', line)
-
-        if new_param:
-            key = new_param.group(1)
-            value = new_param.group(2)
-
-            if key == 'tool_name':
-                # First parameter is always the tool name
-                if tool_name is not None:
-                    # Already saved previous param
-                    params[tool_name] = '\n'.join(current_value_lines)
-                tool_name = value.strip()
-                current_value_lines = []
-            else:
-                if tool_name is None:
-                    # No tool_name param found yet - skip this block
-                    return None, None
-                if current_key is not None:
-                    params[current_key] = '\n'.join(current_value_lines)
-                current_key = key
-                current_value_lines = [value]
-        else:
-            if current_key is not None:
-                current_value_lines.append(line)
-
-    if current_key is not None and tool_name is not None:
-        params[current_key] = '\n'.join(current_value_lines)
-
-    if tool_name is None:
-        return None, None
-
-    return tool_name, params
-
-
-def _parse_tool_calls_lenient(response: str) -> List[Tuple[str, Dict[str, str]]]:
-    """Parse tool calls by splitting on [TOOL_START] markers.
-
-    Handles cases where the AI omits [TOOL_END] (truncation, format confusion).
-    Each [TOOL_START] line starts a new tool call; the next [TOOL_START] or end
-    of string marks the boundary.
-    """
-    calls = []
-    # Split on [TOOL_START] to get individual tool blocks
-    parts = response.split('[TOOL_START]')
-
-    for part in parts:
-        # Skip non-tool-call content (before first [TOOL_START])
-        stripped = part.lstrip('\n')
-        if not stripped:
-            continue
-
-        # First line should be tool_name:tool_name_here
-        first_nl = stripped.find('\n')
-        if first_nl == -1:
-            continue  # No content after tool name line
-
-        first_line = stripped[:first_nl]
-        tool_name_match = re.match(r'^tool_name:(.+)$', first_line)
-        if not tool_name_match:
-            continue  # Not a valid tool call
-
-        tool_name = tool_name_match.group(1).strip()
-        if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_-]*$', tool_name):
-            continue
-
-        # Rest is the parameter block (may contain [TOOL_END] or not)
-        block = stripped[first_nl + 1:]
-
-        # Strip trailing [TOOL_END] if present
-        block = re.sub(r'\[TOOL_END\]\s*$', '', block)
-
-        _, params = _parse_tool_block(block, expected_tool_name=tool_name)
-        if params is not None:
-            calls.append((tool_name, params))
-
-    return calls
 
 
 def is_done(response: str) -> Tuple[bool, str]:
@@ -627,9 +539,6 @@ class AgentEngine:
 
                 # Parse tool calls
                 tool_calls = parse_tool_calls(response)
-                if not tool_calls:
-                    # Try lenient parser as fallback (handles old format)
-                    tool_calls = _parse_tool_calls_lenient(response)
                 if not tool_calls:
                     # No tool calls found - LLM may be reasoning or stuck
                     # Check if we're in a loop (same response pattern repeated)

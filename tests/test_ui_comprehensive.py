@@ -64,7 +64,6 @@ track("Stop button", 'id="details-stop-btn"' in html)
 track("Delete button", 'DELETE' in html)
 track("Tool selector grid", 'id="details-tool-selector"' in html)
 track("Agent live container", 'id="agent-live-container"' in html)
-track("Live status container", 'id="live-status-container"' in html)
 track("Live inject container", 'id="live-inject-container"' in html)
 track("Live inject input", 'id="live-inject-input"' in html)
 

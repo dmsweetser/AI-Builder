@@ -15,7 +15,7 @@ from agent_engine.tools.files import (
 )
 from agent_engine.tools.search import FindSymbolTool, DecompileJarTool
 from agent_engine.tools.checkers import CheckSyntaxTool
-from agent_engine.tools.misc import ListDependenciesTool, GetFileInfoTool, CreateToolTool
+from agent_engine.tools.misc import ListDependenciesTool, GetFileInfoTool, CreateToolTool, CompressContextTool
 
 
 class ToolRegistry:
@@ -53,6 +53,7 @@ class ToolRegistry:
             CheckSyntaxTool,
             GetFileInfoTool,
             CreateToolTool,
+            CompressContextTool,
         ]
         # enabled_tools=None or [] means "use all tools"
         use_all = enabled_tools is None or len(enabled_tools) == 0

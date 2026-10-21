@@ -297,11 +297,11 @@ class TestAgentEngineE2E(unittest.TestCase):
             # New tag-based format LLM responses
             llm_responses = [
                 # Step 1: Agent reads file
-                '[TOOL_START]\ntool_name:read_file\npath:main.py[TOOL_END]',
+                '[TOOL_START]\n[TOOL_NAME_START]\nread_file\n[TOOL_NAME_END]\n[PARAM_NAME_START]\npath\n[PARAM_NAME_END]\n[PARAM_VALUE_START]\nmain.py\n[PARAM_VALUE_END]\n[TOOL_END]',
                 # Step 2: Agent edits file
-                '[TOOL_START]\ntool_name:edit_file\npath:main.py\noriginal_text:def hello():\n    print("Hello World")\n\nnew_text:def hello():\n    print("Hello World")\n\ndef goodbye():\n    print("Goodbye World")\n[TOOL_END]',
+                '[TOOL_START]\n[TOOL_NAME_START]\nedit_file\n[TOOL_NAME_END]\n[PARAM_NAME_START]\npath\n[PARAM_NAME_END]\n[PARAM_VALUE_START]\nmain.py\n[PARAM_VALUE_END]\n[PARAM_NAME_START]\noriginal_text\n[PARAM_NAME_END]\n[PARAM_VALUE_START]\ndef hello():\n    print("Hello World")\n\n[PARAM_VALUE_END]\n[PARAM_NAME_START]\nnew_text\n[PARAM_NAME_END]\n[PARAM_VALUE_START]\ndef hello():\n    print("Hello World")\n\ndef goodbye():\n    print("Goodbye World")\n[PARAM_VALUE_END]\n[TOOL_END]',
                 # Step 3: Agent checks syntax
-                '[TOOL_START]\ntool_name:check_syntax\npath:main.py[TOOL_END]',
+                '[TOOL_START]\n[TOOL_NAME_START]\ncheck_syntax\n[TOOL_NAME_END]\n[PARAM_NAME_START]\npath\n[PARAM_NAME_END]\n[PARAM_VALUE_START]\nmain.py\n[PARAM_VALUE_END]\n[TOOL_END]',
                 # Step 4: Agent completes
                 '[DONE] Added goodbye function to main.py and verified syntax.',
             ]
@@ -352,10 +352,10 @@ class TestAgentEngineE2E(unittest.TestCase):
         with patch.object(ToolRegistry, 'execute', mock_execute):
             # LLM keeps calling the same tool repeatedly
             llm_responses = [
-                '[TOOL_START]\ntool_name:read_file\npath:main.py[TOOL_END]',
-                '[TOOL_START]\ntool_name:read_file\npath:main.py[TOOL_END]',
-                '[TOOL_START]\ntool_name:read_file\npath:main.py[TOOL_END]',
-                '[TOOL_START]\ntool_name:read_file\npath:main.py[TOOL_END]',
+                '[TOOL_START]\n[TOOL_NAME_START]\nread_file\n[TOOL_NAME_END]\n[PARAM_NAME_START]\npath\n[PARAM_NAME_END]\n[PARAM_VALUE_START]\nmain.py\n[PARAM_VALUE_END]\n[TOOL_END]',
+                '[TOOL_START]\n[TOOL_NAME_START]\nread_file\n[TOOL_NAME_END]\n[PARAM_NAME_START]\npath\n[PARAM_NAME_END]\n[PARAM_VALUE_START]\nmain.py\n[PARAM_VALUE_END]\n[TOOL_END]',
+                '[TOOL_START]\n[TOOL_NAME_START]\nread_file\n[TOOL_NAME_END]\n[PARAM_NAME_START]\npath\n[PARAM_NAME_END]\n[PARAM_VALUE_START]\nmain.py\n[PARAM_VALUE_END]\n[TOOL_END]',
+                '[TOOL_START]\n[TOOL_NAME_START]\nread_file\n[TOOL_NAME_END]\n[PARAM_NAME_START]\npath\n[PARAM_NAME_END]\n[PARAM_VALUE_START]\nmain.py\n[PARAM_VALUE_END]\n[TOOL_END]',
             ]
 
             call_count = [0]

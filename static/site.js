@@ -174,7 +174,7 @@ let liveInjectActive = false;
 const AVAILABLE_TOOLS = [
     "list_directory", "search_files", "grep_code", "read_file",
     "write_file", "edit_file", "delete_file", "find_symbol",
-    "decompile_jar", "list_dependencies", "check_syntax", "get_file_info", "create_tool"
+    "decompile_jar", "list_dependencies", "check_syntax", "get_file_info", "create_tool", "compress_context"
 ];
 
 // === Tab Management ===
@@ -212,6 +212,35 @@ function showTab(tabName) {
 function escapeHtml(str) {
     if (!str) return '';
     return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// Simple markdown-to-HTML converter (handles code blocks, inline code, bold, italic, lists)
+function markdownToHtml(md) {
+    if (!md) return '';
+    let html = escapeHtml(md);
+
+    // Code blocks (``` ... ```)
+    html = html.replace(/```(\w*)\n([\s\S]*?)```/g, function(match, lang, code) {
+        return '<pre style="background:#111;padding:8px;border-radius:4px;overflow-x:auto;margin:4px 0;font-size:9px;"><code>' + code.trim() + '</code></pre>';
+    });
+
+    // Inline code (` ... `)
+    html = html.replace(/`([^`]+)`/g, '<code style="background:#111;padding:1px 4px;border-radius:3px;font-size:9px;">$1</code>');
+
+    // Bold (**text**)
+    html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+
+    // Italic (*text*)
+    html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+
+    // Unordered lists (- item)
+    html = html.replace(/^- (.+)$/gm, '<div style="margin-left:12px;">• $1</div>');
+
+    // Line breaks (double newline = paragraph break)
+    html = html.replace(/\n\n/g, '<br><br>');
+    html = html.replace(/\n/g, '<br>');
+
+    return html;
 }
 
 // === Tool selector ===
@@ -398,6 +427,23 @@ function loadSettingsUI() {
             set('set-dotnet-cli', settings.dotnet_cli_path || '');
         })
         .catch(err => console.error('Failed to load settings:', err));
+}
+
+function reloadSettingsFromDisk() {
+    fetch('/api/settings/reload', { method: 'POST' })
+        .then(r => r.json())
+        .then(data => {
+            if (data.status === 'reloaded') {
+                loadSettingsUI();
+                alert('Settings reloaded from disk!');
+            } else {
+                alert('Failed to reload settings: ' + (data.error || 'Unknown error'));
+            }
+        })
+        .catch(err => {
+            console.error('Failed to reload settings:', err);
+            alert('Failed to reload settings.');
+        });
 }
 
 function saveSettings() {
@@ -1268,7 +1314,9 @@ function openChat(chatId) {
                 chat.messages.forEach(msg => {
                     const div = document.createElement('div');
                     div.className = 'chat-msg';
-                    div.innerHTML = `<strong>${msg.role === 'user' ? 'YOU' : 'AI'}:</strong> ${escapeHtml(msg.content)}`;
+                    const roleLabel = msg.role === 'user' ? 'YOU' : 'AI';
+                    const roleClass = msg.role === 'user' ? '' : ' ai-response';
+                    div.innerHTML = `<strong class="${roleClass}">${roleLabel}:</strong> <div class="chat-msg-body">${markdownToHtml(msg.content)}</div>`;
                     log.appendChild(div);
                 });
                 log.scrollTop = log.scrollHeight;
@@ -1289,7 +1337,7 @@ function sendChat() {
     const sendBtn = document.getElementById('send-chat-btn');
     const userDiv = document.createElement('div');
     userDiv.className = 'chat-msg';
-    userDiv.innerHTML = `<strong>YOU:</strong> ${escapeHtml(content)}`;
+    userDiv.innerHTML = `<strong>YOU:</strong> <div class="chat-msg-body">${markdownToHtml(content)}</div>`;
     log.appendChild(userDiv);
     input.value = '';
     sendBtn.disabled = true;
@@ -1305,14 +1353,14 @@ function sendChat() {
             let buffer = '';
             let aiDiv = document.createElement('div');
             aiDiv.className = 'chat-msg';
-            aiDiv.innerHTML = `<strong>AI:</strong> <span id="chat-stream-text"></span>`;
+            aiDiv.innerHTML = `<strong class="ai-response">AI:</strong> <div class="chat-msg-body" id="chat-stream-text"></div>`;
             log.appendChild(aiDiv);
             function read() {
                 reader.read().then(({ done, value }) => {
                     if (done) { sendBtn.disabled = false; log.scrollTop = log.scrollHeight; loadChats(); return; }
                     buffer += decoder.decode(value, { stream: true });
                     const textEl = document.getElementById('chat-stream-text');
-                    if (textEl) textEl.textContent = buffer;
+                    if (textEl) textEl.innerHTML = markdownToHtml(buffer);
                     log.scrollTop = log.scrollHeight;
                     read();
                 });
