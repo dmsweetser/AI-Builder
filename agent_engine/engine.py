@@ -172,14 +172,25 @@ def build_system_prompt(tools: List[Dict[str, Any]]) -> str:
 
     example_block = (
         "[TOOL_START]\n"
-        "tool_name:write_file\n"
-        "path:src/hello.py\n"
-        "content:\n"
-        '"""Hello module."""\n'
+        "[TOOL_NAME_START]\n"
+        "write_file\n"
+        "[TOOL_NAME_END]\n"
+        "[PARAM_NAME_START]\n"
+        "path\n"
+        "[PARAM_NAME_END]\n"
+        "[PARAM_VALUE_START]\n"
+        "src/hello.py\n"
+        "[PARAM_VALUE_END]\n"
+        "[PARAM_NAME_START]\n"
+        "content\n"
+        "[PARAM_NAME_END]\n"
+        "[PARAM_VALUE_START]\n"
+        "\"\"\"Hello module.\"\"\"\n"
         "from src.main import greet\n"
         "\n"
         'if __name__ == "__main__":\n'
         '    print(greet("World"))\n'
+        "[PARAM_VALUE_END]\n"
         "[TOOL_END]"
     )
 
@@ -220,12 +231,13 @@ TRUNCATION HANDLING:
 
 PARAMETER FORMAT (tag-based, no escaping needed):
 - Start a tool call with [TOOL_START] on its own line.
-- On the NEXT line, specify the tool name as the first parameter:  tool_name:YOUR_TOOL_NAME
-  - NOTE: The format is very specific: "tool_name:" as a prefix, then the name of the tool you are calling
-- Each additional parameter is a line:  param_name:value
-  - If the value is on the same line after the colon, it is single-line.
-  - If the line is just  param_name:  (colon with nothing after), the value
-    continues on subsequent lines until the next  param_name:  line or [TOOL_END].
+- On the NEXT line, specify [TOOL_NAME_START], then the tool name on the following line, then [TOOL_NAME_END].
+  - The format is very specific: [TOOL_NAME_START] and [TOOL_NAME_END] wrap the tool name.
+- Each parameter uses a NAME/VALUE pair of tags:
+  - [PARAM_NAME_START] on its own line, then the parameter KEY on the next line, then [PARAM_NAME_END].
+  - [PARAM_VALUE_START] on its own line, then the parameter VALUE on subsequent lines, then [PARAM_VALUE_END].
+  - Values may span multiple lines between the START and END tags.
+  - Repeat the NAME/VALUE pair for each additional parameter.
 - End a tool call with [TOOL_END] on its own line.
 - You MUST include both [TOOL_START] and [TOOL_END]. A tool call without both tags will NOT be executed.
 - You may call multiple tools in one response by listing them sequentially.
@@ -244,6 +256,13 @@ Each [TOOL_START]...[TOOL_END] block will be executed and the result will be fed
 IMPORTANT: You are bounded to the project root directory by default. All file paths are relative to it.
 You CANNOT read or write files outside the project root unless the task instructions explicitly specify an absolute path (e.g., /tmp/something.py).
 When the instructions specify an absolute path, use it directly.
+
+TOOL APPROVAL:
+When you use the create_tool to propose a new tool, you MUST wait for user approval before using it.
+After calling create_tool, do NOT call the new tool in the same response. Wait for the user to approve it in the UI.
+If the tool is approved, it will appear in the tool selector. You can then use it in subsequent steps.
+If the tool is rejected, do not use it. Choose a different approach or use existing tools.
+You will see a "PENDING TOOL APPROVAL" message in the live feed while waiting for user review.
 '''
 
 def build_user_prompt(instructions: str, context: str = "") -> str:
@@ -260,39 +279,70 @@ def parse_tool_calls(response: str) -> List[Tuple[str, Dict[str, str]]]:
 
     Format:
         [TOOL_START]
-        tool_name:tool_name_here
-        param1:value1
-        param2:
-        multi-line value
+        [TOOL_NAME_START]
+        write_file
+        [TOOL_NAME_END]
+        [PARAM_NAME_START]
+        path
+        [PARAM_NAME_END]
+        [PARAM_VALUE_START]
+        src/hello.py
+        [PARAM_VALUE_END]
         [TOOL_END]
-
-    A parameter line (other than tool_name) is any line starting with an
-    identifier followed by ':' at the start of the line (no leading
-    whitespace). Everything else is a continuation of the previous
-    parameter's value.
-
-    Handles both strict format (with [TOOL_END]) and lenient format
-    (AI omits [TOOL_END] due to truncation).
     """
     calls = []
 
-    # Strict pattern: requires [TOOL_END]
-    strict_pattern = r'\[TOOL_START\]\n(.*?)\[TOOL_END\]'
-    strict_matches = list(re.finditer(strict_pattern, response, re.DOTALL))
+    # Match [TOOL_START]...[TOOL_END] blocks containing [TOOL_NAME_START]
+    tool_pattern = r'\[TOOL_START\]\s*\[TOOL_NAME_START\]\s*\n(.*?)\[TOOL_NAME_END\]\s*(.*?)\[TOOL_END\]'
+    tool_matches = list(re.finditer(tool_pattern, response, re.DOTALL))
 
-    if strict_matches:
-        # Found all tool calls with proper closing tags
-        for match in strict_matches:
-            block = match.group(1).rstrip('\n')
-            tool_name, params = _parse_tool_block(block)
-            if tool_name is not None:
-                calls.append((tool_name, params))
-    else:
-        # Fallback: parse line-by-line for tool calls without [TOOL_END]
-        # This handles truncated responses where AI forgets the closing tag
-        calls = _parse_tool_calls_lenient(response)
+    for match in tool_matches:
+        tool_name = match.group(1).strip()
+        params_block = match.group(2)
+        params = _parse_new_format_params(params_block)
+        if tool_name and params is not None:
+            calls.append((tool_name, params))
 
     return calls
+
+
+def _parse_new_format_params(params_block: str) -> Optional[Dict[str, str]]:
+    """Parse parameters from the new tag-based format.
+
+    Format:
+        [PARAM_NAME_START]
+        key
+        [PARAM_NAME_END]
+        [PARAM_VALUE_START]
+        value
+        [PARAM_VALUE_END]
+
+    NAME/VALUE pairs alternate: each parameter is a NAME tag followed by a VALUE tag.
+    """
+    params: Dict[str, str] = {}
+    current_key: Optional[str] = None
+
+    # Parse [PARAM_NAME_START]...[PARAM_NAME_END] blocks
+    name_pattern = r'\[PARAM_NAME_START\]\s*\n(.*?)\[PARAM_NAME_END\]'
+    name_matches = list(re.finditer(name_pattern, params_block, re.DOTALL))
+
+    # Parse [PARAM_VALUE_START]...[PARAM_VALUE_END] blocks
+    value_pattern = r'\[PARAM_VALUE_START\]\s*\n(.*?)\[PARAM_VALUE_END\]'
+    value_matches = list(re.finditer(value_pattern, params_block, re.DOTALL))
+
+    if not name_matches or not value_matches:
+        return None
+
+    if len(name_matches) != len(value_matches):
+        return None
+
+    # Pair them up in order
+    for name_match, value_match in zip(name_matches, value_matches):
+        key = name_match.group(1).strip()
+        value = value_match.group(1).strip()
+        params[key] = value
+
+    return params if params else None
 
 
 def _parse_tool_block(block: str, expected_tool_name: Optional[str] = None) -> Tuple[Optional[str], Optional[Dict[str, str]]]:
@@ -610,9 +660,11 @@ class AgentEngine:
                     else:
                         reminder = (
                             "\n\n[REMINDER] You must take action using the available tools. "
-                            "Use the [TOOL_START] / [TOOL_END] block format with the tool name "
-                            "as the first parameter (tool_name:tool_name_here) on the line after "
-                            "[TOOL_START]. Or [DONE] when you have finished all changes."
+                            "Use the [TOOL_START] / [TOOL_END] block format. "
+                            "Inside the block, use [TOOL_NAME_START]...[TOOL_NAME_END] for the tool name, "
+                            "then [PARAM_NAME_START]...[PARAM_NAME_END] for each parameter key, "
+                            "followed by [PARAM_VALUE_START]...[PARAM_VALUE_END] for each parameter value. "
+                            "Or [DONE] when you have finished all changes."
                         )
                         self.messages.append({"role": "user", "content": reminder})
                     continue
@@ -657,6 +709,15 @@ class AgentEngine:
                     except Exception as e:
                         step_entry["result"] = ToolResult(False, "", error=f"Unexpected error: {e}").to_dict()
                         self.logger.error(f"Unexpected tool error: {e}")
+
+                    # If create_tool was used, emit a pending approval event
+                    if tool_name == "create_tool":
+                        if self._step_callback:
+                            try:
+                                tool_name_val = params.get("name", "unknown")
+                                self._step_callback({"type": "pending_approval", "tool_name": tool_name_val})
+                            except Exception:
+                                pass
 
                     # Save step to history
                     self.step_history.append(step_entry)

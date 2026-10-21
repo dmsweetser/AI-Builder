@@ -224,6 +224,15 @@ class CreateToolTool(BaseTool):
         with open(pending_file, 'w') as f:
             json.dump(pending_tools, f, indent=2)
 
+        # Write a pending approval marker file that the UI can detect
+        output_dir = os.path.dirname(pending_file)
+        marker_file = os.path.join(output_dir, "pending_tool_approval.txt")
+        try:
+            with open(marker_file, 'w') as f:
+                json.dumps({"tool_name": tool_name, "tool_id": pending_id})
+        except Exception:
+            pass
+
         return ToolResult(
             True,
             json.dumps(pending_tool, indent=2),

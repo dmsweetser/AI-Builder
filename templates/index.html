@@ -133,7 +133,7 @@
                         <div>
                             <label>ROOT DIRECTORY *</label>
                             <div class="flex-row">
-                                <input name="rootDirectory" id="details-root-dir" onchange="confirmDetailsRootPathChange()"
+                                <input name="rootDirectory" id="details-root-dir" onchange="autoSaveProject()"
                                     required style="flex:1;">
                                 <button type="button" class="btn-sm" onclick="pickFolder('details-root-dir')" style="white-space:nowrap;">BROWSE</button>
                             </div>
@@ -163,12 +163,6 @@
                                         onclick="injectLiveInstruction()">SEND</button>
                                 </div>
                             </div>
-                        </div>
-
-                        <!-- Live status display -->
-                        <div id="live-status-container" style="display:none; margin-top:15px;">
-                            <h3 style="font-size:12px; margin-top:10px;">LIVE STATUS</h3>
-                            <div id="live-status-box"></div>
                         </div>
 
                         <div style="display: flex; gap: 10px; margin-top: 15px;">

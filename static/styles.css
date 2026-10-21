@@ -20,7 +20,7 @@ body {
     background-size: 20px 20px;
     font-family: 'Press Start 2P', monospace;
     color: var(--light-text);
-    font-size: 16px;
+    font-size: 10px;
     margin: 0;
     padding: 0;
     display: flex;
@@ -59,7 +59,7 @@ body {
     color: var(--grass);
     text-shadow: 2px 2px 0px #000;
     margin: 0 0 10px 0;
-    font-size: 18px;
+    font-size: 12px;
 }
 
 .logo-container {
@@ -110,7 +110,7 @@ body {
     padding: 12px;
     cursor: pointer;
     font-family: 'Press Start 2P', monospace;
-    font-size: 14px;
+    font-size: 10px;
     box-shadow: 4px 4px 0px #000;
     transition: all 0.1s;
 }
@@ -759,7 +759,6 @@ button:disabled {
     font-size: 10px;
     z-index: 9998;
     border-radius: 3px;
-    display: none;
 }
 
 .script-disabled-note {
@@ -1012,6 +1011,11 @@ button:disabled {
 #agent-live-box .step-entry.llm-step {
     border-left-color: #888;
     color: #888;
+}
+
+#agent-live-box .step-entry.pending-approval {
+    border-left-color: #ffaa00;
+    color: #ffaa00;
 }
 
 #agent-live-box .step-entry .step-tool {

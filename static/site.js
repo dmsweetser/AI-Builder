@@ -29,21 +29,10 @@ function startFlingLoop() {
             logo.style.left = logoX + 'px';
             logo.style.top = logoY + 'px';
         }
-        // Check goal zone
-        const goalZone = document.getElementById('goal-zone');
+        // Check goal zone — delegate to checkWinCondition for accurate containment logic
+        checkWinCondition();
         const flingCounter = document.getElementById('fling-counter');
-        const logoEl = document.getElementById('draggable-logo');
-        const logoW = logoEl ? logoEl.offsetWidth : 120;
-        const logoH = logoEl ? logoEl.offsetHeight : 120;
-        if (logoX >= GOAL_ZONE.x && logoX + logoW >= GOAL_ZONE.x + GOAL_ZONE.w &&
-            logoY >= GOAL_ZONE.y && logoY + logoH >= GOAL_ZONE.y + GOAL_ZONE.h) {
-            if (goalZone) goalZone.style.display = 'block';
-            if (flingCounter) flingCounter.style.display = 'block';
-            flingCounter.textContent = 'FLINGS: ' + flingCount;
-        } else {
-            if (goalZone) goalZone.style.display = 'none';
-            if (flingCounter) flingCounter.style.display = 'none';
-        }
+        if (flingCounter) flingCounter.textContent = 'FLINGS: ' + flingCount;
         // Stop animation when velocity is tiny
         if (Math.abs(velX) < MIN_VEL && Math.abs(velY) < MIN_VEL) {
             flingAnimFrame = null;
@@ -215,13 +204,33 @@ function buildToolSelector(enabledTools) {
     const container = document.getElementById('details-tool-selector');
     if (!container) return;
     container.innerHTML = '';
-    AVAILABLE_TOOLS.forEach(tool => {
-        const checked = enabledTools.includes(tool) || enabledTools.length === 0;
-        const label = document.createElement('label');
-        label.className = 'tool-checkbox';
-        label.innerHTML = `<input type="checkbox" name="tool_${tool}" ${checked ? 'checked' : ''}> ${tool}`;
-        container.appendChild(label);
-    });
+
+    // Fetch approved custom tools and add them to the selector
+    fetch('/api/tools/approved')
+        .then(r => r.json())
+        .then(approvedTools => {
+            const allTools = [...AVAILABLE_TOOLS, ...approvedTools.map(t => t.name)];
+            allTools.forEach(tool => {
+                const checked = enabledTools.includes(tool) || enabledTools.length === 0;
+                const label = document.createElement('label');
+                label.className = 'tool-checkbox';
+                const isCustom = approvedTools.some(t => t.name === tool);
+                const badge = isCustom ? ' <span style="color:#ffaa00;font-size:8px;">[CUSTOM]</span>' : '';
+                // Use enabled_tools as name so FormData collects checked values
+                label.innerHTML = `<input type="checkbox" name="enabled_tools" value="${tool}" ${checked ? 'checked' : ''}> ${tool}${badge}`;
+                container.appendChild(label);
+            });
+        })
+        .catch(() => {
+            // If approved tools fetch fails, just show built-in tools
+            AVAILABLE_TOOLS.forEach(tool => {
+                const checked = enabledTools.includes(tool) || enabledTools.length === 0;
+                const label = document.createElement('label');
+                label.className = 'tool-checkbox';
+                label.innerHTML = `<input type="checkbox" name="enabled_tools" value="${tool}" ${checked ? 'checked' : ''}> ${tool}`;
+                container.appendChild(label);
+            });
+        });
 }
 
 function getEnabledTools() {
@@ -272,7 +281,13 @@ function pickFolder(inputId) {
         const targetInput = document.getElementById(inputId);
         if (targetInput) {
             targetInput.value = path;
-            targetInput.dispatchEvent(new Event('change'));
+            // Trigger save so the project definition stays in sync
+            autoSaveProject();
+        }
+
+        // Remove the hidden input after use to prevent accumulation
+        if (input && input.parentNode) {
+            input.parentNode.removeChild(input);
         }
     };
 }
@@ -291,11 +306,6 @@ function injectLiveInstruction() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ job_id: currentRunningJobId, instruction: instruction })
         }).then(() => {
-            const statusBox = document.getElementById('live-status-box');
-            if (statusBox) {
-                statusBox.innerHTML += `\n[INJECTED] ${instruction}\n`;
-                statusBox.scrollTop = statusBox.scrollHeight;
-            }
             input.value = '';
         }).catch(err => console.error('Failed to inject instruction:', err));
     } else {
@@ -307,43 +317,6 @@ function injectLiveInstruction() {
         }
         continueAgentRunWithInstruction(projectId, currentRunningJobId, instruction);
     }
-}
-
-// === Live status display ===
-function showLiveStatus(projectId) {
-    const liveStatus = document.getElementById('live-status-container');
-    if (liveStatus) liveStatus.style.display = 'block';
-    const statusBox = document.getElementById('live-status-box');
-    if (statusBox) statusBox.innerHTML = '[STATUS POLLING...]\n';
-    pollJobStatus();
-}
-
-function pollJobStatus() {
-    const statusBox = document.getElementById('live-status-box');
-    if (!statusBox || !currentProjectId) return;
-    fetch('/api/queue')
-        .then(r => r.json())
-        .then(data => {
-            let statusText = '';
-            if (data.running) {
-                statusText = `[RUNNING] Project: ${data.running.project_name || 'Unknown'}\n`;
-                statusText += `  Job ID: ${data.running.job_id}\n`;
-                statusText += `  Started: ${data.running.timestamp || 'N/A'}\n`;
-            }
-            if (data.queue && data.queue.length > 0) {
-                statusText += `\n[QUEUED] ${data.queue.length} job(s) waiting:\n`;
-                data.queue.forEach(j => {
-                    statusText += `  - ${j.project_name || 'Unknown'} (${j.job_id.substring(0, 8)})\n`;
-                });
-            }
-            if (!data.running && (!data.queue || data.queue.length === 0)) {
-                statusText = '[IDLE] No active jobs.';
-            }
-            statusBox.innerHTML = statusText;
-        })
-        .catch(err => {
-            statusBox.innerHTML = `[ERROR] Failed to poll status: ${err.message}`;
-        });
 }
 
 // === Live step updates during agent run ===
@@ -706,15 +679,11 @@ function runAgenticProject(projectId) {
     if (runBtn) { runBtn.disabled = true; runBtn.innerHTML = '<span class="run-spinner"></span> RUNNING...'; }
     if (stopBtn) stopBtn.style.display = 'inline-block';
     const agentLive = document.getElementById('agent-live-container');
-    const liveStatus = document.getElementById('live-status-container');
     const liveInject = document.getElementById('live-inject-container');
     if (agentLive) agentLive.style.display = 'block';
-    if (liveStatus) liveStatus.style.display = 'block';
     if (liveInject) liveInject.style.display = 'block';
     const agentBox = document.getElementById('agent-live-box');
-    const statusBox = document.getElementById('live-status-box');
     if (agentBox) agentBox.innerHTML = '';
-    if (statusBox) statusBox.innerHTML = '';
     startAgentSSE(projectId, enabledTools);
 }
 
@@ -768,10 +737,8 @@ function startAgentSSE(projectId, enabledTools) {
     if (agentSSEController) agentSSEController.abort();
     agentSSEController = new AbortController();
     const agentBox = document.getElementById('agent-live-box');
-    const statusBox = document.getElementById('live-status-box');
     const liveInject = document.getElementById('live-inject-container');
     if (agentBox) agentBox.innerHTML = '';
-    if (statusBox) statusBox.innerHTML = '';
     if (liveInject) liveInject.style.display = 'block';
     fetch('/api/agent/run', {
         method: 'POST',
@@ -794,8 +761,9 @@ function startAgentSSE(projectId, enabledTools) {
                     }
                     buffer += decoder.decode(value, { stream: true });
                     buffer = parseSSEMessage(buffer, (eventType, data) => {
-                        if (eventType === 'status') handleAgentStatus(data, statusBox);
-                        else if (eventType === 'step') handleAgentStep(data, agentBox, statusBox);
+                        if (eventType === 'status') handleAgentStatus(data);
+                        else if (eventType === 'step') handleAgentStep(data, agentBox);
+                        else if (eventType === 'pending_approval') handlePendingApproval(data, agentBox);
                     });
                     processChunk();
                 });
@@ -805,7 +773,6 @@ function startAgentSSE(projectId, enabledTools) {
         .catch(err => {
             if (err.name === 'AbortError') {
                 console.log('Agent run stopped');
-                if (statusBox) statusBox.innerHTML += '\n[STOPPED]';
             } else {
                 console.error('Agent run error:', err);
                 const errEntry = document.createElement('div');
@@ -817,7 +784,6 @@ function startAgentSSE(projectId, enabledTools) {
                     agentBox.appendChild(errEntry);
                 }
                 agentBox.scrollTop = 0;
-                if (statusBox) statusBox.innerHTML += `\n[ERROR: ${escapeHtml(err.message)}]`;
             }
             agentRunning = false;
             liveInjectActive = false;
@@ -826,13 +792,10 @@ function startAgentSSE(projectId, enabledTools) {
 }
 
 
-function handleAgentStatus(data, statusBox) {
-    if (!statusBox) return;
+function handleAgentStatus(data) {
     if (data.type === 'start') {
         currentRunningJobId = data.job_id;
-        statusBox.innerHTML = `[STARTED] Job: ${data.job_id}\n`;
     } else if (data.type === 'complete') {
-        statusBox.innerHTML += `\n[COMPLETE] Steps: ${data.steps}/${data.max_steps}\n${data.summary || ''}\n`;
         loadJobs();
         // Keep inject active so user can continue with new instructions
         agentRunning = false;
@@ -852,15 +815,11 @@ function handleAgentStatus(data, statusBox) {
             runBtn.innerHTML = 'RUN AI BUILDER';
         }
     } else if (data.type === 'error') {
-        statusBox.innerHTML += `\n[ERROR] ${data.error}\n`;
         loadJobs();
         agentRunning = false;
         liveInjectActive = false;
         resetRunButtons();
     } else if (data.type === 'max_steps_reached') {
-        statusBox.innerHTML += `
-[MAX STEPS REACHED] Steps: ${data.steps}/${data.max_steps}
-`;
         // Keep inject active for continuation
         agentRunning = false;
         liveInjectActive = true;
@@ -878,13 +837,13 @@ function handleAgentStatus(data, statusBox) {
         continueBtn.className = 'btn-sm';
         continueBtn.textContent = 'CONTINUE AGENT';
         continueBtn.onclick = () => continueAgentRun(currentRunningJobId);
-        statusBox.appendChild(continueBtn);
+        const agentBox = document.getElementById('agent-live-box');
+        if (agentBox) agentBox.appendChild(continueBtn);
     }
-    if (statusBox) statusBox.scrollTop = statusBox.scrollHeight;
 }
 
 
-function handleAgentStep(data, agentBox, statusBox) {
+function handleAgentStep(data, agentBox) {
     if (!agentBox) return;
     const entry = document.createElement('div');
 
@@ -915,15 +874,23 @@ function handleAgentStep(data, agentBox, statusBox) {
     }
     // Scroll to the top (where newest content is)
     agentBox.scrollTop = 0;
-    if (statusBox) {
-        if (data.tool === 'llm_call') {
-            statusBox.innerHTML += `[Step ${data.step}] 🧠 Thinking (${data.params?.messages || 0} msgs)\n`;
-        } else {
-            const ok = data.result && data.result.success !== false;
-            statusBox.innerHTML += `[Step ${data.step}] ${data.tool}: ${ok ? '✓' : '✗'} ${(data.result?.content || '').substring(0, 80)}\n`;
-        }
-        statusBox.scrollTop = statusBox.scrollHeight;
+}
+
+// === Pending Tool Approval ===
+function handlePendingApproval(data, agentBox) {
+    if (!agentBox) return;
+    const entry = document.createElement('div');
+    entry.className = 'step-entry pending-approval';
+    entry.innerHTML = `
+            <div><span class="step-tool" style="color:#ffaa00;">⚠ PENDING TOOL APPROVAL</span></div>
+            <div class="step-result" style="color:#ffaa00;font-size:9px;">Tool "${escapeHtml(data.tool_name)}" proposed — waiting for user review in the TOOLS tab.</div>
+        `;
+    if (agentBox.firstChild) {
+        agentBox.insertBefore(entry, agentBox.firstChild);
+    } else {
+        agentBox.appendChild(entry);
     }
+    agentBox.scrollTop = 0;
 }
 
 function stopProject(projectId) {
@@ -971,15 +938,11 @@ function continueAgentRunWithInstruction(projectId, prevJobId, newInstruction) {
 
     // Clear and show agent live container
     const agentLive = document.getElementById('agent-live-container');
-    const liveStatus = document.getElementById('live-status-container');
     const liveInject = document.getElementById('live-inject-container');
     if (agentLive) agentLive.style.display = 'block';
-    if (liveStatus) liveStatus.style.display = 'block';
     if (liveInject) liveInject.style.display = 'block';
     const agentBox = document.getElementById('agent-live-box');
-    const statusBox = document.getElementById('live-status-box');
     if (agentBox) agentBox.innerHTML = '';
-    if (statusBox) statusBox.innerHTML = '';
 
     // POST to /api/agent/run with continue_from_job
     fetch('/api/agent/run', {
@@ -1014,8 +977,9 @@ function continueAgentRunWithInstruction(projectId, prevJobId, newInstruction) {
                 }
                 buffer += decoder.decode(value, { stream: true });
                 buffer = parseSSEMessage(buffer, (eventType, data) => {
-                    if (eventType === 'status') handleAgentStatus(data, statusBox);
-                    else if (eventType === 'step') handleAgentStep(data, agentBox, statusBox);
+                    if (eventType === 'status') handleAgentStatus(data);
+                    else if (eventType === 'step') handleAgentStep(data, agentBox);
+                    else if (eventType === 'pending_approval') handlePendingApproval(data, agentBox);
                 });
                 processChunk();
             });
@@ -1025,7 +989,6 @@ function continueAgentRunWithInstruction(projectId, prevJobId, newInstruction) {
     .catch(err => {
         if (err.name === 'AbortError') {
             console.log('Agent run stopped');
-            if (statusBox) statusBox.innerHTML += '\n[STOPPED]';
         } else {
             console.error('Agent run error:', err);
             if (agentBox) {
@@ -1036,7 +999,6 @@ function continueAgentRunWithInstruction(projectId, prevJobId, newInstruction) {
                 else agentBox.appendChild(errEntry);
                 agentBox.scrollTop = 0;
             }
-            if (statusBox) statusBox.innerHTML += `\n[ERROR: ${escapeHtml(err.message)}]`;
         }
         agentRunning = false;
         liveInjectActive = true;
@@ -1468,7 +1430,6 @@ function rejectPendingTool(toolId, toolName) {
 document.addEventListener('DOMContentLoaded', () => {
     loadProjectsCached();
     loadJobs();
-    setInterval(() => { if (currentProjectId) pollJobStatus(); }, 3000);
     // Poll agent steps during active runs (every 2s)
     setInterval(() => { if (agentRunning) pollAgentSteps(); }, 2000);
 

@@ -358,6 +358,11 @@ def api_update_project(pid):
     if not root_directory:
         return jsonify({"error": "Root directory is required"}), 400
 
+    # Get enabled tools from form (if present)
+    enabled_tools = request.form.getlist("enabled_tools")
+    if enabled_tools:
+        project["enabled_tools"] = enabled_tools
+
     project.update({
         "name": request.form.get("name", project["name"]),
         "rootDirectory": root_directory,
@@ -922,6 +927,10 @@ def api_agent_run():
                     "tool": "llm_call",
                     "params": ev.get("params", {}),
                     "result": {"content": "", "success": True},
+                }) + "\n"
+            elif ev["type"] == "pending_approval":
+                yield "event: pending_approval\ndata: " + json.dumps({
+                    "tool_name": ev.get("tool_name", "unknown"),
                 }) + "\n"
 
     return Response(generate(), mimetype='text/event-stream')
