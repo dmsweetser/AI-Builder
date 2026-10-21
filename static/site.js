@@ -6,6 +6,7 @@ let isDragging = false;
 let dragStartX = 0, dragStartY = 0;
 let dragLogoStartX = 0, dragLogoStartY = 0;
 let flingAnimFrame = null;
+let wasInGoalZone = false;  // Track if logo was previously inside the goal zone
 const GOAL_ZONE = { x: 40, y: 40, w: 120, h: 120 };
 const FRICTION = 0.98;
 const MIN_VEL = 0.5;
@@ -43,18 +44,28 @@ function startFlingLoop() {
     flingAnimFrame = requestAnimationFrame(animate);
 }
 
+function isInGoalZone() {
+    const logoEl = document.getElementById('draggable-logo');
+    if (!logoEl) return false;
+    const logoW = logoEl.offsetWidth;
+    const logoH = logoEl.offsetHeight;
+    return (logoX >= GOAL_ZONE.x && logoX + logoW <= GOAL_ZONE.x + GOAL_ZONE.w &&
+        logoY >= GOAL_ZONE.y && logoY + logoH <= GOAL_ZONE.y + GOAL_ZONE.h);
+}
+
 function checkWinCondition() {
     const goalZone = document.getElementById('goal-zone');
     const logoEl = document.getElementById('draggable-logo');
     if (!logoEl) return;
-    const logoW = logoEl.offsetWidth;
-    const logoH = logoEl.offsetHeight;
-    // Check logo is fully contained within the goal zone
-    if (logoX >= GOAL_ZONE.x && logoX + logoW <= GOAL_ZONE.x + GOAL_ZONE.w &&
-        logoY >= GOAL_ZONE.y && logoY + logoH <= GOAL_ZONE.y + GOAL_ZONE.h) {
+
+    const inZone = isInGoalZone();
+
+    // A valid fling = the logo was previously in the goal zone and is now leaving it
+    if (wasInGoalZone && !inZone) {
         flingCount++;
         const flingCounter = document.getElementById('fling-counter');
         if (flingCounter) flingCounter.textContent = 'FLINGS: ' + flingCount;
+
         // Show win message after 3 flings
         if (flingCount >= 3) {
             const winMsg = document.getElementById('win-message');
@@ -64,16 +75,20 @@ function checkWinCondition() {
                 setTimeout(() => { if (winMsg) winMsg.style.display = 'none'; }, 5000);
             }
         }
+
         // Reset position to bottom-right and clear velocity
-        logoX = window.innerWidth - logoW - 20;
-        logoY = window.innerHeight - logoH - 20;
+        logoX = window.innerWidth - logoEl.offsetWidth - 20;
+        logoY = window.innerHeight - logoEl.offsetHeight - 20;
         velX = 0;
         velY = 0;
         if (goalZone) goalZone.style.display = 'none';
+        wasInGoalZone = false;
         // Update logo position immediately
         logoEl.style.left = logoX + 'px';
         logoEl.style.top = logoY + 'px';
     }
+
+    wasInGoalZone = inZone;
 }
 
 // Fling game event handlers
@@ -237,7 +252,7 @@ function getEnabledTools() {
     const checkboxes = document.querySelectorAll('#details-tool-selector input[type="checkbox"]');
     const enabled = [];
     checkboxes.forEach(cb => {
-        if (cb.checked) enabled.push(cb.name.replace('tool_', ''));
+        if (cb.checked) enabled.push(cb.value);
     });
     return enabled;
 }

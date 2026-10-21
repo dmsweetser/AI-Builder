@@ -74,11 +74,22 @@ class CheckSyntaxTool(BaseTool):
                 "/usr/bin/javac",
                 "/usr/lib/jvm/default/bin/javac",
                 "/usr/lib/jvm/java-17/bin/javac",
+                "/opt/homebrew/bin/javac",
+                "/usr/local/bin/javac",
                 "javac",
             ]
             for c in candidates:
-                if os.path.isfile(c) or (c == "javac" and subprocess.run(["which", "javac"], capture_output=True).returncode == 0):
+                if os.path.isfile(c):
                     javac = c
+                    break
+                if c == "javac":
+                    try:
+                        result = subprocess.run(["which", "javac"], capture_output=True, timeout=5)
+                        if result.returncode == 0:
+                            javac = "javac"
+                    except (subprocess.TimeoutExpired, OSError):
+                        pass
+                if javac:
                     break
 
         if not javac:
@@ -99,11 +110,10 @@ class CheckSyntaxTool(BaseTool):
             if errors:
                 return ToolResult(False, "\n".join(errors[:10]), error=errors[0] if errors else "Java compilation failed")
             return ToolResult(True, f"Java syntax OK ({path})", summary="Syntax check passed")
-        except FileNotFoundError:
-            return self._check_java_braces(path)
-        except subprocess.TimeoutExpired:
+        except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
             return self._check_java_braces(path)
         except Exception as e:
+            # Java runtime errors (e.g., "Unable to locate a Java Runtime") — fall back to brace matching
             return self._check_java_braces(path)
 
     def _check_java_braces(self, path: str) -> ToolResult:

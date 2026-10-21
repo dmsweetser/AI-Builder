@@ -33,27 +33,63 @@ class TestParseToolCalls(unittest.TestCase):
     """Tests for the parse_tool_calls function with the new tag-based format."""
 
     def test_simple_single_line(self):
-        response = '[TOOL_START]\ntool_name:list_directory\npath:\nmax_depth:2[TOOL_END]'
+        response = '''[TOOL_START]
+[TOOL_NAME_START]
+list_directory
+[TOOL_NAME_END]
+[PARAM_NAME_START]
+path
+[PARAM_NAME_END]
+[PARAM_VALUE_START]
+[PARAM_VALUE_END]
+[PARAM_NAME_START]
+max_depth
+[PARAM_NAME_END]
+[PARAM_VALUE_START]
+2
+[PARAM_VALUE_END]
+[TOOL_END]'''
         calls = parse_tool_calls(response)
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0][0], 'list_directory')
         self.assertEqual(calls[0][1], {'path': '', 'max_depth': '2'})
 
     def test_single_line_param_value(self):
-        response = '[TOOL_START]\ntool_name:check_syntax\npath:src/hello.py[TOOL_END]'
+        response = '''[TOOL_START]
+[TOOL_NAME_START]
+check_syntax
+[TOOL_NAME_END]
+[PARAM_NAME_START]
+path
+[PARAM_NAME_END]
+[PARAM_VALUE_START]
+src/hello.py
+[PARAM_VALUE_END]
+[TOOL_END]'''
         calls = parse_tool_calls(response)
         self.assertEqual(calls[0][1], {'path': 'src/hello.py'})
 
     def test_multiline_content(self):
         response = '''[TOOL_START]
-tool_name:write_file
-path:src/hello.py
-content:
+[TOOL_NAME_START]
+write_file
+[TOOL_NAME_END]
+[PARAM_NAME_START]
+path
+[PARAM_NAME_END]
+[PARAM_VALUE_START]
+src/hello.py
+[PARAM_VALUE_END]
+[PARAM_NAME_START]
+content
+[PARAM_NAME_END]
+[PARAM_VALUE_START]
 """Hello module."""
 from src.main import greet
 
 if __name__ == "__main__":
     print(greet("World"))
+[PARAM_VALUE_END]
 [TOOL_END]'''
         calls = parse_tool_calls(response)
         self.assertEqual(calls[0][0], 'write_file')
@@ -65,13 +101,31 @@ if __name__ == "__main__":
 
     def test_multiple_tools(self):
         response = '''[TOOL_START]
-tool_name:list_directory
-path:
-max_depth:1
+[TOOL_NAME_START]
+list_directory
+[TOOL_NAME_END]
+[PARAM_NAME_START]
+path
+[PARAM_NAME_END]
+[PARAM_VALUE_START]
+[PARAM_VALUE_END]
+[PARAM_NAME_START]
+max_depth
+[PARAM_NAME_END]
+[PARAM_VALUE_START]
+1
+[PARAM_VALUE_END]
 [TOOL_END]
 [TOOL_START]
-tool_name:read_file
-path:src/main.py
+[TOOL_NAME_START]
+read_file
+[TOOL_NAME_END]
+[PARAM_NAME_START]
+path
+[PARAM_NAME_END]
+[PARAM_VALUE_START]
+src/main.py
+[PARAM_VALUE_END]
 [TOOL_END]'''
         calls = parse_tool_calls(response)
         self.assertEqual(len(calls), 2)
@@ -85,15 +139,32 @@ path:src/main.py
 
     def test_edit_file_multiline(self):
         response = '''[TOOL_START]
-tool_name:edit_file
-path:calc.py
-original_text:def add(a, b):
+[TOOL_NAME_START]
+edit_file
+[TOOL_NAME_END]
+[PARAM_NAME_START]
+path
+[PARAM_NAME_END]
+[PARAM_VALUE_START]
+calc.py
+[PARAM_VALUE_END]
+[PARAM_NAME_START]
+original_text
+[PARAM_NAME_END]
+[PARAM_VALUE_START]
+def add(a, b):
     return a + b
-new_text:def add(a, b):
+[PARAM_VALUE_END]
+[PARAM_NAME_START]
+new_text
+[PARAM_NAME_END]
+[PARAM_VALUE_START]
+def add(a, b):
     return a + b
 
 def subtract(a, b):
     return a - b
+[PARAM_VALUE_END]
 [TOOL_END]'''
         calls = parse_tool_calls(response)
         params = calls[0][1]
@@ -101,17 +172,63 @@ def subtract(a, b):
         self.assertIn('def subtract(a, b):', params['new_text'])
 
     def test_search_files(self):
-        response = '[TOOL_START]\ntool_name:search_files\npattern:*.py\nsearch_dir:[TOOL_END]'
+        response = '''[TOOL_START]
+[TOOL_NAME_START]
+search_files
+[TOOL_NAME_END]
+[PARAM_NAME_START]
+pattern
+[PARAM_NAME_END]
+[PARAM_VALUE_START]
+*.py
+[PARAM_VALUE_END]
+[PARAM_NAME_START]
+search_dir
+[PARAM_NAME_END]
+[PARAM_VALUE_START]
+[PARAM_VALUE_END]
+[TOOL_END]'''
         calls = parse_tool_calls(response)
         self.assertEqual(calls[0][1], {'pattern': '*.py', 'search_dir': ''})
 
     def test_grep_code(self):
-        response = '[TOOL_START]\ntool_name:grep_code\npath:app.py\noriginal_text:world\nnew_text:universe[TOOL_END]'
+        response = '''[TOOL_START]
+[TOOL_NAME_START]
+grep_code
+[TOOL_NAME_END]
+[PARAM_NAME_START]
+path
+[PARAM_NAME_END]
+[PARAM_VALUE_START]
+app.py
+[PARAM_VALUE_END]
+[PARAM_NAME_START]
+original_text
+[PARAM_NAME_END]
+[PARAM_VALUE_START]
+world
+[PARAM_VALUE_END]
+[PARAM_NAME_START]
+new_text
+[PARAM_NAME_END]
+[PARAM_VALUE_START]
+universe
+[PARAM_VALUE_END]
+[TOOL_END]'''
         calls = parse_tool_calls(response)
         self.assertEqual(calls[0][1], {'path': 'app.py', 'original_text': 'world', 'new_text': 'universe'})
 
     def test_empty_param_value(self):
-        response = '[TOOL_START]\ntool_name:read_file\npath:[TOOL_END]'
+        response = '''[TOOL_START]
+[TOOL_NAME_START]
+read_file
+[TOOL_NAME_END]
+[PARAM_NAME_START]
+path
+[PARAM_NAME_END]
+[PARAM_VALUE_START]
+[PARAM_VALUE_END]
+[TOOL_END]'''
         calls = parse_tool_calls(response)
         self.assertEqual(calls[0][1], {'path': ''})
 
@@ -190,7 +307,7 @@ class TestAgentEngineE2E(unittest.TestCase):
             ]
 
             call_count = [0]
-            def mock_llm_call(self, messages, response_file=None):
+            def mock_llm_call(self, messages, response_file=None, system_prompt=""):
                 idx = call_count[0]
                 call_count[0] += 1
                 if idx < len(llm_responses):
@@ -242,7 +359,7 @@ class TestAgentEngineE2E(unittest.TestCase):
             ]
 
             call_count = [0]
-            def mock_llm_call(self, messages, response_file=None):
+            def mock_llm_call(self, messages, response_file=None, system_prompt=""):
                 idx = call_count[0]
                 call_count[0] += 1
                 if idx < len(llm_responses):

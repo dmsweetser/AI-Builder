@@ -628,6 +628,9 @@ class AgentEngine:
                 # Parse tool calls
                 tool_calls = parse_tool_calls(response)
                 if not tool_calls:
+                    # Try lenient parser as fallback (handles old format)
+                    tool_calls = _parse_tool_calls_lenient(response)
+                if not tool_calls:
                     # No tool calls found - LLM may be reasoning or stuck
                     # Check if we're in a loop (same response pattern repeated)
                     self.logger.warning(f"No tool calls in response (step {self.step_count}). Response preview: {response[:200]}")
