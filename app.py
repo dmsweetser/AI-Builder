@@ -1108,4 +1108,4 @@ start_worker()
 
 
 if __name__ == "__main__":
-    app.run(port=5056, debug=True, threaded=True)
+    app.run(port=5056, debug=True, threaded=True, use_reloader=False)
