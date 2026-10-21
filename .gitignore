@@ -13,3 +13,11 @@ aib_instance/*
 **/aib_instance/*
 build/*
 dist/*
+tests/test_project/csharp-project/bin/
+tests/test_project/csharp-project/obj/
+tests/test_project/java-project/target/
+*.dll
+*.pdb
+*.exe
+*.so
+*.dylib
