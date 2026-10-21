@@ -219,19 +219,19 @@ function markdownToHtml(md) {
     if (!md) return '';
     let html = escapeHtml(md);
 
-    // Code blocks (``` ... ```)
-    html = html.replace(/```(\w*)\n([\s\S]*?)```/g, function(match, lang, code) {
+    // Code blocks (``` ... ```) - use non-greedy match that handles nested backticks
+    html = html.replace(/```([\s\S]*?)```/g, function(match, code) {
         return '<pre style="background:#111;padding:8px;border-radius:4px;overflow-x:auto;margin:4px 0;font-size:9px;"><code>' + code.trim() + '</code></pre>';
     });
 
-    // Inline code (` ... `)
+    // Inline code (` ... `) - handle single backticks but not triple
     html = html.replace(/`([^`]+)`/g, '<code style="background:#111;padding:1px 4px;border-radius:3px;font-size:9px;">$1</code>');
 
     // Bold (**text**)
     html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
 
-    // Italic (*text*)
-    html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+    // Italic (*text*) - but not inside words
+    html = html.replace(/(?<!\w)\*(.+?)\*(?!\w)/g, '<em>$1</em>');
 
     // Unordered lists (- item)
     html = html.replace(/^- (.+)$/gm, '<div style="margin-left:12px;">• $1</div>');
@@ -826,7 +826,8 @@ function startAgentSSE(projectId, enabledTools) {
                         else if (eventType === 'step') handleAgentStep(data, agentBox);
                         else if (eventType === 'pending_approval') handlePendingApproval(data, agentBox);
                     });
-                    processChunk();
+                    // Use setTimeout to avoid stack overflow from deep recursion
+                    setTimeout(processChunk, 0);
                 });
             }
             processChunk();
@@ -1042,7 +1043,8 @@ function continueAgentRunWithInstruction(projectId, prevJobId, newInstruction) {
                     else if (eventType === 'step') handleAgentStep(data, agentBox);
                     else if (eventType === 'pending_approval') handlePendingApproval(data, agentBox);
                 });
-                processChunk();
+                // Use setTimeout to avoid stack overflow from deep recursion
+                setTimeout(processChunk, 0);
             });
         }
         processChunk();
@@ -1362,7 +1364,8 @@ function sendChat() {
                     const textEl = document.getElementById('chat-stream-text');
                     if (textEl) textEl.innerHTML = markdownToHtml(buffer);
                     log.scrollTop = log.scrollHeight;
-                    read();
+                    // Use setTimeout to avoid stack overflow
+                    setTimeout(read, 0);
                 });
             }
             read();
