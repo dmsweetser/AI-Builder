@@ -21,3 +21,4 @@ tests/test_project/java-project/target/
 *.exe
 *.so
 *.dylib
+.venv
