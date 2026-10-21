@@ -214,6 +214,64 @@ function escapeHtml(str) {
     return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+// Copy text to clipboard (as plain text, not HTML)
+function copyToClipboard(text, buttonEl) {
+    if (!text) return;
+    // Use the Clipboard API if available
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(() => {
+            if (buttonEl) {
+                const original = buttonEl.textContent;
+                buttonEl.textContent = 'COPIED!';
+                setTimeout(() => { buttonEl.textContent = original; }, 1500);
+            }
+        }).catch(err => console.error('Copy failed:', err));
+    } else {
+        // Fallback for older browsers
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        try {
+            document.execCommand('copy');
+            if (buttonEl) {
+                const original = buttonEl.textContent;
+                buttonEl.textContent = 'COPIED!';
+                setTimeout(() => { buttonEl.textContent = original; }, 1500);
+            }
+        } catch (e) {
+            console.error('Copy failed:', e);
+        }
+        document.body.removeChild(textarea);
+    }
+}
+
+// Get plain text from a chat message element
+function getChatMessageText(msgElement) {
+    const body = msgElement.querySelector('.chat-msg-body');
+    if (!body) return '';
+    // Return textContent for plain text (not HTML)
+    return body.textContent || '';
+}
+
+// Get plain text from agent live box
+function getAgentLiveText() {
+    const box = document.getElementById('agent-live-box');
+    if (!box) return '';
+    // Collect all step results in order (they're prepended, so reverse)
+    const entries = Array.from(box.querySelectorAll('.step-entry'));
+    return entries.reverse().map(e => {
+        const tool = e.querySelector('.step-tool');
+        const result = e.querySelector('.step-result');
+        let text = '';
+        if (tool) text += tool.textContent + '\n';
+        if (result) text += result.textContent;
+        return text;
+    }).join('\n\n');
+}
+
 // Simple markdown-to-HTML converter (handles code blocks, inline code, bold, italic, lists)
 function markdownToHtml(md) {
     if (!md) return '';
@@ -299,8 +357,6 @@ function pickFolder(inputId) {
         input.webkitdirectory = true;
         // @ts-ignore - mozdirectory is Firefox-specific
         input.mozdirectory = true;
-        // Use directory="" attribute for native directory picker (works on macOS/Chrome)
-        input.directory = '';
         document.body.appendChild(input);
     }
     input.value = ''; // Reset so change fires even on same selection
@@ -1319,6 +1375,16 @@ function openChat(chatId) {
                     const roleLabel = msg.role === 'user' ? 'YOU' : 'AI';
                     const roleClass = msg.role === 'user' ? '' : ' ai-response';
                     div.innerHTML = `<strong class="${roleClass}">${roleLabel}:</strong> <div class="chat-msg-body">${markdownToHtml(msg.content)}</div>`;
+                    // Add copy button to each message
+                    const copyBtn = document.createElement('button');
+                    copyBtn.className = 'copy-btn';
+                    copyBtn.textContent = 'COPY';
+                    copyBtn.onclick = (e) => {
+                        e.stopPropagation();
+                        const text = getChatMessageText(div);
+                        copyToClipboard(text, copyBtn);
+                    };
+                    div.appendChild(copyBtn);
                     log.appendChild(div);
                 });
                 log.scrollTop = log.scrollHeight;
@@ -1337,13 +1403,35 @@ function sendChat() {
     if (!content) return;
     const log = document.getElementById('chat-log');
     const sendBtn = document.getElementById('send-chat-btn');
+    sendBtn.disabled = true;
+    input.disabled = true;
+
+    // Create user message element
     const userDiv = document.createElement('div');
     userDiv.className = 'chat-msg';
     userDiv.innerHTML = `<strong>YOU:</strong> <div class="chat-msg-body">${markdownToHtml(content)}</div>`;
     log.appendChild(userDiv);
     input.value = '';
-    sendBtn.disabled = true;
     log.scrollTop = log.scrollHeight;
+
+    // Create AI response placeholder
+    const aiDiv = document.createElement('div');
+    aiDiv.className = 'chat-msg';
+    aiDiv.innerHTML = `<strong class="ai-response">AI:</strong> <div class="chat-msg-body" id="chat-stream-text"></div>`;
+    // Add copy button to AI response
+    const aiCopyBtn = document.createElement('button');
+    aiCopyBtn.className = 'copy-btn';
+    aiCopyBtn.textContent = 'COPY';
+    aiCopyBtn.onclick = (e) => {
+        e.stopPropagation();
+        const text = getChatMessageText(aiDiv);
+        copyToClipboard(text, aiCopyBtn);
+    };
+    aiDiv.appendChild(aiCopyBtn);
+    log.appendChild(aiDiv);
+    log.scrollTop = log.scrollHeight;
+
+    // Now send to server and stream response
     fetch(`/api/chats/${currentChatId}/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1353,13 +1441,15 @@ function sendChat() {
             const reader = response.body.getReader();
             const decoder = new TextDecoder();
             let buffer = '';
-            let aiDiv = document.createElement('div');
-            aiDiv.className = 'chat-msg';
-            aiDiv.innerHTML = `<strong class="ai-response">AI:</strong> <div class="chat-msg-body" id="chat-stream-text"></div>`;
-            log.appendChild(aiDiv);
             function read() {
                 reader.read().then(({ done, value }) => {
-                    if (done) { sendBtn.disabled = false; log.scrollTop = log.scrollHeight; loadChats(); return; }
+                    if (done) {
+                        sendBtn.disabled = false;
+                        input.disabled = false;
+                        log.scrollTop = log.scrollHeight;
+                        loadChats();
+                        return;
+                    }
                     buffer += decoder.decode(value, { stream: true });
                     const textEl = document.getElementById('chat-stream-text');
                     if (textEl) textEl.innerHTML = markdownToHtml(buffer);
@@ -1370,7 +1460,11 @@ function sendChat() {
             }
             read();
         })
-        .catch(err => { console.error('Chat error:', err); sendBtn.disabled = false; });
+        .catch(err => {
+            console.error('Chat error:', err);
+            sendBtn.disabled = false;
+            input.disabled = false;
+        });
 }
 
 // === Pending Tools Management ===
