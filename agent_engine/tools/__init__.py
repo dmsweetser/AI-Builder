@@ -54,9 +54,11 @@ class ToolRegistry:
             GetFileInfoTool,
             CreateToolTool,
         ]
+        # enabled_tools=None or [] means "use all tools"
+        use_all = enabled_tools is None or len(enabled_tools) == 0
         for tool_cls in tool_classes:
             tool = tool_cls(self.root_dir)
-            if enabled_tools is None or tool.name in enabled_tools:
+            if use_all or tool.name in enabled_tools:
                 self._tools[tool.name] = tool
 
     # ------------------------------------------------------------------
