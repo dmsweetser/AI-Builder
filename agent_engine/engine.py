@@ -55,18 +55,32 @@ class LLMClient:
     MAX_RETRIES = 3
     BASE_DELAY = 2.0  # seconds
 
-    def __init__(self, max_context_tokens: int = 0, max_output_tokens: int = 0):
+    def __init__(self, max_context_tokens: int = 0, max_output_tokens: int = 0,
+                 audit_dir: Optional[str] = None):
         self._prompt_file_counter = 0
         self._max_context_tokens = max_context_tokens
         self._max_output_tokens = max_output_tokens
+        self._audit_dir = audit_dir
+        if self._audit_dir:
+            os.makedirs(self._audit_dir, exist_ok=True)
+
+    def _audit_filename(self, step: int) -> Tuple[str, str]:
+        """Return (request_file, response_file) paths for a given step."""
+        if not self._audit_dir:
+            return "", ""
+        ts = time.time()
+        tick = f"{ts:016.6f}".replace('.', '')[:16]  # 16-digit numeric tick for natural sort
+        req = os.path.join(self._audit_dir, f"{tick}_step{step}_request.json")
+        resp = os.path.join(self._audit_dir, f"{tick}_step{step}_response.json")
+        return req, resp
 
     def call(self, messages: List[Dict[str, str]], response_file: Optional[str] = None,
-             system_prompt: str = "") -> str:
+             system_prompt: str = "", step: int = 0) -> str:
         """Call the LLM with retry logic and context trimming."""
         last_err = None
         for attempt in range(1, self.MAX_RETRIES + 1):
             try:
-                return self._call_custom_endpoint(messages, response_file, system_prompt)
+                return self._call_custom_endpoint(messages, response_file, system_prompt, step)
             except Exception as e:
                 last_err = e
                 if attempt < self.MAX_RETRIES:
@@ -76,7 +90,8 @@ class LLMClient:
         raise EngineError(f"LLM call failed after {self.MAX_RETRIES} attempts: {last_err}")
 
     def _call_custom_endpoint(self, messages: List[Dict[str, str]],
-                              response_file: Optional[str], system_prompt: str) -> str:
+                              response_file: Optional[str], system_prompt: str,
+                              step: int = 0) -> str:
         """Call a custom OpenAI-compatible endpoint (Ollama, LM Studio, vLLM, etc.)."""
         import urllib.request
         import ssl
@@ -101,6 +116,20 @@ class LLMClient:
                 "content": msg["content"],
             })
 
+        # --- Audit: log the full request ---
+        req_file, resp_file = self._audit_filename(step)
+        if req_file:
+            audit_payload = {
+                "step": step,
+                "timestamp": time.time(),
+                "model": model_name,
+                "endpoint": endpoint_url,
+                "message_count": len(openai_messages),
+                "messages": openai_messages,
+            }
+            with open(req_file, 'w', encoding='utf-8') as f:
+                json.dump(audit_payload, f, indent=2, ensure_ascii=False)
+
         payload: Dict[str, Any] = {
             "model": model_name,
             "messages": openai_messages,
@@ -109,7 +138,7 @@ class LLMClient:
         if self._max_output_tokens > 0:
             payload["max_tokens"] = self._max_output_tokens
 
-        # Build headers
+        # Build headers (redact API key for audit)
         headers = {"Content-Type": "application/json"}
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
@@ -170,6 +199,19 @@ class LLMClient:
         # Qwen with native thinking enabled.
         if not content and reasoning:
             content = reasoning
+
+        # --- Audit: log the full response ---
+        if resp_file:
+            audit_response = {
+                "step": step,
+                "timestamp": time.time(),
+                "model": model_name,
+                "content": content,
+                "reasoning": reasoning,
+                "total_chars": len(content),
+            }
+            with open(resp_file, 'w', encoding='utf-8') as f:
+                json.dump(audit_response, f, indent=2, ensure_ascii=False)
 
         return content
 
@@ -512,9 +554,12 @@ class AgentEngine:
         self.max_context_tokens = EngineConfig.get_max_context_tokens()
         self.max_output_tokens = EngineConfig.get_max_output_tokens()
         self.max_tool_result_length = EngineConfig.get_max_tool_result_length()
+        # Set up LLM audit directory for per-step request/response logging
+        self.audit_dir = os.path.join(self.output_dir, "llm_audit")
         self.llm = LLMClient(
             max_context_tokens=self.max_context_tokens,
             max_output_tokens=self.max_output_tokens,
+            audit_dir=self.audit_dir,
         )
 
         # Conversation history
@@ -588,7 +633,7 @@ class AgentEngine:
                                                  "params": llm_entry["params"]})
                         except Exception:
                             pass
-                    response = self.llm.call(self.messages, self.response_file, system_prompt=self.system_prompt)
+                    response = self.llm.call(self.messages, self.response_file, system_prompt=self.system_prompt, step=self.step_count)
                 except Exception as e:
                     self.logger.error(f"LLM call failed: {e}")
                     return {"status": "error", "error": str(e), "steps": self.step_count}

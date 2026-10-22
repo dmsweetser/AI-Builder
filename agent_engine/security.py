@@ -1,6 +1,7 @@
 """Security helpers for the agentic engine."""
 
 import os
+import re
 
 
 class SecurityError(Exception):
@@ -41,7 +42,8 @@ def ensure_under_root(filepath: str, root_dir: str) -> str:
         raise SecurityError(f"Absolute path escapes project root and is not in a permitted directory: {filepath} -> {full}")
     else:
         full = _normalize_path(os.path.join(root_dir, filepath))
-    if full == root_dir or full.startswith(root_dir + os.sep) or full.startswith(root_dir + '\\'):
+    # After normalization, root_dir uses forward slashes — check with / separator
+    if full == root_dir or full.startswith(root_dir + '/'):
         return full
     raise SecurityError(f"Path escapes project root: {filepath} -> {full}")
 
@@ -69,5 +71,40 @@ def validate_tool_params(params: dict, schema: dict) -> dict:
 
 
 def _normalize_path(path: str) -> str:
-    """Normalize a path for comparison."""
-    return os.path.normpath(path)
+    """Normalize a path for comparison.
+
+    Handles cross-platform path formats:
+    - Converts backslashes to forward slashes
+    - Strips leading slashes for relative-style paths like /c/local (WSL/Cygwin style)
+    - Normalizes drive letters (c: -> C:)
+    - Uses os.path.normpath for canonical form
+    - Ensures consistent forward-slash separators for comparison
+    """
+    if not path:
+        return path
+
+    # Work with a copy
+    p = path.strip()
+
+    # Convert Windows backslashes to forward slashes
+    p = p.replace('\\', '/')
+
+    # Handle WSL/Cygwin-style paths: /c/local -> C:/local
+    # Pattern: single letter followed by / at the start
+    m = re.match(r'^/([a-zA-Z]):(.*)$', p)
+    if m:
+        p = m.group(1).upper() + ':/' + m.group(2)
+
+    # Handle bare Windows paths with backslashes that slipped through
+    # e.g. C:\local -> C:/local (already handled above, but be safe)
+    m = re.match(r'^([a-zA-Z]):/(.*)$', p)
+    if m:
+        p = m.group(1).upper() + ':/' + m.group(2)
+
+    # Normalize using os.path (handles .., ., double slashes, etc.)
+    p = os.path.normpath(p)
+
+    # Final normalization: ensure forward slashes for consistent comparison
+    p = p.replace('\\', '/')
+
+    return p
