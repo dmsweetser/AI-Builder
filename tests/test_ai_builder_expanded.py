@@ -307,7 +307,7 @@ class TestAgentEngineE2E(unittest.TestCase):
             ]
 
             call_count = [0]
-            def mock_llm_call(self, messages, response_file=None, system_prompt=""):
+            def mock_llm_call(self, messages, response_file=None, system_prompt="", step=0):
                 idx = call_count[0]
                 call_count[0] += 1
                 if idx < len(llm_responses):
@@ -359,7 +359,7 @@ class TestAgentEngineE2E(unittest.TestCase):
             ]
 
             call_count = [0]
-            def mock_llm_call(self, messages, response_file=None, system_prompt=""):
+            def mock_llm_call(self, messages, response_file=None, system_prompt="", step=0):
                 idx = call_count[0]
                 call_count[0] += 1
                 if idx < len(llm_responses):

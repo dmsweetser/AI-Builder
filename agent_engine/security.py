@@ -30,8 +30,26 @@ def ensure_under_root(filepath: str, root_dir: str) -> str:
     """Resolve and validate that a path stays within root_dir,
     unless it's an absolute path in a well-known writable directory."""
     root_dir = _normalize_path(root_dir)
+
+    # Normalize the input path first to detect cross-platform formats
+    normalized = _normalize_path(filepath)
+
+    # If normalization produced a Windows-style absolute path (e.g. C:/...),
+    # treat it as relative to root_dir (the LLM may output paths in WSL/Cygwin
+    # format like /c/local which becomes C:/local).
+    if re.match(r'^[A-Z]:/', normalized, re.IGNORECASE):
+        # Treat as relative path — join with root_dir
+        # Strip the drive letter to get a relative path
+        rel_path = normalized[2:]  # Remove "C:"
+        if rel_path.startswith('/'):
+            rel_path = rel_path[1:]  # Remove leading /
+        full = _normalize_path(os.path.join(root_dir, rel_path))
+        if full == root_dir or full.startswith(root_dir + '/'):
+            return full
+        raise SecurityError(f"Path escapes project root: {filepath} -> {full}")
+
     if os.path.isabs(filepath):
-        full = _normalize_path(filepath)
+        full = normalized
         # Allow absolute paths that equal the root_dir itself
         if full == root_dir:
             return full
@@ -91,9 +109,11 @@ def _normalize_path(path: str) -> str:
 
     # Handle WSL/Cygwin-style paths: /c/local -> C:/local or /c:/local -> C:/local
     # Pattern: single letter followed by optional colon, then / at the start
-    m = re.match(r'^/([a-zA-Z]):?(.*)$', p)
+    # Must NOT match /home, /etc, /usr etc. — only single-letter drive letters
+    # We check that what follows the letter+colon (if any) is / or end-of-string
+    m = re.match(r'^/([a-zA-Z]):?(/.*)$', p)
     if m:
-        p = m.group(1).upper() + ':/' + m.group(2)
+        p = m.group(1).upper() + ':' + m.group(2)
 
     # Handle bare Windows paths with backslashes that slipped through
     # e.g. C:\local -> C:/local (already handled above, but be safe)

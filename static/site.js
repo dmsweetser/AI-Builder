@@ -196,11 +196,12 @@ let pendingRootPathChange = null;
 let pendingRootPathElementId = null;
 let showArchived = false;
 
-// === Live Agent State ===
+// === Live Agent State (scoped per project) ===
 let currentRunningJobId = null;
 let agentSSEController = null;
 let agentRunning = false;
 let liveInjectActive = false;
+let currentRunningProjectId = null; // Track which project the agent belongs to
 
 const AVAILABLE_TOOLS = [
     "list_directory", "search_files", "grep_code", "read_file",
@@ -439,7 +440,7 @@ function injectLiveInstruction() {
     if (!input || !input.value.trim()) return;
     const instruction = input.value.trim();
 
-    if (agentRunning) {
+    if (agentRunning && currentRunningJobId) {
         // During an active run: inject into the running engine
         fetch('/api/agent/inject', {
             method: 'POST',
@@ -447,15 +448,17 @@ function injectLiveInstruction() {
             body: JSON.stringify({ job_id: currentRunningJobId, instruction: instruction })
         }).then(() => {
             input.value = '';
+            // Show a brief "sent" indicator
+            const statusText = document.getElementById('agent-status-text');
+            if (statusText) {
+                const orig = statusText.textContent;
+                statusText.textContent = '📨 Instruction sent';
+                setTimeout(() => { statusText.textContent = orig; }, 1500);
+            }
         }).catch(err => console.error('Failed to inject instruction:', err));
-    } else {
+    } else if (currentRunningProjectId) {
         // After completion: start a new run with the instruction to continue
-        const projectId = currentProjectId;
-        if (!projectId) {
-            alert('No project selected to continue.');
-            return;
-        }
-        continueAgentRunWithInstruction(projectId, currentRunningJobId, instruction);
+        continueAgentRunWithInstruction(currentRunningProjectId, currentRunningJobId, instruction);
     }
 }
 
@@ -853,24 +856,54 @@ function runProject(projectId) {
     runAgenticProject(projectId);
 }
 
+// === Agent Runner ===
 function runAgenticProject(projectId) {
     const project = getProjectById(projectId);
     if (!project) return;
-    const enabledTools = getEnabledTools();
+
+    // Validate
+    const rootDir = document.getElementById('details-root-dir')?.value;
+    if (!rootDir) {
+        alert('Please set a root directory first.');
+        return;
+    }
+
+    // Abort any existing SSE connection
     if (agentSSEController) agentSSEController.abort();
     agentSSEController = new AbortController();
     agentRunning = true;
     liveInjectActive = true;
+    currentRunningProjectId = projectId;
+    currentRunningJobId = null; // Will be set on 'start' event
+
     const runBtn = document.getElementById('details-run-btn');
     const stopBtn = document.getElementById('details-stop-btn');
-    if (runBtn) { runBtn.disabled = true; runBtn.innerHTML = '<span class="run-spinner"></span> RUNNING...'; }
+    if (runBtn) { runBtn.disabled = true; runBtn.innerHTML = '⏳ RUNNING…'; }
     if (stopBtn) stopBtn.style.display = 'inline-block';
+
+    // Show agent live container, hide config
+    const configSection = document.getElementById('project-config-section');
     const agentLive = document.getElementById('agent-live-container');
-    const liveInject = document.getElementById('live-inject-container');
+    if (configSection) configSection.style.display = 'none';
     if (agentLive) agentLive.style.display = 'block';
-    if (liveInject) liveInject.style.display = 'block';
+
+    // Clear and prepare agent box
     const agentBox = document.getElementById('agent-live-box');
     if (agentBox) agentBox.innerHTML = '';
+    const statusText = document.getElementById('agent-status-text');
+    if (statusText) { statusText.textContent = '⏳ RUNNING'; statusText.style.color = 'var(--sky)'; }
+    const stepCount = document.getElementById('agent-step-count');
+    if (stepCount) stepCount.textContent = '';
+    const postRun = document.getElementById('post-run-actions');
+    if (postRun) postRun.style.display = 'none';
+
+    // Enable interjection
+    const injectInput = document.getElementById('live-inject-input');
+    const injectBtn = document.getElementById('live-inject-btn');
+    if (injectInput) { injectInput.disabled = false; injectInput.placeholder = 'Type instructions or questions…'; }
+    if (injectBtn) injectBtn.disabled = false;
+
+    const enabledTools = getEnabledTools();
     startAgentSSE(projectId, enabledTools);
 }
 
@@ -924,9 +957,7 @@ function startAgentSSE(projectId, enabledTools) {
     if (agentSSEController) agentSSEController.abort();
     agentSSEController = new AbortController();
     const agentBox = document.getElementById('agent-live-box');
-    const liveInject = document.getElementById('live-inject-container');
     if (agentBox) agentBox.innerHTML = '';
-    if (liveInject) liveInject.style.display = 'block';
     fetch('/api/agent/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -984,158 +1015,133 @@ function startAgentSSE(projectId, enabledTools) {
 function handleAgentStatus(data) {
     if (data.type === 'start') {
         currentRunningJobId = data.job_id;
+        const stepCount = document.getElementById('agent-step-count');
+        if (stepCount) stepCount.textContent = '';
     } else if (data.type === 'complete') {
         loadJobs();
-        // Keep inject active so user can continue with new instructions
         agentRunning = false;
         liveInjectActive = true;
-        const injectContainer = document.getElementById('live-inject-container');
+        const statusText = document.getElementById('agent-status-text');
+        if (statusText) { statusText.textContent = '✅ COMPLETED'; statusText.style.color = 'var(--grass)'; }
+        const postRun = document.getElementById('post-run-actions');
+        if (postRun) postRun.style.display = 'block';
         const injectInput = document.getElementById('live-inject-input');
         const injectBtn = document.getElementById('live-inject-btn');
-        if (injectContainer) injectContainer.style.display = 'block';
-        if (injectInput) {
-            injectInput.disabled = false;
-            injectInput.placeholder = 'New instruction to continue...';
-        }
+        if (injectInput) { injectInput.disabled = false; injectInput.placeholder = 'Continue with new instructions…'; }
         if (injectBtn) injectBtn.disabled = false;
         const runBtn = document.getElementById('details-run-btn');
-        if (runBtn) {
-            runBtn.disabled = false;
-            runBtn.innerHTML = 'RUN AI BUILDER';
-        }
+        if (runBtn) { runBtn.disabled = false; runBtn.innerHTML = 'RUN'; }
     } else if (data.type === 'error') {
         loadJobs();
         agentRunning = false;
         liveInjectActive = true;
-        const injectContainer = document.getElementById('live-inject-container');
+        const statusText = document.getElementById('agent-status-text');
+        if (statusText) { statusText.textContent = '❌ ERROR'; statusText.style.color = '#f55'; }
+        const postRun = document.getElementById('post-run-actions');
+        if (postRun) postRun.style.display = 'block';
         const injectInput = document.getElementById('live-inject-input');
         const injectBtn = document.getElementById('live-inject-btn');
-        if (injectContainer) injectContainer.style.display = 'block';
-        if (injectInput) { injectInput.disabled = false; injectInput.placeholder = 'Fix the error and try again...'; }
+        if (injectInput) { injectInput.disabled = false; injectInput.placeholder = 'Fix the error and try again…'; }
         if (injectBtn) injectBtn.disabled = false;
         const runBtn = document.getElementById('details-run-btn');
         if (runBtn) { runBtn.disabled = false; runBtn.innerHTML = 'RESUBMIT'; }
-        // Add resubmit button to agent box
-        const agentBox = document.getElementById('agent-live-box');
-        if (agentBox) {
-            const resubmitBtn = document.createElement('button');
-            resubmitBtn.className = 'btn-sm';
-            resubmitBtn.style.background = '#a03030';
-            resubmitBtn.textContent = '↻ RESUBMIT REQUEST';
-            resubmitBtn.onclick = () => {
-                const projectId = document.getElementById('run-project-id')?.value;
-                if (projectId) runProject(projectId);
-            };
-            agentBox.appendChild(resubmitBtn);
-        }
     } else if (data.type === 'max_steps_reached') {
-        // Keep inject active for continuation
         agentRunning = false;
         liveInjectActive = true;
-        const injectContainer = document.getElementById('live-inject-container');
+        const statusText = document.getElementById('agent-status-text');
+        if (statusText) { statusText.textContent = '⏹ MAX STEPS'; statusText.style.color = '#ffaa00'; }
+        const postRun = document.getElementById('post-run-actions');
+        if (postRun) postRun.style.display = 'block';
         const injectInput = document.getElementById('live-inject-input');
         const injectBtn = document.getElementById('live-inject-btn');
-        if (injectContainer) injectContainer.style.display = 'block';
-        if (injectInput) {
-            injectInput.disabled = false;
-            injectInput.placeholder = 'New instruction to continue...';
-        }
+        if (injectInput) { injectInput.disabled = false; injectInput.placeholder = 'Continue with new instructions…'; }
         if (injectBtn) injectBtn.disabled = false;
-        // Show continue button
-        const continueBtn = document.createElement('button');
-        continueBtn.className = 'btn-sm';
-        continueBtn.textContent = 'CONTINUE AGENT';
-        continueBtn.onclick = () => continueAgentRun(currentRunningJobId);
-        const agentBox = document.getElementById('agent-live-box');
-        if (agentBox) agentBox.appendChild(continueBtn);
+        const runBtn = document.getElementById('details-run-btn');
+        if (runBtn) { runBtn.disabled = false; runBtn.innerHTML = 'RUN'; }
     }
 }
 
 
 function handleAgentStep(data, agentBox) {
     if (!agentBox) return;
+
+    // Update step count
+    const stepCount = document.getElementById('agent-step-count');
+    if (stepCount) stepCount.textContent = `Step ${data.step}`;
+
     const entry = document.createElement('div');
+    entry.className = 'step-entry';
 
     if (data.tool === 'llm_call') {
         // LLM call - show as thinking/reasoning step
         const msgCount = data.params?.messages || 0;
-        entry.className = 'step-entry llm-step';
+        entry.classList.add('llm-step');
         entry.innerHTML = `
-                <div><span class="step-tool">🧠 Step ${data.step}: Thinking (${msgCount} messages)</span></div>
-                <div class="step-result" style="color:#888;font-size:9px;">LLM processing request...</div>
-            `;
+            <div class="step-tool">🧠 Step ${data.step}: Thinking (${msgCount} messages)</div>
+            <div class="step-result" style="color:#888;font-size:9px;">Processing request…</div>
+        `;
+    } else if (data.tool === 'format_retry') {
+        // Format reminder
+        entry.classList.add('llm-step');
+        entry.innerHTML = `
+            <div class="step-tool" style="color:#ffaa00;">⚠ Step ${data.step}: Format reminder sent</div>
+            <div class="step-result" style="color:#ffaa00;font-size:9px;">${escapeHtml(data.result?.content || '')}</div>
+        `;
     } else {
         // Tool call
         const ok = data.result && data.result.success !== false;
-        const resultPreview = data.result ? (data.result.content || '').substring(0, 300) : 'no result';
-        entry.className = `step-entry ${ok ? 'success' : 'error'}`;
+        const resultPreview = data.result ? (data.result.content || '').substring(0, 500) : 'no result';
+        entry.classList.add(ok ? 'success' : 'error');
         entry.innerHTML = `
-                <div><span class="step-tool">Step ${data.step}: ${data.tool}</span></div>
-                ${data.params && Object.keys(data.params).length ? `<div style="color:#aaa;font-size:9px;">Params: ${escapeHtml(JSON.stringify(data.params))}</div>` : ''}
-                <div class="step-result">${escapeHtml(resultPreview)}</div>
-            `;
+            <div class="step-tool">${ok ? '✓' : '✗'} Step ${data.step}: ${data.tool}</div>
+            ${data.params && Object.keys(data.params).length ? `<div style="color:#aaa;font-size:9px;">${escapeHtml(JSON.stringify(data.params))}</div>` : ''}
+            <div class="step-result">${escapeHtml(resultPreview)}</div>
+        `;
     }
-    // Prepend so newest appears at the top (column-reverse layout)
-    if (agentBox.firstChild) {
-        agentBox.insertBefore(entry, agentBox.firstChild);
-    } else {
-        agentBox.appendChild(entry);
-    }
-    // Scroll to the top (where newest content is)
-    agentBox.scrollTop = 0;
+    // Append so newest appears at the bottom (natural reading order)
+    agentBox.appendChild(entry);
+    // Auto-scroll to bottom
+    agentBox.scrollTop = agentBox.scrollHeight;
 }
 
 // === Pending Tool Approval ===
 function handlePendingApproval(data, agentBox) {
     if (!agentBox) return;
     const entry = document.createElement('div');
-    entry.className = 'step-entry pending-approval';
+    entry.classList.add('step-entry', 'pending-approval');
     entry.innerHTML = `
-            <div><span class="step-tool" style="color:#ffaa00;">⚠ PENDING TOOL APPROVAL</span></div>
-            <div class="step-result" style="color:#ffaa00;font-size:9px;">Tool "${escapeHtml(data.tool_name)}" proposed — waiting for user review in the TOOLS tab.</div>
-        `;
-    if (agentBox.firstChild) {
-        agentBox.insertBefore(entry, agentBox.firstChild);
-    } else {
-        agentBox.appendChild(entry);
-    }
-    agentBox.scrollTop = 0;
+        <div class="step-tool" style="color:#ffaa00;">⚠ PENDING TOOL APPROVAL</div>
+        <div class="step-result" style="color:#ffaa00;font-size:9px;">Tool "${escapeHtml(data.tool_name)}" proposed — review in TOOLS tab.</div>
+    `;
+    agentBox.appendChild(entry);
+    agentBox.scrollTop = agentBox.scrollHeight;
 }
 
-// === Pending User Input (stalled agent) ===
+// === Pending User Input (only after 3 consecutive format failures) ===
 function handlePendingUserInput(data, agentBox) {
     if (!agentBox) return;
     agentRunning = false;
     liveInjectActive = true;
 
     const entry = document.createElement('div');
-    entry.className = 'step-entry pending-approval';
+    entry.classList.add('step-entry', 'pending-approval');
     entry.innerHTML = `
-            <div><span class="step-tool" style="color:#ffaa00;">⏸ AWAITING YOUR INPUT</span></div>
-            <div class="step-result" style="color:#ffaa00;font-size:10px;">${escapeHtml(data.response || 'The agent is waiting for your response. Type below to continue.')}</div>
-            <div style="margin-top:8px;display:flex;gap:6px;align-items:center;">
-                <input type="text" id="pending-input-${currentRunningJobId}" placeholder="Type your response..." style="flex:1;margin-top:0;" onkeydown="if(event.key==='Enter'){event.preventDefault();submitPendingInput();}">
-                <button class="btn-sm" onclick="submitPendingInput()">RESUME</button>
-            </div>
-        `;
-    if (agentBox.firstChild) {
-        agentBox.insertBefore(entry, agentBox.firstChild);
-    } else {
-        agentBox.appendChild(entry);
-    }
-    agentBox.scrollTop = 0;
+        <div class="step-tool" style="color:#ffaa00;">⏸ AGENT NEEDS HELP</div>
+        <div class="step-result" style="color:#ffaa00;font-size:10px;white-space:pre-wrap;">${escapeHtml(data.response || 'The agent is waiting for your input.')}</div>
+    `;
+    agentBox.appendChild(entry);
+    agentBox.scrollTop = agentBox.scrollHeight;
 
-    // Also enable the live inject container
-    const injectContainer = document.getElementById('live-inject-container');
+    // Enable the interjection area
     const injectInput = document.getElementById('live-inject-input');
     const injectBtn = document.getElementById('live-inject-btn');
-    if (injectContainer) injectContainer.style.display = 'block';
-    if (injectInput) { injectInput.disabled = false; injectInput.placeholder = 'Type your response to continue...'; }
+    if (injectInput) { injectInput.disabled = false; injectInput.placeholder = 'Type a nudge or new instructions…'; }
     if (injectBtn) injectBtn.disabled = false;
 
-    // Disable the run button until resumed
+    const statusText = document.getElementById('agent-status-text');
+    if (statusText) { statusText.textContent = '⏸ AWAITING INPUT'; statusText.style.color = '#ffaa00'; }
     const runBtn = document.getElementById('details-run-btn');
-    if (runBtn) { runBtn.disabled = true; runBtn.innerHTML = '⏸ AWAITING INPUT...'; }
+    if (runBtn) { runBtn.disabled = true; runBtn.innerHTML = '⏸ AWAITING INPUT…'; }
 }
 
 function submitPendingInput() {
@@ -1173,11 +1179,11 @@ function submitPendingInput() {
 
 function stopProject(projectId) {
     agentRunning = false;
+    liveInjectActive = false;
     if (agentSSEController) {
         agentSSEController.abort();
         agentSSEController = null;
     }
-    liveInjectActive = false;
     fetch('/api/queue/running/stop', { method: 'POST' })
         .then(() => {
             updateRunButtonState(projectId, false);
@@ -1204,6 +1210,8 @@ function continueAgentRunWithInstruction(projectId, prevJobId, newInstruction) {
     agentSSEController = new AbortController();
     agentRunning = true;
     liveInjectActive = true;
+    currentRunningProjectId = projectId;
+    currentRunningJobId = null;
 
     // Get enabled tools from the project
     const enabledTools = getEnabledTools();
@@ -1211,16 +1219,30 @@ function continueAgentRunWithInstruction(projectId, prevJobId, newInstruction) {
     // Update UI to show running state
     const runBtn = document.getElementById('details-run-btn');
     const stopBtn = document.getElementById('details-stop-btn');
-    if (runBtn) { runBtn.disabled = true; runBtn.innerHTML = '<span class="run-spinner"></span> RUNNING...'; }
+    if (runBtn) { runBtn.disabled = true; runBtn.innerHTML = '⏳ RUNNING…'; }
     if (stopBtn) stopBtn.style.display = 'inline-block';
 
-    // Clear and show agent live container
+    // Show agent live container, hide config
+    const configSection = document.getElementById('project-config-section');
     const agentLive = document.getElementById('agent-live-container');
-    const liveInject = document.getElementById('live-inject-container');
+    if (configSection) configSection.style.display = 'none';
     if (agentLive) agentLive.style.display = 'block';
-    if (liveInject) liveInject.style.display = 'block';
+
+    // Clear and prepare agent box
     const agentBox = document.getElementById('agent-live-box');
     if (agentBox) agentBox.innerHTML = '';
+    const statusText = document.getElementById('agent-status-text');
+    if (statusText) { statusText.textContent = '⏳ CONTINUING…'; statusText.style.color = 'var(--sky)'; }
+    const stepCount = document.getElementById('agent-step-count');
+    if (stepCount) stepCount.textContent = '';
+    const postRun = document.getElementById('post-run-actions');
+    if (postRun) postRun.style.display = 'none';
+
+    // Enable interjection
+    const injectInput = document.getElementById('live-inject-input');
+    const injectBtn = document.getElementById('live-inject-btn');
+    if (injectInput) { injectInput.disabled = false; injectInput.placeholder = 'Type instructions or questions…'; }
+    if (injectBtn) injectBtn.disabled = false;
 
     // POST to /api/agent/run with continue_from_job
     fetch('/api/agent/run', {
@@ -1243,12 +1265,12 @@ function continueAgentRunWithInstruction(projectId, prevJobId, newInstruction) {
             reader.read().then(({ done, value }) => {
                 if (done || !agentRunning) {
                     agentRunning = false;
-                    liveInjectActive = true; // Keep inject active for further continuation
+                    liveInjectActive = true;
                     const injectInput = document.getElementById('live-inject-input');
                     const injectBtn = document.getElementById('live-inject-btn');
                     if (injectInput) {
                         injectInput.disabled = false;
-                        injectInput.placeholder = 'New instruction to continue...';
+                        injectInput.placeholder = 'Continue with new instructions…';
                     }
                     if (injectBtn) injectBtn.disabled = false;
                     return;
@@ -1260,7 +1282,6 @@ function continueAgentRunWithInstruction(projectId, prevJobId, newInstruction) {
                     else if (eventType === 'pending_approval') handlePendingApproval(data, agentBox);
                     else if (eventType === 'pending_user_input') handlePendingUserInput(data, agentBox);
                 });
-                // Use setTimeout to avoid stack overflow from deep recursion
                 setTimeout(processChunk, 0);
             });
         }
@@ -1275,16 +1296,15 @@ function continueAgentRunWithInstruction(projectId, prevJobId, newInstruction) {
                 const errEntry = document.createElement('div');
                 errEntry.className = 'step-entry error';
                 errEntry.textContent = `ERROR: ${err.message}`;
-                if (agentBox.firstChild) agentBox.insertBefore(errEntry, agentBox.firstChild);
-                else agentBox.appendChild(errEntry);
-                agentBox.scrollTop = 0;
+                agentBox.appendChild(errEntry);
+                agentBox.scrollTop = agentBox.scrollHeight;
             }
         }
         agentRunning = false;
         liveInjectActive = true;
         const injectInput = document.getElementById('live-inject-input');
         const injectBtn = document.getElementById('live-inject-btn');
-        if (injectInput) { injectInput.disabled = false; injectInput.placeholder = 'New instruction to continue...'; }
+        if (injectInput) { injectInput.disabled = false; injectInput.placeholder = 'Continue with new instructions…'; }
         if (injectBtn) injectBtn.disabled = false;
     });
 }
@@ -1292,7 +1312,7 @@ function continueAgentRunWithInstruction(projectId, prevJobId, newInstruction) {
 function resetRunButtons() {
     const runBtn = document.getElementById('details-run-btn');
     const stopBtn = document.getElementById('details-stop-btn');
-    if (runBtn) { runBtn.disabled = false; runBtn.innerHTML = 'RUN AI BUILDER'; }
+    if (runBtn) { runBtn.disabled = false; runBtn.innerHTML = 'RUN'; }
     if (stopBtn) stopBtn.style.display = 'none';
 }
 
@@ -1368,6 +1388,19 @@ function selectProject(projectId) {
             p.classList.remove('active');
         }
     });
+
+    // Reset agent UI state when switching projects
+    const configSection = document.getElementById('project-config-section');
+    const agentLive = document.getElementById('agent-live-container');
+    if (configSection) configSection.style.display = 'block';
+    if (agentLive) agentLive.style.display = 'none';
+    const statusText = document.getElementById('agent-status-text');
+    if (statusText) { statusText.textContent = 'AGENT RUNNING'; statusText.style.color = 'var(--sky)'; }
+    const stepCount = document.getElementById('agent-step-count');
+    if (stepCount) stepCount.textContent = '';
+    const postRun = document.getElementById('post-run-actions');
+    if (postRun) postRun.style.display = 'none';
+
     fetch(`/api/projects/${projectId}`)
         .then(response => response.json())
         .then(project => {
@@ -1397,6 +1430,19 @@ function selectProject(projectId) {
 function goToProject(projectId) { selectProject(projectId); }
 
 function goBackToProjects() {
+    // Stop any running agent
+    if (agentRunning) stopProject(currentProjectId);
+    agentRunning = false;
+    liveInjectActive = false;
+    currentRunningJobId = null;
+    currentRunningProjectId = null;
+
+    // Restore config view
+    const configSection = document.getElementById('project-config-section');
+    const agentLive = document.getElementById('agent-live-container');
+    if (configSection) configSection.style.display = 'block';
+    if (agentLive) agentLive.style.display = 'none';
+
     document.getElementById('project-details-panel').classList.add('hidden');
     document.getElementById('project-details-panel').classList.remove('active');
     document.getElementById('projects-panel').classList.remove('hidden');

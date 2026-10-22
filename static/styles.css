@@ -1021,15 +1021,13 @@ button:disabled {
     max-height: 400px;
     overflow-y: auto;
     font-family: 'Courier New', monospace;
-    display: flex;
-    flex-direction: column-reverse;
+    /* Natural top-to-bottom reading order */
 }
 
 #agent-live-box .step-entry {
     margin: 6px 0;
-    padding: 6px;
+    padding: 8px 10px;
     border-left: 3px solid #555;
-    padding-left: 10px;
     background: rgba(0, 0, 0, 0.3);
 }
 
@@ -1054,12 +1052,13 @@ button:disabled {
 #agent-live-box .step-entry .step-tool {
     color: var(--sky);
     font-weight: bold;
+    margin-bottom: 2px;
 }
 
 #agent-live-box .step-entry .step-result {
     color: #aaa;
-    font-size: 11px;
-    margin-top: 3px;
+    font-size: 10px;
+    margin-top: 2px;
     white-space: pre-wrap;
     word-break: break-all;
     overflow-wrap: break-word;

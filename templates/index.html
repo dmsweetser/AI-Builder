@@ -121,65 +121,73 @@
             <div id="project-details-panel" class="panel" role="tabpanel" aria-label="Project details panel">
                 <div class="block">
                     <button class="btn-sm" onclick="goBackToProjects()" style="margin-bottom:10px;"
-                        aria-label="Back to projects list">← BACK TO
-                        PROJECTS</button>
-                    <h2>PROJECT - <span id="details-project-name" aria-live="polite"></span>
-                        <span id="details-mode-badge" class="mode-indicator" aria-live="polite"></span>
-                    </h2>
-                    <div id="project-error-display" class="error-display" role="alert" aria-live="assertive"></div>
-                    <form id="project-details-form" aria-label="Project configuration form">
-                        <input type="hidden" name="name" id="details-project-name-form">
-                        <input type="hidden" name="id" id="run-project-id">
-                        <input type="hidden" name="mode" id="details-mode-input" value="agentic">
+                        aria-label="Back to projects list">← BACK TO PROJECTS</button>
+                    <h2>PROJECT — <span id="details-project-name" aria-live="polite"></span></h2>
 
-                        <div>
-                            <label>ROOT DIRECTORY *</label>
-                            <div class="flex-row">
-                                <input name="rootDirectory" id="details-root-dir" onchange="autoSaveProject()"
-                                    required style="flex:1;">
-                                <button type="button" class="btn-sm" onclick="pickFolder('details-root-dir')" style="white-space:nowrap;">BROWSE</button>
-                            </div>
+                    <!-- Step 1: Configuration -->
+                    <div id="project-config-section">
+                        <label>ROOT DIRECTORY *</label>
+                        <div class="flex-row">
+                            <input name="rootDirectory" id="details-root-dir" onchange="autoSaveProject()"
+                                required style="flex:1;">
+                            <button type="button" class="btn-sm" onclick="pickFolder('details-root-dir')" style="white-space:nowrap;">BROWSE</button>
                         </div>
 
-                        <div>
-                            <label>INSTRUCTIONS</label>
-                            <textarea name="instructions" id="details-instructions" rows="6"
-                                oninput="autoSaveProject()"></textarea>
-                        </div>
+                        <label>INSTRUCTIONS</label>
+                        <textarea name="instructions" id="details-instructions" rows="4"
+                            oninput="autoSaveProject()" placeholder="What do you want the agent to do?"></textarea>
 
-                        <!-- Agent-specific settings -->
+                        <!-- Agent tools -->
                         <div id="details-agent-settings" style="display:block; margin-top:15px;">
-                            <label>AGENT TOOLS (check which tools the agent may use)</label>
+                            <label>AGENT TOOLS</label>
                             <div class="tool-selector-grid" id="details-tool-selector"></div>
                         </div>
 
-                        <!-- Agent live run panel -->
-                        <div id="agent-live-container" style="display:none;">
-                            <h3 style="font-size:12px; margin-top:10px;">AGENT LIVE OUTPUT</h3>
-                            <div id="agent-live-box"></div>
-                            <div id="live-inject-container" style="display:none; margin-top:10px;">
-                                <label>LIVE INSTRUCTION (sent to agent mid-run):</label>
-                                <div class="flex-row">
-                                    <input type="text" id="live-inject-input" placeholder="Type extra instructions...">
-                                    <button type="button" id="live-inject-btn"
-                                        onclick="injectLiveInstruction()">SEND</button>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div style="display: flex; gap: 10px; margin-top: 15px;">
+                        <!-- Action buttons -->
+                        <div style="display:flex; gap:10px; margin-top:15px;">
                             <button type="button" id="details-run-btn"
-                                onclick="runProject(document.getElementById('run-project-id').value)" style="flex: 3;"
-                                aria-label="Run AI Builder for this project">RUN AI BUILDER</button>
+                                onclick="runProject(document.getElementById('run-project-id').value)" style="flex:1;"
+                                aria-label="Run AI Builder for this project">RUN</button>
                             <button type="button" id="details-stop-btn"
                                 onclick="stopProject(document.getElementById('run-project-id').value)"
-                                style="flex: 1; background:#a03030; display: none;"
+                                style="flex:0 0 80px; background:#a03030; display:none;"
                                 aria-label="Stop running AI Builder">STOP</button>
                             <button type="button"
                                 onclick="deleteProject(document.getElementById('run-project-id').value)"
-                                style="flex: 1; background:#a03030;" aria-label="Delete this project">DELETE</button>
+                                style="flex:0 0 80px; background:#a03030;" aria-label="Delete this project">DELETE</button>
                         </div>
-                    </form>
+                    </div>
+
+                    <!-- Step 2: Live Agent Output (shown during/after run) -->
+                    <div id="agent-live-container" style="display:none; margin-top:15px;">
+                        <h3 style="font-size:11px; margin:0 0 8px 0; color:var(--sky);">
+                            <span id="agent-status-text">AGENT RUNNING</span>
+                            <span id="agent-step-count" style="color:#aaa; font-weight:normal; margin-left:8px;"></span>
+                        </h3>
+
+                        <!-- Linear timeline -->
+                        <div id="agent-live-box"></div>
+
+                        <!-- Interjection area -->
+                        <div id="interject-container" style="margin-top:10px; padding-top:10px; border-top:2px solid #444;">
+                            <label style="margin-top:0; font-size:8px; color:#aaa;">INTERJECT — type a message to the agent:</label>
+                            <div class="flex-row">
+                                <input type="text" id="live-inject-input"
+                                    placeholder="Type instructions or questions…"
+                                    style="flex:1; margin-top:0;"
+                                    onkeydown="if(event.key==='Enter'){event.preventDefault(); injectLiveInstruction();}">
+                                <button type="button" id="live-inject-btn"
+                                    onclick="injectLiveInstruction()">SEND</button>
+                            </div>
+                        </div>
+
+                        <!-- Post-run actions -->
+                        <div id="post-run-actions" style="display:none; margin-top:10px;">
+                            <button type="button" id="continue-run-btn"
+                                onclick="continueAgentRun(currentRunningJobId)"
+                                style="background:var(--sky); color:#000;">CONTINUE RUN</button>
+                        </div>
+                    </div>
                 </div>
             </div>
             <div id="chat-panel" class="panel" role="tabpanel" aria-label="AI Chat panel">

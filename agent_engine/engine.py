@@ -652,33 +652,81 @@ class AgentEngine:
                 # Parse tool calls
                 tool_calls = parse_tool_calls(response)
                 if not tool_calls:
-                    # No tool calls and no [DONE] — the LLM is likely in
-                    # "thinking" mode and has not produced a tool call or
-                    # completion signal. Surface the response to the user
-                    # and pause the engine so they can reply (e.g. with
-                    # a nudge or new instructions).
+                    # No tool calls and no [DONE] — the LLM likely didn't
+                    # produce a properly formatted tool call. Send a reminder
+                    # back and let it try again (up to a retry budget).
                     self.logger.warning(
                         f"No tool calls in response (step {self.step_count}). "
                         f"Response preview: {response[:200]}"
                     )
-                    # Emit a pending-user-input event so the UI can display
-                    # the LLM's text and show an input field for the user.
+                    # Count consecutive non-tool-call steps
+                    consecutive_no_tool = sum(
+                        1 for h in self.step_history[-5:]
+                        if h.get("tool") not in (
+                            "list_directory", "search_files", "grep_code",
+                            "read_file", "write_file", "edit_file",
+                            "delete_file", "find_symbol", "decompile_jar",
+                            "list_dependencies", "check_syntax", "get_file_info",
+                            "create_tool", "compress_context",
+                        )
+                    )
+                    if consecutive_no_tool >= 3:
+                        # After 3 failed attempts, pause and ask the user
+                        if self._step_callback:
+                            try:
+                                self._step_callback({
+                                    "type": "pending_user_input",
+                                    "step": self.step_count,
+                                    "response": (
+                                        "The agent failed to produce a valid tool call "
+                                        "after 3 attempts. You can try resuming with a "
+                                        "nudge, or stop the run.\n\n"
+                                        f"Last LLM response:\n{response[:500]}"
+                                    ),
+                                })
+                            except Exception:
+                                pass
+                        return {
+                            "status": "pending_user_input",
+                            "steps": self.step_count,
+                            "summary": response.strip(),
+                            "max_steps": self.max_steps,
+                            "step_history": self.step_history,
+                        }
+                    # Send a reminder and continue
+                    reminder = (
+                        "[FORMAT REMINDER] Your response did not contain a valid tool call. "
+                        "You MUST use exactly one tool call per response, formatted like this:\n\n"
+                        "[TOOL_START]\n"
+                        "[TOOL_NAME_START]\n"
+                        "list_directory\n"
+                        "[TOOL_NAME_END]\n"
+                        "[PARAM_NAME_START]\n"
+                        "path\n"
+                        "[PARAM_NAME_END]\n"
+                        "[PARAM_VALUE_START]\n"
+                        ".\n"
+                        "[PARAM_VALUE_END]\n"
+                        "[TOOL_END]\n\n"
+                        "Start with list_directory to explore the project."
+                    )
+                    self.messages.append({
+                        "role": "user",
+                        "content": f"{reminder}\n\nPlease try again with a proper tool call.",
+                    })
+                    # Log this as an llm_call retry so it shows in the feed
                     if self._step_callback:
                         try:
                             self._step_callback({
-                                "type": "pending_user_input",
+                                "type": "step",
                                 "step": self.step_count,
-                                "response": response,
+                                "tool": "format_retry",
+                                "params": {},
+                                "result": {"success": True, "content": "Format reminder sent — retrying…"},
                             })
                         except Exception:
                             pass
-                    return {
-                        "status": "pending_user_input",
-                        "steps": self.step_count,
-                        "summary": response.strip(),
-                        "max_steps": self.max_steps,
-                        "step_history": self.step_history,
-                    }
+                    continue
 
                 # Only process the first tool call per step (enforce single-call rule)
                 if tool_calls:
