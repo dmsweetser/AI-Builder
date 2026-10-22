@@ -89,9 +89,9 @@ def _normalize_path(path: str) -> str:
     # Convert Windows backslashes to forward slashes
     p = p.replace('\\', '/')
 
-    # Handle WSL/Cygwin-style paths: /c/local -> C:/local
-    # Pattern: single letter followed by / at the start
-    m = re.match(r'^/([a-zA-Z]):(.*)$', p)
+    # Handle WSL/Cygwin-style paths: /c/local -> C:/local or /c:/local -> C:/local
+    # Pattern: single letter followed by optional colon, then / at the start
+    m = re.match(r'^/([a-zA-Z]):?(.*)$', p)
     if m:
         p = m.group(1).upper() + ':/' + m.group(2)
 
