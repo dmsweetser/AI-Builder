@@ -130,6 +130,7 @@ class LLMClient:
         )
 
         content = ""
+        reasoning = ""
         try:
             with urllib.request.urlopen(req, context=context, timeout=timeout) as response:
                 for line in response:
@@ -142,15 +143,20 @@ class LLMClient:
                     try:
                         chunk = json.loads(data_str)
                         delta = chunk.get('choices', [{}])[0].get('delta', {})
-                        # Only use 'content' for the final response — 'reasoning_content'
-                        # is the model's internal monologue (thinking) and should NOT be
-                        # concatenated into the response used for tool-call parsing.
-                        c = delta.get('content', '')
+                        # Prefer 'content' for the final response. Some models
+                        # (e.g. Qwen with native thinking) only output
+                        # 'reasoning_content' and never emit 'content'.
+                        # In that case, fall back to the reasoning stream.
+                        c = delta.get('content')
                         if c:
                             content += c
                             if response_file and len(content) % 100 == 0:
                                 with open(response_file, 'w', encoding='utf-8') as rf:
                                     rf.write(content)
+                        # Collect reasoning as fallback (only when content is empty)
+                        r = delta.get('reasoning_content')
+                        if r:
+                            reasoning += r
                     except json.JSONDecodeError:
                         continue
         except _urllib_error.HTTPError as e:
@@ -158,6 +164,12 @@ class LLMClient:
             raise EngineError(f"Custom endpoint HTTP {e.code}: {body}")
         except Exception as e:
             raise EngineError(f"Custom endpoint call failed: {e}")
+
+        # If the model only outputs reasoning_content (no 'content' chunks),
+        # use the reasoning stream as the response. This handles models like
+        # Qwen with native thinking enabled.
+        if not content and reasoning:
+            content = reasoning
 
         return content
 
@@ -337,7 +349,7 @@ def parse_tool_calls(response: str) -> List[Tuple[str, Dict[str, str]]]:
 
 
 def _parse_new_format_params(params_block: str) -> Optional[Dict[str, str]]:
-    """Parse parameters from the new tag-based format.
+    """Parse parameters from the tag-based format.
 
     Format:
         [PARAM_NAME_START]
@@ -348,31 +360,45 @@ def _parse_new_format_params(params_block: str) -> Optional[Dict[str, str]]:
         [PARAM_VALUE_END]
 
     NAME/VALUE pairs alternate: each parameter is a NAME tag followed by a VALUE tag.
+
+    NOTE: The LLM sometimes omits [PARAM_NAME_END] before [PARAM_VALUE_START].
+    We handle this with a flexible fallback parser.
     """
     params: Dict[str, str] = {}
-    current_key: Optional[str] = None
-
-    # Parse [PARAM_NAME_START]...[PARAM_NAME_END] blocks
-    name_pattern = r'\[PARAM_NAME_START\]\s*\n(.*?)\[PARAM_NAME_END\]'
-    name_matches = list(re.finditer(name_pattern, params_block, re.DOTALL))
 
     # Parse [PARAM_VALUE_START]...[PARAM_VALUE_END] blocks
     value_pattern = r'\[PARAM_VALUE_START\]\s*\n(.*?)\[PARAM_VALUE_END\]'
     value_matches = list(re.finditer(value_pattern, params_block, re.DOTALL))
 
-    if not name_matches or not value_matches:
+    if not value_matches:
         return None
 
-    if len(name_matches) != len(value_matches):
-        return None
+    # Try strict format: [PARAM_NAME_START]...[PARAM_NAME_END]
+    name_pattern = r'\[PARAM_NAME_START\]\s*\n(.*?)\[PARAM_NAME_END\]'
+    name_matches = list(re.finditer(name_pattern, params_block, re.DOTALL))
 
-    # Pair them up in order
-    for name_match, value_match in zip(name_matches, value_matches):
-        key = name_match.group(1).strip()
-        value = value_match.group(1).strip()
-        params[key] = value
+    if len(name_matches) == len(value_matches):
+        # Strict format: pair them up in order
+        for name_match, value_match in zip(name_matches, value_matches):
+            key = name_match.group(1).strip()
+            value = value_match.group(1).strip()
+            params[key] = value
+        return params if params else None
 
-    return params if params else None
+    # Fallback: LLM may omit [PARAM_NAME_END]. Extract keys between
+    # [PARAM_NAME_START] and the next tag ([PARAM_VALUE_START], [PARAM_NAME_END],
+    # [PARAM_NAME_START], or [TOOL_END]).
+    name_flex_pattern = r'\[PARAM_NAME_START\]\s*\n(.*?)(?=\[PARAM_VALUE_START\]|\[PARAM_NAME_END\]|\[PARAM_NAME_START\]|\[TOOL_END\]|\Z)'
+    name_flex_matches = list(re.finditer(name_flex_pattern, params_block, re.DOTALL))
+
+    if len(name_flex_matches) == len(value_matches):
+        for name_match, value_match in zip(name_flex_matches, value_matches):
+            key = name_match.group(1).strip()
+            value = value_match.group(1).strip()
+            params[key] = value
+        return params if params else None
+
+    return None
 
 
 def is_done(response: str) -> Tuple[bool, str]:
