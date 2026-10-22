@@ -86,6 +86,31 @@ function checkWinCondition() {
         // Update logo position immediately
         logoEl.style.left = logoX + 'px';
         logoEl.style.top = logoY + 'px';
+    } else if (inZone && !wasInGoalZone) {
+        // Logo just entered the goal zone — count it immediately as a successful fling
+        flingCount++;
+        const flingCounter = document.getElementById('fling-counter');
+        if (flingCounter) flingCounter.textContent = 'FLINGS: ' + flingCount;
+
+        // Show win message after 3 flings
+        if (flingCount >= 3) {
+            const winMsg = document.getElementById('win-message');
+            if (winMsg) {
+                document.getElementById('win-fling-count').textContent = flingCount + ' FLINGS';
+                winMsg.style.display = 'block';
+                setTimeout(() => { if (winMsg) winMsg.style.display = 'none'; }, 5000);
+            }
+        }
+
+        // Reset position to bottom-right and clear velocity
+        logoX = window.innerWidth - logoEl.offsetWidth - 20;
+        logoY = window.innerHeight - logoEl.offsetHeight - 20;
+        velX = 0;
+        velY = 0;
+        if (goalZone) goalZone.style.display = 'none';
+        wasInGoalZone = false;
+        logoEl.style.left = logoX + 'px';
+        logoEl.style.top = logoY + 'px';
     }
 
     wasInGoalZone = inZone;
@@ -102,6 +127,12 @@ document.addEventListener('DOMContentLoaded', () => {
             dragLogoStartX = logoX;
             dragLogoStartY = logoY;
             logo.style.cursor = 'grabbing';
+            // Show fling counter when game is engaged
+            const flingCounter = document.getElementById('fling-counter');
+            if (flingCounter) flingCounter.style.display = 'block';
+            // Show goal zone on first interaction
+            const goalZone = document.getElementById('goal-zone');
+            if (goalZone) goalZone.style.display = 'block';
             e.preventDefault();
         });
         document.addEventListener('mousemove', (e) => {
@@ -206,6 +237,7 @@ function showTab(tabName) {
     if (tabName === 'jobs') loadJobs();
     if (tabName === 'settings') loadSettingsUI();
     if (tabName === 'tools') loadPendingTools();
+    if (tabName === 'app-log') loadAppLog();
 }
 
 // === Utility ===
@@ -279,7 +311,8 @@ function markdownToHtml(md) {
 
     // Code blocks (``` ... ```) - use non-greedy match that handles nested backticks
     html = html.replace(/```([\s\S]*?)```/g, function(match, code) {
-        return '<pre style="background:#111;padding:8px;border-radius:4px;overflow-x:auto;margin:4px 0;font-size:9px;"><code>' + code.trim() + '</code></pre>';
+        const uniqueId = 'code-block-' + Math.random().toString(36).substr(2, 9);
+        return `<div style="position:relative;margin:4px 0;"><button class="pre-copy-btn" onclick="copyCodeBlock('${uniqueId}', this)" style="position:absolute;top:4px;right:4px;background:var(--wood);border:1px solid #000;padding:3px 8px;cursor:pointer;font-size:8px;color:#fff;z-index:10;border-radius:3px;font-family:'Press Start 2P',monospace;">COPY</button><pre style="background:#111;padding:8px;border-radius:4px;overflow-x:auto;margin:0;"><code id="${uniqueId}">${code.trim()}</code></pre></div>`;
     });
 
     // Inline code (` ... `) - handle single backticks but not triple
@@ -299,6 +332,13 @@ function markdownToHtml(md) {
     html = html.replace(/\n/g, '<br>');
 
     return html;
+}
+
+// Copy a code block by its ID
+function copyCodeBlock(id, btn) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    copyToClipboard(el.textContent, btn);
 }
 
 // === Tool selector ===
@@ -700,6 +740,36 @@ function clearJobHistory() {
         });
 }
 
+// === App Log ===
+function loadAppLog() {
+    fetch('/api/app-log')
+        .then(r => r.json())
+        .then(data => {
+            const list = document.getElementById('app-log-list');
+            if (!list) return;
+            const entries = data.log || [];
+            if (!entries.length) {
+                list.innerHTML = '<div class="note">NO LOG ENTRIES YET.</div>';
+                return;
+            }
+            list.innerHTML = entries.map(e => {
+                const ts = e.ts ? new Date(e.ts).toLocaleString() : 'unknown';
+                return `<div style="padding:3px 0;border-bottom:1px solid #333;font-size:9px;font-family:'Courier New',monospace;"><span style="color:var(--sky);">${ts}</span> <span style="color:#aaa;">${escapeHtml(e.msg)}</span></div>`;
+            }).join('');
+            list.scrollTop = list.scrollHeight;
+        })
+        .catch(err => {
+            console.error('Failed to load app log:', err);
+            const list = document.getElementById('app-log-list');
+            if (list) list.innerHTML = '<div class="note warning">Failed to load app log.</div>';
+        });
+}
+
+function clearAppLog() {
+    // No clear endpoint — just refresh
+    loadAppLog();
+}
+
 // === Project Management ===
 function loadProjects() {
     fetch('/api/projects')
@@ -881,6 +951,7 @@ function startAgentSSE(projectId, enabledTools) {
                         if (eventType === 'status') handleAgentStatus(data);
                         else if (eventType === 'step') handleAgentStep(data, agentBox);
                         else if (eventType === 'pending_approval') handlePendingApproval(data, agentBox);
+                        else if (eventType === 'pending_user_input') handlePendingUserInput(data, agentBox);
                     });
                     // Use setTimeout to avoid stack overflow from deep recursion
                     setTimeout(processChunk, 0);
@@ -935,8 +1006,28 @@ function handleAgentStatus(data) {
     } else if (data.type === 'error') {
         loadJobs();
         agentRunning = false;
-        liveInjectActive = false;
-        resetRunButtons();
+        liveInjectActive = true;
+        const injectContainer = document.getElementById('live-inject-container');
+        const injectInput = document.getElementById('live-inject-input');
+        const injectBtn = document.getElementById('live-inject-btn');
+        if (injectContainer) injectContainer.style.display = 'block';
+        if (injectInput) { injectInput.disabled = false; injectInput.placeholder = 'Fix the error and try again...'; }
+        if (injectBtn) injectBtn.disabled = false;
+        const runBtn = document.getElementById('details-run-btn');
+        if (runBtn) { runBtn.disabled = false; runBtn.innerHTML = 'RESUBMIT'; }
+        // Add resubmit button to agent box
+        const agentBox = document.getElementById('agent-live-box');
+        if (agentBox) {
+            const resubmitBtn = document.createElement('button');
+            resubmitBtn.className = 'btn-sm';
+            resubmitBtn.style.background = '#a03030';
+            resubmitBtn.textContent = '↻ RESUBMIT REQUEST';
+            resubmitBtn.onclick = () => {
+                const projectId = document.getElementById('run-project-id')?.value;
+                if (projectId) runProject(projectId);
+            };
+            agentBox.appendChild(resubmitBtn);
+        }
     } else if (data.type === 'max_steps_reached') {
         // Keep inject active for continuation
         agentRunning = false;
@@ -1009,6 +1100,75 @@ function handlePendingApproval(data, agentBox) {
         agentBox.appendChild(entry);
     }
     agentBox.scrollTop = 0;
+}
+
+// === Pending User Input (stalled agent) ===
+function handlePendingUserInput(data, agentBox) {
+    if (!agentBox) return;
+    agentRunning = false;
+    liveInjectActive = true;
+
+    const entry = document.createElement('div');
+    entry.className = 'step-entry pending-approval';
+    entry.innerHTML = `
+            <div><span class="step-tool" style="color:#ffaa00;">⏸ AWAITING YOUR INPUT</span></div>
+            <div class="step-result" style="color:#ffaa00;font-size:10px;">${escapeHtml(data.response || 'The agent is waiting for your response. Type below to continue.')}</div>
+            <div style="margin-top:8px;display:flex;gap:6px;align-items:center;">
+                <input type="text" id="pending-input-${currentRunningJobId}" placeholder="Type your response..." style="flex:1;margin-top:0;" onkeydown="if(event.key==='Enter'){event.preventDefault();submitPendingInput();}">
+                <button class="btn-sm" onclick="submitPendingInput()">RESUME</button>
+            </div>
+        `;
+    if (agentBox.firstChild) {
+        agentBox.insertBefore(entry, agentBox.firstChild);
+    } else {
+        agentBox.appendChild(entry);
+    }
+    agentBox.scrollTop = 0;
+
+    // Also enable the live inject container
+    const injectContainer = document.getElementById('live-inject-container');
+    const injectInput = document.getElementById('live-inject-input');
+    const injectBtn = document.getElementById('live-inject-btn');
+    if (injectContainer) injectContainer.style.display = 'block';
+    if (injectInput) { injectInput.disabled = false; injectInput.placeholder = 'Type your response to continue...'; }
+    if (injectBtn) injectBtn.disabled = false;
+
+    // Disable the run button until resumed
+    const runBtn = document.getElementById('details-run-btn');
+    if (runBtn) { runBtn.disabled = true; runBtn.innerHTML = '⏸ AWAITING INPUT...'; }
+}
+
+function submitPendingInput() {
+    const input = document.getElementById('pending-input-' + currentRunningJobId);
+    if (!input || !input.value.trim()) return;
+    const userResponse = input.value.trim();
+
+    // Disable the submit button
+    input.disabled = true;
+    const resumeBtn = input.nextElementSibling;
+    if (resumeBtn) resumeBtn.disabled = true;
+
+    fetch('/api/agent/resume', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ job_id: currentRunningJobId, input: userResponse })
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.status === 'resume_input_saved') {
+            // The engine will pick up the input and continue
+            // Show a "resumed" indicator
+            const statusDiv = document.createElement('div');
+            statusDiv.style.cssText = 'color:#5C8A3B;font-size:9px;margin-top:4px;';
+            statusDiv.textContent = '▶ Resumed — waiting for agent...';
+            input.parentElement.appendChild(statusDiv);
+        }
+    })
+    .catch(err => {
+        console.error('Failed to submit pending input:', err);
+        input.disabled = false;
+        if (resumeBtn) resumeBtn.disabled = false;
+    });
 }
 
 function stopProject(projectId) {
@@ -1098,6 +1258,7 @@ function continueAgentRunWithInstruction(projectId, prevJobId, newInstruction) {
                     if (eventType === 'status') handleAgentStatus(data);
                     else if (eventType === 'step') handleAgentStep(data, agentBox);
                     else if (eventType === 'pending_approval') handlePendingApproval(data, agentBox);
+                    else if (eventType === 'pending_user_input') handlePendingUserInput(data, agentBox);
                 });
                 // Use setTimeout to avoid stack overflow from deep recursion
                 setTimeout(processChunk, 0);
@@ -1372,16 +1533,25 @@ function openChat(chatId) {
                 chat.messages.forEach(msg => {
                     const div = document.createElement('div');
                     div.className = 'chat-msg';
+                    div.style.display = 'flex';
+                    div.style.flexDirection = 'column';
                     const roleLabel = msg.role === 'user' ? 'YOU' : 'AI';
                     const roleClass = msg.role === 'user' ? '' : ' ai-response';
-                    div.innerHTML = `<strong class="${roleClass}">${roleLabel}:</strong> <div class="chat-msg-body">${markdownToHtml(msg.content)}</div>`;
-                    // Add copy button to each message
+                    const bodyDiv = document.createElement('div');
+                    bodyDiv.className = 'chat-msg-body';
+                    bodyDiv.style.width = '100%';
+                    bodyDiv.innerHTML = markdownToHtml(msg.content);
+                    div.innerHTML = `<strong class="${roleClass}">${roleLabel}:</strong>`;
+                    div.appendChild(bodyDiv);
+                    // Add copy button to each message (left-aligned)
                     const copyBtn = document.createElement('button');
                     copyBtn.className = 'copy-btn';
                     copyBtn.textContent = 'COPY';
+                    copyBtn.style.marginTop = '4px';
+                    copyBtn.style.marginBottom = '4px';
                     copyBtn.onclick = (e) => {
                         e.stopPropagation();
-                        const text = getChatMessageText(div);
+                        const text = getChatMessageText(bodyDiv);
                         copyToClipboard(text, copyBtn);
                     };
                     div.appendChild(copyBtn);
@@ -1409,7 +1579,14 @@ function sendChat() {
     // Create user message element
     const userDiv = document.createElement('div');
     userDiv.className = 'chat-msg';
-    userDiv.innerHTML = `<strong>YOU:</strong> <div class="chat-msg-body">${markdownToHtml(content)}</div>`;
+    userDiv.style.display = 'flex';
+    userDiv.style.flexDirection = 'column';
+    const userBody = document.createElement('div');
+    userBody.className = 'chat-msg-body';
+    userBody.style.width = '100%';
+    userBody.innerHTML = markdownToHtml(content);
+    userDiv.innerHTML = '<strong>YOU:</strong>';
+    userDiv.appendChild(userBody);
     log.appendChild(userDiv);
     input.value = '';
     log.scrollTop = log.scrollHeight;
@@ -1417,14 +1594,23 @@ function sendChat() {
     // Create AI response placeholder
     const aiDiv = document.createElement('div');
     aiDiv.className = 'chat-msg';
-    aiDiv.innerHTML = `<strong class="ai-response">AI:</strong> <div class="chat-msg-body" id="chat-stream-text"></div>`;
+    aiDiv.style.display = 'flex';
+    aiDiv.style.flexDirection = 'column';
+    aiDiv.innerHTML = `<strong class="ai-response">AI:</strong>`;
+    const aiBodyDiv = document.createElement('div');
+    aiBodyDiv.className = 'chat-msg-body';
+    aiBodyDiv.style.width = '100%';
+    aiBodyDiv.id = 'chat-stream-text';
+    aiDiv.appendChild(aiBodyDiv);
     // Add copy button to AI response
     const aiCopyBtn = document.createElement('button');
     aiCopyBtn.className = 'copy-btn';
     aiCopyBtn.textContent = 'COPY';
+    aiCopyBtn.style.marginTop = '4px';
+    aiCopyBtn.style.marginBottom = '4px';
     aiCopyBtn.onclick = (e) => {
         e.stopPropagation();
-        const text = getChatMessageText(aiDiv);
+        const text = getChatMessageText(aiBodyDiv);
         copyToClipboard(text, aiCopyBtn);
     };
     aiDiv.appendChild(aiCopyBtn);

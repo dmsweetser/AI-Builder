@@ -70,6 +70,8 @@
                     onclick="showTab('projects')" tabindex="0">PROJECTS</button>
                 <button class="tab-btn" role="menuitem" aria-selected="false" aria-controls="jobs-panel"
                     onclick="showTab('jobs')" tabindex="-1">JOBS</button>
+                <button class="tab-btn" role="menuitem" aria-selected="false" aria-controls="app-log-panel"
+                    onclick="showTab('app-log')" tabindex="-1">APP LOG</button>
                 <button class="tab-btn" role="menuitem" aria-selected="false" aria-controls="chat-panel"
                     onclick="showTab('chat')" tabindex="-1">CHAT</button>
                 <button class="tab-btn" role="menuitem" aria-selected="false" aria-controls="settings-panel"
@@ -214,6 +216,21 @@
                     </h2>
                     <div id="jobs-list" class="history-list" role="list" aria-label="Job history list">
                         <div class="note">LOADING JOBS...</div>
+                    </div>
+                </div>
+            </div>
+            <div id="app-log-panel" class="panel" role="tabpanel" aria-label="Application log panel">
+                <div class="block">
+                    <h2>
+                        APP LOG
+                        <button type="button" onclick="clearAppLog()" class="btn-sm"
+                            style="float:right; background:#a03030;" aria-label="Clear app log">CLEAR LOG</button>
+                        <button type="button" onclick="loadAppLog()" class="btn-sm"
+                            style="margin-left:5px;" aria-label="Refresh app log">REFRESH</button>
+                    </h2>
+                    <p class="note">System-level events: agent runs, resume requests, app startup, errors.</p>
+                    <div id="app-log-list" class="history-list" role="log" aria-live="polite" style="max-height:70vh;">
+                        <div class="note">LOADING APP LOG...</div>
                     </div>
                 </div>
             </div>

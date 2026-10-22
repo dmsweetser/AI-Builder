@@ -828,6 +828,8 @@ def api_agent_run():
     os.environ["CUSTOM_VERIFY_SSL"] = os.getenv("CUSTOM_VERIFY_SSL", "false")
     os.environ["CUSTOM_TIMEOUT"] = os.getenv("CUSTOM_TIMEOUT", "3600")
 
+    _log_app_event(f"Agent run started — project={project_id}, job_id={job_id}")
+
     def generate():
         # Queue for events from background thread
         event_queue: queue.Queue = queue.Queue()
@@ -925,6 +927,7 @@ def api_agent_run():
                     except queue.Empty:
                         break
                 # Final result
+                _log_app_event(f"Agent run completed — job_id={job_id}, status={result.get('status')}, steps={result.get('steps')}")
                 yield "event: status\ndata: " + json.dumps({
                     "type": "complete",
                     "status": result.get("status", "completed"),
@@ -975,6 +978,7 @@ def api_agent_run():
                     "tool_name": ev.get("tool_name", "unknown"),
                 }) + "\n"
             elif ev["type"] == "pending_user_input":
+                _log_app_event(f"Agent pending_user_input — job_id={job_id}, step={ev.get('step')}")
                 yield "event: pending_user_input\ndata: " + json.dumps({
                     "step": ev.get("step", 0),
                     "response": ev.get("response", ""),
@@ -1040,12 +1044,14 @@ def api_agent_inject():
     instruction_file = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                     "aib_instance", "output", job_id, "live_instruction.txt")
     os.makedirs(os.path.dirname(instruction_file), exist_ok=True)
+    _log_app_event(f"Live instruction injected — job_id={job_id}")
     try:
         with open(instruction_file, 'w') as f:
             f.write(instruction)
         return jsonify({"status": "injected"})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
 
 @app.route("/api/agent/permission", methods=["POST"])
 def api_agent_permission():
@@ -1077,6 +1083,8 @@ def api_agent_resume():
 
     if not job_id:
         return jsonify({"error": "job_id required"}), 400
+
+    _log_app_event(f"Resume requested — job_id={job_id}, input_len={len(user_input)}")
 
     output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                               "aib_instance", "output", job_id)
@@ -1146,12 +1154,31 @@ def api_get_approved_tools():
     return jsonify(approved_tools)
 
 
+# --- App System Log ---
+_app_log = []
+_app_log_lock = threading.Lock()
+
+def _log_app_event(message):
+    """Log a system-level event (not product logs)."""
+    entry = {"ts": datetime.now().isoformat(), "msg": message}
+    with _app_log_lock:
+        _app_log.append(entry)
+        # Keep last 500 entries
+        while len(_app_log) > 500:
+            _app_log.pop(0)
+
 # --- Start Worker on App Start ---
 init_directories()
 load_job_history()
 apply_settings_to_env()
 start_worker()
+_log_app_event("App started — worker thread launched")
 
+@app.route("/api/app-log", methods=["GET"])
+def api_app_log():
+    """Return the system application log."""
+    with _app_log_lock:
+        return jsonify({"log": list(_app_log)})
 
 if __name__ == "__main__":
     app.run(port=5056, debug=True, threaded=True, use_reloader=False)

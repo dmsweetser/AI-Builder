@@ -388,7 +388,7 @@ def _parse_new_format_params(params_block: str) -> Optional[Dict[str, str]]:
     # Fallback: LLM may omit [PARAM_NAME_END]. Extract keys between
     # [PARAM_NAME_START] and the next tag ([PARAM_VALUE_START], [PARAM_NAME_END],
     # [PARAM_NAME_START], or [TOOL_END]).
-    name_flex_pattern = r'\[PARAM_NAME_START\]\s*\n(.*?)(?=\[PARAM_VALUE_START\]|\[PARAM_NAME_END\]|\[PARAM_NAME_START\]|\[TOOL_END\]|\Z)'
+    name_flex_pattern = r'\[PARAM_NAME_START\]\s*\n(.*?)(?=\[PARAM_VALUE_START\]|\[PARAM_NAME_END\]|\[PARAM_NAME_START\]|\[TOOL_NAME_START\]|\[TOOL_END\]|\Z)'
     name_flex_matches = list(re.finditer(name_flex_pattern, params_block, re.DOTALL))
 
     if len(name_flex_matches) == len(value_matches):
@@ -397,6 +397,22 @@ def _parse_new_format_params(params_block: str) -> Optional[Dict[str, str]]:
             value = value_match.group(1).strip()
             params[key] = value
         return params if params else None
+
+    # Second fallback: LLM may use [TOOL_NAME_START]/[TOOL_NAME_END] for
+    # some parameter names instead of [PARAM_NAME_START]/[PARAM_NAME_END].
+    # This handles responses like:
+    #   [PARAM_NAME_START]\npath\n[PARAM_NAME_END]\n[PARAM_VALUE_START]\n.\n[PARAM_VALUE_END]\n
+    #   [TOOL_NAME_START]\nmax_depth\n[TOOL_NAME_END]\n[PARAM_VALUE_START]\n1\n[PARAM_VALUE_END]
+    if len(name_flex_matches) != len(value_matches):
+        # Collect ALL parameter name sources: both PARAM_NAME_START and TOOL_NAME_START
+        all_name_pattern = r'(?:\[PARAM_NAME_START\]|\[TOOL_NAME_START\])\s*\n(.*?)(?=\[PARAM_VALUE_START\]|\[PARAM_NAME_END\]|\[PARAM_NAME_START\]|\[TOOL_NAME_START\]|\[TOOL_NAME_END\]|\[TOOL_END\]|\Z)'
+        all_name_matches = list(re.finditer(all_name_pattern, params_block, re.DOTALL))
+        if len(all_name_matches) == len(value_matches):
+            for name_match, value_match in zip(all_name_matches, value_matches):
+                key = name_match.group(1).strip()
+                value = value_match.group(1).strip()
+                params[key] = value
+            return params if params else None
 
     return None
 
