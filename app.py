@@ -641,6 +641,7 @@ def api_send_message(chat_id):
                         try:
                             chunk = json.loads(data_str)
                             delta = chunk.get('choices', [{}])[0].get('delta', {})
+                            # Only use 'content' — 'reasoning_content' is internal thinking
                             c = delta.get('content', '')
                             if c:
                                 response_content += c
@@ -867,6 +868,24 @@ def api_agent_run():
                 result = engine.run()
                 engine_result[0] = result
                 engine_step_history[0] = engine.step_history
+
+                # Handle pending_user_input: poll for resume input and continue
+                while result.get("status") == "pending_user_input":
+                    resume_input = EngineConfig.get_resume_input(job_id, base_dir=output_dir)
+                    if resume_input:
+                        # Feed the user's input back to the engine
+                        engine.messages.append({
+                            "role": "user",
+                            "content": f"[USER INPUT] {resume_input}\n\nPlease continue with your task."
+                        })
+                        result = engine.run()
+                        engine_result[0] = result
+                        engine_step_history[0] = engine.step_history
+                    else:
+                        # Wait a bit before polling again
+                        import time as _time
+                        _time.sleep(1)
+
                 # Push a sentinel to signal completion
                 event_queue.put({"type": "__done__"})
             except Exception as e:
@@ -955,6 +974,11 @@ def api_agent_run():
                 yield "event: pending_approval\ndata: " + json.dumps({
                     "tool_name": ev.get("tool_name", "unknown"),
                 }) + "\n"
+            elif ev["type"] == "pending_user_input":
+                yield "event: pending_user_input\ndata: " + json.dumps({
+                    "step": ev.get("step", 0),
+                    "response": ev.get("response", ""),
+                }) + "\n"
 
     return Response(generate(), mimetype='text/event-stream')
 
@@ -1040,6 +1064,28 @@ def api_agent_permission():
         with open(perm_file, 'w') as f:
             f.write(decision)
         return jsonify({"status": "decision_recorded"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/agent/resume", methods=["POST"])
+def api_agent_resume():
+    """Resume a paused agent by providing user input (e.g. a nudge or new instructions)."""
+    data = request.json
+    job_id = data.get("job_id")
+    user_input = data.get("input", "")
+
+    if not job_id:
+        return jsonify({"error": "job_id required"}), 400
+
+    output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                              "aib_instance", "output", job_id)
+    resume_file = os.path.join(output_dir, "resume_input.txt")
+    os.makedirs(output_dir, exist_ok=True)
+    try:
+        with open(resume_file, 'w', encoding='utf-8') as f:
+            f.write(user_input)
+        return jsonify({"status": "resume_input_saved"})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 

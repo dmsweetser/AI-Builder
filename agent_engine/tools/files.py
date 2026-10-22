@@ -16,7 +16,7 @@ class ListDirectoryTool(BaseTool):
         "Use this to explore the project structure before making changes. "
         "Recurses up to max_depth levels. Returns relative paths."
     )
-    parameters = {"path": "string", "max_depth": "string"}
+    parameters = {"path": "string", "max_depth": "string?"}
 
     def execute(self, params: Dict[str, str]) -> ToolResult:
         path = ensure_under_root(params["path"], self.root_dir)
@@ -58,7 +58,7 @@ class SearchFilesTool(BaseTool):
         "Use this to locate files by name. Supports wildcards: * (any chars), ** (any dirs). "
         "Returns matching file paths relative to project root."
     )
-    parameters = {"pattern": "string", "search_dir": "string"}
+    parameters = {"pattern": "string", "search_dir": "string?"}
 
     def execute(self, params: Dict[str, str]) -> ToolResult:
         pattern = params["pattern"]
@@ -88,7 +88,7 @@ class GrepCodeTool(BaseTool):
         "Use this to find code references, function usages, or specific strings. "
         "Returns matching file paths and line numbers."
     )
-    parameters = {"pattern": "string", "search_dir": "string", "max_results": "string", "file_pattern": "string"}
+    parameters = {"pattern": "string", "search_dir": "string?", "max_results": "string?", "file_pattern": "string?"}
 
     def execute(self, params: Dict[str, str]) -> ToolResult:
         search_dir_param = params.get("search_dir", "")

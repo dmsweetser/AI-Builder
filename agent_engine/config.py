@@ -118,3 +118,29 @@ class EngineConfig:
             except Exception:
                 return None
         return None
+
+    @staticmethod
+    def get_resume_input(job_id: str, base_dir: Optional[str] = None) -> Optional[str]:
+        """Read a resume input file for a paused agent run.
+
+        When the agent pauses waiting for user input, the UI writes the
+        user's response to this file.  This method reads and clears it.
+        """
+        if base_dir:
+            resume_file = os.path.join(base_dir, "resume_input.txt")
+        else:
+            resume_file = os.path.join(
+                os.path.dirname(os.path.abspath(__file__)),
+                "aib_instance", "output", job_id, "resume_input.txt"
+            )
+        if os.path.exists(resume_file):
+            try:
+                with open(resume_file, 'r', encoding='utf-8') as f:
+                    user_input = f.read().strip()
+                # Clear the file after reading
+                with open(resume_file, 'w', encoding='utf-8') as f:
+                    f.write('')
+                return user_input if user_input else None
+            except Exception:
+                return None
+        return None

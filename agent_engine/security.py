@@ -47,10 +47,19 @@ def ensure_under_root(filepath: str, root_dir: str) -> str:
 
 
 def validate_tool_params(params: dict, schema: dict) -> dict:
-    """Validate that all required string params are present and are strings."""
+    """Validate that all required string params are present and are strings.
+
+    Parameters with a 'string?' type are optional — they will be included
+    in the result only if the caller provided them.
+    """
     result = {}
     for key, expected_type in schema.items():
+        optional = expected_type.endswith("?")
+        if optional:
+            expected_type = expected_type[:-1]
         if key not in params:
+            if optional:
+                continue
             raise ToolError(f"Missing required parameter: {key}")
         val = params[key]
         if expected_type == "string" and not isinstance(val, str):

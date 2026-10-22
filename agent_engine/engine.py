@@ -142,6 +142,9 @@ class LLMClient:
                     try:
                         chunk = json.loads(data_str)
                         delta = chunk.get('choices', [{}])[0].get('delta', {})
+                        # Only use 'content' for the final response — 'reasoning_content'
+                        # is the model's internal monologue (thinking) and should NOT be
+                        # concatenated into the response used for tool-call parsing.
                         c = delta.get('content', '')
                         if c:
                             content += c
@@ -274,10 +277,30 @@ CONTEXT MANAGEMENT:
 
 def build_user_prompt(instructions: str, context: str = "") -> str:
     """Build the initial user prompt with the task instructions."""
-    prompt = f"TASK INSTRUCTIONS:\n{instructions}\n\n"
+    prompt = f"""TASK INSTRUCTIONS:
+{instructions}
+
+CRITICAL INSTRUCTIONS:
+1. You MUST use a tool call to take action. Do NOT just talk about what you will do.
+2. Your FIRST action MUST be: list_directory with path="." and max_depth="1"
+3. Do NOT use [DONE] until you have actually used tools and gathered information.
+4. Format your tool call EXACTLY like this example:
+
+[TOOL_START]
+[TOOL_NAME_START]
+list_directory
+[TOOL_NAME_END]
+[PARAM_NAME_START]
+path
+[PARAM_NAME_END]
+[PARAM_VALUE_START]
+.
+[PARAM_VALUE_END]
+[TOOL_END]
+
+STEP 1: Use list_directory to explore the project structure. Do NOT use [DONE] yet - you must take action first."""
     if context:
-        prompt += f"RELEVANT CONTEXT:\n{context}\n\n"
-    prompt += "STEP 1: Use list_directory to explore the project structure. Do NOT use [DONE] yet - you must take action first."
+        prompt += f"\n\nRELEVANT CONTEXT:\n{context}"
     return prompt
 
 
@@ -542,46 +565,33 @@ class AgentEngine:
                 # Parse tool calls
                 tool_calls = parse_tool_calls(response)
                 if not tool_calls:
-                    # No tool calls found - LLM may be reasoning or stuck
-                    # Check if we're in a loop (same response pattern repeated)
-                    self.logger.warning(f"No tool calls in response (step {self.step_count}). Response preview: {response[:200]}")
-                    last_user_msg = ""
-                    for msg in reversed(self.messages):
-                        if msg["role"] == "user":
-                            last_user_msg = msg.get("content", "")
-                            break
-
-                    # Check for repetition: if the last assistant message is very similar
-                    # to the current response, send a stronger prompt
-                    last_assistant = ""
-                    for msg in reversed(self.messages):
-                        if msg["role"] == "assistant":
-                            last_assistant = msg.get("content", "")
-                            break
-
-                    is_repeating = (
-                        last_assistant and response.strip() == last_assistant.strip()
+                    # No tool calls and no [DONE] — the LLM is likely in
+                    # "thinking" mode and has not produced a tool call or
+                    # completion signal. Surface the response to the user
+                    # and pause the engine so they can reply (e.g. with
+                    # a nudge or new instructions).
+                    self.logger.warning(
+                        f"No tool calls in response (step {self.step_count}). "
+                        f"Response preview: {response[:200]}"
                     )
-
-                    if is_repeating:
-                        # LLM is stuck in a loop - tell it to stop and use [DONE]
-                        stuck_msg = (
-                            "\n\n[LOOP DETECTED] You are repeating the same output. "
-                            "Either complete the task with [DONE] and a summary, "
-                            "or use a different tool call. Do NOT repeat the same tool call."
-                        )
-                        self.messages.append({"role": "user", "content": stuck_msg})
-                    else:
-                        reminder = (
-                            "\n\n[REMINDER] You must take action using the available tools. "
-                            "Use the [TOOL_START] / [TOOL_END] block format. "
-                            "Inside the block, use [TOOL_NAME_START]...[TOOL_NAME_END] for the tool name, "
-                            "then [PARAM_NAME_START]...[PARAM_NAME_END] for each parameter key, "
-                            "followed by [PARAM_VALUE_START]...[PARAM_VALUE_END] for each parameter value. "
-                            "Or [DONE] when you have finished all changes."
-                        )
-                        self.messages.append({"role": "user", "content": reminder})
-                    continue
+                    # Emit a pending-user-input event so the UI can display
+                    # the LLM's text and show an input field for the user.
+                    if self._step_callback:
+                        try:
+                            self._step_callback({
+                                "type": "pending_user_input",
+                                "step": self.step_count,
+                                "response": response,
+                            })
+                        except Exception:
+                            pass
+                    return {
+                        "status": "pending_user_input",
+                        "steps": self.step_count,
+                        "summary": response.strip(),
+                        "max_steps": self.max_steps,
+                        "step_history": self.step_history,
+                    }
 
                 # Only process the first tool call per step (enforce single-call rule)
                 if tool_calls:
