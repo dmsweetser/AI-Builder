@@ -587,6 +587,7 @@ def api_send_message(chat_id):
             chat_data["messages"].pop()
 
         chat_data["messages"].append({"role": "user", "content": message})
+        chat_data["timestamp"] = datetime.now().isoformat()
         with open(chat_path, "w", encoding="utf-8") as f:
             json.dump(chat_data, f, indent=2)
 
@@ -649,6 +650,7 @@ def api_send_message(chat_id):
                                 if len(response_content) % 20 == 0:
                                     chat_data["messages"] = [m for m in chat_data["messages"] if m["role"] != "assistant"]
                                     chat_data["messages"].append({"role": "assistant", "content": response_content})
+                                    chat_data["timestamp"] = datetime.now().isoformat()
                                     with open(chat_path, "w", encoding="utf-8") as f:
                                         json.dump(chat_data, f, indent=2)
                         except json.JSONDecodeError:
@@ -656,6 +658,7 @@ def api_send_message(chat_id):
 
                 chat_data["messages"] = [m for m in chat_data["messages"] if m["role"] != "assistant"]
                 chat_data["messages"].append({"role": "assistant", "content": response_content})
+                chat_data["timestamp"] = datetime.now().isoformat()
                 with open(chat_path, "w", encoding="utf-8") as f:
                     json.dump(chat_data, f, indent=2)
             except Exception as e:

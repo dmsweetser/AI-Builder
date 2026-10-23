@@ -310,10 +310,13 @@ function markdownToHtml(md) {
     if (!md) return '';
     let html = escapeHtml(md);
 
-    // Code blocks (``` ... ```) - use non-greedy match that handles nested backticks
+    // Code blocks (``` ... ```) — extract them first so newlines inside are protected
+    const codeBlocks = [];
     html = html.replace(/```([\s\S]*?)```/g, function(match, code) {
         const uniqueId = 'code-block-' + Math.random().toString(36).substr(2, 9);
-        return `<div style="position:relative;margin:4px 0;"><button class="pre-copy-btn" onclick="copyCodeBlock('${uniqueId}', this)" style="position:absolute;top:4px;right:4px;background:var(--wood);border:1px solid #000;padding:3px 8px;cursor:pointer;font-size:8px;color:#fff;z-index:10;border-radius:3px;font-family:'Press Start 2P',monospace;">COPY</button><pre style="background:#111;padding:8px;border-radius:4px;overflow-x:auto;margin:0;"><code id="${uniqueId}">${code.trim()}</code></pre></div>`;
+        // Store the raw (already-escaped) code with newlines intact
+        codeBlocks.push({ id: uniqueId, content: code.trim() });
+        return `%%CODEBLOCK_${uniqueId}%%`;
     });
 
     // Inline code (` ... `) - handle single backticks but not triple
@@ -332,6 +335,14 @@ function markdownToHtml(md) {
     html = html.replace(/\n\n/g, '<br><br>');
     html = html.replace(/\n/g, '<br>');
 
+    // Restore code blocks with preserved newlines (rendered inside <pre>)
+    codeBlocks.forEach(function(block) {
+        // Use literal newlines — <pre> preserves them; copy via textContent gets real newlines
+        const escaped = block.content.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        html = html.replace(`%%CODEBLOCK_${block.id}%%`,
+            `<div style="position:relative;margin:4px 0;"><button class="pre-copy-btn" onclick="copyCodeBlock('${block.id}', this)" style="position:absolute;top:4px;right:4px;background:var(--wood);border:1px solid #000;padding:3px 8px;cursor:pointer;font-size:8px;color:#fff;z-index:10;border-radius:3px;font-family:'Press Start 2P',monospace;">COPY</button><pre style="background:#111;padding:8px;border-radius:4px;overflow-x:auto;margin:0;"><code id="${block.id}" style="white-space:pre-wrap;">${escaped}</code></pre></div>`);
+    });
+
     return html;
 }
 
@@ -339,7 +350,9 @@ function markdownToHtml(md) {
 function copyCodeBlock(id, btn) {
     const el = document.getElementById(id);
     if (!el) return;
-    copyToClipboard(el.textContent, btn);
+    // Use textContent — <pre> + <code> preserves newlines; <br> → newline in textContent
+    const text = el.textContent || el.innerText || '';
+    copyToClipboard(text, btn);
 }
 
 // === Tool selector ===
@@ -1646,7 +1659,7 @@ function sendChat() {
     const aiBodyDiv = document.createElement('div');
     aiBodyDiv.className = 'chat-msg-body';
     aiBodyDiv.style.width = '100%';
-    aiBodyDiv.id = 'chat-stream-text';
+    aiBodyDiv.id = 'chat-stream-text-' + Date.now();
     aiDiv.appendChild(aiBodyDiv);
     // Add copy button to AI response
     const aiCopyBtn = document.createElement('button');
@@ -1683,7 +1696,8 @@ function sendChat() {
                         return;
                     }
                     buffer += decoder.decode(value, { stream: true });
-                    const textEl = document.getElementById('chat-stream-text');
+                    // Find the AI response body div by class (last .chat-msg-body in the log)
+                    const textEl = log.querySelector('.chat-msg:last-child .chat-msg-body');
                     if (textEl) textEl.innerHTML = markdownToHtml(buffer);
                     log.scrollTop = log.scrollHeight;
                     // Use setTimeout to avoid stack overflow
