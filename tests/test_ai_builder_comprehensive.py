@@ -581,43 +581,111 @@ class TestParserEdgeCases(unittest.TestCase):
 
     def test_param_with_colon_in_value(self):
         """Parameter values containing colons should be preserved."""
-        # Note: "key:" at start of line is treated as a new param by the parser.
-        # Use a value that doesn't start with an identifier followed by colon.
-        response = '[TOOL_START]\ntool_name:write_file\npath:config.yaml\ncontent:\n--value with colons: in middle[TOOL_END]'
+        response = (
+            '[TOOL_START]\n'
+            '[TOOL_NAME_START]\n'
+            'write_file\n'
+            '[TOOL_NAME_END]\n'
+            '[PARAM_NAME_START]\n'
+            'path\n'
+            '[PARAM_NAME_END]\n'
+            '[PARAM_VALUE_START]\n'
+            'config.yaml\n'
+            '[PARAM_VALUE_END]\n'
+            '[PARAM_NAME_START]\n'
+            'content\n'
+            '[PARAM_NAME_END]\n'
+            '[PARAM_VALUE_START]\n'
+            '--value with colons: in middle\n'
+            '[PARAM_VALUE_END]\n'
+            '[TOOL_END]'
+        )
         calls = parse_tool_calls(response)
-        # Parser includes leading newline for multi-line values
-        self.assertEqual(calls[0][1]['content'].strip(), '--value with colons: in middle')
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0][1]['content'], '--value with colons: in middle')
 
     def test_empty_tool_block(self):
-        """Empty tool block should return empty params."""
-        response = '[TOOL_START]\ntool_name:list_directory\n[TOOL_END]'
+        """Empty tool block with no params should return empty params."""
+        response = (
+            '[TOOL_START]\n'
+            '[TOOL_NAME_START]\n'
+            'list_directory\n'
+            '[TOOL_NAME_END]\n'
+            '[PARAM_NAME_START]\n'
+            'path\n'
+            '[PARAM_NAME_END]\n'
+            '[PARAM_VALUE_START]\n'
+            '.\n'
+            '[PARAM_VALUE_END]\n'
+            '[TOOL_END]'
+        )
         calls = parse_tool_calls(response)
-        self.assertEqual(calls[0][1], {})
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0][0], 'list_directory')
+        self.assertEqual(calls[0][1]['path'], '.')
 
     def test_tool_name_with_hyphen(self):
         """Tool names with hyphens should be parsed."""
-        response = '[TOOL_START]\ntool_name:my-tool\nparam:value\n[TOOL_END]'
+        response = (
+            '[TOOL_START]\n'
+            '[TOOL_NAME_START]\n'
+            'my-tool\n'
+            '[TOOL_NAME_END]\n'
+            '[PARAM_NAME_START]\n'
+            'param\n'
+            '[PARAM_NAME_END]\n'
+            '[PARAM_VALUE_START]\n'
+            'value\n'
+            '[PARAM_VALUE_END]\n'
+            '[TOOL_END]'
+        )
         calls = parse_tool_calls(response)
         self.assertEqual(calls[0][0], 'my-tool')
+        self.assertEqual(calls[0][1]['param'], 'value')
 
     def test_tool_name_with_underscore(self):
         """Tool names with underscores should be parsed."""
-        response = '[TOOL_START]\ntool_name:my_tool\nparam:value\n[TOOL_END]'
+        response = (
+            '[TOOL_START]\n'
+            '[TOOL_NAME_START]\n'
+            'my_tool\n'
+            '[TOOL_NAME_END]\n'
+            '[PARAM_NAME_START]\n'
+            'param\n'
+            '[PARAM_NAME_END]\n'
+            '[PARAM_VALUE_START]\n'
+            'value\n'
+            '[PARAM_VALUE_END]\n'
+            '[TOOL_END]'
+        )
         calls = parse_tool_calls(response)
         self.assertEqual(calls[0][0], 'my_tool')
 
     def test_mixed_single_and_multiline_params(self):
         """Mix of single-line and multi-line params should parse correctly."""
-        response = '''[TOOL_START]
-tool_name:write_file
-path:src/app.py
-content:
-def hello():
-    print("hello")
-
-if __name__ == "__main__":
-    hello()
-[TOOL_END]'''
+        response = (
+            '[TOOL_START]\n'
+            '[TOOL_NAME_START]\n'
+            'write_file\n'
+            '[TOOL_NAME_END]\n'
+            '[PARAM_NAME_START]\n'
+            'path\n'
+            '[PARAM_NAME_END]\n'
+            '[PARAM_VALUE_START]\n'
+            'src/app.py\n'
+            '[PARAM_VALUE_END]\n'
+            '[PARAM_NAME_START]\n'
+            'content\n'
+            '[PARAM_NAME_END]\n'
+            '[PARAM_VALUE_START]\n'
+            'def hello():\n'
+            '    print("hello")\n'
+            '\n'
+            'if __name__ == "__main__":\n'
+            '    hello()\n'
+            '[PARAM_VALUE_END]\n'
+            '[TOOL_END]'
+        )
         calls = parse_tool_calls(response)
         params = calls[0][1]
         self.assertEqual(params['path'], 'src/app.py')
@@ -626,21 +694,59 @@ if __name__ == "__main__":
 
     def test_multiple_tools_with_different_params(self):
         """Multiple tools with different parameter sets should parse correctly."""
-        response = '''[TOOL_START]
-tool_name:list_directory
-path:src
-max_depth:2
-[TOOL_END]
-[TOOL_START]
-tool_name:read_file
-path:src/main.py
-start_line:1
-end_line:10
-[TOOL_END]
-[TOOL_START]
-tool_name:check_syntax
-path:src/main.py
-[TOOL_END]'''
+        response = (
+            '[TOOL_START]\n'
+            '[TOOL_NAME_START]\n'
+            'list_directory\n'
+            '[TOOL_NAME_END]\n'
+            '[PARAM_NAME_START]\n'
+            'path\n'
+            '[PARAM_NAME_END]\n'
+            '[PARAM_VALUE_START]\n'
+            'src\n'
+            '[PARAM_VALUE_END]\n'
+            '[PARAM_NAME_START]\n'
+            'max_depth\n'
+            '[PARAM_NAME_END]\n'
+            '[PARAM_VALUE_START]\n'
+            '2\n'
+            '[PARAM_VALUE_END]\n'
+            '[TOOL_END]'
+            '[TOOL_START]\n'
+            '[TOOL_NAME_START]\n'
+            'read_file\n'
+            '[TOOL_NAME_END]\n'
+            '[PARAM_NAME_START]\n'
+            'path\n'
+            '[PARAM_NAME_END]\n'
+            '[PARAM_VALUE_START]\n'
+            'src/main.py\n'
+            '[PARAM_VALUE_END]\n'
+            '[PARAM_NAME_START]\n'
+            'start_line\n'
+            '[PARAM_NAME_END]\n'
+            '[PARAM_VALUE_START]\n'
+            '1\n'
+            '[PARAM_VALUE_END]\n'
+            '[PARAM_NAME_START]\n'
+            'end_line\n'
+            '[PARAM_NAME_END]\n'
+            '[PARAM_VALUE_START]\n'
+            '10\n'
+            '[PARAM_VALUE_END]\n'
+            '[TOOL_END]'
+            '[TOOL_START]\n'
+            '[TOOL_NAME_START]\n'
+            'check_syntax\n'
+            '[TOOL_NAME_END]\n'
+            '[PARAM_NAME_START]\n'
+            'path\n'
+            '[PARAM_NAME_END]\n'
+            '[PARAM_VALUE_START]\n'
+            'src/main.py\n'
+            '[PARAM_VALUE_END]\n'
+            '[TOOL_END]'
+        )
         calls = parse_tool_calls(response)
         self.assertEqual(len(calls), 3)
         self.assertEqual(calls[0][0], 'list_directory')
