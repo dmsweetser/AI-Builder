@@ -81,7 +81,7 @@ def _load_settings_unlocked():
     loaded.setdefault('timeout', int(os.getenv("CUSTOM_TIMEOUT", "3600")))
     loaded.setdefault('max_context_tokens', int(os.getenv("AIB_MAX_CONTEXT_TOKENS", "0")))
     loaded.setdefault('max_output_tokens', int(os.getenv("AIB_MAX_OUTPUT_TOKENS", "0")))
-    loaded.setdefault('max_tool_result_length', int(os.getenv("AIB_MAX_TOOL_RESULT_LENGTH", "2000")))
+    loaded.setdefault('max_tool_result_length', int(os.getenv("AIB_MAX_TOOL_RESULT_LENGTH", "5000")))
     loaded.setdefault('root_directory', os.getenv("ROOT_DIRECTORY", ""))
     loaded.setdefault('jd_cli_path', os.getenv("JD_CLI_PATH", ""))
     loaded.setdefault('java_home', os.getenv("JAVA_HOME", ""))

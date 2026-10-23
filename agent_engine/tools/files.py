@@ -127,7 +127,7 @@ class ReadFileTool(BaseTool):
         "Options: start_line (1-indexed, default 1), end_line (default all). "
         "For large files, specify line ranges to avoid truncation."
     )
-    parameters = {"path": "string"}
+    parameters = {"path": "string", "start_line": "integer? (1-indexed, default 1)", "end_line": "integer? (default all)"}
 
     def execute(self, params: Dict[str, str]) -> ToolResult:
         path = ensure_under_root(params["path"], self.root_dir)

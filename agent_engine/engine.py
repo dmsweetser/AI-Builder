@@ -271,6 +271,7 @@ RULES:
 - ALWAYS include ALL required parameters for every tool call. Missing parameters will cause errors.
 - ALWAYS use check_syntax after editing to verify correctness.
 - Keep edits focused and small - one change at a time.
+- For large files (over 2000 chars), ALWAYS use read_file with start_line and end_line to read only the relevant section. Do NOT read entire large files — read the specific lines you need to understand or edit.
 - For Java projects with JAR dependencies, use decompile_jar to inspect them.
 - For large codebases, be selective: grep for relevant code, don't read everything.
 - You have a maximum of {EngineConfig.get_max_steps()} steps total. Use them wisely.
@@ -852,10 +853,12 @@ class AgentEngine:
                         f"\n\n[LOOP DETECTED] You have called {repeated_tool} {len(self._recent_tool_calls)} times in a row without making progress. "
                         f"This is not productive. You MUST choose a DIFFERENT tool or take a different action. "
                         f"Available tools: list_directory, search_files, grep_code, read_file, write_file, edit_file, delete_file, "
-                        f"find_symbol, decompile_jar, list_dependencies, check_syntax, get_file_info, create_tool. "
+                        f"find_symbol, decompile_jar, list_dependencies, check_syntax, get_file_info, create_tool, compress_context. "
                         f"Think about what you've learned so far and what you need to do next. "
                         f"Either make a concrete change with write_file/edit_file, or gather specific information with a different tool. "
-                        f"DO NOT call {repeated_tool} again."
+                        f"DO NOT call {repeated_tool} again. "
+                        f"If you need more context, use read_file with start_line and end_line to read specific sections of files. "
+                        f"If the conversation is getting too long, use compress_context to summarize prior work."
                     )
                     self.messages.append({"role": "user", "content": intervention})
                     continue
