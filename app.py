@@ -32,9 +32,8 @@ def _get_app_dir():
 import sys
 _app_dir = _get_app_dir()
 
-from agent_engine import AgentEngine, EngineConfig, ToolResult
-from agent_engine.tools import ToolRegistry
-from config import Config
+from agent_engine import AgentEngine, EngineConfig, ToolRegistry, ToolResult, get_registry
+from agent_engine.config import EngineConfig as Config
 
 app = Flask(__name__,
             template_folder=os.path.join(_app_dir, 'templates'),
@@ -530,7 +529,7 @@ def api_add_to_queue():
     pid = data.get("project_id")
     if not pid:
         return jsonify({"error": "project_id required"}), 400
-    project, _ = get_project(pid)
+    project, projects = get_project(pid)
     if not project:
         return jsonify({"error": "Project not found"}), 404
 
@@ -1222,9 +1221,8 @@ def api_agent_resume():
 @app.route("/api/tools/pending", methods=["GET"])
 def api_get_pending_tools():
     """List all pending tool proposals awaiting user review."""
-    # We need a registry instance to query pending tools
     root_dir = os.getenv("AIB_ROOT", os.getenv("ROOT_DIRECTORY", os.getcwd()))
-    registry = ToolRegistry(root_dir)
+    registry = get_registry(root_dir)
     pending = registry.get_pending_tools()
     return jsonify(pending)
 
@@ -1233,7 +1231,7 @@ def api_get_pending_tools():
 def api_approve_tool(tool_id):
     """Approve a pending tool proposal — registers it immediately."""
     root_dir = os.getenv("AIB_ROOT", os.getenv("ROOT_DIRECTORY", os.getcwd()))
-    registry = ToolRegistry(root_dir)
+    registry = get_registry(root_dir)
     result = registry.approve_tool(tool_id)
     if result["status"] == "approved":
         return jsonify(result)
@@ -1244,7 +1242,7 @@ def api_approve_tool(tool_id):
 def api_reject_tool(tool_id):
     """Reject a pending tool proposal — removes it from pending."""
     root_dir = os.getenv("AIB_ROOT", os.getenv("ROOT_DIRECTORY", os.getcwd()))
-    registry = ToolRegistry(root_dir)
+    registry = get_registry(root_dir)
     result = registry.reject_tool(tool_id)
     if result["status"] == "rejected":
         return jsonify(result)

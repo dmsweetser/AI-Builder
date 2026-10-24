@@ -173,7 +173,6 @@ class CreateToolTool(BaseTool):
     def execute(self, params: Dict[str, str]) -> ToolResult:
         import uuid
         import time
-        from agent_engine.config import EngineConfig
 
         tool_name = params["name"].strip()
         tool_desc = params["description"].strip()
@@ -208,8 +207,9 @@ class CreateToolTool(BaseTool):
             "submitted_at": timestamp,
         }
 
-        # Persist to pending tools file (global, app-level)
-        pending_file = EngineConfig.get_pending_tools_file()
+        # Persist to per-project pending tools file
+        output_dir = os.path.join(self.root_dir, "aib_instance", "output")
+        pending_file = os.path.join(output_dir, "pending_tools.json")
         os.makedirs(os.path.dirname(pending_file), exist_ok=True)
 
         pending_tools = []

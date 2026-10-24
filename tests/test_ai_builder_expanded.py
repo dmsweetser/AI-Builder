@@ -34,20 +34,15 @@ class TestParseToolCalls(unittest.TestCase):
 
     def test_simple_single_line(self):
         response = '''[TOOL_START]
-[TOOL_NAME_START]
+[TOOL_NAME]
 list_directory
-[TOOL_NAME_END]
-[PARAM_NAME_START]
+[PARAM_NAME]
 path
-[PARAM_NAME_END]
-[PARAM_VALUE_START]
-[PARAM_VALUE_END]
-[PARAM_NAME_START]
+[PARAM_VALUE]
+[PARAM_NAME]
 max_depth
-[PARAM_NAME_END]
-[PARAM_VALUE_START]
+[PARAM_VALUE]
 2
-[PARAM_VALUE_END]
 [TOOL_END]'''
         calls = parse_tool_calls(response)
         self.assertEqual(len(calls), 1)
@@ -56,40 +51,32 @@ max_depth
 
     def test_single_line_param_value(self):
         response = '''[TOOL_START]
-[TOOL_NAME_START]
+[TOOL_NAME]
 check_syntax
-[TOOL_NAME_END]
-[PARAM_NAME_START]
+[PARAM_NAME]
 path
-[PARAM_NAME_END]
-[PARAM_VALUE_START]
+[PARAM_VALUE]
 src/hello.py
-[PARAM_VALUE_END]
 [TOOL_END]'''
         calls = parse_tool_calls(response)
         self.assertEqual(calls[0][1], {'path': 'src/hello.py'})
 
     def test_multiline_content(self):
         response = '''[TOOL_START]
-[TOOL_NAME_START]
+[TOOL_NAME]
 write_file
-[TOOL_NAME_END]
-[PARAM_NAME_START]
+[PARAM_NAME]
 path
-[PARAM_NAME_END]
-[PARAM_VALUE_START]
+[PARAM_VALUE]
 src/hello.py
-[PARAM_VALUE_END]
-[PARAM_NAME_START]
+[PARAM_NAME]
 content
-[PARAM_NAME_END]
-[PARAM_VALUE_START]
+[PARAM_VALUE]
 """Hello module."""
 from src.main import greet
 
 if __name__ == "__main__":
     print(greet("World"))
-[PARAM_VALUE_END]
 [TOOL_END]'''
         calls = parse_tool_calls(response)
         self.assertEqual(calls[0][0], 'write_file')
@@ -101,31 +88,23 @@ if __name__ == "__main__":
 
     def test_multiple_tools(self):
         response = '''[TOOL_START]
-[TOOL_NAME_START]
+[TOOL_NAME]
 list_directory
-[TOOL_NAME_END]
-[PARAM_NAME_START]
+[PARAM_NAME]
 path
-[PARAM_NAME_END]
-[PARAM_VALUE_START]
-[PARAM_VALUE_END]
-[PARAM_NAME_START]
+[PARAM_VALUE]
+[PARAM_NAME]
 max_depth
-[PARAM_NAME_END]
-[PARAM_VALUE_START]
+[PARAM_VALUE]
 1
-[PARAM_VALUE_END]
 [TOOL_END]
 [TOOL_START]
-[TOOL_NAME_START]
+[TOOL_NAME]
 read_file
-[TOOL_NAME_END]
-[PARAM_NAME_START]
+[PARAM_NAME]
 path
-[PARAM_NAME_END]
-[PARAM_VALUE_START]
+[PARAM_VALUE]
 src/main.py
-[PARAM_VALUE_END]
 [TOOL_END]'''
         calls = parse_tool_calls(response)
         self.assertEqual(len(calls), 2)
@@ -139,32 +118,25 @@ src/main.py
 
     def test_edit_file_multiline(self):
         response = '''[TOOL_START]
-[TOOL_NAME_START]
+[TOOL_NAME]
 edit_file
-[TOOL_NAME_END]
-[PARAM_NAME_START]
+[PARAM_NAME]
 path
-[PARAM_NAME_END]
-[PARAM_VALUE_START]
+[PARAM_VALUE]
 calc.py
-[PARAM_VALUE_END]
-[PARAM_NAME_START]
+[PARAM_NAME]
 original_text
-[PARAM_NAME_END]
-[PARAM_VALUE_START]
+[PARAM_VALUE]
 def add(a, b):
     return a + b
-[PARAM_VALUE_END]
-[PARAM_NAME_START]
+[PARAM_NAME]
 new_text
-[PARAM_NAME_END]
-[PARAM_VALUE_START]
+[PARAM_VALUE]
 def add(a, b):
     return a + b
 
 def subtract(a, b):
     return a - b
-[PARAM_VALUE_END]
 [TOOL_END]'''
         calls = parse_tool_calls(response)
         params = calls[0][1]
@@ -173,61 +145,46 @@ def subtract(a, b):
 
     def test_search_files(self):
         response = '''[TOOL_START]
-[TOOL_NAME_START]
+[TOOL_NAME]
 search_files
-[TOOL_NAME_END]
-[PARAM_NAME_START]
+[PARAM_NAME]
 pattern
-[PARAM_NAME_END]
-[PARAM_VALUE_START]
+[PARAM_VALUE]
 *.py
-[PARAM_VALUE_END]
-[PARAM_NAME_START]
+[PARAM_NAME]
 search_dir
-[PARAM_NAME_END]
-[PARAM_VALUE_START]
-[PARAM_VALUE_END]
+[PARAM_VALUE]
 [TOOL_END]'''
         calls = parse_tool_calls(response)
         self.assertEqual(calls[0][1], {'pattern': '*.py', 'search_dir': ''})
 
     def test_grep_code(self):
         response = '''[TOOL_START]
-[TOOL_NAME_START]
+[TOOL_NAME]
 grep_code
-[TOOL_NAME_END]
-[PARAM_NAME_START]
+[PARAM_NAME]
 path
-[PARAM_NAME_END]
-[PARAM_VALUE_START]
+[PARAM_VALUE]
 app.py
-[PARAM_VALUE_END]
-[PARAM_NAME_START]
+[PARAM_NAME]
 original_text
-[PARAM_NAME_END]
-[PARAM_VALUE_START]
+[PARAM_VALUE]
 world
-[PARAM_VALUE_END]
-[PARAM_NAME_START]
+[PARAM_NAME]
 new_text
-[PARAM_NAME_END]
-[PARAM_VALUE_START]
+[PARAM_VALUE]
 universe
-[PARAM_VALUE_END]
 [TOOL_END]'''
         calls = parse_tool_calls(response)
         self.assertEqual(calls[0][1], {'path': 'app.py', 'original_text': 'world', 'new_text': 'universe'})
 
     def test_empty_param_value(self):
         response = '''[TOOL_START]
-[TOOL_NAME_START]
+[TOOL_NAME]
 read_file
-[TOOL_NAME_END]
-[PARAM_NAME_START]
+[PARAM_NAME]
 path
-[PARAM_NAME_END]
-[PARAM_VALUE_START]
-[PARAM_VALUE_END]
+[PARAM_VALUE]
 [TOOL_END]'''
         calls = parse_tool_calls(response)
         self.assertEqual(calls[0][1], {'path': ''})
@@ -297,11 +254,11 @@ class TestAgentEngineE2E(unittest.TestCase):
             # New tag-based format LLM responses
             llm_responses = [
                 # Step 1: Agent reads file
-                '[TOOL_START]\n[TOOL_NAME_START]\nread_file\n[TOOL_NAME_END]\n[PARAM_NAME_START]\npath\n[PARAM_NAME_END]\n[PARAM_VALUE_START]\nmain.py\n[PARAM_VALUE_END]\n[TOOL_END]',
+                '[TOOL_START]\n[TOOL_NAME]\nread_file\n[PARAM_NAME]\npath\n[PARAM_VALUE]\nmain.py\n[TOOL_END]',
                 # Step 2: Agent edits file
-                '[TOOL_START]\n[TOOL_NAME_START]\nedit_file\n[TOOL_NAME_END]\n[PARAM_NAME_START]\npath\n[PARAM_NAME_END]\n[PARAM_VALUE_START]\nmain.py\n[PARAM_VALUE_END]\n[PARAM_NAME_START]\noriginal_text\n[PARAM_NAME_END]\n[PARAM_VALUE_START]\ndef hello():\n    print("Hello World")\n\n[PARAM_VALUE_END]\n[PARAM_NAME_START]\nnew_text\n[PARAM_NAME_END]\n[PARAM_VALUE_START]\ndef hello():\n    print("Hello World")\n\ndef goodbye():\n    print("Goodbye World")\n[PARAM_VALUE_END]\n[TOOL_END]',
+                '[TOOL_START]\n[TOOL_NAME]\nedit_file\n[PARAM_NAME]\npath\n[PARAM_VALUE]\nmain.py\n[PARAM_NAME]\noriginal_text\n[PARAM_VALUE]\ndef hello():\n    print("Hello World")\n\n[PARAM_NAME]\nnew_text\n[PARAM_VALUE]\ndef hello():\n    print("Hello World")\n\ndef goodbye():\n    print("Goodbye World")\n[TOOL_END]',
                 # Step 3: Agent checks syntax
-                '[TOOL_START]\n[TOOL_NAME_START]\ncheck_syntax\n[TOOL_NAME_END]\n[PARAM_NAME_START]\npath\n[PARAM_NAME_END]\n[PARAM_VALUE_START]\nmain.py\n[PARAM_VALUE_END]\n[TOOL_END]',
+                '[TOOL_START]\n[TOOL_NAME]\ncheck_syntax\n[PARAM_NAME]\npath\n[PARAM_VALUE]\nmain.py\n[TOOL_END]',
                 # Step 4: Agent completes
                 '[DONE] Added goodbye function to main.py and verified syntax.',
             ]
@@ -352,10 +309,10 @@ class TestAgentEngineE2E(unittest.TestCase):
         with patch.object(ToolRegistry, 'execute', mock_execute):
             # LLM keeps calling the same tool repeatedly
             llm_responses = [
-                '[TOOL_START]\n[TOOL_NAME_START]\nread_file\n[TOOL_NAME_END]\n[PARAM_NAME_START]\npath\n[PARAM_NAME_END]\n[PARAM_VALUE_START]\nmain.py\n[PARAM_VALUE_END]\n[TOOL_END]',
-                '[TOOL_START]\n[TOOL_NAME_START]\nread_file\n[TOOL_NAME_END]\n[PARAM_NAME_START]\npath\n[PARAM_NAME_END]\n[PARAM_VALUE_START]\nmain.py\n[PARAM_VALUE_END]\n[TOOL_END]',
-                '[TOOL_START]\n[TOOL_NAME_START]\nread_file\n[TOOL_NAME_END]\n[PARAM_NAME_START]\npath\n[PARAM_NAME_END]\n[PARAM_VALUE_START]\nmain.py\n[PARAM_VALUE_END]\n[TOOL_END]',
-                '[TOOL_START]\n[TOOL_NAME_START]\nread_file\n[TOOL_NAME_END]\n[PARAM_NAME_START]\npath\n[PARAM_NAME_END]\n[PARAM_VALUE_START]\nmain.py\n[PARAM_VALUE_END]\n[TOOL_END]',
+                '[TOOL_START]\n[TOOL_NAME]\nread_file\n[PARAM_NAME]\npath\n[PARAM_VALUE]\nmain.py\n[TOOL_END]',
+                '[TOOL_START]\n[TOOL_NAME]\nread_file\n[PARAM_NAME]\npath\n[PARAM_VALUE]\nmain.py\n[TOOL_END]',
+                '[TOOL_START]\n[TOOL_NAME]\nread_file\n[PARAM_NAME]\npath\n[PARAM_VALUE]\nmain.py\n[TOOL_END]',
+                '[TOOL_START]\n[TOOL_NAME]\nread_file\n[PARAM_NAME]\npath\n[PARAM_VALUE]\nmain.py\n[TOOL_END]',
             ]
 
             call_count = [0]

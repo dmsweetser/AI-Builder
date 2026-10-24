@@ -21,6 +21,25 @@ from agent_engine.tools.checkers import CheckSyntaxTool
 from agent_engine.tools.misc import ListDependenciesTool, GetFileInfoTool, CreateToolTool, CompressContextTool
 from agent_engine.tools.communication import RespondToUserTool, RequestUserInputTool
 
+# ------------------------------------------------------------------
+# Module-level singleton: shared across all API endpoints and agent engines
+# ------------------------------------------------------------------
+_shared_registry: Optional["ToolRegistry"] = None
+
+
+def get_registry(root_dir: str = None, enabled_tools=None) -> "ToolRegistry":
+    """Return the shared ToolRegistry singleton.
+
+    On first call (or if root_dir changed), creates a new registry.
+    Subsequent calls return the same instance unless root_dir differs.
+    """
+    global _shared_registry
+    if _shared_registry is None:
+        _shared_registry = ToolRegistry(root_dir or os.getcwd(), enabled_tools=enabled_tools)
+    elif root_dir is not None and _shared_registry.root_dir != root_dir:
+        _shared_registry = ToolRegistry(root_dir, enabled_tools=enabled_tools)
+    return _shared_registry
+
 
 class ToolRegistry:
     """Registry of all available tools.
@@ -78,8 +97,9 @@ class ToolRegistry:
 
     @staticmethod
     def _pending_tools_file(root_dir: str) -> str:
-        from agent_engine.config import EngineConfig
-        return EngineConfig.get_pending_tools_file()
+        """Return the per-project pending tools file path."""
+        output_dir = os.path.join(root_dir, "aib_instance", "output")
+        return os.path.join(output_dir, "pending_tools.json")
 
     def _load_approved_tools(self):
         """Load any previously-approved dynamic tools from disk."""
