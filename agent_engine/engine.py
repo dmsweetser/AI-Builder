@@ -54,7 +54,7 @@ class LLMClient:
 
     MAX_RETRIES = 3
     BASE_DELAY = 2.0  # seconds
-    MAX_CALL_TIME = 120  # seconds — hard timeout per LLM call
+    MAX_CALL_TIME = 7200  # seconds — hard timeout per LLM call
 
     def __init__(self, max_context_tokens: int = 0, max_output_tokens: int = 0,
                  audit_dir: Optional[str] = None):
