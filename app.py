@@ -179,7 +179,18 @@ def load_projects():
         with open(PROJECTS_FILE, "w", encoding="utf-8") as f:
             json.dump([], f)
     with open(PROJECTS_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
+        projects = json.load(f)
+
+    # Migrate legacy projects (no output_dir/run_number fields)
+    for p in projects:
+        if "output_dir" not in p:
+            p["output_dir"] = os.path.join(_AIB_INSTANCE, "output", p["id"])
+            p["run_number"] = 0
+            p["last_job_id"] = None
+        # Ensure output directory exists
+        os.makedirs(p.get("output_dir", ""), exist_ok=True)
+
+    return projects
 
 def save_projects(projects):
     with open(PROJECTS_FILE, "w", encoding="utf-8") as f:
@@ -202,6 +213,13 @@ def worker():
         pid = running_job["project_id"]
         project, _ = get_project(pid)
 
+        # Use project's persistent output directory
+        if project and "output_dir" in project:
+            output_dir = project["output_dir"]
+        else:
+            output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aib_instance", "output", job_id)
+        os.makedirs(output_dir, exist_ok=True)
+
         job_history.append({
             "job_id": job_id,
             "project_id": pid,
@@ -214,7 +232,7 @@ def worker():
 
         try:
             if project:
-                result = run_with_agent_engine(project)
+                result = run_with_agent_engine(project, output_dir=output_dir)
                 job_history[-1]["status"] = result.get("status", "completed")
                 job_history[-1]["summary"] = result.get("summary", "")
                 job_history[-1]["steps"] = result.get("steps", 0)
@@ -228,23 +246,30 @@ def worker():
             job_history[-1]["error"] = str(e)
         finally:
             # Check for incomplete actions file
-            actions_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aib_instance", "output", job_id, "actions.txt")
+            actions_file = os.path.join(output_dir, "actions.txt")
             if os.path.exists(actions_file):
                 job_history[-1]["incomplete"] = True
+            # Update project's last_job_id
+            if project:
+                project["last_job_id"] = job_id
+                _, projs = get_project(pid)
+                save_projects(projs)
             save_job_history()
             with job_queue_lock:
                 running_job = None
 
 
-def run_with_agent_engine(project_config: Dict[str, Any]) -> Dict[str, Any]:
+def run_with_agent_engine(project_config: Dict[str, Any], output_dir: str = None) -> Dict[str, Any]:
     """Run the multi-step agentic engine (delegates to agent_engine)."""
-    
+
     if "job_id" not in project_config:
         project_config["job_id"] = str(int(time.time() * 1000))
 
     root_dir = project_config.get("rootDirectory", "")
-    output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aib_instance", "output", project_config["job_id"])
-    
+
+    if output_dir is None:
+        output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aib_instance", "output", project_config["job_id"])
+
     os.environ["AIB_ROOT"] = root_dir
     # Write instructions to a file to avoid env var length limits
     instructions_file = os.path.join(output_dir, "instructions.txt")
@@ -340,6 +365,10 @@ def api_create_project():
     if not root_directory:
         return jsonify({"error": "Root directory is required"}), 400
 
+    # Determine output directory for this project
+    output_dir = os.path.join(_AIB_INSTANCE, "output", pid)
+    os.makedirs(output_dir, exist_ok=True)
+
     project = {
         "id": pid,
         "name": name,
@@ -348,7 +377,10 @@ def api_create_project():
         "preScript": request.form.get("preScript", ""),
         "postScript": request.form.get("postScript", ""),
         "isArchived": False,
-        "enabled_tools": []
+        "enabled_tools": [],
+        "output_dir": output_dir,
+        "run_number": 0,
+        "last_job_id": None,
     }
 
     projects.append(project)
@@ -378,6 +410,9 @@ def api_update_project(pid):
         "postScript": request.form.get("postScript", project.get("postScript", "")),
     })
 
+    # Update output_dir path if rootDirectory changed
+    project["output_dir"] = os.path.join(_AIB_INSTANCE, "output", pid)
+
     save_projects(projects)
     return jsonify({"status": "saved", "project": project})
 
@@ -400,6 +435,69 @@ def api_unarchive_project(pid):
             break
     save_projects(projects)
     return jsonify({"status": "unarchived"})
+
+
+@app.route("/api/projects/<pid>/reset", methods=["POST"])
+def api_reset_project(pid):
+    """Reset a project: clear all run output, reset run counter."""
+    project, projects = get_project(pid)
+    if not project:
+        return jsonify({"error": "Project not found"}), 404
+
+    # Check if project is currently running or queued
+    is_running, is_queued, existing_job_id = get_concurrent_job_info(pid)
+    if is_running or is_queued:
+        return jsonify({"error": "Cannot reset a project that is running or queued"}), 409
+
+    # Clear the output directory
+    output_dir = project.get("output_dir", os.path.join(_AIB_INSTANCE, "output", pid))
+    if os.path.exists(output_dir):
+        shutil.rmtree(output_dir)
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Reset project state
+    project["run_number"] = 0
+    project["last_job_id"] = None
+    save_projects(projects)
+
+    # Also remove this project's entries from job_history
+    global job_history
+    job_history = [h for h in job_history if h.get("project_id") != pid]
+    save_job_history()
+
+    return jsonify({"status": "reset", "project": project})
+
+
+@app.route("/api/projects/<pid>/run", methods=["POST"])
+def api_run_project(pid):
+    """Queue a project to run, using its persistent output directory."""
+    project, projects = get_project(pid)
+    if not project:
+        return jsonify({"error": "Project not found"}), 404
+
+    # Guard: reject if project is already running or queued
+    is_running, is_queued, existing_job_id = get_concurrent_job_info(pid)
+    if is_running:
+        return jsonify({"error": "Project is already running", "job_id": existing_job_id}), 409
+    if is_queued:
+        return jsonify({"error": "Project is already queued", "job_id": existing_job_id}), 409
+
+    # Use project's persistent output directory
+    output_dir = project.get("output_dir", os.path.join(_AIB_INSTANCE, "output", pid))
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Increment run number
+    project["run_number"] = project.get("run_number", 0) + 1
+    run_number = project["run_number"]
+    project["last_job_id"] = None  # Will be set when run completes
+    save_projects(projects)
+
+    job_id = str(int(time.time() * 1000))
+
+    with job_queue_lock:
+        job_queue.append({"job_id": job_id, "project_id": pid})
+    start_worker()
+    return jsonify({"status": "queued", "job_id": job_id, "run_number": run_number, "output_dir": output_dir})
 
 # --- Routes: Queue ---
 @app.route("/api/queue", methods=["GET"])
@@ -443,19 +541,21 @@ def api_add_to_queue():
     if is_queued:
         return jsonify({"error": "Project is already queued", "job_id": existing_job_id}), 409
 
-    job_id = str(int(time.time() * 1000))
-    output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aib_instance", "output", job_id)
-    try:
-        if os.path.exists(output_dir):
-            shutil.rmtree(output_dir)
-        os.makedirs(output_dir, exist_ok=True)
-    except Exception as e:
-        return jsonify({"error": f"Failed to create output directory: {str(e)}"}), 500
+    # Use project's persistent output directory
+    output_dir = project.get("output_dir", os.path.join(os.path.dirname(os.path.abspath(__file__)), "aib_instance", "output", pid))
+    os.makedirs(output_dir, exist_ok=True)
 
+    # Increment run number
+    project["run_number"] = project.get("run_number", 0) + 1
+    run_number = project["run_number"]
+    project["last_job_id"] = None
+    save_projects(projects)
+
+    job_id = str(int(time.time() * 1000))
     with job_queue_lock:
         job_queue.append({"job_id": job_id, "project_id": pid})
     start_worker()
-    return jsonify({"status": "queued", "job_id": job_id})
+    return jsonify({"status": "queued", "job_id": job_id, "run_number": run_number, "output_dir": output_dir})
 
 @app.route("/api/queue/<job_id>", methods=["DELETE"])
 def api_delete_from_queue(job_id):
@@ -511,6 +611,16 @@ def api_get_history():
         for qj in queued_jobs:
             if qj["job_id"] not in history_ids:
                 current_job_history.insert(0, qj)
+
+        # Enrich with project run info
+        for h in current_job_history:
+            pid = h.get("project_id")
+            if pid and pid in project_map:
+                for p in projects:
+                    if p["id"] == pid:
+                        h["run_number"] = p.get("run_number", 0)
+                        h["output_dir"] = p.get("output_dir", "")
+                        break
 
     return jsonify(current_job_history)
 
@@ -804,6 +914,13 @@ def api_agent_run():
         os.makedirs(output_dir, exist_ok=True)
     except Exception as e:
         return jsonify({"error": f"Failed to create output directory: {str(e)}"}), 500
+
+    # If continuing from a previous job, use that job's output dir for step history
+    if continue_from_job and prev_step_history:
+        prev_output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                       "aib_instance", "output", continue_from_job)
+        if os.path.exists(prev_output_dir):
+            output_dir = prev_output_dir
 
     # Add to history
     job_history.append({

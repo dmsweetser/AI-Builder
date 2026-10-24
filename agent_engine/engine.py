@@ -54,6 +54,7 @@ class LLMClient:
 
     MAX_RETRIES = 3
     BASE_DELAY = 2.0  # seconds
+    MAX_CALL_TIME = 120  # seconds — hard timeout per LLM call
 
     def __init__(self, max_context_tokens: int = 0, max_output_tokens: int = 0,
                  audit_dir: Optional[str] = None):
@@ -160,9 +161,18 @@ class LLMClient:
 
         content = ""
         reasoning = ""
+        call_start = time.time()
         try:
             with urllib.request.urlopen(req, context=context, timeout=timeout) as response:
                 for line in response:
+                    # Check for hard timeout
+                    if time.time() - call_start > self.MAX_CALL_TIME:
+                        self.logger.warning(
+                            f"LLM call timed out after {self.MAX_CALL_TIME}s "
+                            f"(step {step})"
+                        )
+                        break
+
                     line = line.decode('utf-8').strip()
                     if not line.startswith('data: '):
                         continue
@@ -229,25 +239,20 @@ def build_system_prompt(tools: List[Dict[str, Any]]) -> str:
 
     example_block = (
         "[TOOL_START]\n"
-        "[TOOL_NAME_START]\n"
+        "[TOOL_NAME]\n"
         "write_file\n"
-        "[TOOL_NAME_END]\n"
-        "[PARAM_NAME_START]\n"
+        "[PARAM_NAME]\n"
         "path\n"
-        "[PARAM_NAME_END]\n"
-        "[PARAM_VALUE_START]\n"
+        "[PARAM_VALUE]\n"
         "src/hello.py\n"
-        "[PARAM_VALUE_END]\n"
-        "[PARAM_NAME_START]\n"
+        "[PARAM_NAME]\n"
         "content\n"
-        "[PARAM_NAME_END]\n"
-        "[PARAM_VALUE_START]\n"
+        "[PARAM_VALUE]\n"
         "\"\"\"Hello module.\"\"\"\n"
         "from src.main import greet\n"
         "\n"
         'if __name__ == "__main__":\n'
         '    print(greet("World"))\n'
-        "[PARAM_VALUE_END]\n"
         "[TOOL_END]"
     )
 
@@ -271,45 +276,62 @@ RULES:
 - ALWAYS include ALL required parameters for every tool call. Missing parameters will cause errors.
 - ALWAYS use check_syntax after editing to verify correctness.
 - Keep edits focused and small - one change at a time.
-- For large files (over 2000 chars), ALWAYS use read_file with start_line and end_line to read only the relevant section. Do NOT read entire large files — read the specific lines you need to understand or edit.
+- For large files, use read_file_range with a line_range parameter to read specific sections. Do NOT read entire large files.
 - For Java projects with JAR dependencies, use decompile_jar to inspect them.
 - For large codebases, be selective: grep for relevant code, don't read everything.
 - You have a maximum of {EngineConfig.get_max_steps()} steps total. Use them wisely.
 - After making changes, verify them. If check_syntax fails, fix the errors.
 - When done, respond with: [DONE] followed by a summary of all changes made.
 - To create a new tool, use create_tool. It proposes the tool for user approval - it does NOT execute arbitrary code. Wait for user approval in the live feed before expecting the tool to be available.
+- Use respond_to_user to communicate findings, status updates, or questions to the user.
+- Use request_user_input when you need clarification or a decision before proceeding.
 
 TRUNCATION HANDLING:
-- Tool results may be truncated if they exceed the configured max length (default 2000 chars).
-- If a result says [TRUNCATED], the output was cut off. You should retry with more specific parameters:
-  * list_directory: add a 'path' to target a subdirectory, or 'pattern' to filter by name
-  * search_files: use a more specific 'pattern' to narrow results
-  * grep_code: use a more specific 'pattern' to narrow results
-- When you see [TRUNCATED], do NOT assume the result is complete. Narrow your query and try again.
+- Tool results may be truncated if they exceed the configured max length (default 5000 chars).
+- If a result says [TRUNCATED], the output was cut off. You should retry with more specific parameters.
 
-PARAMETER FORMAT (tag-based, no escaping needed):
-- Start a tool call with [TOOL_START] on its own line.
-- On the NEXT line, specify [TOOL_NAME_START], then the tool name on the following line, then [TOOL_NAME_END].
-  - The format is very specific: [TOOL_NAME_START] and [TOOL_NAME_END] wrap the tool name.
-- Each parameter uses a NAME/VALUE pair of tags:
-  - [PARAM_NAME_START] on its own line, then the parameter KEY on the next line, then [PARAM_NAME_END].
-  - [PARAM_VALUE_START] on its own line, then the parameter VALUE on subsequent lines, then [PARAM_VALUE_END].
-  - Values may span multiple lines between the START and END tags.
-  - Repeat the NAME/VALUE pair for each additional parameter.
-- End a tool call with [TOOL_END] on its own line.
-- You MUST include both [TOOL_START] and [TOOL_END]. A tool call without both tags will NOT be executed.
-- Make exactly ONE tool call per response.
+PARAMETER FORMAT (tag-based, NO EXCEPTIONS):
+- Your ENTIRE response MUST be exactly ONE of the following:
+  1. A single tool call block using [TOOL_START]...[TOOL_END]
+  2. A final completion: [DONE] followed by a summary
+- You are FORBIDDEN from writing any other text outside of tool call blocks.
+- Do NOT write any reasoning, thinking, or explanation text.
+- Do NOT write "I will..." or "Let me..." or any natural language.
+- Do NOT explain what you are about to do — just DO it with a tool call.
+
+The EXACT format for a tool call is:
+
+[TOOL_START]
+[TOOL_NAME]
+the tool name here
+[PARAM_NAME]
+the first parameter key
+[PARAM_VALUE]
+the first parameter value
+[PARAM_NAME]
+the second parameter key
+[PARAM_VALUE]
+the second parameter value
+[TOOL_END]
+
+Rules for the format:
+- [TOOL_START] and [TOOL_END] wrap the entire tool call
+- [TOOL_NAME] appears once, right after [TOOL_START], followed by the tool name on the next line
+- Each parameter uses exactly two tags: [PARAM_NAME] followed by the key, then [PARAM_VALUE] followed by the value
+- Values may span multiple lines between [PARAM_VALUE] and the next [PARAM_NAME] or [TOOL_END]
+- You MUST include both [TOOL_START] and [TOOL_END]
+- Make exactly ONE tool call per response
 
 Example:
 {example_block}
 
 RESPONSE FORMAT:
-After each tool result, you will respond with either:
-1. A tool call block (see PARAMETER FORMAT above)
+After each tool result, your ENTIRE response must be exactly one of:
+1. A tool call block (see PARAMETER FORMAT above) — nothing else
 2. Or a final response: [DONE] Your summary of changes.
 
-You may interleave thinking/reasoning text between tool calls.
-Each [TOOL_START]...[TOOL_END] block will be executed and the result will be fed back to you.
+You are NOT allowed to write any text outside of tool call blocks or [DONE].
+Any text outside these formats will be ignored.
 
 CRITICAL: Make EXACTLY ONE tool call per response. Do not include multiple tool call blocks.
 
@@ -330,6 +352,7 @@ CONTEXT MANAGEMENT:
 - After compressing, continue with your next action using the compressed context.
 '''
 
+
 def build_user_prompt(instructions: str, context: str = "") -> str:
     """Build the initial user prompt with the task instructions."""
     prompt = f"""TASK INSTRUCTIONS:
@@ -337,20 +360,18 @@ def build_user_prompt(instructions: str, context: str = "") -> str:
 
 CRITICAL INSTRUCTIONS:
 1. You MUST use a tool call to take action. Do NOT just talk about what you will do.
-2. Your FIRST action MUST be: list_directory with path="." and max_depth="1"
+2. Your FIRST action MUST be: list_directory with path="."
 3. Do NOT use [DONE] until you have actually used tools and gathered information.
-4. Format your tool call EXACTLY like this example:
+4. Your ENTIRE response must be ONLY a tool call block or [DONE]. No other text.
+5. Format your tool call EXACTLY like this example:
 
 [TOOL_START]
-[TOOL_NAME_START]
+[TOOL_NAME]
 list_directory
-[TOOL_NAME_END]
-[PARAM_NAME_START]
+[PARAM_NAME]
 path
-[PARAM_NAME_END]
-[PARAM_VALUE_START]
+[PARAM_VALUE]
 .
-[PARAM_VALUE_END]
 [TOOL_END]
 
 STEP 1: Use list_directory to explore the project structure. Do NOT use [DONE] yet - you must take action first."""
@@ -360,104 +381,115 @@ STEP 1: Use list_directory to explore the project structure. Do NOT use [DONE] y
 
 
 def parse_tool_calls(response: str) -> List[Tuple[str, Dict[str, str]]]:
-    """Parse tool calls from LLM response using the tag-based format.
+    """Parse tool calls from LLM response using the simplified tag-based format.
 
     Format:
         [TOOL_START]
-        [TOOL_NAME_START]
+        [TOOL_NAME]
         write_file
-        [TOOL_NAME_END]
-        [PARAM_NAME_START]
+        [PARAM_NAME]
         path
-        [PARAM_NAME_END]
-        [PARAM_VALUE_START]
+        [PARAM_VALUE]
         src/hello.py
-        [PARAM_VALUE_END]
+        [PARAM_NAME]
+        content
+        [PARAM_VALUE]
+        print("hi")
         [TOOL_END]
+
+    Also handles LLM quirks:
+    - [PARAM_END] is treated as [TOOL_END]
+    - [tool_name] directly after [TOOL_START] (without [TOOL_NAME] tag)
+    - Natural language text before/after tool call blocks
     """
     calls = []
+    # Normalize LLM quirks: treat [PARAM_END] as [TOOL_END]
+    normalized = response.replace('[PARAM_END]', '[TOOL_END]')
 
-    # Match [TOOL_START]...[TOOL_END] blocks containing [TOOL_NAME_START]
-    tool_pattern = r'\[TOOL_START\]\s*\[TOOL_NAME_START\]\s*\n(.*?)\[TOOL_NAME_END\]\s*(.*?)\[TOOL_END\]'
-    tool_matches = list(re.finditer(tool_pattern, response, re.DOTALL))
+    # Also handle the case where LLM uses [tool_name] directly instead of
+    # [TOOL_NAME] tag (e.g., "[list_directory]" instead of "[TOOL_NAME]\nlist_directory")
+    # Pattern: [TOOL_START][tool_name]...[TOOL_END]
+    alt_pattern = r'\[TOOL_START\]\s*\[([^\]]+)\]\s*(.*?)\[TOOL_END\]'
+    alt_matches = list(re.finditer(alt_pattern, normalized, re.DOTALL))
 
-    for match in tool_matches:
-        tool_name = match.group(1).strip()
-        params_block = match.group(2)
-        params = _parse_new_format_params(params_block)
-        if tool_name and params is not None:
-            calls.append((tool_name, params))
+    # Also try the standard pattern: [TOOL_START][TOOL_NAME]\nname\n...[TOOL_END]
+    tool_pattern = r'\[TOOL_START\]\s*\[TOOL_NAME\]\s*\n(.*?)\n(.*?)\[TOOL_END\]'
+    tool_matches = list(re.finditer(tool_pattern, normalized, re.DOTALL))
+
+    # Prefer standard matches; fall back to alt matches if no standard matches found
+    if tool_matches:
+        for match in tool_matches:
+            tool_name = match.group(1).strip()
+            params_block = match.group(2)
+            params = _parse_params(params_block)
+            if tool_name and params is not None:
+                calls.append((tool_name, params))
+    elif alt_matches:
+        for match in alt_matches:
+            tool_name = match.group(1).strip()
+            params_block = match.group(2)
+            params = _parse_params(params_block)
+            if tool_name and params is not None:
+                calls.append((tool_name, params))
 
     return calls
 
 
-def _parse_new_format_params(params_block: str) -> Optional[Dict[str, str]]:
-    """Parse parameters from the tag-based format.
+def _parse_params(params_block: str) -> Optional[Dict[str, str]]:
+    """Parse parameters from the simplified tag-based format.
 
     Format:
-        [PARAM_NAME_START]
+        [PARAM_NAME]
         key
-        [PARAM_NAME_END]
-        [PARAM_VALUE_START]
+        [PARAM_VALUE]
         value
-        [PARAM_VALUE_END]
+        [PARAM_NAME]
+        key2
+        [PARAM_VALUE]
+        value2
 
     NAME/VALUE pairs alternate: each parameter is a NAME tag followed by a VALUE tag.
-
-    NOTE: The LLM sometimes omits [PARAM_NAME_END] before [PARAM_VALUE_START].
-    We handle this with a flexible fallback parser.
     """
     params: Dict[str, str] = {}
 
-    # Parse [PARAM_VALUE_START]...[PARAM_VALUE_END] blocks
-    value_pattern = r'\[PARAM_VALUE_START\]\s*\n(.*?)\[PARAM_VALUE_END\]'
+    # Split into tokens by tag
+    # Strategy: find all [PARAM_NAME] and [PARAM_VALUE] tags and their content
+    name_pattern = r'\[PARAM_NAME\]\s*\n(.*?)(?=\[PARAM_VALUE\]|\[TOOL_END\]|\[TOOL_NAME\]|\Z)'
+    value_pattern = r'\[PARAM_VALUE\]\s*\n(.*?)(?=\[PARAM_NAME\]|\[TOOL_END\]|\[TOOL_NAME\]|\Z)'
+
+    name_matches = list(re.finditer(name_pattern, params_block, re.DOTALL))
     value_matches = list(re.finditer(value_pattern, params_block, re.DOTALL))
 
-    if not value_matches:
+    if len(name_matches) != len(value_matches):
+        # Fallback: try a simpler approach - just grab everything between tags
+        # Split by [PARAM_NAME] and [PARAM_VALUE] tags
+        parts = re.split(r'(\[PARAM_NAME\]|\[PARAM_VALUE\])', params_block)
+        if len(parts) >= 4:
+            i = 0
+            while i < len(parts) - 2:
+                if parts[i].strip() == '[PARAM_NAME]':
+                    key = parts[i+1].strip() if i+1 < len(parts) else ''
+                    if i+2 < len(parts) and parts[i+2].strip() == '[PARAM_VALUE]':
+                        val = parts[i+3].strip() if i+3 < len(parts) else ''
+                        if key and val:
+                            params[key] = val
+                    i += 4
+                else:
+                    i += 1
+            return params if params else None
         return None
 
-    # Try strict format: [PARAM_NAME_START]...[PARAM_NAME_END]
-    name_pattern = r'\[PARAM_NAME_START\]\s*\n(.*?)\[PARAM_NAME_END\]'
-    name_matches = list(re.finditer(name_pattern, params_block, re.DOTALL))
+    if not name_matches or not value_matches:
+        return None
 
-    if len(name_matches) == len(value_matches):
-        # Strict format: pair them up in order
-        for name_match, value_match in zip(name_matches, value_matches):
-            key = name_match.group(1).strip()
-            value = value_match.group(1).strip()
+    # Pair them up in order
+    for name_match, value_match in zip(name_matches, value_matches):
+        key = name_match.group(1).strip()
+        value = value_match.group(1).strip()
+        if key:  # Skip empty keys
             params[key] = value
-        return params if params else None
 
-    # Fallback: LLM may omit [PARAM_NAME_END]. Extract keys between
-    # [PARAM_NAME_START] and the next tag ([PARAM_VALUE_START], [PARAM_NAME_END],
-    # [PARAM_NAME_START], or [TOOL_END]).
-    name_flex_pattern = r'\[PARAM_NAME_START\]\s*\n(.*?)(?=\[PARAM_VALUE_START\]|\[PARAM_NAME_END\]|\[PARAM_NAME_START\]|\[TOOL_NAME_START\]|\[TOOL_END\]|\Z)'
-    name_flex_matches = list(re.finditer(name_flex_pattern, params_block, re.DOTALL))
-
-    if len(name_flex_matches) == len(value_matches):
-        for name_match, value_match in zip(name_flex_matches, value_matches):
-            key = name_match.group(1).strip()
-            value = value_match.group(1).strip()
-            params[key] = value
-        return params if params else None
-
-    # Second fallback: LLM may use [TOOL_NAME_START]/[TOOL_NAME_END] for
-    # some parameter names instead of [PARAM_NAME_START]/[PARAM_NAME_END].
-    # This handles responses like:
-    #   [PARAM_NAME_START]\npath\n[PARAM_NAME_END]\n[PARAM_VALUE_START]\n.\n[PARAM_VALUE_END]\n
-    #   [TOOL_NAME_START]\nmax_depth\n[TOOL_NAME_END]\n[PARAM_VALUE_START]\n1\n[PARAM_VALUE_END]
-    if len(name_flex_matches) != len(value_matches):
-        # Collect ALL parameter name sources: both PARAM_NAME_START and TOOL_NAME_START
-        all_name_pattern = r'(?:\[PARAM_NAME_START\]|\[TOOL_NAME_START\])\s*\n(.*?)(?=\[PARAM_VALUE_START\]|\[PARAM_NAME_END\]|\[PARAM_NAME_START\]|\[TOOL_NAME_START\]|\[TOOL_NAME_END\]|\[TOOL_END\]|\Z)'
-        all_name_matches = list(re.finditer(all_name_pattern, params_block, re.DOTALL))
-        if len(all_name_matches) == len(value_matches):
-            for name_match, value_match in zip(all_name_matches, value_matches):
-                key = name_match.group(1).strip()
-                value = value_match.group(1).strip()
-                params[key] = value
-            return params if params else None
-
-    return None
+    return params if params else None
 
 
 def is_done(response: str) -> Tuple[bool, str]:
@@ -470,9 +502,9 @@ def is_done(response: str) -> Tuple[bool, str]:
 
 # Tools that support filtering (for when results are truncated)
 TOOLS_WITH_FILTERS = {
-    "list_directory": "Use a 'path' parameter to narrow to a specific subdirectory, or add a 'pattern' parameter to filter by name.",
-    "search_files": "Use a 'pattern' parameter to narrow the search scope.",
-    "grep_code": "Use a 'pattern' parameter to narrow the search scope.",
+    "list_directory": "Use list_directory_deep to explore subdirectories recursively.",
+    "search_files": "Use search_files_dir with a directory parameter to narrow the search scope.",
+    "grep_code": "Use grep_code_dir with a directory parameter to narrow the search scope.",
 }
 
 
@@ -575,9 +607,18 @@ class AgentEngine:
         self._recent_tool_calls: List[str] = []  # Track recent tool names for loop detection
         self._permission_requested = False
         self._continue_requested = False
+        self._files_seen: set = set()  # Track files already read
+        self._file_lines_seen: dict = {}  # Track (file, line_range) pairs already read
+        self._read_step_count = 0  # Track consecutive read-only steps
+        self._max_read_steps = 8  # Max steps allowed for reading before forcing action
+        self._action_forced = False  # Track if we've forced the LLM to act
 
         # Callback for real-time event streaming (called from worker thread)
         self._step_callback = step_callback
+
+        # Context compression settings
+        self._compress_threshold = 28  # Compress when message count exceeds this
+        self._compressed = False  # Track if we've already compressed
 
     def run(self) -> Dict[str, Any]:
         """Execute the agentic revision loop."""
@@ -615,6 +656,121 @@ class AgentEngine:
                         "role": "user",
                         "content": f"[LIVE INJECTION] User has sent new instructions: {live_instruction}\n\nConsider this as an update to your task. You may need to adjust your approach or add to what you're doing.\n\nContinue with your next action."
                     })
+
+                # Auto-compress context if conversation is getting too long
+                if (not self._compressed and
+                    len(self.messages) > self._compress_threshold):
+                    self.logger.info(
+                        f"Auto-compressing context: {len(self.messages)} messages "
+                        f"(threshold: {self._compress_threshold})"
+                    )
+                    # Build a compact summary from the step history
+                    summary_parts = []
+                    summary_parts.append(
+                        f"Project: {self.root_dir}"
+                    )
+                    summary_parts.append(
+                        f"Task: {self.instructions[:300]}"
+                    )
+
+                    # Track what files were read and key findings
+                    files_read = {}
+                    files_modified = []
+                    for h in self.step_history:
+                        tool = h.get("tool", "unknown")
+                        params = h.get("params", {})
+                        result = h.get("result", {})
+                        content = result.get("content", "")
+                        summary = result.get("summary", "")
+                        error = result.get("error", "")
+
+                        if error:
+                            summary_parts.append(
+                                f"  - {tool}: FAILED ({error})"
+                            )
+                        elif tool in ("read_file", "read_file_range"):
+                            path = params.get("path", "unknown")
+                            line_range = params.get("line_range", "full")
+                            files_read[path] = {
+                                "lines": line_range,
+                                "size": len(content),
+                            }
+                            # Include key excerpts for files we might need to edit
+                            if len(content) > 0 and len(content) < 3000:
+                                # Include the full content for small files
+                                files_read[path]["content"] = content[:2000]
+                            elif len(content) > 0:
+                                # Include first 500 and last 500 chars for large files
+                                files_read[path]["content"] = content[:500] + "\n... [truncated] ...\n" + content[-500:]
+                        elif tool in ("write_file", "edit_file", "delete_file"):
+                            path = params.get("path", "unknown")
+                            files_modified.append((tool, path))
+                        elif tool in ("list_directory", "list_directory_deep"):
+                            path = params.get("path", ".")
+                            summary_parts.append(
+                                f"  - {tool}: {path}"
+                            )
+                        elif tool in ("grep_code", "grep_code_dir",
+                                      "search_files", "search_files_dir"):
+                            pattern = params.get("pattern", "")
+                            directory = params.get("directory", "root")
+                            summary_parts.append(
+                                f"  - {tool}: pattern='{pattern}' dir='{directory}'"
+                            )
+                        elif tool == "check_syntax":
+                            path = params.get("path", "unknown")
+                            if "passed" in (summary or "").lower() or "ok" in (summary or "").lower():
+                                summary_parts.append(f"  - {tool}: {path} OK")
+                            else:
+                                summary_parts.append(f"  - {tool}: {path} FAILED ({error})")
+                        else:
+                            summary_parts.append(
+                                f"  - {tool}: {params}"
+                            )
+
+                    # Add file content summaries (critical for LLM to continue editing)
+                    if files_read:
+                        summary_parts.append("\nFILES READ (content included):")
+                        for path, info in files_read.items():
+                            summary_parts.append(f"\n--- {path} (lines {info.get('lines', 'full')}, {info['size']} bytes) ---")
+                            if "content" in info:
+                                summary_parts.append(info["content"])
+                            else:
+                                summary_parts.append(f"[content truncated, {info['size']} bytes]")
+
+                    if files_modified:
+                        summary_parts.append("\nFILES MODIFIED:")
+                        for tool, path in files_modified:
+                            summary_parts.append(f"  - {tool}: {path}")
+
+                    summary_text = "\n".join(summary_parts)
+
+                    # Replace all user/assistant messages (after system) with
+                    # a single compressed summary message
+                    self.messages = [
+                        self.messages[0],  # Keep system prompt
+                        {
+                            "role": "user",
+                            "content": (
+                                f"[CONTEXT COMPRESSED]\n"
+                                f"Your prior conversation has been compressed to save context space.\n"
+                                f"Here is the summary of what was done, including file contents:\n\n"
+                                f"{summary_text}\n\n"
+                                f"[STATE: You have already read {len(self._files_seen)} files. "
+                                f"DO NOT read any more files. YOU MUST NOW TAKE ACTION.\n"
+                                f"Use edit_file to fix issues, write_file to create files, or delete_file to remove files.\n"
+                                f"If you need to make changes, use the file contents included above.\n"
+                                f"DO NOT explore further. TAKE ACTION NOW.]\n\n"
+                                f"Continue with your next action."
+                            ),
+                        },
+                    ]
+                    self._compressed = True
+                    # Keep the read budget counter so it doesn't reset after compression
+                    self.logger.info(
+                        f"Context compressed. Messages reduced to {len(self.messages)}. "
+                        f"Files read: {len(files_read)}, Files modified: {len(files_modified)}"
+                    )
 
                 # Call LLM
                 try:
@@ -664,11 +820,15 @@ class AgentEngine:
                     consecutive_no_tool = sum(
                         1 for h in self.step_history[-5:]
                         if h.get("tool") not in (
-                            "list_directory", "search_files", "grep_code",
-                            "read_file", "write_file", "edit_file",
+                            "list_directory", "list_directory_deep",
+                            "search_files", "search_files_dir",
+                            "grep_code", "grep_code_dir",
+                            "read_file", "read_file_range",
+                            "write_file", "edit_file",
                             "delete_file", "find_symbol", "decompile_jar",
                             "list_dependencies", "check_syntax", "get_file_info",
                             "create_tool", "compress_context",
+                            "respond_to_user", "request_user_input",
                         )
                     )
                     if consecutive_no_tool >= 3:
@@ -696,20 +856,20 @@ class AgentEngine:
                         }
                     # Send a reminder and continue
                     reminder = (
-                        "[FORMAT REMINDER] Your response did not contain a valid tool call. "
-                        "You MUST use exactly one tool call per response, formatted like this:\n\n"
+                        "[FORMAT ERROR] Your response contained NO valid tool call. "
+                        "Your ENTIRE response must be ONLY a tool call block or [DONE]. "
+                        "Do NOT write any reasoning, thinking, or explanation text. "
+                        "Do NOT write \"I will...\" or \"Let me...\" or any natural language. "
+                        "Here is the EXACT format you must use — copy it verbatim:\n\n"
                         "[TOOL_START]\n"
-                        "[TOOL_NAME_START]\n"
+                        "[TOOL_NAME]\n"
                         "list_directory\n"
-                        "[TOOL_NAME_END]\n"
-                        "[PARAM_NAME_START]\n"
+                        "[PARAM_NAME]\n"
                         "path\n"
-                        "[PARAM_NAME_END]\n"
-                        "[PARAM_VALUE_START]\n"
+                        "[PARAM_VALUE]\n"
                         ".\n"
-                        "[PARAM_VALUE_END]\n"
                         "[TOOL_END]\n\n"
-                        "Start with list_directory to explore the project."
+                        "Start with list_directory to explore the project. NOTHING ELSE."
                     )
                     self.messages.append({
                         "role": "user",
@@ -774,6 +934,14 @@ class AgentEngine:
                         step_entry["result"] = ToolResult(False, "", error=f"Unexpected error: {e}").to_dict()
                         self.logger.error(f"Unexpected tool error: {e}")
 
+                    # Track files seen for loop prevention
+                    if tool_name in ("read_file", "read_file_range"):
+                        path = params.get("path", "")
+                        self._files_seen.add(path)
+                        if tool_name == "read_file_range":
+                            line_range = params.get("line_range", "")
+                            self._file_lines_seen.setdefault(path, set()).add(line_range)
+
                     # If create_tool was used, emit a pending approval event
                     if tool_name == "create_tool":
                         if self._step_callback:
@@ -828,7 +996,7 @@ class AgentEngine:
                                 f"to {self.max_tool_result_length} characters. "
                                 f"The LLM was notified and can retry with filter parameters.]"
                             )
-                    
+
                     tool_result_msg = {
                         "role": "user",
                         "content": f"[TOOL RESULT for {tool_name}]\n{result_display}\n[END TOOL RESULT]\n\nNow continue with your next action."
@@ -852,16 +1020,98 @@ class AgentEngine:
                     intervention = (
                         f"\n\n[LOOP DETECTED] You have called {repeated_tool} {len(self._recent_tool_calls)} times in a row without making progress. "
                         f"This is not productive. You MUST choose a DIFFERENT tool or take a different action. "
-                        f"Available tools: list_directory, search_files, grep_code, read_file, write_file, edit_file, delete_file, "
-                        f"find_symbol, decompile_jar, list_dependencies, check_syntax, get_file_info, create_tool, compress_context. "
+                        f"Available tools: list_directory, list_directory_deep, search_files, search_files_dir, "
+                        f"grep_code, grep_code_dir, read_file, read_file_range, write_file, edit_file, delete_file, "
+                        f"find_symbol, decompile_jar, list_dependencies, check_syntax, get_file_info, "
+                        f"create_tool, compress_context, respond_to_user, request_user_input. "
                         f"Think about what you've learned so far and what you need to do next. "
                         f"Either make a concrete change with write_file/edit_file, or gather specific information with a different tool. "
                         f"DO NOT call {repeated_tool} again. "
-                        f"If you need more context, use read_file with start_line and end_line to read specific sections of files. "
-                        f"If the conversation is getting too long, use compress_context to summarize prior work."
+                        f"If you need more context, use read_file_range to read specific sections of files. "
+                        f"If the conversation is getting too long, use compress_context to summarize prior work. "
+                        f"If you need to communicate with the user, use respond_to_user."
                     )
                     self.messages.append({"role": "user", "content": intervention})
                     continue
+
+                # Check for repeated reads of the same file (not just same tool)
+                if tool_calls:
+                    tc_name, tc_params = tool_calls[0]
+                    if tc_name in ("read_file", "read_file_range"):
+                        path = tc_params.get("path", "")
+                        if path and path in self._files_seen:
+                            # Check if we've already read this file or overlapping lines
+                            if tc_name == "read_file" and path in self._files_seen:
+                                # Full file read — check if we've read it before
+                                if path in self._file_lines_seen:
+                                    all_lines = self._file_lines_seen[path]
+                                    if len(all_lines) >= 3:
+                                        # We've read this file 3+ times already
+                                        self.logger.warning(
+                                            f"Repeated read detected: {path} read {len(all_lines)} times"
+                                        )
+                                        # Don't read again — suggest editing or moving on
+                                        next_action = (
+                                            f"\n\n[NOTE] You have already read {path} {len(all_lines)} times. "
+                                            f"Further reads will not give you new information. "
+                                            f"You should either: (1) make changes with edit_file/write_file, "
+                                            f"(2) read a DIFFERENT file, or "
+                                            f"(3) use check_syntax to verify your changes."
+                                        )
+                                        self.messages.append({"role": "user", "content": next_action})
+                                        continue
+                            elif tc_name == "read_file_range":
+                                line_range = tc_params.get("line_range", "")
+                                if path in self._file_lines_seen and line_range in self._file_lines_seen[path]:
+                                    self.logger.warning(
+                                        f"Duplicate read: {path} lines {line_range} already read"
+                                    )
+                                    next_action = (
+                                        f"\n\n[NOTE] You have already read {path} lines {line_range}. "
+                                        f"Try reading a different range or a different file."
+                                    )
+                                    self.messages.append({"role": "user", "content": next_action})
+                                    continue
+
+                    # Track read budget: increment counter for read-only steps, reset for action steps
+                    if tc_name in ("read_file", "read_file_range"):
+                        self._read_step_count += 1
+                    elif tc_name in ("list_directory", "list_directory_deep", "grep_code",
+                                     "grep_code_dir", "search_files", "search_files_dir",
+                                     "get_file_info"):
+                        # These are exploration steps — increment but less aggressively
+                        self._read_step_count += 1
+                    else:
+                        # Action step (write, edit, delete, check_syntax, etc.) — reset counter
+                        self._read_step_count = 0
+                        self._action_forced = False
+
+                    # Enforce read budget: if too many read steps in a row, force action
+                    if (self._read_step_count >= self._max_read_steps and
+                        not self._action_forced):
+                        self._action_forced = True
+                        self.logger.warning(
+                            f"Read budget exceeded: {self._read_step_count} consecutive read steps "
+                            f"(max: {self._max_read_steps}). Forcing action."
+                        )
+                        # List files the LLM has already read so it knows what's available
+                        read_files_list = ", ".join(sorted(self._files_seen))
+                        action_forced_msg = (
+                            f"\n\n[READ BUDGET EXCEEDED] You have read {self._read_step_count} times "
+                            f"without making any changes. This is not productive.\n\n"
+                            f"YOUR TASK: Fix these issues in the Walbert project:\n"
+                            f"1. User prompt '>>>>>' not showing at app start\n"
+                            f"2. Moose ASCII art offset due to slash escaping\n"
+                            f"3. Replace llama-completion with llama-server background thread\n\n"
+                            f"YOU MUST NOW TAKE ACTION. Your options:\n"
+                            f"1. Use edit_file to fix issues in the files you've read: {read_files_list}\n"
+                            f"2. Use write_file to create a new file\n"
+                            f"3. Use delete_file to remove an unwanted file\n"
+                            f"4. Use check_syntax to verify your changes\n\n"
+                            f"DO NOT read any more files. DO NOT explore further. TAKE ACTION NOW."
+                        )
+                        self.messages.append({"role": "user", "content": action_forced_msg})
+                        continue
 
             return {
                 "status": "completed" if final_summary else "max_steps_reached",

@@ -817,6 +817,7 @@ function loadProjects() {
                             <div class="project-item-header">
                                 <div class="project-item-name-container">
                                     <span class="project-item-name">${escapeHtml(project.name || 'Untitled')}</span>
+                                    ${project.run_number > 0 ? `<span style="color:#aaa;font-size:8px;margin-left:6px;">Run #${project.run_number}</span>` : ''}
                                 </div>
                                 <div class="project-item-actions">
                                     <button class="btn-sm" id="run-btn-${project.id}"
@@ -829,6 +830,11 @@ function loadProjects() {
                                         style="display: none;"
                                         aria-label="Stop ${escapeHtml(project.name || 'project')}">
                                         STOP
+                                    </button>
+                                    <button class="btn-sm archive"
+                                        onclick="event.stopPropagation(); resetProject('${project.id}')"
+                                        aria-label="Reset ${escapeHtml(project.name || 'project')}">
+                                        RESET
                                     </button>
                                     <button class="btn-sm archive"
                                         onclick="event.stopPropagation(); ${archiveBtnAction}"
@@ -861,12 +867,49 @@ function runProject(projectId) {
                 if (!_loadedProjects.find(p => p.id === projectId)) {
                     _loadedProjects.push(data);
                 }
-                runAgenticProject(projectId);
+                _doRunProject(projectId);
             })
             .catch(err => { console.error('Failed to fetch project:', err); alert('Failed to load project details'); });
         return;
     }
-    runAgenticProject(projectId);
+    _doRunProject(projectId);
+}
+
+function _doRunProject(projectId) {
+    const project = getProjectById(projectId);
+    if (!project) return;
+
+    // Validate
+    const rootDir = document.getElementById('details-root-dir')?.value;
+    if (!rootDir) {
+        alert('Please set a root directory first.');
+        return;
+    }
+
+    // Use the new project run endpoint which uses persistent output dir
+    fetch(`/api/projects/${projectId}/run`, { method: 'POST' })
+        .then(r => r.json())
+        .then(data => {
+            if (data.error) {
+                alert('Failed to queue project: ' + data.error);
+                return;
+            }
+            // Show running state
+            updateRunButtonState(projectId, 'running');
+            loadJobs();
+            // Switch to agent view
+            const configSection = document.getElementById('project-config-section');
+            const agentLive = document.getElementById('agent-live-container');
+            if (configSection) configSection.style.display = 'none';
+            if (agentLive) agentLive.style.display = 'block';
+            const statusText = document.getElementById('agent-status-text');
+            if (statusText) { statusText.textContent = '⏳ QUEUED'; statusText.style.color = 'var(--sky)'; }
+            const agentBox = document.getElementById('agent-live-box');
+            if (agentBox) agentBox.innerHTML = '';
+            // Now start the SSE stream for this job
+            startAgentSSE(projectId, getEnabledTools());
+        })
+        .catch(err => { console.error('Failed to queue project:', err); alert('Failed to queue project.'); });
 }
 
 // === Agent Runner ===
@@ -1360,6 +1403,24 @@ function unarchiveProject(projectId) {
         .catch(err => console.error('Failed to unarchive project:', err));
 }
 
+function resetProject(projectId) {
+    if (!confirm(`Reset project "${projectId}"? This will clear all run history and output for this project.`)) return;
+    fetch(`/api/projects/${projectId}/reset`, { method: 'POST' })
+        .then(r => r.json())
+        .then(data => {
+            if (data.status === 'reset') {
+                loadProjects();
+                alert('Project reset successfully!');
+            } else {
+                alert('Failed to reset project: ' + (data.error || 'Unknown error'));
+            }
+        })
+        .catch(err => {
+            console.error('Failed to reset project:', err);
+            alert('Failed to reset project.');
+        });
+}
+
 function deleteProject(projectId) {
     if (!confirm('Are you sure you want to delete this project?')) return;
     fetch(`/api/projects/${projectId}`, { method: 'DELETE' })
@@ -1424,7 +1485,13 @@ function selectProject(projectId) {
             const safeSet = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
             safeSet('run-project-id', project.id);
             const nameEl = document.getElementById('details-project-name');
-            if (nameEl) nameEl.textContent = escapeHtml(project.name || 'Untitled');
+            if (nameEl) {
+                let displayName = escapeHtml(project.name || 'Untitled');
+                if (project.run_number > 0) {
+                    displayName += ` <span style="font-size:10px;color:#aaa;">(Run #${project.run_number})</span>`;
+                }
+                nameEl.innerHTML = displayName;
+            }
             const nameFormEl = document.getElementById('details-project-name-form');
             if (nameFormEl) nameFormEl.value = project.name || '';
             const agentSettings = document.getElementById('details-agent-settings');

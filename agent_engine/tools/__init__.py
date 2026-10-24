@@ -10,12 +10,16 @@ from typing import Any, Dict, List, Optional
 from agent_engine.tools.base import BaseTool, ToolResult
 from agent_engine.security import ensure_under_root, validate_tool_params, SecurityError, ToolError
 from agent_engine.tools.files import (
-    ListDirectoryTool, SearchFilesTool, GrepCodeTool,
-    ReadFileTool, WriteFileTool, EditFileTool, DeleteFileTool,
+    ListDirectoryTool, ListDirectoryDeepTool,
+    SearchFilesTool, SearchFilesDirTool,
+    GrepCodeTool, GrepCodeDirTool,
+    ReadFileTool, ReadFileRangeTool,
+    WriteFileTool, EditFileTool, DeleteFileTool,
 )
 from agent_engine.tools.search import FindSymbolTool, DecompileJarTool
 from agent_engine.tools.checkers import CheckSyntaxTool
 from agent_engine.tools.misc import ListDependenciesTool, GetFileInfoTool, CreateToolTool, CompressContextTool
+from agent_engine.tools.communication import RespondToUserTool, RequestUserInputTool
 
 
 class ToolRegistry:
@@ -41,9 +45,13 @@ class ToolRegistry:
         """Register all built-in tool classes, optionally filtering."""
         tool_classes = [
             ListDirectoryTool,
+            ListDirectoryDeepTool,
             SearchFilesTool,
+            SearchFilesDirTool,
             GrepCodeTool,
+            GrepCodeDirTool,
             ReadFileTool,
+            ReadFileRangeTool,
             WriteFileTool,
             EditFileTool,
             DeleteFileTool,
@@ -54,6 +62,8 @@ class ToolRegistry:
             GetFileInfoTool,
             CreateToolTool,
             CompressContextTool,
+            RespondToUserTool,
+            RequestUserInputTool,
         ]
         # enabled_tools=None or [] means "use all tools"
         use_all = enabled_tools is None or len(enabled_tools) == 0

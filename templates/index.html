@@ -156,6 +156,9 @@
                                 style="flex:0 0 80px; background:#a03030; display:none;"
                                 aria-label="Stop running AI Builder">STOP</button>
                             <button type="button"
+                                onclick="resetProject(document.getElementById('run-project-id').value)"
+                                style="flex:0 0 80px; background:#888;" aria-label="Reset this project">RESET</button>
+                            <button type="button"
                                 onclick="deleteProject(document.getElementById('run-project-id').value)"
                                 style="flex:0 0 80px; background:#a03030;" aria-label="Delete this project">DELETE</button>
                         </div>
