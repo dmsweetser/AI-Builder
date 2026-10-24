@@ -153,7 +153,13 @@ class ToolRegistry:
             return []
 
     def _register_dynamic_tool(self, entry: Dict[str, Any]):
-        """Register a dynamically-created tool from a pending entry."""
+        """Register a dynamically-created tool from a pending entry.
+
+        Supports two code styles:
+        1. Class-based: defines a ``Tool`` class inheriting from ``BaseTool``.
+        2. Function-based: defines an ``execute(**kwargs)`` function (legacy
+           ``execute_python`` style).  A wrapper class is created automatically.
+        """
         tool_name = entry["name"]
         tool_code = entry["code"]
 
@@ -187,14 +193,53 @@ class ToolRegistry:
             logging.warning(f"Failed to execute dynamic tool code: {e}")
             return
 
-        # The module namespace should define a Tool class
+        # Try class-based approach first
         tool_cls = ns.get('Tool')
         if tool_cls and isinstance(tool_cls, type) and issubclass(tool_cls, BaseTool):
             try:
                 tool_instance = tool_cls(self.root_dir)
                 self._tools[tool_name] = tool_instance
+                return
             except Exception as e:
-                logging.warning(f"Failed to instantiate dynamic tool: {e}")
+                logging.warning(f"Failed to instantiate dynamic tool class: {e}")
+
+        # Fallback: function-based execute(**kwargs) wrapper
+        execute_fn = ns.get('execute')
+        if callable(execute_fn):
+            class _DynamicFunctionTool(BaseTool):
+                """Wrapper for function-based dynamic tools."""
+                name = tool_name
+                description = entry.get("description", "")
+                parameters = entry.get("parameters", {})
+
+                def __init__(self, root_dir: str):
+                    super().__init__(root_dir)
+                    self._execute_fn = execute_fn
+
+                def execute(self, params: Dict[str, Any]) -> ToolResult:
+                    try:
+                        result = self._execute_fn(params=params)
+                        if isinstance(result, ToolResult):
+                            return result
+                        return ToolResult(
+                            success=True,
+                            content=str(result),
+                            summary=f"Executed {self.name}",
+                        )
+                    except Exception as e:
+                        return ToolResult(
+                            success=False,
+                            content="",
+                            error=str(e),
+                            summary=f"Failed to execute {self.name}",
+                        )
+
+            try:
+                tool_instance = _DynamicFunctionTool(self.root_dir)
+                self._tools[tool_name] = tool_instance
+                return
+            except Exception as e:
+                logging.warning(f"Failed to instantiate function-based dynamic tool: {e}")
 
     # ------------------------------------------------------------------
     # Public API
