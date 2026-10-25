@@ -1044,9 +1044,22 @@ button:disabled {
     color: #888;
 }
 
+/* === Pending Tool Approval — prominent waiting signal === */
 #agent-live-box .step-entry.pending-approval {
     border-left-color: #ffaa00;
     color: #ffaa00;
+    background: rgba(255, 170, 0, 0.08);
+    border-left-width: 3px;
+    padding: 8px 10px;
+}
+
+#agent-live-box .step-entry.pending-approval .step-tool {
+    font-size: 11px;
+    font-weight: bold;
+}
+
+#agent-live-box .step-entry.pending-approval .step-result {
+    font-size: 10px;
 }
 
 #agent-live-box .step-entry .step-tool {

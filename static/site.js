@@ -1166,11 +1166,30 @@ function handlePendingApproval(data, agentBox) {
     const entry = document.createElement('div');
     entry.classList.add('step-entry', 'pending-approval');
     entry.innerHTML = `
-        <div class="step-tool" style="color:#ffaa00;">⚠ PENDING TOOL APPROVAL</div>
-        <div class="step-result" style="color:#ffaa00;font-size:9px;">Tool "${escapeHtml(data.tool_name)}" proposed — review in TOOLS tab.</div>
+        <div class="step-tool" style="color:#ffaa00;font-size:11px;">⏸ AGENT WAITING — PENDING TOOL APPROVAL</div>
+        <div class="step-result" style="color:#ffaa00;font-size:10px;">Tool <strong>"${escapeHtml(data.tool_name)}"</strong> proposed. The agent cannot proceed until you approve or reject it in the TOOLS tab.</div>
+        <div style="margin-top:6px;font-size:9px;color:#cc9900;">
+            → Go to TOOLS tab to review and approve/reject the proposed tool.
+        </div>
     `;
-    agentBox.appendChild(entry);
-    agentBox.scrollTop = agentBox.scrollHeight;
+    agentBox.insertBefore(entry, agentBox.firstChild);
+    agentBox.scrollTop = 0;
+
+    // Update status text to make it clear the agent is waiting
+    const statusText = document.getElementById('agent-status-text');
+    if (statusText) {
+        statusText.textContent = '⏸ WAITING FOR TOOL APPROVAL';
+        statusText.style.color = '#ffaa00';
+    }
+
+    // Disable interjection while waiting for approval
+    const injectInput = document.getElementById('live-inject-input');
+    const injectBtn = document.getElementById('live-inject-btn');
+    if (injectInput) {
+        injectInput.disabled = true;
+        injectInput.placeholder = 'Agent is waiting for tool approval…';
+    }
+    if (injectBtn) injectBtn.disabled = true;
 }
 
 // === Pending User Input (only after 3 consecutive format failures) ===
