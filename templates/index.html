@@ -8,11 +8,33 @@
     <link rel="icon" href="/static/favicon.ico" type="image/x-icon">
 </head>
 <body>
+    <!-- Minecraft Loading Screen -->
+    <div id="loading-screen">
+        <div class="horse-container">
+            <div class="horse-sprite"></div>
+            <div class="horse-legs">
+                <div class="horse-leg"></div>
+                <div class="horse-leg"></div>
+                <div class="horse-leg"></div>
+                <div class="horse-leg"></div>
+            </div>
+            <div class="horse-head">
+                <div class="horse-ear"></div>
+                <div class="horse-ear"></div>
+                <div class="horse-eye"></div>
+            </div>
+        </div>
+        <div class="loading-text">LOADING AI BUILDER...</div>
+        <div class="loading-bar-container">
+            <div class="loading-bar"></div>
+        </div>
+    </div>
+
     <div class="app-layout">
         <!-- Sidebar -->
         <aside class="sidebar">
             <div class="sidebar-header">
-                <h1>🐴 AI Builder</h1>
+                <h1>⛏️ AI BUILDER</h1>
             </div>
             <nav class="sidebar-nav" role="navigation" aria-label="Main navigation">
                 <button class="tab-btn active" data-tab="projects" aria-selected="true" tabindex="0">
@@ -309,14 +331,6 @@
         </div>
     </div>
 
-    <!-- Fling Game Elements -->
-    <div class="logo-spinner" id="draggable-logo" draggable="false">🐴</div>
-    <div class="goal-zone" id="goal-zone"></div>
-    <div class="fling-counter" id="fling-counter">FLINGS: 0</div>
-    <div id="win-message">
-        <h2>🎉 YOU WIN! 🎉</h2>
-        <p id="win-fling-count">0 FLINGS</p>
-    </div>
 
     <script src="/static/site.js"></script>
 </body>

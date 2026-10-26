@@ -229,6 +229,10 @@ function _doRunProject(projectId) {
             if (statusText) { statusText.textContent = 'RUNNING'; statusText.style.color = 'var(--success)'; }
             var agentBox = document.getElementById('agent-live-box');
             if (agentBox) agentBox.innerHTML = '<div class="step-entry llm-step"><div class="step-tool">🐴 Agent started — check JOBS tab for live progress</div></div>';
+            // Scroll to agent live box so user can see it
+            if (agentLive) {
+                setTimeout(function() { agentLive.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 100);
+            }
             // Note: /api/projects/{id}/run starts the engine directly, so we do NOT call startAgentSSE here.
             // startAgentSSE calls /api/agent/run which would conflict (409).
             // User can check JOBS tab for real-time step details.
@@ -457,6 +461,18 @@ function injectLiveInstruction() {
     }
 }
 
+// Agent inject enter key handler
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+        var injectInput = document.getElementById('live-inject-input');
+        var injectBtn = document.getElementById('live-inject-btn');
+        if (injectInput && document.activeElement === injectInput && injectBtn && !injectBtn.disabled) {
+            e.preventDefault();
+            injectLiveInstruction();
+        }
+    }
+});
+
 function stopProject(projectId) {
     agentRunning = false;
     liveInjectActive = false;
@@ -590,6 +606,8 @@ function selectProject(projectId) {
     localStorage.setItem('currentProjectId', projectId);
     document.getElementById('projects-panel').classList.remove('active');
     document.getElementById('project-details-panel').classList.add('active');
+    // Scroll to top so user can see the run button
+    window.scrollTo(0, 0);
     var configSection = document.getElementById('project-config-section');
     var agentLive = document.getElementById('agent-live-container');
     if (configSection) configSection.style.display = 'block';
@@ -914,6 +932,8 @@ function loadChats() {
 }
 
 function newChat() {
+    // Switch to chat tab first
+    showTab('chat');
     fetch('/api/chats', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ timestamp: new Date().toISOString() }) })
         .then(function(r) { return r.json(); })
         .then(function(data) { loadChats(); openChat(data.id); })
@@ -1040,6 +1060,17 @@ function sendChat() {
     .catch(function(err) { console.error('Chat error:', err); sendBtn.disabled = false; input.disabled = false; });
 }
 
+// Chat enter key handler
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+        var chatInput = document.getElementById('chat-input');
+        if (chatInput && document.activeElement === chatInput) {
+            e.preventDefault();
+            sendChat();
+        }
+    }
+});
+
 // === Settings ===
 function loadSettingsUI() {
     fetch('/api/settings')
@@ -1142,6 +1173,15 @@ function cancelRootPathChange() {
 
 // === Init ===
 document.addEventListener('DOMContentLoaded', function() {
+    // Fade out loading screen after 2.5s
+    var loadingScreen = document.getElementById('loading-screen');
+    if (loadingScreen) {
+        setTimeout(function() {
+            loadingScreen.classList.add('fade-out');
+            setTimeout(function() { loadingScreen.style.display = 'none'; }, 600);
+        }, 2500);
+    }
+
     // Tab navigation
     document.querySelectorAll('.tab-btn').forEach(function(btn) {
         btn.addEventListener('click', function() {
