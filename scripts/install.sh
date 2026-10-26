@@ -36,4 +36,4 @@ pip install -r requirements.txt
 echo "Installation complete"
 
 # Make run script executable
-chmod +x run.sh
+chmod +x ./scripts/run.sh
