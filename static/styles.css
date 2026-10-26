@@ -1045,21 +1045,47 @@ button:disabled {
 }
 
 /* === Pending Tool Approval — prominent waiting signal === */
+@keyframes pending-pulse {
+    0%, 100% { background: rgba(255, 170, 0, 0.08); }
+    50% { background: rgba(255, 170, 0, 0.25); }
+}
+
+@keyframes pending-blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+}
+
 #agent-live-box .step-entry.pending-approval {
     border-left-color: #ffaa00;
     color: #ffaa00;
     background: rgba(255, 170, 0, 0.08);
-    border-left-width: 3px;
-    padding: 8px 10px;
+    border-left-width: 4px;
+    padding: 12px 10px;
+    animation: pending-pulse 2s ease-in-out infinite;
+    border: 2px solid #ffaa00;
+    border-radius: 4px;
 }
 
 #agent-live-box .step-entry.pending-approval .step-tool {
-    font-size: 11px;
+    font-size: 12px;
     font-weight: bold;
+    animation: pending-blink 1.5s ease-in-out infinite;
+    letter-spacing: 1px;
 }
 
 #agent-live-box .step-entry.pending-approval .step-result {
+    font-size: 11px;
+    color: #ffcc44;
+}
+
+#agent-live-box .step-entry.pending-approval .action-hint {
     font-size: 10px;
+    color: #ffaa00;
+    margin-top: 8px;
+    padding: 6px 8px;
+    background: rgba(255, 170, 0, 0.15);
+    border: 1px dashed #ffaa00;
+    border-radius: 3px;
 }
 
 #agent-live-box .step-entry .step-tool {

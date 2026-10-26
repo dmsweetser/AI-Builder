@@ -356,11 +356,13 @@ def api_create_project():
     projects = load_projects()
     pid = str(uuid.uuid4())
 
-    name = request.form.get("name", "")
+    # Accept both JSON and form-encoded data
+    data = request.get_json(silent=True) or request.form.to_dict()
+    name = data.get("name", "")
     if not name:
         return jsonify({"error": "Project name is required"}), 400
 
-    root_directory = request.form.get("rootDirectory", "")
+    root_directory = data.get("rootDirectory", "")
     if not root_directory:
         return jsonify({"error": "Root directory is required"}), 400
 
@@ -372,9 +374,9 @@ def api_create_project():
         "id": pid,
         "name": name,
         "rootDirectory": root_directory,
-        "instructions": request.form.get("instructions", ""),
-        "preScript": request.form.get("preScript", ""),
-        "postScript": request.form.get("postScript", ""),
+        "instructions": data.get("instructions", ""),
+        "preScript": data.get("preScript", ""),
+        "postScript": data.get("postScript", ""),
         "isArchived": False,
         "enabled_tools": [],
         "output_dir": output_dir,
@@ -680,7 +682,7 @@ def api_get_chat(chat_id):
 @app.route("/api/chats/<chat_id>/messages", methods=["POST"])
 def api_send_message(chat_id):
     data = request.get_json(silent=True) or {}
-    message = data.get("content", "")
+    message = data.get("content", data.get("message", ""))
     if not message:
         return jsonify({"error": "Missing message content"}), 400
 
@@ -1175,9 +1177,12 @@ def api_agent_inject():
 @app.route("/api/agent/permission", methods=["POST"])
 def api_agent_permission():
     """Handle permission requests (e.g., execute_python)."""
-    data = request.json
+    data = request.get_json(silent=True) or {}
     job_id = data.get("job_id")
-    decision = data.get("decision", "")  # "approved" or "rejected"
+    # Accept either "decision" string or "approved" boolean
+    decision = data.get("decision", "")
+    if not decision and "approved" in data:
+        decision = "approved" if data["approved"] else "rejected"
 
     if not job_id or not decision:
         return jsonify({"error": "job_id and decision required"}), 400

@@ -1166,20 +1166,20 @@ function handlePendingApproval(data, agentBox) {
     const entry = document.createElement('div');
     entry.classList.add('step-entry', 'pending-approval');
     entry.innerHTML = `
-        <div class="step-tool" style="color:#ffaa00;font-size:11px;">⏸ AGENT WAITING — PENDING TOOL APPROVAL</div>
-        <div class="step-result" style="color:#ffaa00;font-size:10px;">Tool <strong>"${escapeHtml(data.tool_name)}"</strong> proposed. The agent cannot proceed until you approve or reject it in the TOOLS tab.</div>
-        <div style="margin-top:6px;font-size:9px;color:#cc9900;">
-            → Go to TOOLS tab to review and approve/reject the proposed tool.
-        </div>
+        <div class="step-tool">⏸ AGENT WAITING — PENDING TOOL APPROVAL</div>
+        <div class="step-result">Tool <strong>"${escapeHtml(data.tool_name)}"</strong> proposed. The agent cannot proceed until you approve or reject it.</div>
+        <div class="action-hint">👉 Go to TOOLS tab → Review and click APPROVE or REJECT on the pending tool</div>
     `;
     agentBox.insertBefore(entry, agentBox.firstChild);
     agentBox.scrollTop = 0;
 
-    // Update status text to make it clear the agent is waiting
+    // Update status text to make it VERY clear the agent is waiting
     const statusText = document.getElementById('agent-status-text');
     if (statusText) {
-        statusText.textContent = '⏸ WAITING FOR TOOL APPROVAL';
+        statusText.textContent = '⏸ WAITING FOR TOOL APPROVAL — ACTION REQUIRED';
         statusText.style.color = '#ffaa00';
+        statusText.style.fontWeight = 'bold';
+        statusText.style.fontSize = '11px';
     }
 
     // Disable interjection while waiting for approval
@@ -1187,9 +1187,13 @@ function handlePendingApproval(data, agentBox) {
     const injectBtn = document.getElementById('live-inject-btn');
     if (injectInput) {
         injectInput.disabled = true;
-        injectInput.placeholder = 'Agent is waiting for tool approval…';
+        injectInput.placeholder = '⏸ Agent is waiting for tool approval…';
+        injectInput.style.opacity = '0.5';
     }
-    if (injectBtn) injectBtn.disabled = true;
+    if (injectBtn) {
+        injectBtn.disabled = true;
+        injectBtn.textContent = '⏸ WAITING';
+    }
 }
 
 // === Pending User Input (only after 3 consecutive format failures) ===
@@ -1890,6 +1894,7 @@ function approvePendingTool(toolId, toolName) {
             if (data.status === 'approved') {
                 alert(`Tool "${toolName}" approved and registered!`);
                 loadPendingTools();
+                clearPendingApprovalState();
             } else {
                 alert('Failed to approve tool: ' + (data.error || 'Unknown error'));
             }
@@ -1908,6 +1913,7 @@ function rejectPendingTool(toolId, toolName) {
             if (data.status === 'rejected') {
                 alert(`Tool "${toolName}" rejected and removed.`);
                 loadPendingTools();
+                clearPendingApprovalState();
             } else {
                 alert('Failed to reject tool: ' + (data.error || 'Unknown error'));
             }
@@ -1916,6 +1922,38 @@ function rejectPendingTool(toolId, toolName) {
             console.error('Failed to reject tool:', err);
             alert('Failed to reject tool.');
         });
+}
+
+// === Clear pending approval UI state ===
+function clearPendingApprovalState() {
+    // Remove all pending-approval entries from agent live feed
+    const agentBox = document.getElementById('agent-live-box');
+    if (agentBox) {
+        const pendingEntries = agentBox.querySelectorAll('.step-entry.pending-approval');
+        pendingEntries.forEach(entry => entry.remove());
+    }
+
+    // Reset status text
+    const statusText = document.getElementById('agent-status-text');
+    if (statusText) {
+        statusText.textContent = '';
+        statusText.style.color = '';
+        statusText.style.fontWeight = '';
+        statusText.style.fontSize = '';
+    }
+
+    // Re-enable interjection
+    const injectInput = document.getElementById('live-inject-input');
+    const injectBtn = document.getElementById('live-inject-btn');
+    if (injectInput) {
+        injectInput.disabled = false;
+        injectInput.placeholder = 'Type a message to inject into the agent...';
+        injectInput.style.opacity = '';
+    }
+    if (injectBtn) {
+        injectBtn.disabled = false;
+        injectBtn.textContent = 'INJECT';
+    }
 }
 
 // === Init ===
