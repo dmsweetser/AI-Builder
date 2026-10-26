@@ -1,380 +1,321 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
-    <title>AIB</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <title>AI Builder</title>
     <link rel="stylesheet" href="/static/styles.css">
-    <style>
-        /* === Accessibility: Focus indicators & skip link === */
-        *:focus-visible {
-            outline: 3px solid var(--grass);
-            outline-offset: 2px;
-        }
-
-        .skip-link {
-            position: absolute;
-            top: -100px;
-            left: 0;
-            background: var(--grass);
-            color: #fff;
-            padding: 8px 16px;
-            z-index: 100000;
-            font-family: 'Press Start 2P', monospace;
-            font-size: 12px;
-            text-decoration: none;
-        }
-
-        .skip-link:focus {
-            top: 0;
-        }
-
-        /* Screen-reader only text */
-        .sr-only {
-            position: absolute;
-            width: 1px;
-            height: 1px;
-            padding: 0;
-            margin: -1px;
-            overflow: hidden;
-            clip: rect(0, 0, 0, 0);
-            white-space: nowrap;
-            border: 0;
-        }
-    </style>
+    <link rel="icon" href="/static/favicon.ico" type="image/x-icon">
 </head>
-
 <body>
-    <!-- Skip navigation link for keyboard users -->
-    <a href="#main-content" class="skip-link" id="skip-nav">SKIP TO MAIN CONTENT</a>
-
-    <div class="goal-zone" id="goal-zone"></div>
-    <div class="fling-counter" id="fling-counter">FLINGS: 0</div>
-    <div id="win-message">🏆&nbsp;YOU WON&nbsp;<span id="win-fling-count">IN 0 FLINGS</span>&nbsp;🏆</div>
-    <div class="app-layout" role="application" aria-label="AI Builder Application">
-        <aside class="sidebar" role="navigation" aria-label="Main navigation">
+    <div class="app-layout">
+        <!-- Sidebar -->
+        <aside class="sidebar">
             <div class="sidebar-header">
-                <div class="logo-container">
-                    <span class="logo-spinner" id="draggable-logo" role="img"
-                        aria-label="AI Builder logo">AIB<br /><span style="font-size:9px !important">[FLING
-                            ME]</span></span>
-                </div>
+                <h1>🐴 AI Builder</h1>
             </div>
-            <nav class="sidebar-nav" role="menubar" aria-label="Application tabs">
-                <button class="tab-btn active" role="menuitem" aria-selected="true" aria-controls="projects-panel"
-                    onclick="showTab('projects')" tabindex="0">PROJECTS</button>
-                <button class="tab-btn" role="menuitem" aria-selected="false" aria-controls="jobs-panel"
-                    onclick="showTab('jobs')" tabindex="-1">JOBS</button>
-                <button class="tab-btn" role="menuitem" aria-selected="false" aria-controls="app-log-panel"
-                    onclick="showTab('app-log')" tabindex="-1">APP LOG</button>
-                <button class="tab-btn" role="menuitem" aria-selected="false" aria-controls="chat-panel"
-                    onclick="showTab('chat')" tabindex="-1">CHAT</button>
-                <button class="tab-btn" role="menuitem" aria-selected="false" aria-controls="settings-panel"
-                    onclick="showTab('settings')" tabindex="-1">SETTINGS</button>
-                <button class="tab-btn" role="menuitem" aria-selected="false" aria-controls="tools-panel"
-                    onclick="showTab('tools')" tabindex="-1">TOOLS</button>
+            <nav class="sidebar-nav" role="navigation" aria-label="Main navigation">
+                <button class="tab-btn active" data-tab="projects" aria-selected="true" tabindex="0">
+                    <span class="nav-icon">📁</span> Projects
+                </button>
+                <button class="tab-btn" data-tab="jobs" aria-selected="false" tabindex="-1">
+                    <span class="nav-icon">⚙️</span> Jobs
+                </button>
+                <button class="tab-btn" data-tab="tools" aria-selected="false" tabindex="-1">
+                    <span class="nav-icon">🔧</span> Tools
+                </button>
+                <button class="tab-btn" data-tab="chat" aria-selected="false" tabindex="-1">
+                    <span class="nav-icon">💬</span> Chat
+                </button>
+                <button class="tab-btn" data-tab="settings" aria-selected="false" tabindex="-1">
+                    <span class="nav-icon">⚡</span> Settings
+                </button>
+                <button class="tab-btn" data-tab="app-log" aria-selected="false" tabindex="-1">
+                    <span class="nav-icon">📋</span> App Log
+                </button>
             </nav>
         </aside>
-        <main id="main-content" class="main-content" role="main" aria-live="polite" aria-atomic="false">
-            <div id="projects-panel" class="panel active" role="tabpanel" aria-label="Projects panel">
-                <div class="block">
-                    <h2>
-                        PROJECT LIST
-                        <button type="button" id="show-archived-btn" class="btn-sm" onclick="toggleArchived()"
-                            style="width:150px; transform: translateY(-5px);" aria-label="Toggle archived projects">SHOW
-                            ARCHIVED</button>
-                    </h2>
-                    <div class="project-list" id="project-list" role="list" aria-label="Project list">
-                        <div class="note">LOADING PROJECTS...</div>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Projects Panel -->
+            <div id="projects-panel" class="panel active" role="tabpanel">
+                <div class="panel-header">
+                    <h2>Projects</h2>
+                    <div class="header-actions">
+                        <button class="btn btn-secondary" id="show-archived-btn" onclick="toggleArchived()">SHOW ARCHIVED</button>
+                        <button class="btn btn-primary" id="show-create-form" onclick="toggleCreateForm()">+ NEW PROJECT</button>
                     </div>
                 </div>
-                <div class="block">
-                    <h2>ADD PROJECT</h2>
+
+                <!-- Create Project Form -->
+                <div id="create-project-form" class="create-form" style="display:none;">
+                    <h3>Create New Project</h3>
                     <form id="add-project-form">
-                        <label>PROJECT NAME</label>
-                        <input name="name" id="add-project-name" required placeholder="My Cool Project">
-
-                        
-
-                        <label>ROOT DIRECTORY *</label>
-                        <div class="flex-row">
-                            <input type="text" name="rootDirectory" id="add-root-path"
-                                placeholder="e.g., /home/user/project" required style="flex:1;">
-                            <button type="button" class="btn-sm" onclick="pickFolder('add-root-path')" style="white-space:nowrap;">BROWSE</button>
+                        <div class="form-group">
+                            <label for="add-project-name">Project Name *</label>
+                            <input type="text" id="add-project-name" name="name" required placeholder="My Cool Project">
                         </div>
-
-                        
-
-                        <label>INSTRUCTIONS</label>
-                        <textarea name="instructions" id="add-instructions" rows="4"
-                            placeholder="What changes do you want?"></textarea>
-
-                        <button type="submit">CREATE PROJECT</button>
+                        <div class="form-group">
+                            <label for="add-root-path">Root Directory *</label>
+                            <div class="flex-row">
+                                <input type="text" id="add-root-path" name="rootDirectory" required placeholder="/path/to/your/project">
+                                <button type="button" class="btn btn-secondary" onclick="pickFolder('add-root-path')">BROWSE</button>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="add-instructions">Instructions</label>
+                            <textarea id="add-instructions" name="instructions" rows="4" placeholder="What should the agent do?"></textarea>
+                        </div>
+                        <div class="form-actions">
+                            <button type="submit" class="btn btn-primary">CREATE PROJECT</button>
+                            <button type="button" class="btn btn-secondary" onclick="toggleCreateForm()">CANCEL</button>
+                        </div>
                     </form>
                 </div>
+
+                <!-- Project List -->
+                <div id="project-list" class="project-list" role="list">
+                    <div class="loading">Loading projects...</div>
+                </div>
             </div>
-            <div id="project-details-panel" class="panel" role="tabpanel" aria-label="Project details panel">
-                <div class="block">
-                    <button class="btn-sm" onclick="goBackToProjects()" style="margin-bottom:10px;"
-                        aria-label="Back to projects list">← BACK TO PROJECTS</button>
-                    <h2>PROJECT — <span id="details-project-name" aria-live="polite"></span></h2>
 
-                    <!-- Step 1: Configuration -->
-                    <div id="project-config-section">
-                        <label>ROOT DIRECTORY *</label>
-                        <div class="flex-row">
-                            <input name="rootDirectory" id="details-root-dir" onchange="autoSaveProject()"
-                                required style="flex:1;">
-                            <button type="button" class="btn-sm" onclick="pickFolder('details-root-dir')" style="white-space:nowrap;">BROWSE</button>
+            <!-- Project Details Panel -->
+            <div id="project-details-panel" class="panel" role="tabpanel">
+                <div class="panel-header">
+                    <button class="btn btn-secondary" onclick="goBackToProjects()">← BACK</button>
+                    <h2 id="details-project-name">Project Details</h2>
+                </div>
+
+                <div id="project-config-section">
+                    <form id="project-details-form">
+                        <input type="hidden" id="run-project-id" name="id">
+
+                        <div class="form-group">
+                            <label for="details-project-name-form">Project Name</label>
+                            <input type="text" id="details-project-name-form" name="name" onchange="autoSaveProject()">
                         </div>
 
-                        <label>INSTRUCTIONS</label>
-                        <textarea name="instructions" id="details-instructions" rows="4"
-                            oninput="autoSaveProject()" placeholder="What do you want the agent to do?"></textarea>
-
-                        <!-- Agent tools -->
-                        <div id="details-agent-settings" style="display:block; margin-top:15px;">
-                            <label>AGENT TOOLS</label>
-                            <div class="tool-selector-grid" id="details-tool-selector"></div>
-                        </div>
-
-                        <!-- Hidden project ID for button handlers -->
-                        <input type="hidden" id="run-project-id" value="">
-
-                        <!-- Action buttons -->
-                        <div style="display:flex; gap:10px; margin-top:15px;">
-                            <button type="button" id="details-run-btn"
-                                onclick="runProject(document.getElementById('run-project-id').value)" style="flex:1;"
-                                aria-label="Run AI Builder for this project">RUN</button>
-                            <button type="button" id="details-stop-btn"
-                                onclick="stopProject(document.getElementById('run-project-id').value)"
-                                style="flex:0 0 80px; background:#a03030; display:none;"
-                                aria-label="Stop running AI Builder">STOP</button>
-                            <button type="button"
-                                onclick="resetProject(document.getElementById('run-project-id').value)"
-                                style="flex:0 0 80px; background:#888;" aria-label="Reset this project">RESET</button>
-                            <button type="button"
-                                onclick="deleteProject(document.getElementById('run-project-id').value)"
-                                style="flex:0 0 80px; background:#a03030;" aria-label="Delete this project">DELETE</button>
-                        </div>
-                    </div>
-
-                    <!-- Step 2: Live Agent Output (shown during/after run) -->
-                    <div id="agent-live-container" style="display:none; margin-top:15px;">
-                        <h3 style="font-size:11px; margin:0 0 8px 0; color:var(--sky);">
-                            <span id="agent-status-text">AGENT RUNNING</span>
-                            <span id="agent-step-count" style="color:#aaa; font-weight:normal; margin-left:8px;"></span>
-                        </h3>
-
-                        <!-- Linear timeline -->
-                        <div id="agent-live-box"></div>
-
-                        <!-- Interjection area -->
-                        <div id="live-inject-container" style="margin-top:10px; padding-top:10px; border-top:2px solid #444;">
-                            <label style="margin-top:0; font-size:8px; color:#aaa;">INTERJECT — type a message to the agent:</label>
+                        <div class="form-group">
+                            <label for="details-root-dir">Root Directory</label>
                             <div class="flex-row">
-                                <input type="text" id="live-inject-input"
-                                    placeholder="Type instructions or questions…"
-                                    style="flex:1; margin-top:0;"
-                                    onkeydown="if(event.key==='Enter'){event.preventDefault(); injectLiveInstruction();}">
-                                <button type="button" id="live-inject-btn"
-                                    onclick="injectLiveInstruction()">SEND</button>
+                                <input type="text" id="details-root-dir" name="rootDirectory" onchange="autoSaveProject()">
+                                <button type="button" class="btn btn-secondary" onclick="pickFolder('details-root-dir')">BROWSE</button>
                             </div>
                         </div>
 
-                        <!-- Post-run actions -->
-                        <div id="post-run-actions" style="display:none; margin-top:10px;">
-                            <button type="button" id="continue-run-btn"
-                                onclick="continueAgentRun(currentRunningJobId)"
-                                style="background:var(--sky); color:#000;">CONTINUE RUN</button>
+                        <div class="form-group">
+                            <label for="details-instructions">Instructions</label>
+                            <textarea id="details-instructions" name="instructions" rows="6" onchange="autoSaveProject()"></textarea>
                         </div>
-                    </div>
-                </div>
-            </div>
-            <div id="chat-panel" class="panel" role="tabpanel" aria-label="AI Chat panel">
-                <div class="block">
-                    <h2>AI CHAT</h2>
-                    <p class="note" id="chat-note">CHATS ARE STORED IN AIB_INSTANCE/CHATS. SELECT OR START A NEW
-                        CONVERSATION.</p>
-                    <div class="flex-row" style="margin-bottom: 10px;">
-                        <button type="button" onclick="loadChats()" class="btn-sm" style="flex:1"
-                            aria-label="Refresh chat list">REFRESH LIST</button>
-                        <button type="button" onclick="newChat()" class="btn-sm" style="flex:1"
-                            aria-label="Create new chat">+ NEW CHAT</button>
-                    </div>
-                    <div id="chat-list" role="list" aria-label="Chat list"></div>
-                    <div id="chat-log" style="display: none;">
-                        <div class="note">SELECT A CHAT TO BEGIN</div>
-                    </div>
-                    <div class="chat-controls" style="display: none;" id="chat-controls-container">
-                        <textarea id="chat-input" placeholder="Type your message..."
-                            onkeydown="if(event.key==='Enter' && !event.shiftKey) { event.preventDefault(); sendChat(); }"
-                            disabled></textarea>
-                        <button type="button" onclick="sendChat()" class="btn-sm" id="send-chat-btn"
-                            disabled>SEND</button>
-                    </div>
-                </div>
-            </div>
-            <div id="jobs-panel" class="panel" role="tabpanel" aria-label="Job management panel">
-                <div class="block">
-                    <h2>
-                        JOB MANAGEMENT
-                        <button type="button" onclick="clearJobHistory()" class="btn-sm"
-                            style="float:right; background:#a03030;" aria-label="Clear all job history">CLEAR
-                            HISTORY</button>
-                    </h2>
-                    <div id="jobs-list" class="history-list" role="list" aria-label="Job history list">
-                        <div class="note">LOADING JOBS...</div>
-                    </div>
-                </div>
-            </div>
-            <div id="app-log-panel" class="panel" role="tabpanel" aria-label="Application log panel">
-                <div class="block">
-                    <h2>
-                        APP LOG
-                        <button type="button" onclick="clearAppLog()" class="btn-sm"
-                            style="float:right; background:#a03030;" aria-label="Clear app log">CLEAR LOG</button>
-                        <button type="button" onclick="loadAppLog()" class="btn-sm"
-                            style="margin-left:5px;" aria-label="Refresh app log">REFRESH</button>
-                    </h2>
-                    <p class="note">System-level events: agent runs, resume requests, app startup, errors.</p>
-                    <div id="app-log-list" class="history-list" role="log" aria-live="polite" style="max-height:70vh;">
-                        <div class="note">LOADING APP LOG...</div>
-                    </div>
-                </div>
-            </div>
-            <div id="settings-panel" class="panel" role="tabpanel" aria-label="Settings panel">
-                <div class="block">
-                    <h2>SETTINGS</h2>
-                    <p class="note">CONFIGURE MODEL, API, AND ENGINE BEHAVIOR. CHANGES ARE SAVED LOCALLY AND APPLIED ON
-                        NEXT RUN.</p>
 
-                    <div class="settings-section">
-                        <h3>MODEL BACKEND (OpenAI-Compatible)</h3>
-                        <p class="note">Configure your preferred OpenAI-compatible API endpoint (e.g., Ollama, LM Studio, vLLM, OpenAI).</p>
-                        <div class="setting-row">
-                            <label>ENDPOINT URL:</label>
-                            <input type="text" id="set-custom-endpoint-url" placeholder="https://localhost:11434/v1/chat/completions">
+                        <div class="form-group">
+                            <label>Pre-Run Script</label>
+                            <textarea id="details-pre-script" name="preScript" rows="3" onchange="autoSaveProject()"></textarea>
                         </div>
-                        <div class="setting-row">
-                            <label>API KEY:</label>
-                            <input type="password" id="set-custom-api-key" placeholder="API key (or leave blank for local models)">
-                        </div>
-                        <div class="setting-row">
-                            <label>MODEL NAME:</label>
-                            <input type="text" id="set-custom-model-name" placeholder="e.g., llama3, qwen2.5-coder, gpt-4">
-                        </div>
-                        <div class="setting-row">
-                            <label>VERIFY SSL:</label>
-                            <input type="checkbox" id="set-custom-verify-ssl">
-                        </div>
-                    </div>
 
-                    <div class="settings-section">
-                        <h3>ENGINE</h3>
-                        <div class="setting-row">
-                            <label>MAX STEPS:</label>
-                            <input type="number" id="set-max-steps" min="1" value="50">
+                        <div class="form-group">
+                            <label>Post-Run Script</label>
+                            <textarea id="details-post-script" name="postScript" rows="3" onchange="autoSaveProject()"></textarea>
                         </div>
-                        <div class="setting-row">
-                            <label>LLM TIMEOUT (SEC):</label>
-                            <input type="number" id="set-timeout" min="1" value="3600">
-                        </div>
-                        <div class="setting-row">
-                            <label>MAX CONTEXT TOKENS (0=unlimited):</label>
-                            <input type="number" id="set-max-context-tokens" min="0" value="0">
-                        </div>
-                        <div class="setting-row">
-                            <label>MAX OUTPUT TOKENS (0=model default):</label>
-                            <input type="number" id="set-max-output-tokens" min="0" value="0">
-                        </div>
-                        <div class="setting-row">
-                            <label>MAX TOOL RESULT LENGTH (0=unlimited):</label>
-                            <input type="number" id="set-max-tool-result-length" min="0" value="2000">
-                        </div>
-                    </div>
 
-                    <div class="settings-section">
-                        <h3>PATHS</h3>
-                        <div class="setting-row">
-                            <label>ROOT DIRECTORY:</label>
-                            <input type="text" id="set-root-dir" placeholder="Default root directory">
+                        <div class="form-group">
+                            <label>Enabled Tools</label>
+                            <div id="details-tool-selector" class="tool-selector-grid"></div>
                         </div>
-                        <div class="setting-row">
-                            <label>JD-CLI PATH:</label>
-                            <input type="text" id="set-jd-cli" placeholder="Path to jd-cli for JAR decompilation">
-                        </div>
-                        <div class="setting-row">
-                            <label>JAVA_HOME:</label>
-                            <input type="text" id="set-java-home" placeholder="JAVA_HOME path">
-                        </div>
-                        <div class="setting-row">
-                            <label>DOTNET CLI PATH:</label>
-                            <input type="text" id="set-dotnet-cli" placeholder="Path to dotnet CLI">
-                        </div>
-                    </div>
 
-                    <button type="button" class="settings-save-btn" onclick="saveSettings()">SAVE SETTINGS</button>
-                    <button type="button" class="settings-save-btn" onclick="reloadSettingsFromDisk()"
-                        style="background:var(--wood);">RELOAD FROM DISK</button>
+                        <div class="form-actions">
+                            <button type="button" class="btn btn-primary run-btn" id="details-run-btn" onclick="runProject(currentProjectId)">RUN AI BUILDER</button>
+                            <button type="button" class="btn btn-danger" id="details-stop-btn" onclick="stopProject(currentProjectId)" style="display:none;">STOP</button>
+                            <button type="button" class="btn btn-secondary" onclick="resetProject(currentProjectId)">RESET</button>
+                            <button type="button" class="btn btn-danger" onclick="deleteProject(currentProjectId)">DELETE</button>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- Agent Live Feed -->
+                <div id="agent-live-container" style="display:none;">
+                    <div class="agent-header">
+                        <h3>
+                            <span id="agent-status-text">AGENT RUNNING</span>
+                            <span id="agent-step-count" class="status-text"></span>
+                        </h3>
+                    </div>
+                    <div id="agent-live-box" class="agent-box"></div>
+                    <div class="agent-inject">
+                        <input type="text" id="live-inject-input" placeholder="Type instructions or questions..." disabled>
+                        <button type="button" class="btn btn-primary" id="live-inject-btn" onclick="injectLiveInstruction()" disabled>INJECT</button>
+                    </div>
                 </div>
             </div>
-            <div id="tools-panel" class="panel" role="tabpanel" aria-label="Tool management panel">
-                <div class="block">
-                    <h2>
-                        PENDING TOOLS
-                        <button type="button" onclick="loadPendingTools()" class="btn-sm" style="float:right;"
-                            aria-label="Refresh pending tools list">REFRESH</button>
-                    </h2>
-                    <p class="note">New tools proposed by the agent appear here. Review each tool's code before
-                        approving — approved tools are immediately available to the agent.</p>
-                    <div id="pending-tools-list" role="list" aria-label="Pending tool proposals">
-                        <div class="note">LOADING PENDING TOOLS...</div>
+
+            <!-- Jobs Panel -->
+            <div id="jobs-panel" class="panel" role="tabpanel">
+                <div class="panel-header">
+                    <h2>Jobs</h2>
+                    <div class="header-actions">
+                        <button class="btn btn-secondary" onclick="loadJobs()">REFRESH</button>
+                        <button class="btn btn-danger" onclick="clearJobHistory()">CLEAR HISTORY</button>
                     </div>
                 </div>
-                <div class="block">
-                    <h2>APPROVED TOOLS</h2>
-                    <p class="note">Tools that have been approved and are currently registered.</p>
-                    <div id="approved-tools-list" role="list" aria-label="Approved tools">
-                        <div class="note">NO APPROVED TOOLS YET.</div>
+                <div id="jobs-list" class="history-list" role="list">
+                    <div class="loading">Loading jobs...</div>
+                </div>
+            </div>
+
+            <!-- Tools Panel -->
+            <div id="tools-panel" class="panel" role="tabpanel">
+                <div class="panel-header">
+                    <h2>Tools</h2>
+                    <button class="btn btn-secondary" onclick="loadPendingTools()">REFRESH</button>
+                </div>
+                <div class="tools-section">
+                    <h3>Pending Tools</h3>
+                    <div id="pending-tools-list" class="tools-list">
+                        <div class="loading">Loading...</div>
                     </div>
+                </div>
+                <div class="tools-section">
+                    <h3>Approved Tools</h3>
+                    <div id="approved-tools-list" class="tools-list">
+                        <div class="loading">Loading...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Chat Panel -->
+            <div id="chat-panel" class="panel" role="tabpanel">
+                <div class="panel-header">
+                    <h2>Chat</h2>
+                    <div class="header-actions">
+                        <button class="btn btn-secondary" onclick="loadChats()">REFRESH</button>
+                        <button class="btn btn-primary" onclick="newChat()">+ NEW CHAT</button>
+                    </div>
+                </div>
+                <div class="chat-container">
+                    <div id="chat-list" class="chat-list" role="list">
+                        <div class="loading">Loading chats...</div>
+                    </div>
+                    <div id="chat-view" class="chat-view" style="display:none;">
+                        <div id="chat-log" class="chat-log" role="log" aria-live="polite"></div>
+                        <div class="chat-controls" id="chat-controls-container" style="display:none;">
+                            <textarea id="chat-input" placeholder="Type a message..." rows="3"></textarea>
+                            <button class="btn btn-primary" id="send-chat-btn" onclick="sendChat()">SEND</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Settings Panel -->
+            <div id="settings-panel" class="panel" role="tabpanel">
+                <div class="panel-header">
+                    <h2>Settings</h2>
+                    <div class="header-actions">
+                        <button class="btn btn-secondary" onclick="reloadSettingsFromDisk()">RELOAD FROM DISK</button>
+                        <button class="btn btn-primary" onclick="saveSettings()">SAVE</button>
+                    </div>
+                </div>
+                <form id="settings-form">
+                    <div class="settings-grid">
+                        <div class="setting-row">
+                            <label for="set-custom-endpoint-url">Endpoint URL</label>
+                            <input type="text" id="set-custom-endpoint-url" name="custom_endpoint_url" placeholder="http://localhost:11434/v1">
+                        </div>
+                        <div class="setting-row">
+                            <label for="set-custom-api-key">API Key</label>
+                            <input type="text" id="set-custom-api-key" name="custom_api_key" placeholder="sk-no-key-required">
+                        </div>
+                        <div class="setting-row">
+                            <label for="set-custom-model-name">Model Name</label>
+                            <input type="text" id="set-custom-model-name" name="custom_model_name" placeholder="qwen35b">
+                        </div>
+                        <div class="setting-row">
+                            <label for="set-custom-verify-ssl">Verify SSL</label>
+                            <input type="checkbox" id="set-custom-verify-ssl" name="custom_verify_ssl">
+                        </div>
+                        <div class="setting-row">
+                            <label for="set-max-steps">Max Steps</label>
+                            <input type="number" id="set-max-steps" name="max_steps" value="50">
+                        </div>
+                        <div class="setting-row">
+                            <label for="set-timeout">Timeout (seconds)</label>
+                            <input type="number" id="set-timeout" name="timeout" value="3600">
+                        </div>
+                        <div class="setting-row">
+                            <label for="set-max-context-tokens">Max Context Tokens</label>
+                            <input type="number" id="set-max-context-tokens" name="max_context_tokens" value="0">
+                        </div>
+                        <div class="setting-row">
+                            <label for="set-max-output-tokens">Max Output Tokens</label>
+                            <input type="number" id="set-max-output-tokens" name="max_output_tokens" value="0">
+                        </div>
+                        <div class="setting-row">
+                            <label for="set-max-tool-result-length">Max Tool Result Length</label>
+                            <input type="number" id="set-max-tool-result-length" name="max_tool_result_length" value="2000">
+                        </div>
+                        <div class="setting-row">
+                            <label for="set-root-dir">Default Root Directory</label>
+                            <input type="text" id="set-root-dir" name="root_directory" placeholder="/path/to/default">
+                        </div>
+                        <div class="setting-row">
+                            <label for="set-jd-cli">JD CLI Path</label>
+                            <input type="text" id="set-jd-cli" name="jd_cli_path" placeholder="/path/to/jd-cli">
+                        </div>
+                        <div class="setting-row">
+                            <label for="set-java-home">Java Home</label>
+                            <input type="text" id="set-java-home" name="java_home" placeholder="/path/to/java">
+                        </div>
+                        <div class="setting-row">
+                            <label for="set-dotnet-cli">.NET CLI Path</label>
+                            <input type="text" id="set-dotnet-cli" name="dotnet_cli_path" placeholder="/path/to/dotnet">
+                        </div>
+                    </div>
+                </form>
+            </div>
+
+            <!-- App Log Panel -->
+            <div id="app-log-panel" class="panel" role="tabpanel">
+                <div class="panel-header">
+                    <h2>Application Logs</h2>
+                    <div class="header-actions">
+                        <button class="btn btn-secondary" onclick="loadAppLog()">REFRESH</button>
+                        <button class="btn btn-danger" onclick="clearAppLog()">CLEAR</button>
+                    </div>
+                </div>
+                <div id="app-log-list" class="log-list" role="log" aria-live="polite">
+                    <div class="loading">Loading logs...</div>
                 </div>
             </div>
         </main>
     </div>
 
-    <div id="root-path-confirmation-modal" class="modal" role="dialog" aria-modal="true"
-        aria-labelledby="root-path-modal-title">
+    <!-- Modals -->
+    <div id="actions-modal" class="modal" role="dialog">
         <div class="modal-content">
-            <h2 id="root-path-modal-title">CONFIRM ROOT DIRECTORY CHANGE</h2>
-            <p id="root-path-confirmation-text">Are you sure you want to change the root directory? This will clear all
-                selected file paths.</p>
-            <div style="display:flex; gap:10px; margin-top:15px;">
-                <button onclick="confirmRootPathChangeProceed()" class="btn-sm" style="background:#a03030; flex:1;"
-                    aria-label="Confirm root directory change">YES,
-                    CLEAR PATHS</button>
-                <button onclick="cancelRootPathChange()" class="btn-sm" style="flex:1;"
-                    aria-label="Cancel root directory change">CANCEL</button>
+            <h3>Incomplete Actions</h3>
+            <div id="actions-modal-content" class="modal-body"></div>
+            <button class="btn btn-secondary" onclick="closeActionsModal()">CLOSE</button>
+        </div>
+    </div>
+
+    <div id="root-path-confirmation-modal" class="modal" role="dialog">
+        <div class="modal-content">
+            <h3>Confirm Root Directory Change</h3>
+            <p>Are you sure you want to change the root directory? This will clear all run history.</p>
+            <div class="modal-actions">
+                <button class="btn btn-primary" onclick="confirmRootPathChangeProceed()">YES, CLEAR PATHS</button>
+                <button class="btn btn-secondary" onclick="cancelRootPathChange()">CANCEL</button>
             </div>
         </div>
     </div>
 
-    <div id="actions-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="actions-modal-title">
-        <div class="modal-content" style="max-width: 700px;">
-            <h2 id="actions-modal-title">INCOMPLETE ACTIONS</h2>
-            <pre id="actions-modal-content"
-                style="white-space: pre-wrap; font-family: monospace; font-size: 12px; background: #222; padding: 10px; border: 2px solid #444; max-height: 400px; overflow-y: auto; text-align: left;"
-                role="region" aria-label="Incomplete actions content"></pre>
-            <div style="display:flex; gap:10px; margin-top:15px;">
-                <button onclick="closeActionsModal()" class="btn-sm" style="flex:1;"
-                    aria-label="Close incomplete actions modal">CLOSE</button>
-            </div>
-        </div>
+    <!-- Fling Game Elements -->
+    <div class="logo-spinner" id="draggable-logo" draggable="false">🐴</div>
+    <div class="goal-zone" id="goal-zone"></div>
+    <div class="fling-counter" id="fling-counter">FLINGS: 0</div>
+    <div id="win-message">
+        <h2>🎉 YOU WIN! 🎉</h2>
+        <p id="win-fling-count">0 FLINGS</p>
     </div>
 
     <script src="/static/site.js"></script>
