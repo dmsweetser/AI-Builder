@@ -226,10 +226,12 @@ function _doRunProject(projectId) {
             if (configSection) configSection.style.display = 'none';
             if (agentLive) agentLive.style.display = 'block';
             var statusText = document.getElementById('agent-status-text');
-            if (statusText) { statusText.textContent = 'QUEUED'; statusText.style.color = 'var(--info)'; }
+            if (statusText) { statusText.textContent = 'RUNNING'; statusText.style.color = 'var(--success)'; }
             var agentBox = document.getElementById('agent-live-box');
-            if (agentBox) agentBox.innerHTML = '';
-            startAgentSSE(projectId, getEnabledTools());
+            if (agentBox) agentBox.innerHTML = '<div class="step-entry llm-step"><div class="step-tool">🐴 Agent started — check JOBS tab for live progress</div></div>';
+            // Note: /api/projects/{id}/run starts the engine directly, so we do NOT call startAgentSSE here.
+            // startAgentSSE calls /api/agent/run which would conflict (409).
+            // User can check JOBS tab for real-time step details.
         })
         .catch(function(err) { console.error('Failed to queue project:', err); alert('Failed to queue project.'); });
 }
@@ -618,6 +620,10 @@ function selectProject(projectId) {
         .catch(function(err) { console.error('Failed to load project details:', err); });
 }
 
+function goToProject(projectId) {
+    selectProject(projectId);
+}
+
 function goBackToProjects() {
     if (agentRunning) stopProject(currentProjectId);
     agentRunning = false;
@@ -951,6 +957,9 @@ function openChat(chatId) {
                 });
                 log.scrollTop = log.scrollHeight;
             }
+            // Show the chat view container
+            var chatView = document.getElementById('chat-view');
+            if (chatView) chatView.style.display = 'flex';
             if (controls) controls.style.display = 'flex';
             if (input) input.disabled = false;
             if (sendBtn) sendBtn.disabled = false;
@@ -1147,11 +1156,12 @@ document.addEventListener('DOMContentLoaded', function() {
         form.addEventListener('submit', function(e) {
             e.preventDefault();
             var formData = new FormData(this);
+            var formRef = this;
             fetch('/api/projects', { method: 'POST', body: formData })
                 .then(function(res) { return res.json(); })
                 .then(function(data) {
                     if (data.error) { alert('Error: ' + data.error); }
-                    else { loadProjects(); this.reset(); toggleCreateForm(); }
+                    else { loadProjects(); formRef.reset(); toggleCreateForm(); }
                 })
                 .catch(function(err) { console.error('Failed to create project:', err); });
         });
