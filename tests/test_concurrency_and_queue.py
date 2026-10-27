@@ -444,8 +444,8 @@ class TestUIPageIntegration(unittest.TestCase):
     def test_index_has_live_inject_container(self):
         resp = self.client.get("/")
         html = resp.data.decode()
-        self.assertIn("live-inject-container", html)
         self.assertIn("live-inject-input", html)
+        self.assertIn("live-inject-btn", html)
 
     def test_index_has_stop_button(self):
         resp = self.client.get("/")
@@ -455,7 +455,7 @@ class TestUIPageIntegration(unittest.TestCase):
     def test_css_has_agent_live_box(self):
         resp = self.client.get("/static/styles.css")
         self.assertEqual(resp.status_code, 200)
-        self.assertIn(b"agent-live-box", resp.data)
+        self.assertIn(b".agent-box", resp.data)
 
     def test_js_has_handle_agent_step(self):
         resp = self.client.get("/static/site.js")

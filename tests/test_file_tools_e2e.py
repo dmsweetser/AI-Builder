@@ -10,15 +10,13 @@ import unittest
 # Add project root to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from agent_engine.tools.files import (
-    ListDirectoryTool,
-    SearchFilesTool,
-    GrepCodeTool,
-    ReadFileTool,
-    WriteFileTool,
-    EditFileTool,
-    DeleteFileTool,
-)
+from agent_engine.tools.list_directory import ListDirectoryTool
+from agent_engine.tools.search_files import SearchFilesTool
+from agent_engine.tools.grep_code import GrepCodeTool
+from agent_engine.tools.read_file import ReadFileTool
+from agent_engine.tools.write_file import WriteFileTool
+from agent_engine.tools.edit_file import EditFileTool
+from agent_engine.tools.delete_file import DeleteFileTool
 
 
 class TestListDirectoryTool(unittest.TestCase):

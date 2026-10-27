@@ -14,13 +14,18 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from agent_engine.security import ensure_under_root, validate_tool_params, SecurityError, ToolError
 from agent_engine.tools.base import ToolResult, BaseTool
 from agent_engine.engine import LLMClient, parse_tool_calls, is_done, build_user_prompt, build_system_prompt, AgentEngine
-from agent_engine.tools.files import (
-    ListDirectoryTool, ReadFileTool, WriteFileTool, EditFileTool,
-    SearchFilesTool, GrepCodeTool, DeleteFileTool,
-)
-from agent_engine.tools.checkers import CheckSyntaxTool
-from agent_engine.tools.misc import GetFileInfoTool, ListDependenciesTool
-from agent_engine.tools.search import FindSymbolTool, DecompileJarTool
+from agent_engine.tools.list_directory import ListDirectoryTool
+from agent_engine.tools.read_file import ReadFileTool
+from agent_engine.tools.write_file import WriteFileTool
+from agent_engine.tools.edit_file import EditFileTool
+from agent_engine.tools.search_files import SearchFilesTool
+from agent_engine.tools.grep_code import GrepCodeTool
+from agent_engine.tools.delete_file import DeleteFileTool
+from agent_engine.tools.check_syntax import CheckSyntaxTool
+from agent_engine.tools.get_file_info import GetFileInfoTool
+from agent_engine.tools.list_dependencies import ListDependenciesTool
+from agent_engine.tools.find_symbol import FindSymbolTool
+from agent_engine.tools.decompile_jar import DecompileJarTool
 from agent_engine.tools import ToolRegistry
 from agent_engine.config import EngineConfig
 

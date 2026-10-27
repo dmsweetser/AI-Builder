@@ -46,8 +46,13 @@ print(f"Response length: {len(response)}")
 # Check for tool calls
 tool_calls = parse_tool_calls(response)
 print(f"Tool calls found: {len(tool_calls)}")
-for name, params in tool_calls:
+for call in tool_calls:
+    name = call[0]
+    params = call[1]
+    rationale = call[2] if len(call) > 2 else None
     print(f"  Tool: {name}, Params: {params}")
+    if rationale:
+        print(f"    Rationale: {rationale[:100]}")
 
 # Check for DONE
 done, summary = is_done(response)

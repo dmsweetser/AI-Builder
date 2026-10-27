@@ -450,32 +450,37 @@ def api_unarchive_project(pid):
 @app.route("/api/projects/<pid>/reset", methods=["POST"])
 def api_reset_project(pid):
     """Reset a project: clear all run output, reset run counter."""
-    project, projects = get_project(pid)
-    if not project:
-        return jsonify({"error": "Project not found"}), 404
+    try:
+        project, projects = get_project(pid)
+        if not project:
+            return jsonify({"error": "Project not found"}), 404
 
-    # Check if project is currently running or queued
-    is_running, is_queued, existing_job_id = get_concurrent_job_info(pid)
-    if is_running or is_queued:
-        return jsonify({"error": "Cannot reset a project that is running or queued"}), 409
+        # Check if project is currently running or queued
+        is_running, is_queued, existing_job_id = get_concurrent_job_info(pid)
+        if is_running or is_queued:
+            return jsonify({"error": "Cannot reset a project that is running or queued"}), 409
 
-    # Clear the output directory
-    output_dir = project.get("output_dir", os.path.join(_AIB_INSTANCE, "output", pid))
-    if os.path.exists(output_dir):
-        shutil.rmtree(output_dir)
-    os.makedirs(output_dir, exist_ok=True)
+        # Clear the output directory
+        output_dir = project.get("output_dir", os.path.join(_AIB_INSTANCE, "output", pid))
+        if os.path.exists(output_dir):
+            shutil.rmtree(output_dir)
+        os.makedirs(output_dir, exist_ok=True)
 
-    # Reset project state
-    project["run_number"] = 0
-    project["last_job_id"] = None
-    save_projects(projects)
+        # Reset project state
+        project["run_number"] = 0
+        project["last_job_id"] = None
+        save_projects(projects)
 
-    # Also remove this project's entries from job_history
-    global job_history
-    job_history = [h for h in job_history if h.get("project_id") != pid]
-    save_job_history()
+        # Also remove this project's entries from job_history
+        global job_history
+        job_history = [h for h in job_history if h.get("project_id") != pid]
+        save_job_history()
 
-    return jsonify({"status": "reset", "project": project})
+        return jsonify({"status": "reset", "project": project})
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/api/projects/<pid>/run", methods=["POST"])

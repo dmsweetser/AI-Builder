@@ -384,11 +384,6 @@ function handleAgentStatus(data) {
         loadJobs();
         agentRunning = false;
         liveInjectActive = true;
-    // Always enable inject button
-    var injectBtn = document.getElementById('live-inject-btn');
-    if (injectBtn) injectBtn.disabled = false;
-    var injectInput = document.getElementById('live-inject-input');
-    if (injectInput) injectInput.disabled = false;
         var st = document.getElementById('agent-status-text');
         if (st) { st.textContent = 'COMPLETED'; st.style.color = 'var(--success)'; }
         var ii = document.getElementById('live-inject-input');
@@ -495,9 +490,21 @@ function injectLiveInstruction() {
     var input = document.getElementById('live-inject-input');
     if (!input || !input.value.trim()) return;
     var instruction = input.value.trim();
+    var originalValue = input.value;
+    input.value = '';
     input.disabled = true;
     var injectBtn = document.getElementById('live-inject-btn');
     if (injectBtn) { injectBtn.disabled = true; injectBtn.textContent = 'SENDING...'; }
+    var agentBox = document.getElementById('agent-live-box');
+    if (agentBox) {
+        var injectEntry = document.createElement('div');
+        injectEntry.className = 'step-entry';
+        injectEntry.style.borderLeftColor = 'var(--mc-gold)';
+        injectEntry.style.background = 'rgba(252, 219, 5, 0.1)';
+        injectEntry.innerHTML = '<div class="step-tool" style="color:var(--mc-gold);">📝 USER INJECTION</div><div class="step-result">' + escapeHtml(instruction) + '</div>';
+        agentBox.appendChild(injectEntry);
+        agentBox.scrollTop = agentBox.scrollHeight;
+    }
     if (agentRunning && currentRunningJobId) {
         fetch('/api/agent/inject', {
             method: 'POST',
@@ -505,7 +512,6 @@ function injectLiveInstruction() {
             body: JSON.stringify({ job_id: currentRunningJobId, instruction: instruction })
         })
         .then(function() {
-            input.value = '';
             input.disabled = false;
             if (injectBtn) { injectBtn.disabled = false; injectBtn.textContent = 'INJECT'; }
             var statusText = document.getElementById('agent-status-text');
@@ -1252,8 +1258,28 @@ function showLiveViewForJob(jobId) {
     if (!container) return;
     container.style.display = 'block';
     container.scrollIntoView({ behavior: 'smooth' });
-    // Connect to SSE for this job
-    connectToJobSSE(jobId);
+    container.dataset.jobId = jobId;
+    // Just show the existing job, don't start a new one
+    var agentBox = document.getElementById('agent-live-box');
+    var statusText = document.getElementById('agent-status-text');
+    if (agentBox) agentBox.innerHTML = '<div class="step-entry llm-step">Viewing live feed for job ' + jobId.substring(0, 8) + '...</div>';
+    if (statusText) { statusText.textContent = 'LIVE FEED'; statusText.style.color = 'var(--info)'; }
+    // If the job is still running, connect to its SSE stream
+    fetch('/api/queue')
+        .then(function(r) { return r.json(); })
+        .then(function(queueData) {
+            var isRunning = queueData.running && queueData.running.job_id === jobId;
+            if (isRunning) {
+                connectToJobSSE(jobId);
+            } else {
+                // Job not running, just show the view
+                var injectInput = document.getElementById('live-inject-input');
+                var injectBtn = document.getElementById('live-inject-btn');
+                if (injectInput) { injectInput.disabled = false; injectInput.placeholder = 'Continue with new instructions...'; }
+                if (injectBtn) { injectBtn.disabled = false; injectBtn.textContent = 'INJECT'; }
+            }
+        })
+        .catch(function(err) { console.error('Failed to check job status:', err); });
 }
 
 function connectToJobSSE(jobId) {

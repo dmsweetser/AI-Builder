@@ -66,7 +66,7 @@ class CreateToolTool(BaseTool):
         }
 
         # Persist to per-project pending tools file
-        output_dir = os.path.join(self.root_dir, "aib_instance", "output")
+        output_dir = os.path.join(self.root_dir, "output")
         pending_file = os.path.join(output_dir, "pending_tools.json")
         os.makedirs(os.path.dirname(pending_file), exist_ok=True)
 

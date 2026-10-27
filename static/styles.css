@@ -117,14 +117,14 @@ body {
     box-shadow: inset -4px -4px 0 rgba(0,0,0,0.2);
 }
 
-/* Horse head */
+/* Horse head (pointing right) */
 .horse-head {
     position: absolute;
-    width: 32px;
+    width: 28px;
     height: 32px;
     background: #8B4513;
-    top: 25%;
-    right: 15%;
+    top: 20%;
+    right: 5%;
     border: 3px solid #6B3410;
     animation: head-bob 0.35s steps(2) infinite;
     box-shadow: inset -3px -3px 0 rgba(0,0,0,0.2);
@@ -140,8 +140,8 @@ body {
     top: -10px;
 }
 
-.horse-ear:nth-child(1) { left: 4px; transform: rotate(-10deg); }
-.horse-ear:nth-child(2) { right: 4px; transform: rotate(10deg); }
+.horse-ear:nth-child(1) { left: 6px; top: -12px; transform: rotate(-15deg); }
+.horse-ear:nth-child(2) { right: 6px; top: -12px; transform: rotate(15deg); }
 
 /* Horse eye */
 .horse-eye {
@@ -149,8 +149,8 @@ body {
     width: 6px;
     height: 6px;
     background: #000;
-    top: 8px;
-    right: 6px;
+    top: 10px;
+    left: 8px;
     animation: eye-blink 3s steps(1) infinite;
 }
 
@@ -158,12 +158,12 @@ body {
 .horse-snout {
     position: absolute;
     width: 14px;
-    height: 10px;
+    height: 12px;
     background: #A0784A;
-    bottom: 2px;
-    right: 2px;
+    bottom: 0;
+    right: 0;
     border: 2px solid #6B3410;
-    border-radius: 0 0 3px 3px;
+    border-radius: 0 0 4px 4px;
     box-shadow: inset -2px -2px 0 rgba(0,0,0,0.15);
 }
 
@@ -1314,6 +1314,9 @@ textarea {
     transition: all 0.1s;
     margin-top: 6px;
     box-shadow: 0 2px 0 #000;
+    position: absolute;
+    bottom: 8px;
+    right: 8px;
 }
 
 .copy-btn:hover {

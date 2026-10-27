@@ -10,7 +10,7 @@ class SearchFilesTool(BaseTool):
     name = "search_files"
     description = (
         "Find files by name pattern using glob-style matching (e.g., '*.py', '**/*.java', 'test*'). "
-        "Searches the entire project. Returns matching file paths relative to project root. "
+        "Searches the entire project. Returns matching file paths with full absolute paths. "
         "You can also use 'directory' parameter to search in a specific subdirectory."
     )
     parameters = {"pattern": "string"}

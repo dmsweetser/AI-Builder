@@ -11,7 +11,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from agent_engine.tools.base import BaseTool, ToolResult
 from agent_engine.tools import ToolRegistry
-from agent_engine.tools.misc import CreateToolTool
+from agent_engine.tools.create_tool import CreateToolTool
 from agent_engine.security import ToolError
 
 
@@ -39,7 +39,7 @@ class TestCreateToolTool(unittest.TestCase):
         self.assertIn('approval', r.summary)
 
         # Verify the pending file was created
-        instance_dir = os.path.join(self.test_dir, 'aib_instance', 'output')
+        instance_dir = os.path.join(self.test_dir, 'output')
         pending_file = os.path.join(instance_dir, 'pending_tools.json')
         self.assertTrue(os.path.exists(pending_file))
         with open(pending_file, 'r') as f:
