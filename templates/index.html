@@ -52,9 +52,6 @@
                 <button class="tab-btn" data-tab="settings" aria-selected="false" tabindex="-1">
                     <span class="nav-icon">⚡</span> Settings
                 </button>
-                <button class="tab-btn" data-tab="app-log" aria-selected="false" tabindex="-1">
-                    <span class="nav-icon">📋</span> App Log
-                </button>
             </nav>
         </aside>
 
@@ -129,16 +126,6 @@
                         <div class="form-group">
                             <label for="details-instructions">Instructions</label>
                             <textarea id="details-instructions" name="instructions" rows="6" onchange="autoSaveProject()"></textarea>
-                        </div>
-
-                        <div class="form-group">
-                            <label>Pre-Run Script</label>
-                            <textarea id="details-pre-script" name="preScript" rows="3" onchange="autoSaveProject()"></textarea>
-                        </div>
-
-                        <div class="form-group">
-                            <label>Post-Run Script</label>
-                            <textarea id="details-post-script" name="postScript" rows="3" onchange="autoSaveProject()"></textarea>
                         </div>
 
                         <div class="form-group">
@@ -241,7 +228,7 @@
                     <div class="settings-grid">
                         <div class="setting-row">
                             <label for="set-custom-endpoint-url">Endpoint URL</label>
-                            <input type="text" id="set-custom-endpoint-url" name="custom_endpoint_url" placeholder="http://localhost:11434/v1">
+                            <input type="text" id="set-custom-endpoint-url" name="custom_endpoint_url" placeholder="http://127.0.0.1:8080/v1/chat/completions">
                         </div>
                         <div class="setting-row">
                             <label for="set-custom-api-key">API Key</label>
@@ -249,7 +236,7 @@
                         </div>
                         <div class="setting-row">
                             <label for="set-custom-model-name">Model Name</label>
-                            <input type="text" id="set-custom-model-name" name="custom_model_name" placeholder="qwen35b">
+                            <input type="text" id="set-custom-model-name" name="custom_model_name" placeholder="qwen36">
                         </div>
                         <div class="setting-row">
                             <label for="set-custom-verify-ssl">Verify SSL</label>
@@ -257,23 +244,23 @@
                         </div>
                         <div class="setting-row">
                             <label for="set-max-steps">Max Steps</label>
-                            <input type="number" id="set-max-steps" name="max_steps" value="50">
+                            <input type="number" id="set-max-steps" name="max_steps" value="500">
                         </div>
                         <div class="setting-row">
                             <label for="set-timeout">Timeout (seconds)</label>
-                            <input type="number" id="set-timeout" name="timeout" value="3600">
+                            <input type="number" id="set-timeout" name="timeout" value="7200">
                         </div>
                         <div class="setting-row">
                             <label for="set-max-context-tokens">Max Context Tokens</label>
-                            <input type="number" id="set-max-context-tokens" name="max_context_tokens" value="0">
+                            <input type="number" id="set-max-context-tokens" name="max_context_tokens" value="262144">
                         </div>
                         <div class="setting-row">
                             <label for="set-max-output-tokens">Max Output Tokens</label>
-                            <input type="number" id="set-max-output-tokens" name="max_output_tokens" value="0">
+                            <input type="number" id="set-max-output-tokens" name="max_output_tokens" value="131072">
                         </div>
                         <div class="setting-row">
                             <label for="set-max-tool-result-length">Max Tool Result Length</label>
-                            <input type="number" id="set-max-tool-result-length" name="max_tool_result_length" value="2000">
+                            <input type="number" id="set-max-tool-result-length" name="max_tool_result_length" value="5000">
                         </div>
                         <div class="setting-row">
                             <label for="set-root-dir">Default Root Directory</label>
@@ -293,20 +280,6 @@
                         </div>
                     </div>
                 </form>
-            </div>
-
-            <!-- App Log Panel -->
-            <div id="app-log-panel" class="panel" role="tabpanel">
-                <div class="panel-header">
-                    <h2>Application Logs</h2>
-                    <div class="header-actions">
-                        <button class="btn btn-secondary" onclick="loadAppLog()">REFRESH</button>
-                        <button class="btn btn-danger" onclick="clearAppLog()">CLEAR</button>
-                    </div>
-                </div>
-                <div id="app-log-list" class="log-list" role="log" aria-live="polite">
-                    <div class="loading">Loading logs...</div>
-                </div>
             </div>
         </main>
     </div>

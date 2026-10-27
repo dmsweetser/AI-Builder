@@ -90,7 +90,18 @@ function copyCodeBlock(id, btn) {
     var el = document.getElementById(id);
     if (!el) return;
     var text = el.textContent || el.innerText || '';
-    copyToClipboard(text, btn);
+    // Decode HTML entities
+    var decoded = text.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+    // Strip language label if present (e.g., "python\nprint(...)" -> "print(...)")
+    var firstLineEnd = decoded.indexOf('\n');
+    if (firstLineEnd !== -1) {
+        var firstLine = decoded.substring(0, firstLineEnd).trim().toLowerCase();
+        var langNames = ['python','javascript','js','ts','typescript','java','c','cpp','c++','c#','cs','go','rust','rs','ruby','rb','php','html','css','bash','sh','shell','sql','json','yaml','yml','xml','markdown','md','txt','plaintext'];
+        if (langNames.indexOf(firstLine) !== -1) {
+            decoded = decoded.substring(firstLineEnd + 1);
+        }
+    }
+    copyToClipboard(decoded, btn);
 }
 
 // === Tab Management ===
@@ -115,7 +126,6 @@ function showTab(tabName) {
     if (tabName === 'jobs') loadJobs();
     if (tabName === 'settings') loadSettingsUI();
     if (tabName === 'tools') loadPendingTools();
-    if (tabName === 'app-log') loadAppLog();
 }
 
 // === Directory Picker ===
@@ -186,6 +196,9 @@ function loadProjects() {
                             '<button class="btn btn-sm btn-primary" onclick="event.stopPropagation(); runProject(\'' + project.id + '\')">RUN</button>' +
                             '<button class="btn btn-sm btn-danger" onclick="event.stopPropagation(); stopProject(\'' + project.id + '\')" style="display:none;">STOP</button>' +
                             '<button class="btn btn-sm btn-secondary" onclick="event.stopPropagation(); resetProject(\'' + project.id + '\')">RESET</button>' +
+                            '<button class="btn btn-sm btn-secondary" onclick="event.stopPropagation(); archiveProject(\'' + project.id + '\', this)" title="Archive">' +
+                                (project.isArchived ? '📤' : '📦') +
+                            '</button>' +
                             '<button class="btn btn-sm btn-danger" onclick="event.stopPropagation(); deleteProject(\'' + project.id + '\')">DEL</button>' +
                         '</div>' +
                     '</div>';
@@ -393,10 +406,15 @@ function handleAgentStep(data, agentBox) {
         var ok = data.result && data.result.success !== false;
         var resultPreview = data.result ? (data.result.content || '').substring(0, 500) : 'no result';
         entry.classList.add(ok ? 'success' : 'error');
-        entry.innerHTML =
-            '<div class="step-tool">' + (ok ? '✓' : '✗') + ' ' + data.tool + '</div>' +
-            (data.params && Object.keys(data.params).length ? '<div class="step-params">' + escapeHtml(JSON.stringify(data.params)) + '</div>' : '') +
-            '<div class="step-result">' + escapeHtml(resultPreview) + '</div>';
+        var html = '<div class="step-tool">' + (ok ? '✓' : '✗') + ' ' + data.tool + '</div>';
+        if (data.rationale) {
+            html += '<div class="step-rationale">💡 ' + escapeHtml(data.rationale) + '</div>';
+        }
+        if (data.params && Object.keys(data.params).length) {
+            html += '<div class="step-params">' + escapeHtml(JSON.stringify(data.params)) + '</div>';
+        }
+        html += '<div class="step-result">' + escapeHtml(resultPreview) + '</div>';
+        entry.innerHTML = html;
     }
     agentBox.appendChild(entry);
     agentBox.scrollTop = agentBox.scrollHeight;
@@ -630,8 +648,6 @@ function selectProject(projectId) {
             safeSet('details-project-name-form', project.name || '');
             safeSet('details-root-dir', project.rootDirectory || '');
             safeSet('details-instructions', project.instructions || '');
-            safeSet('details-pre-script', project.preScript || '');
-            safeSet('details-post-script', project.postScript || '');
             buildToolSelector(project.enabled_tools || []);
             loadJobs();
         })
@@ -675,6 +691,12 @@ function deleteProject(projectId) {
     fetch('/api/projects/' + projectId, { method: 'DELETE' })
         .then(function() { if (currentProjectId === projectId) goBackToProjects(); else loadProjects(); })
         .catch(function(err) { console.error('Failed to delete project:', err); });
+}
+
+function archiveProject(projectId, btnEl) {
+    fetch('/api/projects/' + projectId + '/archive', { method: 'POST' })
+        .then(function() { loadProjects(); if (currentProjectId === projectId) selectProject(projectId); })
+        .catch(function(err) { console.error('Failed to archive project:', err); });
 }
 
 function toggleArchived() {
@@ -770,7 +792,7 @@ function renderJobs(queueData, history) {
         var item = document.createElement('div');
         item.className = 'history-item';
         item.dataset.jobId = job.job_id;
-        item.onclick = function() { goToProject(job.project_id); };
+        item.onclick = function() { toggleJobSteps(job.job_id); };
         var statusClass = 'completed';
         if (job.status === 'running') statusClass = 'running';
         else if (job.status === 'error') statusClass = 'error';
@@ -785,7 +807,8 @@ function renderJobs(queueData, history) {
                 }
                 var ok = s.result && s.result.success !== false;
                 var rt = s.result ? (s.result.content || '').substring(0, 200) : 'no result';
-                return '<div class="job-step-item"><span class="step-num">Step ' + s.step + '</span><span class="step-tool-name">[' + s.tool + ']</span><span class="step-status-' + (ok ? 'ok' : 'err') + '">' + (ok ? '✓' : '✗') + '</span><span style="color:var(--text-muted);">' + escapeHtml(rt) + '</span></div>';
+                var rationaleHtml = s.rationale ? '<div style="color:var(--mc-gold);font-size:9px;margin-left:16px;font-style:italic;">💡 ' + escapeHtml(s.rationale) + '</div>' : '';
+                return '<div class="job-step-item"><span class="step-num">Step ' + s.step + '</span><span class="step-tool-name">[' + s.tool + ']</span><span class="step-status-' + (ok ? 'ok' : 'err') + '">' + (ok ? '✓' : '✗') + '</span><span style="color:var(--text-muted);">' + escapeHtml(rt) + '</span></div>' + rationaleHtml;
             }).join('');
             stepsHtml = '<button class="btn btn-xs btn-secondary" onclick="event.stopPropagation(); toggleJobSteps(\'' + job.job_id + '\')">▼ SHOW STEPS (' + stepsData.length + ')</button><div id="job-steps-' + job.job_id + '" class="job-steps-list" style="display:none;">' + stepsHtmlInner + '</div>';
         } else if (job.step_count !== undefined) {
@@ -1129,26 +1152,6 @@ function saveSettings() {
         })
         .catch(function(err) { console.error('Failed to save settings:', err); alert('Failed to save settings.'); });
 }
-
-// === App Log ===
-function loadAppLog() {
-    fetch('/api/app-log')
-        .then(function(r) { return r.json(); })
-        .then(function(data) {
-            var list = document.getElementById('app-log-list');
-            if (!list) return;
-            var entries = data.log || [];
-            if (!entries.length) { list.innerHTML = '<div class="note">NO LOG ENTRIES YET.</div>'; return; }
-            list.innerHTML = entries.map(function(e) {
-                var ts = e.ts ? new Date(e.ts).toLocaleString() : 'unknown';
-                return '<div class="log-entry"><span class="log-ts">' + ts + '</span><span class="log-msg">' + escapeHtml(e.msg) + '</span></div>';
-            }).join('');
-            list.scrollTop = list.scrollHeight;
-        })
-        .catch(function(err) { console.error('Failed to load app log:', err); var list = document.getElementById('app-log-list'); if (list) list.innerHTML = '<div class="note warning">Failed to load app log.</div>'; });
-}
-
-function clearAppLog() { loadAppLog(); }
 
 // === Modals ===
 function openActionsModal(jobId) {

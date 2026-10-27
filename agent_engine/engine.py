@@ -253,6 +253,8 @@ def build_system_prompt(tools: List[Dict[str, Any]]) -> str:
         "\n"
         'if __name__ == "__main__":\n'
         '    print(greet("World"))\n'
+        "[RATIONALE]\n"
+        "Writing the entry point file with the greet function import.\n"
         "[TOOL_END]"
     )
 
@@ -312,12 +314,15 @@ the first parameter value
 the second parameter key
 [PARAM_VALUE]
 the second parameter value
+[RATIONALE]
+(optional) Explain why you are making this tool call — your reasoning, strategy, or what you expect to happen. This helps the user understand your thought process.
 [TOOL_END]
 
 Rules for the format:
 - [TOOL_START] and [TOOL_END] wrap the entire tool call
 - [TOOL_NAME] appears once, right after [TOOL_START], followed by the tool name on the next line
 - Each parameter uses exactly two tags: [PARAM_NAME] followed by the key, then [PARAM_VALUE] followed by the value
+- [RATIONALE] is optional and can appear after all parameters, before [TOOL_END]. It contains your reasoning for the tool call.
 - Values may span multiple lines between [PARAM_VALUE] and the next [PARAM_NAME] or [TOOL_END]
 - You MUST include both [TOOL_START] and [TOOL_END]
 - Make exactly ONE tool call per response
@@ -380,7 +385,7 @@ STEP 1: Use list_directory to explore the project structure. Do NOT use [DONE] y
     return prompt
 
 
-def parse_tool_calls(response: str) -> List[Tuple[str, Dict[str, str]]]:
+def parse_tool_calls(response: str) -> List[Tuple[str, Dict[str, str], Optional[str]]]:
     """Parse tool calls from LLM response using the simplified tag-based format.
 
     Format:
@@ -391,16 +396,15 @@ def parse_tool_calls(response: str) -> List[Tuple[str, Dict[str, str]]]:
         path
         [PARAM_VALUE]
         src/hello.py
-        [PARAM_NAME]
-        content
-        [PARAM_VALUE]
-        print("hi")
+        [RATIONALE]
+        Writing the entry point file.
         [TOOL_END]
 
     Also handles LLM quirks:
     - [PARAM_END] is treated as [TOOL_END]
     - [tool_name] directly after [TOOL_START] (without [TOOL_NAME] tag)
     - Natural language text before/after tool call blocks
+    - [RATIONALE] block for explaining reasoning
     """
     calls = []
     # Normalize LLM quirks: treat [PARAM_END] as [TOOL_END]
@@ -421,18 +425,33 @@ def parse_tool_calls(response: str) -> List[Tuple[str, Dict[str, str]]]:
         for match in tool_matches:
             tool_name = match.group(1).strip()
             params_block = match.group(2)
+            rationale = _extract_rationale(params_block)
+            # Strip rationale block so the param parser doesn't see it
+            params_block = re.sub(r'\[RATIONALE\].*?\[TOOL_END\]', '[TOOL_END]', params_block, flags=re.DOTALL)
             params = _parse_params(params_block)
             if tool_name and params is not None:
-                calls.append((tool_name, params))
+                calls.append((tool_name, params, rationale))
     elif alt_matches:
         for match in alt_matches:
             tool_name = match.group(1).strip()
             params_block = match.group(2)
+            rationale = _extract_rationale(params_block)
+            params_block = re.sub(r'\[RATIONALE\].*?\[TOOL_END\]', '[TOOL_END]', params_block, flags=re.DOTALL)
             params = _parse_params(params_block)
             if tool_name and params is not None:
-                calls.append((tool_name, params))
+                calls.append((tool_name, params, rationale))
 
     return calls
+
+
+def _extract_rationale(params_block: str) -> Optional[str]:
+    """Extract [RATIONALE] block from params if present."""
+    rationale_match = re.search(r'\[RATIONALE\]\s*\n(.*?)(?=\[TOOL_END\]|\[TOOL_NAME\]|\Z)', params_block, re.DOTALL)
+    if rationale_match:
+        rationale = rationale_match.group(1).strip()
+        if rationale:
+            return rationale
+    return None
 
 
 def _parse_params(params_block: str) -> Optional[Dict[str, str]]:
@@ -912,7 +931,7 @@ class AgentEngine:
                     })
 
                 # Process each tool call
-                for tool_name, params in tool_calls:
+                for tool_name, params, rationale in tool_calls:
                     self.logger.info(f"  Tool: {tool_name}({json.dumps(params)})")
 
                     step_entry = {
@@ -920,6 +939,8 @@ class AgentEngine:
                         "tool": tool_name,
                         "params": params,
                     }
+                    if rationale:
+                        step_entry["rationale"] = rationale
 
                     try:
                         result = self.tools.execute(tool_name, params)
@@ -1005,7 +1026,7 @@ class AgentEngine:
                     self.logger.info(f"  Fed tool result for '{tool_name}' back to LLM (msg length: {len(tool_result_msg['content'])} chars)")
 
                 # Track recent tool calls for loop detection
-                for tool_name, _ in tool_calls:
+                for tool_name, _, _ in tool_calls:
                     self._recent_tool_calls.append(tool_name)
                 # Keep only last 5 calls
                 if len(self._recent_tool_calls) > 5:
@@ -1036,7 +1057,7 @@ class AgentEngine:
 
                 # Check for repeated reads of the same file (not just same tool)
                 if tool_calls:
-                    tc_name, tc_params = tool_calls[0]
+                    tc_name, tc_params, _ = tool_calls[0]
                     if tc_name in ("read_file", "read_file_range"):
                         path = tc_params.get("path", "")
                         if path and path in self._files_seen:

@@ -15,6 +15,7 @@ import re
 import logging
 from datetime import datetime
 from flask import Flask, Response, request, jsonify, render_template, send_from_directory
+import html
 from agent_engine import run as agent_run
 
 # --- Resolve app directory (works for both dev and PyInstaller one-file builds) ---
@@ -76,10 +77,10 @@ def _load_settings_unlocked():
     loaded.setdefault('custom_api_key', os.getenv("CUSTOM_API_KEY", ""))
     loaded.setdefault('custom_model_name', os.getenv("CUSTOM_MODEL_NAME", ""))
     loaded.setdefault('custom_verify_ssl', os.getenv("CUSTOM_VERIFY_SSL", "false").lower() == "true")
-    loaded.setdefault('max_steps', int(os.getenv("AIB_MAX_STEPS", "50")))
-    loaded.setdefault('timeout', int(os.getenv("CUSTOM_TIMEOUT", "3600")))
-    loaded.setdefault('max_context_tokens', int(os.getenv("AIB_MAX_CONTEXT_TOKENS", "0")))
-    loaded.setdefault('max_output_tokens', int(os.getenv("AIB_MAX_OUTPUT_TOKENS", "0")))
+    loaded.setdefault('max_steps', int(os.getenv("AIB_MAX_STEPS", "500")))
+    loaded.setdefault('timeout', int(os.getenv("CUSTOM_TIMEOUT", "7200")))
+    loaded.setdefault('max_context_tokens', int(os.getenv("AIB_MAX_CONTEXT_TOKENS", "262144")))
+    loaded.setdefault('max_output_tokens', int(os.getenv("AIB_MAX_OUTPUT_TOKENS", "131072")))
     loaded.setdefault('max_tool_result_length', int(os.getenv("AIB_MAX_TOOL_RESULT_LENGTH", "5000")))
     loaded.setdefault('root_directory', os.getenv("ROOT_DIRECTORY", ""))
     loaded.setdefault('jd_cli_path', os.getenv("JD_CLI_PATH", ""))
@@ -366,8 +367,9 @@ def api_create_project():
     if not root_directory:
         return jsonify({"error": "Root directory is required"}), 400
 
-    # Determine output directory for this project
-    output_dir = os.path.join(_AIB_INSTANCE, "output", pid)
+    # Determine output directory for this project — use sanitized project name
+    safe_name = sanitize_output_dir_name(name)
+    output_dir = os.path.join(_AIB_INSTANCE, "output", safe_name)
     os.makedirs(output_dir, exist_ok=True)
 
     project = {
@@ -992,22 +994,35 @@ def api_agent_run():
                 engine_result[0] = result
                 engine_step_history[0] = engine.step_history
 
-                # Handle pending_user_input: poll for resume input and continue
-                while result.get("status") == "pending_user_input":
-                    resume_input = EngineConfig.get_resume_input(job_id, base_dir=output_dir)
-                    if resume_input:
-                        # Feed the user's input back to the engine
-                        engine.messages.append({
-                            "role": "user",
-                            "content": f"[USER INPUT] {resume_input}\n\nPlease continue with your task."
-                        })
-                        result = engine.run()
-                        engine_result[0] = result
-                        engine_step_history[0] = engine.step_history
-                    else:
-                        # Wait a bit before polling again
-                        import time as _time
-                        _time.sleep(1)
+                # Handle pending_user_input: auto-continue by sending a format reminder
+                # instead of waiting for user input
+                auto_continue_count = 0
+                max_auto_continues = 5
+                while result.get("status") == "pending_user_input" and auto_continue_count < max_auto_continues:
+                    auto_continue_count += 1
+                    _log_app_event(f"Auto-continuing after pending_user_input (attempt {auto_continue_count}/{max_auto_continues})")
+                    # Send a format reminder and continue
+                    engine.messages.append({
+                        "role": "user",
+                        "content": (
+                            "[FORMAT ERROR] Your previous responses did not contain valid tool calls. "
+                            "Your ENTIRE response must be ONLY a tool call block or [DONE]. "
+                            "Do NOT write any reasoning, thinking, or explanation text. "
+                            "Here is the EXACT format you must use:\n\n"
+                            "[TOOL_START]\n"
+                            "[TOOL_NAME]\n"
+                            "list_directory\n"
+                            "[PARAM_NAME]\n"
+                            "path\n"
+                            "[PARAM_VALUE]\n"
+                            ".\n"
+                            "[TOOL_END]\n\n"
+                            "Start with list_directory to explore the project. NOTHING ELSE."
+                        )
+                    })
+                    result = engine.run()
+                    engine_result[0] = result
+                    engine_step_history[0] = engine.step_history
 
                 # Push a sentinel to signal completion
                 event_queue.put({"type": "__done__"})
@@ -1289,6 +1304,20 @@ def _log_app_event(message):
         # Keep last 500 entries
         while len(_app_log) > 500:
             _app_log.pop(0)
+
+
+def sanitize_output_dir_name(project_name):
+    """Create a file-safe directory name from a project name."""
+    if not project_name:
+        return "project"
+    # Replace spaces and problematic chars with underscores
+    name = re.sub(r'[^a-zA-Z0-9\s-]', '', project_name)
+    name = re.sub(r'\s+', '_', name).strip()
+    name = name.strip('_')
+    if not name:
+        return "project"
+    # Truncate to 100 chars
+    return name[:100]
 
 # --- Start Worker on App Start ---
 init_directories()

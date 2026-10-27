@@ -777,11 +777,13 @@ textarea {
 }
 
 .chat-list {
-    flex: 1;
+    flex: 0 0 180px;
     overflow-y: auto;
     display: flex;
     flex-direction: column;
     gap: 4px;
+    border-right: 3px solid var(--mc-border);
+    padding-right: 8px;
 }
 
 .chat-item {
@@ -826,6 +828,7 @@ textarea {
 .chat-log {
     flex: 1;
     overflow-y: auto;
+    max-height: calc(100vh - 300px);
     display: flex;
     flex-direction: column;
     gap: 10px;
@@ -1032,6 +1035,15 @@ textarea {
     color: var(--mc-text-dim);
     font-size: 7px;
     margin-bottom: 4px;
+}
+
+.step-rationale {
+    color: var(--mc-gold);
+    font-size: 8px;
+    margin-bottom: 4px;
+    font-style: italic;
+    padding-left: 8px;
+    border-left: 2px solid var(--mc-gold);
 }
 
 .agent-inject {
