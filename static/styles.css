@@ -154,6 +154,39 @@ body {
     animation: eye-blink 3s steps(1) infinite;
 }
 
+/* Horse snout */
+.horse-snout {
+    position: absolute;
+    width: 14px;
+    height: 10px;
+    background: #A0784A;
+    bottom: 2px;
+    right: 2px;
+    border: 2px solid #6B3410;
+    border-radius: 0 0 3px 3px;
+    box-shadow: inset -2px -2px 0 rgba(0,0,0,0.15);
+}
+
+/* Horse snout nostrils */
+.horse-snout::before,
+.horse-snout::after {
+    content: '';
+    position: absolute;
+    width: 3px;
+    height: 3px;
+    background: #6B3410;
+    border-radius: 50%;
+    top: 4px;
+}
+
+.horse-snout::before {
+    left: 3px;
+}
+
+.horse-snout::after {
+    right: 3px;
+}
+
 /* Horse mane */
 .horse-mane {
     position: absolute;
