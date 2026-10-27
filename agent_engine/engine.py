@@ -426,8 +426,11 @@ def parse_tool_calls(response: str) -> List[Tuple[str, Dict[str, str], Optional[
             tool_name = match.group(1).strip()
             params_block = match.group(2)
             rationale = _extract_rationale(params_block)
-            # Strip rationale block so the param parser doesn't see it
-            params_block = re.sub(r'\[RATIONALE\].*?\[TOOL_END\]', '[TOOL_END]', params_block, flags=re.DOTALL)
+            # Strip rationale block so the param parser doesn't see it.
+            # Use '$' anchor (end of string) instead of '[TOOL_END]' because
+            # the main regex already consumed [TOOL_END] as the delimiter,
+            # so it is NOT present in params_block.
+            params_block = re.sub(r'\[RATIONALE\].*?$', '', params_block, flags=re.DOTALL)
             params = _parse_params(params_block)
             if tool_name and params is not None:
                 calls.append((tool_name, params, rationale))
@@ -436,7 +439,7 @@ def parse_tool_calls(response: str) -> List[Tuple[str, Dict[str, str], Optional[
             tool_name = match.group(1).strip()
             params_block = match.group(2)
             rationale = _extract_rationale(params_block)
-            params_block = re.sub(r'\[RATIONALE\].*?\[TOOL_END\]', '[TOOL_END]', params_block, flags=re.DOTALL)
+            params_block = re.sub(r'\[RATIONALE\].*?$', '', params_block, flags=re.DOTALL)
             params = _parse_params(params_block)
             if tool_name and params is not None:
                 calls.append((tool_name, params, rationale))

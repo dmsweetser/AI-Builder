@@ -77,10 +77,7 @@
                         </div>
                         <div class="form-group">
                             <label for="add-root-path">Root Directory *</label>
-                            <div class="flex-row">
-                                <input type="text" id="add-root-path" name="rootDirectory" required placeholder="/path/to/your/project">
-                                <button type="button" class="btn btn-secondary" onclick="pickFolder('add-root-path')">BROWSE</button>
-                            </div>
+                            <input type="text" id="add-root-path" name="rootDirectory" required placeholder="/path/to/your/project">
                         </div>
                         <div class="form-group">
                             <label for="add-instructions">Instructions</label>
@@ -117,10 +114,7 @@
 
                         <div class="form-group">
                             <label for="details-root-dir">Root Directory</label>
-                            <div class="flex-row">
-                                <input type="text" id="details-root-dir" name="rootDirectory" onchange="autoSaveProject()">
-                                <button type="button" class="btn btn-secondary" onclick="pickFolder('details-root-dir')">BROWSE</button>
-                            </div>
+                            <input type="text" id="details-root-dir" name="rootDirectory" onchange="autoSaveProject()">
                         </div>
 
                         <div class="form-group">
@@ -135,6 +129,7 @@
 
                         <div class="form-actions">
                             <button type="button" class="btn btn-primary run-btn" id="details-run-btn" onclick="runProject(currentProjectId)">RUN AI BUILDER</button>
+                            <button type="button" class="btn btn-info" id="details-live-btn" onclick="showLiveView()" style="display:none;">📺 VIEW LIVE</button>
                             <button type="button" class="btn btn-danger" id="details-stop-btn" onclick="stopProject(currentProjectId)" style="display:none;">STOP</button>
                             <button type="button" class="btn btn-secondary" onclick="resetProject(currentProjectId)">RESET</button>
                             <button type="button" class="btn btn-danger" onclick="deleteProject(currentProjectId)">DELETE</button>

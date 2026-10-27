@@ -128,35 +128,6 @@ function showTab(tabName) {
     if (tabName === 'tools') loadPendingTools();
 }
 
-// === Directory Picker ===
-function pickFolder(inputId) {
-    var input = document.getElementById('_hidden_dir_picker_' + inputId);
-    if (!input) {
-        input = document.createElement('input');
-        input.type = 'file';
-        input.id = '_hidden_dir_picker_' + inputId;
-        input.style.display = 'none';
-        input.webkitdirectory = true;
-        input.mozdirectory = true;
-        document.body.appendChild(input);
-    }
-    input.value = '';
-    input.click();
-    input.onchange = function() {
-        var path = this.value;
-        if (path.includes('\\')) {
-            var parts = path.split('\\');
-            path = parts[parts.length - 1];
-        }
-        var targetInput = document.getElementById(inputId);
-        if (targetInput) {
-            targetInput.value = path;
-            autoSaveProject();
-        }
-        if (input && input.parentNode) input.parentNode.removeChild(input);
-    };
-}
-
 // === Project Form Toggle ===
 function toggleCreateForm() {
     var form = document.getElementById('create-project-form');

@@ -9,17 +9,23 @@ import uuid
 from typing import Any, Dict, List, Optional
 from agent_engine.tools.base import BaseTool, ToolResult
 from agent_engine.security import ensure_under_root, validate_tool_params, SecurityError, ToolError
-from agent_engine.tools.files import (
-    ListDirectoryTool, ListDirectoryDeepTool,
-    SearchFilesTool, SearchFilesDirTool,
-    GrepCodeTool, GrepCodeDirTool,
-    ReadFileTool, ReadFileRangeTool,
-    WriteFileTool, EditFileTool, DeleteFileTool,
-)
-from agent_engine.tools.search import FindSymbolTool, DecompileJarTool
-from agent_engine.tools.checkers import CheckSyntaxTool
-from agent_engine.tools.misc import ListDependenciesTool, GetFileInfoTool, CreateToolTool, CompressContextTool
-from agent_engine.tools.communication import RespondToUserTool, RequestUserInputTool
+from agent_engine.tools.list_directory import ListDirectoryTool
+from agent_engine.tools.list_directory_deep import ListDirectoryDeepTool
+from agent_engine.tools.search_files import SearchFilesTool, SearchFilesDirTool
+from agent_engine.tools.grep_code import GrepCodeTool, GrepCodeDirTool
+from agent_engine.tools.read_file import ReadFileTool, ReadFileRangeTool
+from agent_engine.tools.write_file import WriteFileTool
+from agent_engine.tools.edit_file import EditFileTool
+from agent_engine.tools.delete_file import DeleteFileTool
+from agent_engine.tools.find_symbol import FindSymbolTool
+from agent_engine.tools.decompile_jar import DecompileJarTool
+from agent_engine.tools.check_syntax import CheckSyntaxTool
+from agent_engine.tools.list_dependencies import ListDependenciesTool
+from agent_engine.tools.get_file_info import GetFileInfoTool
+from agent_engine.tools.create_tool import CreateToolTool
+from agent_engine.tools.compress_context import CompressContextTool
+from agent_engine.tools.respond_to_user import RespondToUserTool
+from agent_engine.tools.request_user_input import RequestUserInputTool
 
 # ------------------------------------------------------------------
 # Module-level singleton: shared across all API endpoints and agent engines
