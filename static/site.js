@@ -11,6 +11,11 @@ let currentRunningJobId = null;
 let agentSSEController = null;
 let agentRunning = false;
 let liveInjectActive = false;
+    // Keep inject button available for user to re-enable
+    var injectBtn = document.getElementById('live-inject-btn');
+    if (injectBtn) injectBtn.disabled = false;
+    var injectInput = document.getElementById('live-inject-input');
+    if (injectInput) injectInput.disabled = false;
 let currentRunningProjectId = null;
 let _loadedProjects = [];
 
@@ -155,7 +160,11 @@ function loadProjects() {
                 var projectItem = document.createElement('div');
                 projectItem.className = 'project-item';
                 projectItem.id = 'proj-' + project.id;
-                projectItem.onclick = function() { selectProject(project.id); };
+                projectItem.onclick = function() { selectProject(project.id);
+            // If this project has a running job, show the live view
+            if (project.status === 'running') {
+                showLiveView();
+            } };
                 projectItem.innerHTML =
                     '<div class="project-item-header">' +
                         '<span class="project-item-name">' + escapeHtml(project.name || 'Untitled') + '</span>' +
@@ -164,8 +173,8 @@ function loadProjects() {
                     '<div class="project-item-meta">' +
                         '<span class="project-item-path">' + escapeHtml(project.rootDirectory || '') + '</span>' +
                         '<div class="project-item-actions">' +
-                            '<button class="btn btn-sm btn-primary" onclick="event.stopPropagation(); runProject(\'' + project.id + '\')">RUN</button>' +
-                            '<button class="btn btn-sm btn-danger" onclick="event.stopPropagation(); stopProject(\'' + project.id + '\')" style="display:none;">STOP</button>' +
+                            (project.status === 'running' ? '<button class="btn btn-sm btn-info" onclick="event.stopPropagation(); showLiveViewForJob(\'' + project.id + '\')">📺 LIVE</button>' : '<button class="btn btn-sm btn-primary" onclick="event.stopPropagation(); runProject(\'' + project.id + '\')">RUN</button>') +
+                            (project.status === 'running' ? '<button class="btn btn-sm btn-danger" onclick="event.stopPropagation(); stopProject(\'' + project.id + '\')">STOP</button>' : '<button class="btn btn-sm btn-danger" onclick="event.stopPropagation(); stopProject(\'' + project.id + '\')" style="display:none;">STOP</button>') +
                             '<button class="btn btn-sm btn-secondary" onclick="event.stopPropagation(); resetProject(\'' + project.id + '\')">RESET</button>' +
                             '<button class="btn btn-sm btn-secondary" onclick="event.stopPropagation(); archiveProject(\'' + project.id + '\', this)" title="Archive">' +
                                 (project.isArchived ? '📤' : '📦') +
@@ -379,6 +388,11 @@ function handleAgentStatus(data) {
         loadJobs();
         agentRunning = false;
         liveInjectActive = true;
+    // Always enable inject button
+    var injectBtn = document.getElementById('live-inject-btn');
+    if (injectBtn) injectBtn.disabled = false;
+    var injectInput = document.getElementById('live-inject-input');
+    if (injectInput) injectInput.disabled = false;
         var st = document.getElementById('agent-status-text');
         if (st) { st.textContent = 'COMPLETED'; st.style.color = 'var(--success)'; }
         var ii = document.getElementById('live-inject-input');
@@ -628,6 +642,11 @@ function updateRunButtonState(projectId, status) {
     if (detailStopBtn && currentProjectId === projectId) {
         detailStopBtn.style.display = status === 'running' ? 'inline-block' : 'none';
     }
+    // Show/hide VIEW LIVE button
+    var liveBtn = document.getElementById('details-live-btn');
+    if (liveBtn && currentProjectId === projectId) {
+        liveBtn.style.display = status === 'running' ? 'inline-block' : 'none';
+    }
 }
 
 function getProjectById(projectId) {
@@ -847,7 +866,7 @@ function renderJobs(queueData, history) {
             (job.error ? '<div class="history-item-error">Error: ' + escapeHtml(job.error) + '</div>' : '') +
             (job.summary ? '<div class="history-item-summary">Summary: ' + escapeHtml(job.summary.substring(0, 150)) + '</div>' : '') +
             stepsHtml +
-            (job.status === 'running' ? '<div style="margin-top:8px;"><button class="btn btn-sm btn-danger" onclick="event.stopPropagation(); stopJob(\'' + job.job_id + '\')">STOP</button></div>' : '') +
+            (job.status === 'running' ? '<div style="margin-top:8px;display:flex;gap:6px;"<button class="btn btn-sm btn-danger" onclick="event.stopPropagation(); showLiveViewForJob(\'' + job.job_id + '\')">📺 VIEW LIVE</botton><button class="btn btn-sm btn-danger" onclick="event.stopPropagation(); stopJob(\'' + job.job_id + '\')">STOP</button></div>' : '') +
             '<div style="margin-top:6px;"><button class="btn btn-xs btn-secondary" onclick="event.stopPropagation(); deleteJob(\'' + job.job_id + '\')">DELETE</button></div>';
         list.appendChild(item);
     });
@@ -1198,7 +1217,44 @@ function cancelRootPathChange() {
     if (el) el.blur();
 }
 
+// === Live View Functions ===
+function showLiveView() {
+    var activeJob = getActiveJob();
+    if (!activeJob) {
+        // Check if there's a running job for this project
+        var runningJob = jobs.find(function(j) {
+            return j.status === 'running' && j.projectId === currentProjectId;
+        });
+        if (runningJob) {
+            activeJob = runningJob;
+        } else {
+            showNotification('No active job to view', 'warning');
+            return;
+        }
+    }
+    showLiveViewForJob(activeJob.id);
+}
+
+function showLiveViewForJob(jobId) {
+    var container = document.getElementById('agent-live-container');
+    if (!container) return;
+    container.style.display = 'block';
+    container.scrollIntoView({ behavior: 'smooth' });
+    connectSSE(jobId);
+}
+
+function getActiveJob() {
+    var container = document.getElementById('agent-live-container');
+    if (!container) return null;
+    var jobId = container.dataset.jobId;
+    if (jobId) {
+        return jobs.find(function(j) { return j.id === jobId || j.job_id === jobId; });
+    }
+    return null;
+}
+
 // === Init ===
+
 document.addEventListener('DOMContentLoaded', function() {
     // Fade out loading screen after 2.5s
     var loadingScreen = document.getElementById('loading-screen');

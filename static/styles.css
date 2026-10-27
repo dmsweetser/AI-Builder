@@ -83,109 +83,231 @@ body {
 .horse-sprite {
     width: 128px;
     height: 128px;
-    background-color: #8B4513;
     position: absolute;
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
+    background-color: #8B4513;
     box-shadow:
-        0 0 0 8px #8B4513,
-        8px 0 0 8px #8B4513,
-        -8px 0 0 8px #8B4513,
-        0 8px 0 8px #8B4513,
-        0 -8px 0 8px #8B4513,
-        8px 8px 0 8px #6B3410,
-        -8px 8px 0 8px #6B3410,
-        0 16px 0 8px #6B3410,
-        0 -16px 0 8px #D2691E,
-        16px 0 0 8px #6B3410,
-        -16px 0 0 8px #6B3410;
-    animation: horse-gallop 0.4s steps(2) infinite;
+        0 0 0 4px #6B3410,
+        8px 0 0 4px #A0784A,
+        -8px 0 0 4px #A0784A,
+        0 8px 0 4px #A0784A,
+        0 -8px 0 4px #D2691E,
+        8px 8px 0 4px #6B3410,
+        -8px 8px 0 4px #6B3410,
+        0 16px 0 4px #6B3410,
+        0 -16px 0 4px #D2691E,
+        16px 0 0 4px #6B3410,
+        -16px 0 0 4px #6B3410;
+    animation: horse-bounce 0.35s steps(2) infinite;
+    image-rendering: pixelated;
 }
 
+/* Horse body */
+.horse-body {
+    position: absolute;
+    width: 80px;
+    height: 48px;
+    background: #8B4513;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    border: 3px solid #6B3410;
+    box-shadow: inset -4px -4px 0 rgba(0,0,0,0.2);
+}
+
+/* Horse head */
+.horse-head {
+    position: absolute;
+    width: 32px;
+    height: 32px;
+    background: #8B4513;
+    top: 25%;
+    right: 15%;
+    border: 3px solid #6B3410;
+    animation: head-bob 0.35s steps(2) infinite;
+    box-shadow: inset -3px -3px 0 rgba(0,0,0,0.2);
+}
+
+/* Horse ears */
+.horse-ear {
+    position: absolute;
+    width: 8px;
+    height: 12px;
+    background: #8B4513;
+    border: 2px solid #6B3410;
+    top: -10px;
+}
+
+.horse-ear:nth-child(1) { left: 4px; transform: rotate(-10deg); }
+.horse-ear:nth-child(2) { right: 4px; transform: rotate(10deg); }
+
+/* Horse eye */
+.horse-eye {
+    position: absolute;
+    width: 6px;
+    height: 6px;
+    background: #000;
+    top: 8px;
+    right: 6px;
+    animation: eye-blink 3s steps(1) infinite;
+}
+
+/* Horse mane */
+.horse-mane {
+    position: absolute;
+    width: 16px;
+    height: 24px;
+    background: #4A2800;
+    top: 20%;
+    right: 25%;
+    border: 2px solid #6B3410;
+    animation: mane-flow 0.35s steps(2) infinite;
+}
+
+/* Horse legs */
 .horse-legs {
     position: absolute;
-    bottom: 20%;
+    bottom: 15%;
     left: 50%;
     transform: translateX(-50%);
-    width: 64px;
+    width: 80px;
     height: 32px;
 }
 
 .horse-leg {
     position: absolute;
+    width: 10px;
+    height: 28px;
+    background: #8B4513;
+    border: 2px solid #6B3410;
+    border-radius: 0 0 2px 2px;
+}
+
+.horse-leg:nth-child(1) { left: 8px; animation: leg-front-1 0.35s steps(2) infinite; }
+.horse-leg:nth-child(2) { left: 24px; animation: leg-front-2 0.35s steps(2) infinite; }
+.horse-leg:nth-child(3) { right: 24px; animation: leg-back-1 0.35s steps(2) infinite; }
+.horse-leg:nth-child(4) { right: 8px; animation: leg-back-2 0.35s steps(2) infinite; }
+
+/* Horse tail */
+.horse-tail {
+    position: absolute;
     width: 8px;
     height: 24px;
-    background: #8B4513;
+    background: #4A2800;
+    top: 35%;
+    left: 12%;
     border: 2px solid #6B3410;
+    animation: tail-wag 0.35s steps(2) infinite;
+    transform-origin: top center;
 }
 
-.horse-leg:nth-child(1) { left: 0; animation: leg-move-1 0.4s steps(2) infinite; }
-.horse-leg:nth-child(2) { left: 16px; animation: leg-move-2 0.4s steps(2) infinite; }
-.horse-leg:nth-child(3) { right: 16px; animation: leg-move-3 0.4s steps(2) infinite; }
-.horse-leg:nth-child(4) { right: 0; animation: leg-move-4 0.4s steps(2) infinite; }
-
-@keyframes horse-gallop {
-    0% { transform: translate(-50%, -50%) translateY(0); }
-    50% { transform: translate(-50%, -50%) translateY(-4px); }
-    100% { transform: translate(-50%, -50%) translateY(0); }
-}
-
-@keyframes leg-move-1 {
-    0%, 100% { transform: rotate(-15deg); }
-    50% { transform: rotate(15deg); }
-}
-
-@keyframes leg-move-2 {
-    0%, 100% { transform: rotate(15deg); }
-    50% { transform: rotate(-15deg); }
-}
-
-@keyframes leg-move-3 {
-    0%, 100% { transform: rotate(15deg); }
-    50% { transform: rotate(-15deg); }
-}
-
-@keyframes leg-move-4 {
-    0%, 100% { transform: rotate(-15deg); }
-    50% { transform: rotate(15deg); }
-}
-
-.horse-head {
+/* Ground shadow */
+.horse-shadow {
     position: absolute;
-    top: 10%;
-    right: 10%;
-    width: 32px;
-    height: 32px;
-    background: #8B4513;
-    border: 2px solid #6B3410;
-    animation: horse-bob 0.4s steps(2) infinite;
+    bottom: 10%;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 80px;
+    height: 12px;
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 50%;
+    animation: shadow-pulse 0.35s steps(2) infinite;
 }
 
-.horse-ear {
+/* Dust particles */
+.dust-particle {
     position: absolute;
-    top: -8px;
-    width: 8px;
-    height: 8px;
-    background: #8B4513;
-    border: 2px solid #6B3410;
+    width: 4px;
+    height: 4px;
+    background: #A0A0A0;
+    border-radius: 50%;
+    opacity: 0;
 }
 
-.horse-ear:nth-child(1) { left: 4px; }
-.horse-ear:nth-child(2) { right: 4px; }
-
-.horse-eye {
-    position: absolute;
-    top: 8px;
-    right: 4px;
-    width: 6px;
-    height: 6px;
-    background: #000;
+.dust-particle:nth-child(1) {
+    bottom: 12%;
+    left: 30%;
+    animation: dust-1 0.5s steps(2) infinite 0.1s;
 }
 
-@keyframes horse-bob {
+.dust-particle:nth-child(2) {
+    bottom: 10%;
+    left: 50%;
+    animation: dust-2 0.5s steps(2) infinite 0.2s;
+}
+
+.dust-particle:nth-child(3) {
+    bottom: 14%;
+    left: 70%;
+    animation: dust-3 0.5s steps(2) infinite 0.15s;
+}
+
+/* Animations */
+@keyframes horse-bounce {
+    0%, 100% { transform: translate(-50%, -50%) translateY(0); }
+    50% { transform: translate(-50%, -50%) translateY(-6px); }
+}
+
+@keyframes head-bob {
     0%, 100% { transform: rotate(0deg); }
-    50% { transform: rotate(5deg); }
+    50% { transform: rotate(3deg) translateY(-2px); }
+}
+
+@keyframes mane-flow {
+    0%, 100% { transform: skewX(0deg); }
+    50% { transform: skewX(5deg); }
+}
+
+@keyframes tail-wag {
+    0%, 100% { transform: rotate(-10deg); }
+    50% { transform: rotate(10deg); }
+}
+
+@keyframes leg-front-1 {
+    0%, 100% { transform: rotate(-12deg); }
+    50% { transform: rotate(12deg); }
+}
+
+@keyframes leg-front-2 {
+    0%, 100% { transform: rotate(12deg); }
+    50% { transform: rotate(-12deg); }
+}
+
+@keyframes leg-back-1 {
+    0%, 100% { transform: rotate(12deg); }
+    50% { transform: rotate(-12deg); }
+}
+
+@keyframes leg-back-2 {
+    0%, 100% { transform: rotate(-12deg); }
+    50% { transform: rotate(12deg); }
+}
+
+@keyframes shadow-pulse {
+    0%, 100% { transform: translateX(-50%) scaleX(1); opacity: 0.3; }
+    50% { transform: translateX(-50%) scaleX(0.8); opacity: 0.2; }
+}
+
+@keyframes eye-blink {
+    0%, 90%, 100% { opacity: 1; }
+    95% { opacity: 0; }
+}
+
+@keyframes dust-1 {
+    0% { transform: translate(0, 0) scale(1); opacity: 0.6; }
+    100% { transform: translate(-20px, -10px) scale(0.3); opacity: 0; }
+}
+
+@keyframes dust-2 {
+    0% { transform: translate(0, 0) scale(1); opacity: 0.6; }
+    100% { transform: translate(10px, -15px) scale(0.4); opacity: 0; }
+}
+
+@keyframes dust-3 {
+    0% { transform: translate(0, 0) scale(1); opacity: 0.6; }
+    100% { transform: translate(25px, -8px) scale(0.3); opacity: 0; }
 }
 
 .loading-text {
