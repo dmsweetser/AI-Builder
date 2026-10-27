@@ -228,29 +228,82 @@ function runProject(projectId) {
 function _doRunProject(projectId) {
     var rootDir = document.getElementById('details-root-dir') ? document.getElementById('details-root-dir').value : '';
     if (!rootDir) { alert('Please set a root directory first.'); return; }
-    fetch('/api/projects/' + projectId + '/run', { method: 'POST' })
-        .then(function(r) { return r.json(); })
-        .then(function(data) {
-            if (data.error) { alert('Failed to queue project: ' + data.error); return; }
-            updateRunButtonState(projectId, 'running');
-            loadJobs();
-            var configSection = document.getElementById('project-config-section');
-            var agentLive = document.getElementById('agent-live-container');
-            if (configSection) configSection.style.display = 'none';
-            if (agentLive) agentLive.style.display = 'block';
-            var statusText = document.getElementById('agent-status-text');
-            if (statusText) { statusText.textContent = 'RUNNING'; statusText.style.color = 'var(--success)'; }
-            var agentBox = document.getElementById('agent-live-box');
-            if (agentBox) agentBox.innerHTML = '<div class="step-entry llm-step"><div class="step-tool">🐴 Agent started — check JOBS tab for live progress</div></div>';
-            // Scroll to agent live box so user can see it
-            if (agentLive) {
-                setTimeout(function() { agentLive.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 100);
-            }
-            // Note: /api/projects/{id}/run starts the engine directly, so we do NOT call startAgentSSE here.
-            // startAgentSSE calls /api/agent/run which would conflict (409).
-            // User can check JOBS tab for real-time step details.
-        })
-        .catch(function(err) { console.error('Failed to queue project:', err); alert('Failed to queue project.'); });
+    var instructions = document.getElementById('details-instructions') ? document.getElementById('details-instructions').value : '';
+    var enabledTools = getEnabledTools();
+    // Use /api/agent/run which streams SSE — no conflict with worker
+    agentRunning = true;
+    liveInjectActive = false;
+    currentRunningProjectId = projectId;
+    var configSection = document.getElementById('project-config-section');
+    var agentLive = document.getElementById('agent-live-container');
+    if (configSection) configSection.style.display = 'none';
+    if (agentLive) agentLive.style.display = 'block';
+    var statusText = document.getElementById('agent-status-text');
+    if (statusText) { statusText.textContent = 'RUNNING'; statusText.style.color = 'var(--success)'; }
+    var agentBox = document.getElementById('agent-live-box');
+    if (agentBox) agentBox.innerHTML = '';
+    var runBtn = document.getElementById('details-run-btn');
+    var stopBtn = document.getElementById('details-stop-btn');
+    if (runBtn) { runBtn.disabled = true; runBtn.innerHTML = '<span class="run-spinner"></span> RUNNING...'; }
+    if (stopBtn) stopBtn.style.display = 'inline-block';
+    var injectInput = document.getElementById('live-inject-input');
+    var injectBtn = document.getElementById('live-inject-btn');
+    if (injectInput) { injectInput.disabled = true; injectInput.placeholder = 'Agent is running...'; }
+    if (injectBtn) { injectBtn.disabled = true; injectBtn.textContent = 'WAITING'; }
+    // Scroll to agent live box
+    if (agentLive) {
+        setTimeout(function() { agentLive.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 100);
+    }
+    fetch('/api/agent/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project_id: projectId, rootDirectory: rootDir, instructions: instructions, enabled_tools: enabledTools })
+    })
+    .then(function(response) {
+        if (!response.ok) throw new Error('Failed to start agent run');
+        var reader = response.body.getReader();
+        var decoder = new TextDecoder();
+        var buffer = '';
+        function processChunk() {
+            reader.read().then(function(result) {
+                var done = result.done;
+                var value = result.value;
+                if (done || !agentRunning) {
+                    agentRunning = false;
+                    liveInjectActive = false;
+                    resetRunButtons();
+                    if (stopBtn) stopBtn.style.display = 'none';
+                    if (injectInput) { injectInput.disabled = true; injectInput.placeholder = 'Agent stopped'; }
+                    if (injectBtn) { injectBtn.disabled = true; injectBtn.textContent = 'WAITING'; }
+                    return;
+                }
+                buffer += decoder.decode(value, { stream: true });
+                buffer = parseSSEMessage(buffer, function(eventType, data) {
+                    if (eventType === 'status') handleAgentStatus(data);
+                    else if (eventType === 'step') handleAgentStep(data, agentBox);
+                    else if (eventType === 'pending_approval') handlePendingApproval(data, agentBox);
+                    else if (eventType === 'pending_user_input') handlePendingUserInput(data, agentBox);
+                });
+                setTimeout(processChunk, 0);
+            });
+        }
+        processChunk();
+    })
+    .catch(function(err) {
+        console.error('Agent run error:', err);
+        var errEntry = document.createElement('div');
+        errEntry.className = 'step-entry error';
+        errEntry.textContent = 'ERROR: ' + err.message;
+        if (agentBox.firstChild) agentBox.insertBefore(errEntry, agentBox.firstChild);
+        else agentBox.appendChild(errEntry);
+        agentBox.scrollTop = 0;
+        agentRunning = false;
+        liveInjectActive = false;
+        resetRunButtons();
+        if (stopBtn) stopBtn.style.display = 'none';
+        if (injectInput) { injectInput.disabled = true; injectInput.placeholder = 'Agent error'; }
+        if (injectBtn) { injectBtn.disabled = true; injectBtn.textContent = 'WAITING'; }
+    });
 }
 
 // === Agent SSE ===

@@ -57,6 +57,10 @@ stop_event = threading.Event()
 worker_thread = None
 _worker_wake = threading.Event()  # Signals the worker to check the queue
 
+# SSE job tracking: maps SSE job_id -> output_dir (for inject endpoint)
+_sse_jobs = {}
+_sse_jobs_lock = threading.Lock()
+
 # --- Settings State ---
 settings_lock = threading.RLock()  # RLock allows re-entrant locking
 settings_cache = {}
@@ -238,6 +242,9 @@ def worker():
                 job_history[-1]["steps"] = result.get("steps", 0)
                 if result.get("status") == "error":
                     job_history[-1]["error"] = result.get("error", "Unknown error")
+                # Store step history for job detail view
+                if "step_history" in result:
+                    job_history[-1]["step_history"] = result["step_history"]
             else:
                 job_history[-1]["status"] = "error"
                 job_history[-1]["error"] = "Project not found"
@@ -909,14 +916,32 @@ def api_agent_run():
                 break
 
     job_id = str(int(time.time() * 1000))
-    output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                              "aib_instance", "output", job_id)
-    try:
-        if os.path.exists(output_dir):
-            shutil.rmtree(output_dir)
+
+    # Determine output directory
+    if project_id and project:
+        # Use project's persistent output directory
+        output_dir = project.get("output_dir", os.path.join(_AIB_INSTANCE, "output", project_id))
         os.makedirs(output_dir, exist_ok=True)
-    except Exception as e:
-        return jsonify({"error": f"Failed to create output directory: {str(e)}"}), 500
+        # Increment run number and update project
+        project["run_number"] = project.get("run_number", 0) + 1
+        project["last_job_id"] = job_id
+        projects = load_projects()
+        for p in projects:
+            if p["id"] == project_id:
+                p.update(project)
+                break
+        save_projects(projects)
+        project_name = project.get("name", "Ad-hoc")
+    else:
+        output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                  "aib_instance", "output", job_id)
+        try:
+            if os.path.exists(output_dir):
+                shutil.rmtree(output_dir)
+            os.makedirs(output_dir, exist_ok=True)
+        except Exception as e:
+            return jsonify({"error": f"Failed to create output directory: {str(e)}"}), 500
+        project_name = "Ad-hoc"
 
     # If continuing from a previous job, use that job's output dir for step history
     if continue_from_job and prev_step_history:
@@ -952,6 +977,10 @@ def api_agent_run():
     os.environ["CUSTOM_TIMEOUT"] = os.getenv("CUSTOM_TIMEOUT", "3600")
 
     _log_app_event(f"Agent run started — project={project_id}, job_id={job_id}")
+
+    # Register SSE job so inject endpoint knows where to write
+    with _sse_jobs_lock:
+        _sse_jobs[job_id] = output_dir
 
     def generate():
         # Queue for events from background thread
@@ -1175,10 +1204,22 @@ def api_agent_inject():
     if not job_id or not instruction:
         return jsonify({"error": "job_id and instruction required"}), 400
 
-    # Write instruction to a temp file that the agent engine can pick up
-    # For now, we'll store it in the job's output directory
-    instruction_file = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                    "aib_instance", "output", job_id, "live_instruction.txt")
+    # Look up the SSE job's output directory
+    with _sse_jobs_lock:
+        output_dir = _sse_jobs.get(job_id)
+
+    if not output_dir:
+        # Fallback: try to find in job_history
+        for h in job_history:
+            if h.get("job_id") == job_id:
+                output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                          "aib_instance", "output", job_id)
+                break
+
+    if not output_dir:
+        return jsonify({"error": "Job not found"}), 404
+
+    instruction_file = os.path.join(output_dir, "live_instruction.txt")
     os.makedirs(os.path.dirname(instruction_file), exist_ok=True)
     _log_app_event(f"Live instruction injected — job_id={job_id}")
     try:
