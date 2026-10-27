@@ -421,7 +421,7 @@ def api_update_project(pid):
     })
 
     # Update output_dir path if rootDirectory changed
-    project["output_dir"] = os.path.join(_AIB_INSTANCE, "output", pid)
+    project["output_dir"] = os.path.join(_AIB_INSTANCE, "output", sanitize_output_dir_name(project["name"]))
 
     save_projects(projects)
     return jsonify({"status": "saved", "project": project})
@@ -1282,8 +1282,8 @@ def api_agent_resume():
 @app.route("/api/tools/pending", methods=["GET"])
 def api_get_pending_tools():
     """List all pending tool proposals awaiting user review."""
-    root_dir = os.getenv("AIB_ROOT", os.getenv("ROOT_DIRECTORY", os.getcwd()))
-    registry = get_registry(root_dir)
+    # Use the AI Builder's aib_instance directory for pending tools
+    registry = get_registry(_AIB_INSTANCE)
     pending = registry.get_pending_tools()
     return jsonify(pending)
 
@@ -1291,8 +1291,8 @@ def api_get_pending_tools():
 @app.route("/api/tools/pending/<tool_id>/approve", methods=["POST"])
 def api_approve_tool(tool_id):
     """Approve a pending tool proposal — registers it immediately."""
-    root_dir = os.getenv("AIB_ROOT", os.getenv("ROOT_DIRECTORY", os.getcwd()))
-    registry = get_registry(root_dir)
+    # Use the AI Builder's aib_instance directory for pending tools
+    registry = get_registry(_AIB_INSTANCE)
     result = registry.approve_tool(tool_id)
     if result["status"] == "approved":
         return jsonify(result)
@@ -1302,8 +1302,8 @@ def api_approve_tool(tool_id):
 @app.route("/api/tools/pending/<tool_id>/reject", methods=["POST"])
 def api_reject_tool(tool_id):
     """Reject a pending tool proposal — removes it from pending."""
-    root_dir = os.getenv("AIB_ROOT", os.getenv("ROOT_DIRECTORY", os.getcwd()))
-    registry = get_registry(root_dir)
+    # Use the AI Builder's aib_instance directory for pending tools
+    registry = get_registry(_AIB_INSTANCE)
     result = registry.reject_tool(tool_id)
     if result["status"] == "rejected":
         return jsonify(result)
@@ -1313,8 +1313,7 @@ def api_reject_tool(tool_id):
 @app.route("/api/tools/approved", methods=["GET"])
 def api_get_approved_tools():
     """List all approved (registered) dynamic tools."""
-    from agent_engine.config import EngineConfig
-    pending_file = EngineConfig.get_pending_tools_file()
+    pending_file = os.path.join(_AIB_INSTANCE, "output", "pending_tools.json")
     approved_tools = []
     if os.path.exists(pending_file):
         try:

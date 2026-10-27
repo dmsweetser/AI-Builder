@@ -11,11 +11,6 @@ let currentRunningJobId = null;
 let agentSSEController = null;
 let agentRunning = false;
 let liveInjectActive = false;
-    // Keep inject button available for user to re-enable
-    var injectBtn = document.getElementById('live-inject-btn');
-    if (injectBtn) injectBtn.disabled = false;
-    var injectInput = document.getElementById('live-inject-input');
-    if (injectInput) injectInput.disabled = false;
 let currentRunningProjectId = null;
 let _loadedProjects = [];
 
@@ -205,10 +200,10 @@ function runProject(projectId) {
     _doRunProject(projectId);
 }
 
-function _doRunProject(projectId) {
+function _doRunProject(projectId, overrideInstruction) {
     var rootDir = document.getElementById('details-root-dir') ? document.getElementById('details-root-dir').value : '';
     if (!rootDir) { alert('Please set a root directory first.'); return; }
-    var instructions = document.getElementById('details-instructions') ? document.getElementById('details-instructions').value : '';
+    var instructions = overrideInstruction || (document.getElementById('details-instructions') ? document.getElementById('details-instructions').value : '');
     var enabledTools = getEnabledTools();
     // Use /api/agent/run which streams SSE — no conflict with worker
     agentRunning = true;
@@ -226,10 +221,11 @@ function _doRunProject(projectId) {
     var stopBtn = document.getElementById('details-stop-btn');
     if (runBtn) { runBtn.disabled = true; runBtn.innerHTML = '<span class="run-spinner"></span> RUNNING...'; }
     if (stopBtn) stopBtn.style.display = 'inline-block';
+    // Keep inject button enabled so user can inject at will
     var injectInput = document.getElementById('live-inject-input');
     var injectBtn = document.getElementById('live-inject-btn');
-    if (injectInput) { injectInput.disabled = true; injectInput.placeholder = 'Agent is running...'; }
-    if (injectBtn) { injectBtn.disabled = true; injectBtn.textContent = 'WAITING'; }
+    if (injectInput) { injectInput.disabled = false; injectInput.placeholder = 'Type instructions or questions...'; }
+    if (injectBtn) { injectBtn.disabled = false; injectBtn.textContent = 'INJECT'; }
     // Scroll to agent live box
     if (agentLive) {
         setTimeout(function() { agentLive.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 100);
@@ -496,10 +492,12 @@ function handlePendingUserInput(data, agentBox) {
 }
 
 function injectLiveInstruction() {
-    if (!liveInjectActive) return;
     var input = document.getElementById('live-inject-input');
     if (!input || !input.value.trim()) return;
     var instruction = input.value.trim();
+    input.disabled = true;
+    var injectBtn = document.getElementById('live-inject-btn');
+    if (injectBtn) { injectBtn.disabled = true; injectBtn.textContent = 'SENDING...'; }
     if (agentRunning && currentRunningJobId) {
         fetch('/api/agent/inject', {
             method: 'POST',
@@ -508,12 +506,20 @@ function injectLiveInstruction() {
         })
         .then(function() {
             input.value = '';
+            input.disabled = false;
+            if (injectBtn) { injectBtn.disabled = false; injectBtn.textContent = 'INJECT'; }
             var statusText = document.getElementById('agent-status-text');
             if (statusText) { var orig = statusText.textContent; statusText.textContent = 'Instruction sent'; setTimeout(function() { statusText.textContent = orig; }, 1500); }
         })
-        .catch(function(err) { console.error('Failed to inject instruction:', err); });
+        .catch(function(err) { console.error('Failed to inject instruction:', err); input.disabled = false; if (injectBtn) { injectBtn.disabled = false; injectBtn.textContent = 'INJECT'; } });
     } else if (currentRunningProjectId) {
+        // Agent not running - continue with new instruction
         continueAgentRunWithInstruction(currentRunningProjectId, currentRunningJobId, instruction);
+    } else {
+        // No project running - try to find a recent job to continue
+        alert('No active project. Select a project and click RUN to start, or inject while an agent is running.');
+        input.disabled = false;
+        if (injectBtn) { injectBtn.disabled = false; injectBtn.textContent = 'INJECT'; }
     }
 }
 
@@ -539,7 +545,13 @@ function stopProject(projectId) {
 }
 
 function continueAgentRunWithInstruction(projectId, prevJobId, newInstruction) {
-    if (!projectId || !prevJobId) return;
+    if (!projectId) return;
+    // If no prevJobId, we'll start a new run for the project
+    if (!prevJobId) {
+        // Start a fresh run with the new instruction
+        _doRunProject(projectId, newInstruction);
+        return;
+    }
     if (agentSSEController) agentSSEController.abort();
     agentSSEController = new AbortController();
     agentRunning = true;
@@ -866,7 +878,7 @@ function renderJobs(queueData, history) {
             (job.error ? '<div class="history-item-error">Error: ' + escapeHtml(job.error) + '</div>' : '') +
             (job.summary ? '<div class="history-item-summary">Summary: ' + escapeHtml(job.summary.substring(0, 150)) + '</div>' : '') +
             stepsHtml +
-            (job.status === 'running' ? '<div style="margin-top:8px;display:flex;gap:6px;"<button class="btn btn-sm btn-danger" onclick="event.stopPropagation(); showLiveViewForJob(\'' + job.job_id + '\')">📺 VIEW LIVE</botton><button class="btn btn-sm btn-danger" onclick="event.stopPropagation(); stopJob(\'' + job.job_id + '\')">STOP</button></div>' : '') +
+            (job.status === 'running' ? '<div style="margin-top:8px;display:flex;gap:6px;"><button class="btn btn-sm btn-info" onclick="event.stopPropagation(); showLiveViewForJob(\'' + job.job_id + '\')">📺 VIEW LIVE</button><button class="btn btn-sm btn-danger" onclick="event.stopPropagation(); stopJob(\'' + job.job_id + '\')">STOP</button></div>' : '') +
             '<div style="margin-top:6px;"><button class="btn btn-xs btn-secondary" onclick="event.stopPropagation(); deleteJob(\'' + job.job_id + '\')">DELETE</button></div>';
         list.appendChild(item);
     });
@@ -1240,7 +1252,58 @@ function showLiveViewForJob(jobId) {
     if (!container) return;
     container.style.display = 'block';
     container.scrollIntoView({ behavior: 'smooth' });
-    connectSSE(jobId);
+    // Connect to SSE for this job
+    connectToJobSSE(jobId);
+}
+
+function connectToJobSSE(jobId) {
+    currentRunningJobId = jobId;
+    agentRunning = true;
+    liveInjectActive = true;
+    var agentBox = document.getElementById('agent-live-box');
+    if (agentBox) agentBox.innerHTML = '';
+    var statusText = document.getElementById('agent-status-text');
+    if (statusText) { statusText.textContent = 'CONNECTED'; statusText.style.color = 'var(--info)'; }
+    var injectInput = document.getElementById('live-inject-input');
+    var injectBtn = document.getElementById('live-inject-btn');
+    if (injectInput) { injectInput.disabled = false; injectInput.placeholder = 'Type instructions or questions...'; }
+    if (injectBtn) { injectBtn.disabled = false; injectBtn.textContent = 'INJECT'; }
+    fetch('/api/agent/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project_id: currentProjectId, instructions: '', continue_from_job: jobId })
+    })
+    .then(function(response) {
+        if (!response.ok) throw new Error('Failed to connect to agent');
+        var reader = response.body.getReader();
+        var decoder = new TextDecoder();
+        var buffer = '';
+        function processChunk() {
+            reader.read().then(function(result) {
+                var done = result.done;
+                var value = result.value;
+                if (done || !agentRunning) {
+                    agentRunning = false;
+                    liveInjectActive = true;
+                    return;
+                }
+                buffer += decoder.decode(value, { stream: true });
+                buffer = parseSSEMessage(buffer, function(eventType, data) {
+                    if (eventType === 'status') handleAgentStatus(data);
+                    else if (eventType === 'step') handleAgentStep(data, agentBox);
+                    else if (eventType === 'pending_approval') handlePendingApproval(data, agentBox);
+                    else if (eventType === 'pending_user_input') handlePendingUserInput(data, agentBox);
+                });
+                setTimeout(processChunk, 0);
+            });
+        }
+        processChunk();
+    })
+    .catch(function(err) {
+        console.error('SSE connection error:', err);
+        agentRunning = false;
+        liveInjectActive = true;
+    });
 }
 
 function getActiveJob() {

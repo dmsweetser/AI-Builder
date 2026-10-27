@@ -104,7 +104,8 @@ class ToolRegistry:
     @staticmethod
     def _pending_tools_file(root_dir: str) -> str:
         """Return the per-project pending tools file path."""
-        output_dir = os.path.join(root_dir, "aib_instance", "output")
+        # root_dir is expected to be the aib_instance directory itself
+        output_dir = os.path.join(root_dir, "output")
         return os.path.join(output_dir, "pending_tools.json")
 
     def _load_approved_tools(self):
