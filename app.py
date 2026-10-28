@@ -1007,6 +1007,12 @@ def api_agent_run():
                     "enabled_tools": enabled_tools if enabled_tools else None,
                 }
                 engine = AgentEngine(config, output_dir=output_dir, step_callback=on_event)
+                # Ensure the engine's ToolRegistry uses the global aib_instance
+                # directory so it can find approved tools from the global file
+                engine.tools = get_registry(_AIB_INSTANCE, enabled_tools=enabled_tools)
+                from agent_engine.engine import build_system_prompt
+                engine.system_prompt = build_system_prompt(engine.tools.list_tools())
+                engine.messages[0]["content"] = engine.system_prompt
 
                 # If continuing, load previous step history into the engine
                 if prev_step_history:
@@ -1027,6 +1033,15 @@ def api_agent_run():
                 result = engine.run()
                 engine_result[0] = result
                 engine_step_history[0] = engine.step_history
+
+                # Handle pending_approval: signal the SSE handler so the UI
+                # can show the pending-approval banner and let the user
+                # approve/reject before continuing.
+                if result.get("status") == "pending_approval":
+                    event_queue.put({
+                        "type": "__pending_approval__",
+                        "tool_name": "unknown",
+                    })
 
                 # Handle pending_user_input: auto-continue by sending a format reminder
                 # instead of waiting for user input
@@ -1093,6 +1108,8 @@ def api_agent_run():
                                 "tool": "llm_call",
                                 "params": ev.get("params", {}),
                                 "result": {"content": "", "success": True},
+                                "raw_request": ev.get("raw_request", ""),
+                                "raw_response": ev.get("raw_response", ""),
                             }) + "\n"
                     except queue.Empty:
                         break
@@ -1142,11 +1159,23 @@ def api_agent_run():
                     "tool": "llm_call",
                     "params": ev.get("params", {}),
                     "result": {"content": "", "success": True},
+                    "raw_request": ev.get("raw_request", ""),
+                    "raw_response": ev.get("raw_response", ""),
                 }) + "\n"
             elif ev["type"] == "pending_approval":
                 yield "event: pending_approval\ndata: " + json.dumps({
                     "tool_name": ev.get("tool_name", "unknown"),
                 }) + "\n"
+            elif ev["type"] == "__pending_approval__":
+                # Engine returned pending_approval status — notify UI
+                yield "event: pending_approval\ndata: " + json.dumps({
+                    "tool_name": ev.get("tool_name", "unknown"),
+                }) + "\n"
+                # Also emit a status event so the UI knows the agent is paused
+                yield "event: status\ndata: " + json.dumps({
+                    "type": "pending_approval",
+                    "message": "Agent is waiting for tool approval. Go to TOOLS tab to approve or reject.",
+                }) + "\n\n"
             elif ev["type"] == "pending_user_input":
                 _log_app_event(f"Agent pending_user_input — job_id={job_id}, step={ev.get('step')}")
                 yield "event: pending_user_input\ndata: " + json.dumps({
@@ -1318,7 +1347,7 @@ def api_reject_tool(tool_id):
 @app.route("/api/tools/approved", methods=["GET"])
 def api_get_approved_tools():
     """List all approved (registered) dynamic tools."""
-    pending_file = os.path.join(_AIB_INSTANCE, "output", "pending_tools.json")
+    pending_file = EngineConfig.get_pending_tools_file()
     approved_tools = []
     if os.path.exists(pending_file):
         try:

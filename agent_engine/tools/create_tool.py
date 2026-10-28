@@ -6,6 +6,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Dict
 from agent_engine.tools.base import BaseTool, ToolResult
+from agent_engine.config import EngineConfig
 
 
 class CreateToolTool(BaseTool):
@@ -65,9 +66,9 @@ class CreateToolTool(BaseTool):
             "submitted_at": timestamp,
         }
 
-        # Persist to per-project pending tools file
-        output_dir = os.path.join(self.root_dir, "output")
-        pending_file = os.path.join(output_dir, "pending_tools.json")
+        # Persist to the GLOBAL pending tools file (aib_instance/output/pending_tools.json)
+        # This is where ToolRegistry looks for pending tools
+        pending_file = EngineConfig.get_pending_tools_file()
         os.makedirs(os.path.dirname(pending_file), exist_ok=True)
 
         pending_tools = []
@@ -78,18 +79,12 @@ class CreateToolTool(BaseTool):
             except Exception:
                 pending_tools = []
 
+        # Deduplicate: remove any existing entry with the same tool name
+        pending_tools = [t for t in pending_tools if t.get("name") != tool_name or t.get("status") != "pending"]
+
         pending_tools.append(pending_tool)
         with open(pending_file, 'w') as f:
             json.dump(pending_tools, f, indent=2)
-
-        # Write a pending approval marker file that the UI can detect
-        output_dir = os.path.dirname(pending_file)
-        marker_file = os.path.join(output_dir, "pending_tool_approval.txt")
-        try:
-            with open(marker_file, 'w') as f:
-                json.dumps({"tool_name": tool_name, "tool_id": pending_id})
-        except Exception:
-            pass
 
         return ToolResult(
             True,

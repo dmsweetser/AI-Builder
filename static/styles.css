@@ -1429,6 +1429,51 @@ textarea {
     background: linear-gradient(180deg, var(--mc-grass) 0%, var(--mc-grass-dark) 100%);
 }
 
+/* === Raw Data Expand/Collapse === */
+.raw-data-block {
+    margin-top: 4px;
+    border: 2px solid var(--mc-border);
+    background: var(--mc-bg);
+}
+
+.raw-data-block[open] {
+    border-color: var(--mc-diamond);
+}
+
+.raw-summary {
+    cursor: pointer;
+    padding: 6px 10px;
+    font-size: 8px;
+    color: var(--mc-diamond);
+    font-weight: 700;
+    font-family: 'Press Start 2P', monospace;
+    user-select: none;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.raw-summary:hover {
+    background: rgba(74, 237, 223, 0.1);
+}
+
+.raw-content {
+    padding: 8px;
+    border-top: 2px solid var(--mc-border);
+    max-height: 300px;
+    overflow: auto;
+}
+
+.raw-content pre {
+    font-family: 'Press Start 2P', monospace;
+    font-size: 7px;
+    line-height: 1.4;
+    white-space: pre-wrap;
+    word-break: break-word;
+    color: var(--mc-text-dim);
+    margin: 0;
+}
+
 /* === Responsive === */
 @media (max-width: 768px) {
     .sidebar {

@@ -421,6 +421,17 @@ function handleAgentStatus(data) {
         if (ib2) { ib2.disabled = false; ib2.textContent = 'INJECT'; }
         var rb2 = document.getElementById('details-run-btn');
         if (rb2) { rb2.disabled = false; rb2.innerHTML = 'RESUBMIT'; }
+    } else if (data.type === 'pending_approval') {
+        agentRunning = false;
+        liveInjectActive = true;
+        var st4 = document.getElementById('agent-status-text');
+        if (st4) { st4.textContent = 'PENDING TOOL APPROVAL'; st4.style.color = 'var(--warning)'; st4.style.fontWeight = 'bold'; }
+        var ii4 = document.getElementById('live-inject-input');
+        var ib4 = document.getElementById('live-inject-btn');
+        if (ii4) { ii4.disabled = false; ii4.placeholder = 'Go to TOOLS tab to approve/reject the pending tool...'; }
+        if (ib4) { ib4.disabled = false; ib4.textContent = 'INJECT'; }
+        var rb4 = document.getElementById('details-run-btn');
+        if (rb4) { rb4.disabled = false; rb4.innerHTML = 'RUN AI BUILDER'; }
     } else if (data.type === 'max_steps_reached') {
         agentRunning = false;
         liveInjectActive = true;
@@ -444,7 +455,26 @@ function handleAgentStep(data, agentBox) {
     if (data.tool === 'llm_call') {
         var msgCount = data.params ? data.params.messages : 0;
         entry.classList.add('llm-step');
-        entry.innerHTML = '<div class="step-tool">Thinking (' + msgCount + ' messages)</div><div class="step-result">Processing request...</div>';
+        var rawReq = data.raw_request || '';
+        var rawResp = data.raw_response || '';
+        var hasRaw = rawReq.length > 0 || rawResp.length > 0;
+        var html = '<div class="step-tool">Thinking (' + msgCount + ' messages)</div>';
+        html += '<div class="step-result">' + escapeHtml(data.result ? data.result.content : 'Processing request...') + '</div>';
+        if (hasRaw) {
+            html += '<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">';
+            if (rawReq.length > 0) {
+                var reqId = 'raw-req-' + data.step + '-' + Math.random().toString(36).substr(2,5);
+                var reqPreview = rawReq.length > 2000 ? rawReq.substring(0, 2000) + '...' : rawReq;
+                html += '<details class="raw-data-block"><summary class="raw-summary">📤 Raw Request (' + rawReq.length + ' chars)</summary><div class="raw-content"><pre>' + escapeHtml(reqPreview) + '</pre></div></details>';
+            }
+            if (rawResp.length > 0) {
+                var respId = 'raw-resp-' + data.step + '-' + Math.random().toString(36).substr(2,5);
+                var respPreview = rawResp.length > 2000 ? rawResp.substring(0, 2000) + '...' : rawResp;
+                html += '<details class="raw-data-block"><summary class="raw-summary">📥 Raw Response (' + rawResp.length + ' chars)</summary><div class="raw-content"><pre>' + escapeHtml(respPreview) + '</pre></div></details>';
+            }
+            html += '</div>';
+        }
+        entry.innerHTML = html;
     } else if (data.tool === 'format_retry') {
         entry.classList.add('llm-step');
         entry.innerHTML = '<div class="step-tool" style="color:var(--warning);">⚠ Format reminder sent</div><div class="step-result" style="color:var(--warning);">' + escapeHtml(data.result ? data.result.content : '') + '</div>';

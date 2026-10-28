@@ -59,6 +59,7 @@ class ToolRegistry:
     def __init__(self, root_dir: str, enabled_tools=None):
         self.root_dir = root_dir
         self._tools: Dict[str, BaseTool] = {}
+        self._enabled_tools = enabled_tools
         self._register_tools(enabled_tools=enabled_tools)
         self._load_approved_tools()
 
@@ -103,10 +104,14 @@ class ToolRegistry:
 
     @staticmethod
     def _pending_tools_file(root_dir: str) -> str:
-        """Return the per-project pending tools file path."""
-        # root_dir is expected to be the aib_instance directory itself
-        output_dir = os.path.join(root_dir, "output")
-        return os.path.join(output_dir, "pending_tools.json")
+        """Return the global pending tools file path (app-level, not per-project)."""
+        from agent_engine.config import EngineConfig
+        # Use the configured global path, but fall back to root_dir/output
+        # for backwards compatibility with tests and legacy setups
+        try:
+            return EngineConfig.get_pending_tools_file()
+        except Exception:
+            return os.path.join(root_dir, "output", "pending_tools.json")
 
     def _load_approved_tools(self):
         """Load any previously-approved dynamic tools from disk."""
@@ -119,9 +124,14 @@ class ToolRegistry:
         except Exception:
             return
 
+        # Only load approved tools that are in the enabled_tools list
+        # (or all tools if enabled_tools is None/empty)
+        use_all = self._enabled_tools is None or len(self._enabled_tools) == 0
+
         for entry in pending_tools:
             if entry.get("status") == "approved":
-                self._register_dynamic_tool(entry)
+                if use_all or entry.get("name") in self._enabled_tools:
+                    self._register_dynamic_tool(entry)
 
     def approve_tool(self, tool_id: str) -> Dict[str, Any]:
         """Approve a pending tool: mark it approved and register it."""

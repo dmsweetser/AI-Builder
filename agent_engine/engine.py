@@ -76,8 +76,14 @@ class LLMClient:
         return req, resp
 
     def call(self, messages: List[Dict[str, str]], response_file: Optional[str] = None,
-             system_prompt: str = "", step: int = 0) -> str:
-        """Call the LLM with retry logic and context trimming."""
+             system_prompt: str = "", step: int = 0) -> Dict[str, Any]:
+        """Call the LLM with retry logic and context trimming.
+
+        Returns a dict with:
+          - 'content': the LLM response text
+          - 'raw_request': the full request JSON (truncated to 3000 chars)
+          - 'raw_response': the full response text (truncated to 2000 chars)
+        """
         last_err = None
         for attempt in range(1, self.MAX_RETRIES + 1):
             try:
@@ -92,8 +98,14 @@ class LLMClient:
 
     def _call_custom_endpoint(self, messages: List[Dict[str, str]],
                               response_file: Optional[str], system_prompt: str,
-                              step: int = 0) -> str:
-        """Call a custom OpenAI-compatible endpoint (Ollama, LM Studio, vLLM, etc.)."""
+                              step: int = 0) -> Dict[str, Any]:
+        """Call a custom OpenAI-compatible endpoint (Ollama, LM Studio, vLLM, etc.).
+
+        Returns a dict with:
+          - 'content': the LLM response text
+          - 'raw_request': the full request JSON (truncated to 3000 chars)
+          - 'raw_response': the full response text (truncated to 2000 chars)
+        """
         import urllib.request
         import ssl
 
@@ -143,6 +155,9 @@ class LLMClient:
         headers = {"Content-Type": "application/json"}
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
+
+        # Serialize the full request for raw_response
+        full_request_json = json.dumps(payload, indent=2)
 
         # Handle SSL verification
         verify_ssl = EngineConfig.get_custom_verify_ssl()
@@ -223,7 +238,12 @@ class LLMClient:
             with open(resp_file, 'w', encoding='utf-8') as f:
                 json.dump(audit_response, f, indent=2, ensure_ascii=False)
 
-        return content
+        # Return raw request and response for SSE streaming
+        return {
+            "content": content,
+            "raw_request": full_request_json[:3000],
+            "raw_response": content[:2000],
+        }
 
 
 
@@ -683,9 +703,17 @@ class AgentEngine:
                 )
                 if live_instruction:
                     self.logger.info(f"Received live instruction: {live_instruction[:100]}...")
+                    # Use a clear separator and explicit instruction to start fresh
                     self.messages.append({
                         "role": "user",
-                        "content": f"[LIVE INJECTION] User has sent new instructions: {live_instruction}\n\nConsider this as an update to your task. You may need to adjust your approach or add to what you're doing.\n\nContinue with your next action."
+                        "content": (
+                            "========== NEW USER INSTRUCTION ==========\n"
+                            f"User has sent new instructions:\n{live_instruction}\n"
+                            "========== END NEW INSTRUCTION ==========\n\n"
+                            "You must respond with EXACTLY ONE tool call. "
+                            "Do NOT combine this with any previous context. "
+                            "Start fresh with a single tool call to address the new instructions."
+                        )
                     })
 
                 # Auto-compress context if conversation is getting too long
@@ -821,7 +849,20 @@ class AgentEngine:
                                                  "params": llm_entry["params"]})
                         except Exception:
                             pass
-                    response = self.llm.call(self.messages, self.response_file, system_prompt=self.system_prompt, step=self.step_count)
+                    llm_result = self.llm.call(self.messages, self.response_file, system_prompt=self.system_prompt, step=self.step_count)
+                    response = llm_result["content"]
+                    # Emit raw LLM request/response for live feed
+                    if self._step_callback:
+                        try:
+                            self._step_callback({
+                                "type": "llm_call",
+                                "step": self.step_count,
+                                "params": llm_entry["params"],
+                                "raw_request": llm_result.get("raw_request", ""),
+                                "raw_response": llm_result.get("raw_response", ""),
+                            })
+                        except Exception:
+                            pass
                 except Exception as e:
                     self.logger.error(f"LLM call failed: {e}")
                     return {"status": "error", "error": str(e), "steps": self.step_count}
@@ -976,13 +1017,33 @@ class AgentEngine:
                             self._file_lines_seen.setdefault(path, set()).add(line_range)
 
                     # If create_tool was used, emit a pending approval event
+                    # and PAUSE the engine — do NOT continue the loop.
+                    # The user must approve/reject before the agent proceeds.
                     if tool_name == "create_tool":
                         if self._step_callback:
                             try:
                                 tool_name_val = params.get("name", "unknown")
-                                self._step_callback({"type": "pending_approval", "tool_name": tool_name_val})
+                                self._step_callback({
+                                    "type": "pending_approval",
+                                    "tool_name": tool_name_val,
+                                })
                             except Exception:
                                 pass
+                        # Pause: do NOT feed result back or call LLM again.
+                        # The engine returns so the UI can show the pending
+                        # approval. When the user approves, a new run is
+                        # started (which reloads approved tools into the
+                        # registry and rebuilds the system prompt).
+                        self.logger.info(
+                            "create_tool called — pausing engine for approval."
+                        )
+                        return {
+                            "status": "pending_approval",
+                            "steps": self.step_count,
+                            "summary": final_summary,
+                            "max_steps": self.max_steps,
+                            "step_history": self.step_history,
+                        }
 
                     # Save step to history
                     self.step_history.append(step_entry)
