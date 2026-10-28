@@ -1586,27 +1586,6 @@ function getActiveJob() {
     return null;
 }
 
-
-// Browse for root directory
-function browseRootDirectory() {
-    var input = document.createElement('input');
-    input.type = 'file';
-    input.webkitdirectory = '';
-    input.directory = '';
-    input.multiple = '';
-    input.onchange = function(e) {
-        var path = e.target.files[0]?.webkitRelativePath || '';
-        if (path) {
-            // Get the root folder (first directory segment)
-            var parts = path.split('/');
-            var rootPath = parts[0];
-            var dirInput = document.getElementById('details-root-dir');
-            if (dirInput) dirInput.value = rootPath;
-        }
-    };
-    input.click();
-}
-
 // === Init ===
 
 document.addEventListener('DOMContentLoaded', function() {
