@@ -155,11 +155,9 @@ function loadProjects() {
                 var projectItem = document.createElement('div');
                 projectItem.className = 'project-item';
                 projectItem.id = 'proj-' + project.id;
-                projectItem.onclick = function() { selectProject(project.id);
-            // If this project has a running job, show the live view
-            if (project.status === 'running') {
-                showLiveView();
-            } };
+                projectItem.onclick = function() {
+                    selectProject(project.id);
+                };
                 projectItem.innerHTML =
                     '<div class="project-item-header">' +
                         '<span class="project-item-name">' + escapeHtml(project.name || 'Untitled') + '</span>' +
@@ -380,6 +378,10 @@ function parseSSEMessage(buffer, onEvent) {
 function handleAgentStatus(data) {
     if (data.type === 'start') {
         currentRunningJobId = data.job_id;
+        // Update button states for the current project
+        if (currentRunningProjectId) {
+            updateRunButtonState(currentRunningProjectId, 'running');
+        }
     } else if (data.type === 'complete') {
         loadJobs();
         agentRunning = false;
@@ -710,7 +712,21 @@ function selectProject(projectId) {
             safeSet('details-root-dir', project.rootDirectory || '');
             safeSet('details-instructions', project.instructions || '');
             buildToolSelector(project.enabled_tools || []);
-            loadJobs();
+            // Check if this project has a running job and show VIEW LIVE button
+            fetch('/api/queue')
+                .then(function(r) { return r.json(); })
+                .then(function(queueData) {
+                    var isRunning = queueData.running && queueData.running.project_id === projectId;
+                    var isQueued = queueData.queue && queueData.queue.some(function(j) { return j.project_id === projectId; });
+                    updateRunButtonState(projectId, isRunning ? 'running' : (isQueued ? 'queued' : null));
+                    // Show VIEW LIVE button if project is running
+                    if (isRunning) {
+                        var liveBtn = document.getElementById('details-live-btn');
+                        if (liveBtn) liveBtn.style.display = 'inline-block';
+                        var stopBtn = document.getElementById('details-stop-btn');
+                        if (stopBtn) stopBtn.style.display = 'inline-block';
+                    }
+                });
         })
         .catch(function(err) { console.error('Failed to load project details:', err); });
 }
@@ -1259,20 +1275,30 @@ function showLiveViewForJob(jobId) {
     container.style.display = 'block';
     container.scrollIntoView({ behavior: 'smooth' });
     container.dataset.jobId = jobId;
-    // Just show the existing job, don't start a new one
-    var agentBox = document.getElementById('agent-live-box');
-    var statusText = document.getElementById('agent-status-text');
-    if (agentBox) agentBox.innerHTML = '<div class="step-entry llm-step">Viewing live feed for job ' + jobId.substring(0, 8) + '...</div>';
-    if (statusText) { statusText.textContent = 'LIVE FEED'; statusText.style.color = 'var(--info)'; }
-    // If the job is still running, connect to its SSE stream
+    // Check if the job is still running - if so, connect to its SSE stream
     fetch('/api/queue')
         .then(function(r) { return r.json(); })
         .then(function(queueData) {
             var isRunning = queueData.running && queueData.running.job_id === jobId;
             if (isRunning) {
-                connectToJobSSE(jobId);
+                // Job is running - just show the view and enable inject, DON'T start a new run
+                currentRunningJobId = jobId;
+                agentRunning = true;
+                liveInjectActive = true;
+                var agentBox = document.getElementById('agent-live-box');
+                if (agentBox) agentBox.innerHTML = '<div class="step-entry llm-step">📺 Viewing live feed for running job...</div>';
+                var statusText = document.getElementById('agent-status-text');
+                if (statusText) { statusText.textContent = 'LIVE'; statusText.style.color = 'var(--success)'; }
+                var injectInput = document.getElementById('live-inject-input');
+                var injectBtn = document.getElementById('live-inject-btn');
+                if (injectInput) { injectInput.disabled = false; injectInput.placeholder = 'Type instructions or questions...'; }
+                if (injectBtn) { injectBtn.disabled = false; injectBtn.textContent = 'INJECT'; }
             } else {
                 // Job not running, just show the view
+                var agentBox = document.getElementById('agent-live-box');
+                var statusText = document.getElementById('agent-status-text');
+                if (agentBox) agentBox.innerHTML = '<div class="step-entry llm-step">Job completed. Viewing history.</div>';
+                if (statusText) { statusText.textContent = 'COMPLETED'; statusText.style.color = 'var(--success)'; }
                 var injectInput = document.getElementById('live-inject-input');
                 var injectBtn = document.getElementById('live-inject-btn');
                 if (injectInput) { injectInput.disabled = false; injectInput.placeholder = 'Continue with new instructions...'; }
