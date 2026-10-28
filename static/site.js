@@ -432,6 +432,17 @@ function handleAgentStatus(data) {
         if (ib4) { ib4.disabled = false; ib4.textContent = 'INJECT'; }
         var rb4 = document.getElementById('details-run-btn');
         if (rb4) { rb4.disabled = false; rb4.innerHTML = 'RUN AI BUILDER'; }
+    } else if (data.type === 'pending_user_input') {
+        agentRunning = false;
+        liveInjectActive = true;
+        var st5 = document.getElementById('agent-status-text');
+        if (st5) { st5.textContent = 'AWAITING INPUT'; st5.style.color = 'var(--warning)'; st5.style.fontWeight = 'bold'; }
+        var ii5 = document.getElementById('live-inject-input');
+        var ib5 = document.getElementById('live-inject-btn');
+        if (ii5) { ii5.disabled = false; ii5.placeholder = 'Inject instructions or click RUN to continue...'; }
+        if (ib5) { ib5.disabled = false; ib5.textContent = 'INJECT'; }
+        var rb5 = document.getElementById('details-run-btn');
+        if (rb5) { rb5.disabled = false; rb5.innerHTML = 'RUN AI BUILDER'; }
     } else if (data.type === 'max_steps_reached') {
         agentRunning = false;
         liveInjectActive = true;
@@ -553,6 +564,7 @@ function injectLiveInstruction() {
         agentBox.scrollTop = agentBox.scrollHeight;
     }
     if (agentRunning && currentRunningJobId) {
+        // Agent is actively running — inject into the live stream
         fetch('/api/agent/inject', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -566,10 +578,12 @@ function injectLiveInstruction() {
         })
         .catch(function(err) { console.error('Failed to inject instruction:', err); input.disabled = false; if (injectBtn) { injectBtn.disabled = false; injectBtn.textContent = 'INJECT'; } });
     } else if (currentRunningProjectId) {
-        // Agent not running - continue with new instruction
+        // Agent is paused (pending_approval or pending_user_input) —
+        // restart the run with the injected instruction as a continuation
+        // from the previous job, so it picks up where it left off
         continueAgentRunWithInstruction(currentRunningProjectId, currentRunningJobId, instruction);
     } else {
-        // No project running - try to find a recent job to continue
+        // No project running — start fresh
         alert('No active project. Select a project and click RUN to start, or inject while an agent is running.');
         input.disabled = false;
         if (injectBtn) { injectBtn.disabled = false; injectBtn.textContent = 'INJECT'; }
@@ -707,20 +721,20 @@ function updateRunButtonState(projectId, status) {
         else if (status === 'queued') listBtn.innerHTML = '<span class="run-spinner"></span> QUEUED';
         else listBtn.innerHTML = 'RUN';
     }
-    if (stopListBtn) stopListBtn.style.display = status === 'running' ? 'inline-block' : 'none';
+    if (stopListBtn) stopListBtn.style.display = (status === 'running' || status === 'pending_approval' || status === 'pending_user_input') ? 'inline-block' : 'none';
     if (detailBtn && currentProjectId === projectId) {
-        detailBtn.disabled = status === 'running';
+        detailBtn.disabled = (status === 'running' || status === 'pending_approval' || status === 'pending_user_input');
         if (status === 'running') detailBtn.innerHTML = '<span class="run-spinner"></span> RUNNING...';
         else if (status === 'queued') detailBtn.innerHTML = '<span class="run-spinner"></span> QUEUED';
         else detailBtn.innerHTML = 'RUN AI BUILDER';
     }
     if (detailStopBtn && currentProjectId === projectId) {
-        detailStopBtn.style.display = status === 'running' ? 'inline-block' : 'none';
+        detailStopBtn.style.display = (status === 'running' || status === 'pending_approval' || status === 'pending_user_input') ? 'inline-block' : 'none';
     }
-    // Show/hide VIEW LIVE button
+    // Show/hide VIEW LIVE button for running, pending_approval, pending_user_input
     var liveBtn = document.getElementById('details-live-btn');
     if (liveBtn && currentProjectId === projectId) {
-        liveBtn.style.display = status === 'running' ? 'inline-block' : 'none';
+        liveBtn.style.display = (status === 'running' || status === 'pending_approval' || status === 'pending_user_input') ? 'inline-block' : 'none';
     }
 }
 
@@ -955,7 +969,7 @@ function renderJobs(queueData, history) {
             (job.error ? '<div class="history-item-error">Error: ' + escapeHtml(job.error) + '</div>' : '') +
             (job.summary ? '<div class="history-item-summary">Summary: ' + escapeHtml(job.summary.substring(0, 150)) + '</div>' : '') +
             stepsHtml +
-            (job.status === 'running' ? '<div style="margin-top:8px;display:flex;gap:6px;"><button class="btn btn-sm btn-info" onclick="event.stopPropagation(); showLiveViewForJob(\'' + job.job_id + '\')">📺 VIEW LIVE</button><button class="btn btn-sm btn-danger" onclick="event.stopPropagation(); stopJob(\'' + job.job_id + '\')">STOP</button></div>' : '') +
+            (job.status === 'running' || job.status === 'pending_approval' || job.status === 'pending_user_input' ? '<div style="margin-top:8px;display:flex;gap:6px;"><button class="btn btn-sm btn-info" onclick="event.stopPropagation(); showLiveViewForJob(\'' + job.job_id + '\')">📺 VIEW LIVE</button><button class="btn btn-sm btn-danger" onclick="event.stopPropagation(); stopJob(\'' + job.job_id + '\')">STOP</button></div>' : '') +
             '<div style="margin-top:6px;"><button class="btn btn-xs btn-secondary" onclick="event.stopPropagation(); deleteJob(\'' + job.job_id + '\')">DELETE</button></div>';
         list.appendChild(item);
     });

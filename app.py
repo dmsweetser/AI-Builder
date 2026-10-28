@@ -1043,35 +1043,16 @@ def api_agent_run():
                         "tool_name": "unknown",
                     })
 
-                # Handle pending_user_input: auto-continue by sending a format reminder
-                # instead of waiting for user input
-                auto_continue_count = 0
-                max_auto_continues = 5
-                while result.get("status") == "pending_user_input" and auto_continue_count < max_auto_continues:
-                    auto_continue_count += 1
-                    _log_app_event(f"Auto-continuing after pending_user_input (attempt {auto_continue_count}/{max_auto_continues})")
-                    # Send a format reminder and continue
-                    engine.messages.append({
-                        "role": "user",
-                        "content": (
-                            "[FORMAT ERROR] Your previous responses did not contain valid tool calls. "
-                            "Your ENTIRE response must be ONLY a tool call block or [DONE]. "
-                            "Do NOT write any reasoning, thinking, or explanation text. "
-                            "Here is the EXACT format you must use:\n\n"
-                            "[TOOL_START]\n"
-                            "[TOOL_NAME]\n"
-                            "list_directory\n"
-                            "[PARAM_NAME]\n"
-                            "path\n"
-                            "[PARAM_VALUE]\n"
-                            ".\n"
-                            "[TOOL_END]\n\n"
-                            "Start with list_directory to explore the project. NOTHING ELSE."
-                        )
+                # Handle pending_user_input: signal the SSE handler so the UI
+                # can show the pending-input banner. The engine has already
+                # returned — the user can inject instructions or restart
+                # the run to continue from where it left off.
+                elif result.get("status") == "pending_user_input":
+                    event_queue.put({
+                        "type": "__pending_user_input__",
+                        "step": result.get("steps", 0),
+                        "response": result.get("summary", ""),
                     })
-                    result = engine.run()
-                    engine_result[0] = result
-                    engine_step_history[0] = engine.step_history
 
                 # Push a sentinel to signal completion
                 event_queue.put({"type": "__done__"})
@@ -1175,6 +1156,17 @@ def api_agent_run():
                 yield "event: status\ndata: " + json.dumps({
                     "type": "pending_approval",
                     "message": "Agent is waiting for tool approval. Go to TOOLS tab to approve or reject.",
+                }) + "\n\n"
+            elif ev["type"] == "__pending_user_input__":
+                # Engine returned pending_user_input status — notify UI
+                yield "event: pending_user_input\ndata: " + json.dumps({
+                    "step": ev.get("step", 0),
+                    "response": ev.get("response", ""),
+                }) + "\n"
+                # Also emit a status event so the UI knows the agent is paused
+                yield "event: status\ndata: " + json.dumps({
+                    "type": "pending_user_input",
+                    "message": "Agent is waiting for user input. Inject instructions or restart the run to continue.",
                 }) + "\n\n"
             elif ev["type"] == "pending_user_input":
                 _log_app_event(f"Agent pending_user_input — job_id={job_id}, step={ev.get('step')}")

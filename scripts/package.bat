@@ -50,7 +50,6 @@ pyinstaller ^
     --hidden-import=agent_engine.tools ^
     --add-data "templates;templates" ^
     --add-data "static;static" ^
-    --add-data "base_config.xml;." ^
     --add-data "agent_engine;agent_engine" ^
     "%~dp0..\app.py"
 
