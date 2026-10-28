@@ -788,12 +788,29 @@ function selectProject(projectId) {
                     var isRunning = queueData.running && queueData.running.project_id === projectId;
                     var isQueued = queueData.queue && queueData.queue.some(function(j) { return j.project_id === projectId; });
                     updateRunButtonState(projectId, isRunning ? 'running' : (isQueued ? 'queued' : null));
-                    // Show VIEW LIVE button if project is running
+                    // Show VIEW LIVE button if project is running, pending_approval, or pending_user_input
                     if (isRunning) {
                         var liveBtn = document.getElementById('details-live-btn');
                         if (liveBtn) liveBtn.style.display = 'inline-block';
                         var stopBtn = document.getElementById('details-stop-btn');
                         if (stopBtn) stopBtn.style.display = 'inline-block';
+                    } else {
+                        // Check job history for pending_approval or pending_user_input
+                        fetch('/api/history')
+                            .then(function(r) { return r.json(); })
+                            .then(function(history) {
+                                var recentJob = history.find(function(h) {
+                                    return h.project_id === projectId &&
+                                           (h.status === 'pending_approval' || h.status === 'pending_user_input');
+                                });
+                                if (recentJob) {
+                                    var liveBtn = document.getElementById('details-live-btn');
+                                    if (liveBtn) liveBtn.style.display = 'inline-block';
+                                    var stopBtn = document.getElementById('details-stop-btn');
+                                    if (stopBtn) stopBtn.style.display = 'inline-block';
+                                    currentRunningJobId = recentJob.job_id;
+                                }
+                            });
                     }
                 });
         })
@@ -918,6 +935,14 @@ function loadJobs() {
             var currentStatus = null;
             if (queueData.running && queueData.running.project_id === currentProjectId) currentStatus = 'running';
             else if (queueData.queue && queueData.queue.some(function(j) { return j.project_id === currentProjectId; })) currentStatus = 'queued';
+            // Also check for pending_approval or pending_user_input in history
+            if (!currentStatus) {
+                var pendingJob = history.find(function(h) {
+                    return h.project_id === currentProjectId &&
+                           (h.status === 'pending_approval' || h.status === 'pending_user_input');
+                });
+                if (pendingJob) currentStatus = pendingJob.status;
+            }
             updateRunButtonState(currentProjectId, currentStatus);
         }
     })
@@ -1338,7 +1363,20 @@ function showLiveView() {
             if (runningJob) {
                 showLiveViewForJob(runningJob.job_id);
             } else {
-                showNotification('No active job to view', 'warning');
+                // Check job history for pending_approval or pending_user_input
+                fetch('/api/history')
+                    .then(function(r) { return r.json(); })
+                    .then(function(history) {
+                        var pendingJob = history.find(function(h) {
+                            return h.project_id === currentProjectId &&
+                                   (h.status === 'pending_approval' || h.status === 'pending_user_input');
+                        });
+                        if (pendingJob) {
+                            showLiveViewForJob(pendingJob.job_id);
+                        } else {
+                            showNotification('No active job to view', 'warning');
+                        }
+                    });
             }
         })
         .catch(function(err) { console.error('Failed to check job status:', err); showNotification('No active job to view', 'warning'); });
@@ -1350,37 +1388,107 @@ function showLiveViewForJob(jobId) {
     container.style.display = 'block';
     container.scrollIntoView({ behavior: 'smooth' });
     container.dataset.jobId = jobId;
-    // Check if the job is still running - if so, connect to its SSE stream
+    currentRunningJobId = jobId;
+
+    // Check if the job is still running or paused
     fetch('/api/queue')
         .then(function(r) { return r.json(); })
         .then(function(queueData) {
             var isRunning = queueData.running && queueData.running.job_id === jobId;
-            if (isRunning) {
-                // Job is running - just show the view and enable inject, DON'T start a new run
-                currentRunningJobId = jobId;
+            var isPendingApproval = queueData.running && queueData.running.status === 'pending_approval';
+            var isPendingInput = queueData.running && queueData.running.status === 'pending_user_input';
+
+            if (isRunning || isPendingApproval || isPendingInput) {
+                // Job is running or paused - show the view and enable inject
                 agentRunning = true;
                 liveInjectActive = true;
                 var agentBox = document.getElementById('agent-live-box');
-                if (agentBox) agentBox.innerHTML = '<div class="step-entry llm-step">📺 Viewing live feed for running job...</div>';
+                if (agentBox) {
+                    var statusLabel = isPendingApproval ? 'PENDING APPROVAL' :
+                                      (isPendingInput ? 'AWAITING INPUT' : 'LIVE');
+                    agentBox.innerHTML = '<div class="step-entry llm-step">📺 Viewing live feed for running job (' + statusLabel + ')...</div>';
+                }
                 var statusText = document.getElementById('agent-status-text');
-                if (statusText) { statusText.textContent = 'LIVE'; statusText.style.color = 'var(--success)'; }
+                if (statusText) {
+                    statusText.textContent = statusLabel;
+                    statusText.style.color = isPendingApproval || isPendingInput ? 'var(--warning)' : 'var(--success)';
+                }
                 var injectInput = document.getElementById('live-inject-input');
                 var injectBtn = document.getElementById('live-inject-btn');
                 if (injectInput) { injectInput.disabled = false; injectInput.placeholder = 'Type instructions or questions...'; }
                 if (injectBtn) { injectBtn.disabled = false; injectBtn.textContent = 'INJECT'; }
+                // Start SSE connection for live feed
+                connectToJobSSE(jobId);
             } else {
-                // Job not running, just show the view
-                var agentBox = document.getElementById('agent-live-box');
-                var statusText = document.getElementById('agent-status-text');
-                if (agentBox) agentBox.innerHTML = '<div class="step-entry llm-step">Job completed. Viewing history.</div>';
-                if (statusText) { statusText.textContent = 'COMPLETED'; statusText.style.color = 'var(--success)'; }
-                var injectInput = document.getElementById('live-inject-input');
-                var injectBtn = document.getElementById('live-inject-btn');
-                if (injectInput) { injectInput.disabled = false; injectInput.placeholder = 'Continue with new instructions...'; }
-                if (injectBtn) { injectBtn.disabled = false; injectBtn.textContent = 'INJECT'; }
+                // Job not running - load history
+                loadJobHistory(jobId);
             }
         })
         .catch(function(err) { console.error('Failed to check job status:', err); });
+}
+
+function loadJobHistory(jobId) {
+    var agentBox = document.getElementById('agent-live-box');
+    var statusText = document.getElementById('agent-status-text');
+
+    // Try to get step history from the job
+    fetch('/api/agent/history/' + jobId)
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.steps && data.steps.length > 0) {
+                agentBox.innerHTML = '';
+                data.steps.forEach(function(step) {
+                    var entry = document.createElement('div');
+                    entry.className = 'step-entry';
+                    entry.style.borderLeftColor = 'var(--mc-blue)';
+                    var toolName = step.tool || 'unknown';
+                    var result = step.result || {};
+                    var content = result.content || result.summary || '';
+                    var error = result.error || '';
+                    var html = '<div class="step-tool">' + escapeHtml(toolName) + '</div>';
+                    if (error) {
+                        html += '<div class="step-result" style="color:var(--danger);">Error: ' + escapeHtml(error) + '</div>';
+                    } else if (content) {
+                        html += '<div class="step-result">' + escapeHtml(content.substring(0, 500)) + (content.length > 500 ? '...' : '') + '</div>';
+                    }
+                    entry.innerHTML = html;
+                    agentBox.appendChild(entry);
+                });
+                if (statusText) { statusText.textContent = 'HISTORY'; statusText.style.color = 'var(--text-muted)'; }
+            } else {
+                // Try to get history from the job history API
+                fetch('/api/history')
+                    .then(function(r) { return r.json(); })
+                    .then(function(history) {
+                        var job = history.find(function(h) { return h.job_id === jobId; });
+                        if (job && job.step_history && job.step_history.length > 0) {
+                            agentBox.innerHTML = '';
+                            job.step_history.forEach(function(step) {
+                                var entry = document.createElement('div');
+                                entry.className = 'step-entry';
+                                entry.style.borderLeftColor = 'var(--mc-blue)';
+                                var toolName = step.tool || 'unknown';
+                                var result = step.result || {};
+                                var content = result.content || result.summary || '';
+                                var error = result.error || '';
+                                var html = '<div class="step-tool">' + escapeHtml(toolName) + '</div>';
+                                if (error) {
+                                    html += '<div class="step-result" style="color:var(--danger);">Error: ' + escapeHtml(error) + '</div>';
+                                } else if (content) {
+                                    html += '<div class="step-result">' + escapeHtml(content.substring(0, 500)) + (content.length > 500 ? '...' : '') + '</div>';
+                                }
+                                entry.innerHTML = html;
+                                agentBox.appendChild(entry);
+                            });
+                            if (statusText) { statusText.textContent = 'HISTORY'; statusText.style.color = 'var(--text-muted)'; }
+                        } else {
+                            agentBox.innerHTML = '<div class="step-entry llm-step">No history available for this job.</div>';
+                            if (statusText) { statusText.textContent = 'NO HISTORY'; statusText.style.color = 'var(--text-muted)'; }
+                        }
+                    });
+            }
+        })
+        .catch(function(err) { console.error('Failed to load job history:', err); });
 }
 
 function connectToJobSSE(jobId) {

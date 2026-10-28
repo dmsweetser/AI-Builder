@@ -1008,8 +1008,10 @@ def api_agent_run():
                 }
                 engine = AgentEngine(config, output_dir=output_dir, step_callback=on_event)
                 # Ensure the engine's ToolRegistry uses the global aib_instance
-                # directory so it can find approved tools from the global file
-                engine.tools = get_registry(_AIB_INSTANCE, enabled_tools=enabled_tools)
+                # directory for pending tools file, but keeps the project's root_dir
+                # for all tool operations. The root_dir is already set in the
+                # AgentEngine.__init__ from project_config["rootDirectory"].
+                engine.tools = get_registry(engine.root_dir, enabled_tools=enabled_tools)
                 from agent_engine.engine import build_system_prompt
                 engine.system_prompt = build_system_prompt(engine.tools.list_tools())
                 engine.messages[0]["content"] = engine.system_prompt
