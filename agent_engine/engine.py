@@ -338,7 +338,7 @@ After each tool result, your ENTIRE response must be exactly one of:
 You are NOT allowed to write any text outside of tool call blocks or [DONE].
 Any text outside these formats will be ignored.
 
-CRITICAL: Make EXACTLY ONE tool call per response. Do not include multiple tool call blocks.
+CRITICAL: Make EXACTLY ONE tool call per response. Do not include multiple tool call blocks. If you include more than one [TOOL_START]...[TOOL_END] block, only the FIRST one will be executed — the rest will be ignored as invalid output.
 
 IMPORTANT: You are bounded to the project root directory by default. All file paths are relative to it.
 You CANNOT read or write files outside the project root unless the task instructions explicitly specify an absolute path (e.g., /tmp/something.py).

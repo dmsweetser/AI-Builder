@@ -243,12 +243,24 @@ function _doRunProject(projectId, overrideInstruction) {
                 var done = result.done;
                 var value = result.value;
                 if (done || !agentRunning) {
+                    // Process any remaining events in the buffer before returning
+                    // (e.g., the 'complete' status event might be in the buffer)
+                    if (buffer && buffer.length > 0) {
+                        buffer = parseSSEMessage(buffer, function(eventType, data) {
+                            if (eventType === 'status') handleAgentStatus(data);
+                            else if (eventType === 'step') handleAgentStep(data, agentBox);
+                            else if (eventType === 'pending_approval') handlePendingApproval(data, agentBox);
+                            else if (eventType === 'pending_user_input') handlePendingUserInput(data, agentBox);
+                        });
+                    }
                     agentRunning = false;
-                    liveInjectActive = false;
                     resetRunButtons();
                     if (stopBtn) stopBtn.style.display = 'none';
-                    if (injectInput) { injectInput.disabled = true; injectInput.placeholder = 'Agent stopped'; }
-                    if (injectBtn) { injectBtn.disabled = true; injectBtn.textContent = 'WAITING'; }
+                    // Only disable inject button if handleAgentStatus didn't already enable it
+                    if (!liveInjectActive) {
+                        if (injectInput) { injectInput.disabled = false; injectInput.placeholder = 'Agent stopped'; }
+                        if (injectBtn) { injectBtn.disabled = false; injectBtn.textContent = 'INJECT'; }
+                    }
                     return;
                 }
                 buffer += decoder.decode(value, { stream: true });
@@ -386,6 +398,8 @@ function handleAgentStatus(data) {
         loadJobs();
         agentRunning = false;
         liveInjectActive = true;
+        // Preserve the last completed job ID so inject can continue from it
+        // (don't clear currentRunningJobId)
         var st = document.getElementById('agent-status-text');
         if (st) { st.textContent = 'COMPLETED'; st.style.color = 'var(--success)'; }
         var ii = document.getElementById('live-inject-input');
@@ -398,6 +412,7 @@ function handleAgentStatus(data) {
         loadJobs();
         agentRunning = false;
         liveInjectActive = true;
+        // Preserve job ID on error too
         var st2 = document.getElementById('agent-status-text');
         if (st2) { st2.textContent = 'ERROR'; st2.style.color = 'var(--danger)'; }
         var ii2 = document.getElementById('live-inject-input');
@@ -432,18 +447,18 @@ function handleAgentStep(data, agentBox) {
         entry.innerHTML = '<div class="step-tool">Thinking (' + msgCount + ' messages)</div><div class="step-result">Processing request...</div>';
     } else if (data.tool === 'format_retry') {
         entry.classList.add('llm-step');
-        entry.innerHTML = '<div class="step-tool" style="color:var(--warning);">Format reminder sent</div><div class="step-result" style="color:var(--warning);">' + escapeHtml(data.result ? data.result.content : '') + '</div>';
+        entry.innerHTML = '<div class="step-tool" style="color:var(--warning);">⚠ Format reminder sent</div><div class="step-result" style="color:var(--warning);">' + escapeHtml(data.result ? data.result.content : '') + '</div>';
     } else {
         var ok = data.result && data.result.success !== false;
         var resultPreview = data.result ? (data.result.content || '').substring(0, 500) : 'no result';
         entry.classList.add(ok ? 'success' : 'error');
-        var html = '<div class="step-tool">' + (ok ? '✓' : '✗') + ' ' + data.tool + '</div>';
+        var html = '<div class="step-tool">' + (ok ? '✓' : '✗') + ' ' + escapeHtml(data.tool) + '</div>';
         if (data.rationale) {
             html += '<div class="step-rationale">💡 ' + escapeHtml(data.rationale) + '</div>';
         }
         if (data.params && Object.keys(data.params).length) {
             html += '<div class="step-params">' + escapeHtml(JSON.stringify(data.params)) + '</div>';
-        }
+            }
         html += '<div class="step-result">' + escapeHtml(resultPreview) + '</div>';
         entry.innerHTML = html;
     }
@@ -639,6 +654,16 @@ function resetRunButtons() {
     var stopBtn = document.getElementById('details-stop-btn');
     if (runBtn) { runBtn.disabled = false; runBtn.innerHTML = 'RUN AI BUILDER'; }
     if (stopBtn) stopBtn.style.display = 'none';
+    // Restore inject button state based on liveInjectActive flag
+    // (processChunk sets it to WAITING, but handleAgentStatus may have
+    // already set it to INJECT — we need to respect that)
+    var injectInput = document.getElementById('live-inject-input');
+    var injectBtn = document.getElementById('live-inject-btn');
+    if (liveInjectActive) {
+        // Agent completed or was interrupted — allow injection
+        if (injectInput) { injectInput.disabled = false; injectInput.placeholder = 'Continue with new instructions...'; }
+        if (injectBtn) { injectBtn.disabled = false; injectBtn.textContent = 'INJECT'; }
+    }
 }
 
 function updateRunButtonState(projectId, status) {
