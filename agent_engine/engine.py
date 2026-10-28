@@ -1179,34 +1179,6 @@ class AgentEngine:
                         # Action step (write, edit, delete, check_syntax, etc.) — reset counter
                         self._read_step_count = 0
                         self._action_forced = False
-
-                    # Enforce read budget: if too many read steps in a row, force action
-                    if (self._read_step_count >= self._max_read_steps and
-                        not self._action_forced):
-                        self._action_forced = True
-                        self.logger.warning(
-                            f"Read budget exceeded: {self._read_step_count} consecutive read steps "
-                            f"(max: {self._max_read_steps}). Forcing action."
-                        )
-                        # List files the LLM has already read so it knows what's available
-                        read_files_list = ", ".join(sorted(self._files_seen))
-                        action_forced_msg = (
-                            f"\n\n[READ BUDGET EXCEEDED] You have read {self._read_step_count} times "
-                            f"without making any changes. This is not productive.\n\n"
-                            f"YOUR TASK: Fix these issues in the Walbert project:\n"
-                            f"1. User prompt '>>>>>' not showing at app start\n"
-                            f"2. Moose ASCII art offset due to slash escaping\n"
-                            f"3. Replace llama-completion with llama-server background thread\n\n"
-                            f"YOU MUST NOW TAKE ACTION. Your options:\n"
-                            f"1. Use edit_file to fix issues in the files you've read: {read_files_list}\n"
-                            f"2. Use write_file to create a new file\n"
-                            f"3. Use delete_file to remove an unwanted file\n"
-                            f"4. Use check_syntax to verify your changes\n\n"
-                            f"DO NOT read any more files. DO NOT explore further. TAKE ACTION NOW."
-                        )
-                        self.messages.append({"role": "user", "content": action_forced_msg})
-                        continue
-
             return {
                 "status": "completed" if final_summary else "max_steps_reached",
                 "steps": self.step_count,
