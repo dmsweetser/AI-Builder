@@ -133,6 +133,10 @@ function showTab(tabName) {
 function toggleCreateForm() {
     var form = document.getElementById('create-project-form');
     if (form) form.style.display = form.style.display === 'none' ? 'block' : 'none';
+    // Build tool selector when form is shown
+    if (form && form.style.display === 'block') {
+        buildToolSelectorForElement('add-tool-selector', []);
+    }
 }
 
 // === Project Management ===
@@ -740,7 +744,7 @@ function updateRunButtonState(projectId, status) {
     // Show/hide VIEW LIVE button for running, pending_approval, pending_user_input
     var liveBtn = document.getElementById('details-live-btn');
     if (liveBtn && currentProjectId === projectId) {
-        liveBtn.style.display = (status === 'running' || status === 'pending_approval' || status === 'pending_user_input') ? 'inline-block' : 'none';
+        liveBtn.style.display = 'inline-block';
     }
 }
 
@@ -884,6 +888,13 @@ function saveProjectChanges() {
     var projectId = document.getElementById('run-project-id') ? document.getElementById('run-project-id').value : null;
     if (!projectId) return;
     var formData = new FormData(document.getElementById('project-details-form'));
+    // Add enabled_tools from the tool selector
+    var checkboxes = document.querySelectorAll('#details-tool-selector input[type="checkbox"]');
+    checkboxes.forEach(function(cb) {
+        if (cb.checked) {
+            formData.append('enabled_tools', cb.value);
+        }
+    });
     fetch('/api/projects/' + projectId, { method: 'POST', body: formData })
         .then(function(res) { return res.json(); })
         .then(function(data) { if (data.status === 'saved') console.log('Project saved'); })
@@ -892,7 +903,11 @@ function saveProjectChanges() {
 
 // === Tool Selector ===
 function buildToolSelector(enabledTools) {
-    var container = document.getElementById('details-tool-selector');
+    buildToolSelectorForElement('details-tool-selector', enabledTools);
+}
+// Generic tool selector builder for any element ID
+function buildToolSelectorForElement(elementId, enabledTools) {
+    var container = document.getElementById(elementId);
     if (!container) return;
     container.innerHTML = '';
     fetch('/api/tools/approved')
@@ -900,7 +915,7 @@ function buildToolSelector(enabledTools) {
         .then(function(approvedTools) {
             var allTools = AVAILABLE_TOOLS.concat(approvedTools.map(function(t) { return t.name; }));
             allTools.forEach(function(tool) {
-                var checked = enabledTools.indexOf(tool) !== -1 || enabledTools.length === 0;
+                var checked = enabledTools.length === 0 || enabledTools.indexOf(tool) !== -1;
                 var label = document.createElement('label');
                 label.className = 'tool-checkbox';
                 var isCustom = approvedTools.some(function(t) { return t.name === tool; });
@@ -911,7 +926,7 @@ function buildToolSelector(enabledTools) {
         })
         .catch(function() {
             AVAILABLE_TOOLS.forEach(function(tool) {
-                var checked = enabledTools.indexOf(tool) !== -1 || enabledTools.length === 0;
+                var checked = enabledTools.length === 0 || enabledTools.indexOf(tool) !== -1;
                 var label = document.createElement('label');
                 label.className = 'tool-checkbox';
                 label.innerHTML = '<input type="checkbox" name="enabled_tools" value="' + tool + '"' + (checked ? ' checked' : '') + '> ' + tool;
@@ -919,6 +934,7 @@ function buildToolSelector(enabledTools) {
             });
         });
 }
+
 
 function getEnabledTools() {
     var checkboxes = document.querySelectorAll('#details-tool-selector input[type="checkbox"]');
@@ -1000,7 +1016,6 @@ function renderJobs(queueData, history) {
             (job.error ? '<div class="history-item-error">Error: ' + escapeHtml(job.error) + '</div>' : '') +
             (job.summary ? '<div class="history-item-summary">Summary: ' + escapeHtml(job.summary.substring(0, 150)) + '</div>' : '') +
             stepsHtml +
-            (job.status === 'running' || job.status === 'pending_approval' || job.status === 'pending_user_input' ? '<div style="margin-top:8px;display:flex;gap:6px;"><button class="btn btn-sm btn-info" onclick="event.stopPropagation(); showLiveViewForJob(\'' + job.job_id + '\')">📺 VIEW LIVE</button><button class="btn btn-sm btn-danger" onclick="event.stopPropagation(); stopJob(\'' + job.job_id + '\')">STOP</button></div>' : '') +
             '<div style="margin-top:6px;"><button class="btn btn-xs btn-secondary" onclick="event.stopPropagation(); deleteJob(\'' + job.job_id + '\')">DELETE</button></div>';
         list.appendChild(item);
     });
@@ -1366,13 +1381,13 @@ function showNotification(message, type) {
 }
 
 // === Live View Functions ===
-function showLiveView() {
+function showLiveView(project_id) {
     // Check if there's a running job for this project
     var runningJob = null;
     fetch('/api/queue')
         .then(function(r) { return r.json(); })
         .then(function(queueData) {
-            if (queueData.running && queueData.running.project_id === currentProjectId) {
+            if (queueData.running && queueData.running.project_id === project_id) {
                 runningJob = queueData.running;
             }
             if (runningJob) {
@@ -1612,6 +1627,13 @@ document.addEventListener('DOMContentLoaded', function() {
         form.addEventListener('submit', function(e) {
             e.preventDefault();
             var formData = new FormData(this);
+            // Add enabled_tools from the tool selector
+            var checkboxes = document.querySelectorAll('#add-tool-selector input[type="checkbox"]');
+            checkboxes.forEach(function(cb) {
+                if (cb.checked) {
+                    formData.append('enabled_tools', cb.value);
+                }
+            });
             var formRef = this;
             fetch('/api/projects', { method: 'POST', body: formData })
                 .then(function(res) { return res.json(); })
