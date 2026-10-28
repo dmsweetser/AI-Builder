@@ -344,6 +344,75 @@ def get_concurrent_job_info(pid):
                 return False, True, job["job_id"]
         return False, False, None
 
+def _reconstruct_from_step_history(engine, step_history, instructions):
+    """Reconstruct conversation history from step_history (fallback when conversation_history.json is not available)."""
+    reconstructed_messages = [engine.messages[0]]  # system prompt
+    # Add the initial user prompt
+    reconstructed_messages.append({
+        "role": "user",
+        "content": f"""TASK INSTRUCTIONS:
+{instructions}
+
+CRITICAL INSTRUCTIONS:
+1. You MUST use a tool call to take action. Do NOT just talk about what you will do.
+2. Your FIRST action MUST be: list_directory with path="."
+3. Do NOT use [DONE] until you have actually used tools and gathered information.
+4. Your ENTIRE response must be ONLY a tool call block or [DONE]. No other text.
+5. Format your tool call EXACTLY like this example:
+
+[TOOL_START]
+[TOOL_NAME]
+list_directory
+[PARAM_NAME]
+path
+[PARAM_VALUE]
+.
+[TOOL_END]
+
+STEP 1: Use list_directory to explore the project structure. Do NOT use [DONE] yet - you must take action first."""
+    })
+    # Add tool results from step_history
+    for h in step_history:
+        if h.get("tool") in ("list_directory", "list_directory_deep", "search_files",
+                             "search_files_dir", "grep_code", "grep_code_dir",
+                             "read_file", "read_file_range", "write_file",
+                             "edit_file", "delete_file", "find_symbol",
+                             "decompile_jar", "list_dependencies", "check_syntax",
+                             "get_file_info", "create_tool", "compress_context",
+                             "respond_to_user", "request_user_input"):
+            result = h.get("result", {})
+            content = result.get("content", "")
+            error = result.get("error", "")
+            summary = result.get("summary", "")
+            if error:
+                result_display = f"Error: {error}"
+            elif summary:
+                result_display = summary
+                if content:
+                    result_display += f"\n\nOutput:\n{content}\n"
+            elif content:
+                result_display = content
+            else:
+                result_display = "(no output)"
+            tool_name = h.get("tool", "unknown")
+            reconstructed_messages.append({
+                "role": "user",
+                "content": f"[TOOL RESULT for {tool_name}]\n{result_display}\n[END TOOL RESULT]\n\nNow continue with your next action."
+            })
+    # Add the continuation message
+    reconstructed_messages.append({
+        "role": "user",
+        "content": (
+            f"[CONTINUATION] Your previous run completed. "
+            f"The user has new instructions for you. "
+            f"Please continue working on the project with these new instructions:\n\n"
+            f"{instructions}\n\n"
+            f"Explore the project again and take action."
+        )
+    })
+    engine.messages = reconstructed_messages
+
+
 # --- Routes: Projects ---
 @app.route("/")
 def index():
@@ -1020,25 +1089,53 @@ def api_agent_run():
                 engine.system_prompt = build_system_prompt(engine.tools.list_tools())
                 engine.messages[0]["content"] = engine.system_prompt
 
-                # If continuing, load previous step history into the engine
+                # If continuing, load previous step history and reconstruct conversation
                 if prev_step_history:
                     engine.step_history = prev_step_history
                     engine.step_count = len(prev_step_history)
-                    # Inject a user message so the agent knows to continue
-                    engine.messages.append({
-                        "role": "user",
-                        "content": (
-                            f"[CONTINUATION] Your previous run completed. "
-                            f"The user has new instructions for you. "
-                            f"Please continue working on the project with these new instructions:\n\n"
-                            f"{instructions}\n\n"
-                            f"Explore the project again and take action."
-                        )
-                    })
+                    
+                    # Try to load the full conversation history from the previous run
+                    messages_file = os.path.join(output_dir, "conversation_history.json")
+                    if os.path.exists(messages_file):
+                        try:
+                            with open(messages_file, 'r', encoding='utf-8') as f:
+                                prev_messages = json.load(f)
+                            # The last message in prev_messages is the continuation message from the previous run
+                            # We need to replace it with a new continuation message
+                            if prev_messages and prev_messages[-1].get("role") == "user":
+                                # Remove the old continuation message
+                                prev_messages.pop()
+                                # Add the new continuation message
+                                prev_messages.append({
+                                    "role": "user",
+                                    "content": (
+                                        f"[CONTINUATION] Your previous run completed. "
+                                        f"The user has new instructions for you. "
+                                        f"Please continue working on the project with these new instructions:\n\n"
+                                        f"{instructions}\n\n"
+                                        f"Explore the project again and take action."
+                                    )
+                                })
+                            engine.messages = prev_messages
+                        except Exception as e:
+                            logging.warning(f"Failed to load conversation history: {e}")
+                            # Fall back to reconstructing from step_history
+                            _reconstruct_from_step_history(engine, prev_step_history, instructions)
+                    else:
+                        # Fall back to reconstructing from step_history
+                        _reconstruct_from_step_history(engine, prev_step_history, instructions)
 
                 result = engine.run()
                 engine_result[0] = result
                 engine_step_history[0] = engine.step_history
+
+                # Persist the full conversation history for future continuations
+                messages_file = os.path.join(output_dir, "conversation_history.json")
+                try:
+                    with open(messages_file, 'w', encoding='utf-8') as f:
+                        json.dump(engine.messages, f, indent=2, ensure_ascii=False)
+                except Exception as e:
+                    logging.warning(f"Failed to save conversation history: {e}")
 
                 # Handle pending_approval: signal the SSE handler so the UI
                 # can show the pending-approval banner and let the user
