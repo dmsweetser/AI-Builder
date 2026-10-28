@@ -239,11 +239,11 @@ class TestReadWriteFileTools(unittest.TestCase):
         self.assertEqual(result.content, 'deep content')
 
     def test_write_with_newlines(self):
-        """Test that literal \\n is converted to actual newlines."""
+        """Test that actual newlines in content are preserved."""
         write_tool = WriteFileTool(self.temp_dir)
         result = write_tool.execute({
             'path': 'test.txt',
-            'content': 'line1\\nline2\\nline3'
+            'content': 'line1\nline2\nline3'
         })
         self.assertTrue(result.success)
 
@@ -251,6 +251,48 @@ class TestReadWriteFileTools(unittest.TestCase):
         result = read_tool.execute({'path': 'test.txt'})
         self.assertTrue(result.success)
         self.assertEqual(result.content, 'line1\nline2\nline3')
+
+    def test_write_preserves_escaped_sequences(self):
+        """Test that literal \\n (backslash-n) is preserved as-is in the file.
+
+        This is critical for code generation: when the LLM writes Python code like
+        'x = "\\n".join(parts)', the \\n should appear literally in the file,
+        not be converted to an actual newline.
+        """
+        write_tool = WriteFileTool(self.temp_dir)
+        # In Python source, '\\n' = the two characters \ and n
+        result = write_tool.execute({
+            'path': 'test.py',
+            'content': 'x = "\\n".join(parts)\n'
+        })
+        self.assertTrue(result.success)
+
+        read_tool = ReadFileTool(self.temp_dir)
+        result = read_tool.execute({'path': 'test.py'})
+        self.assertTrue(result.success)
+        # The file should contain literal \n (backslash + n), not an actual newline
+        self.assertEqual(result.content, 'x = "\\n".join(parts)\n')
+
+    def test_write_preserves_escaped_sequences(self):
+        """Test that literal \\n (backslash-n) is preserved as-is in the file.
+
+        This is critical for code generation: when the LLM writes Python code like
+        'x = "\\n".join(parts)', the \\n should appear literally in the file,
+        not be converted to an actual newline.
+        """
+        write_tool = WriteFileTool(self.temp_dir)
+        # In Python source, '\\n' = the two characters \ and n
+        result = write_tool.execute({
+            'path': 'test.py',
+            'content': 'x = "\\n".join(parts)\n'
+        })
+        self.assertTrue(result.success)
+
+        read_tool = ReadFileTool(self.temp_dir)
+        result = read_tool.execute({'path': 'test.py'})
+        self.assertTrue(result.success)
+        # The file should contain literal \n (backslash + n), not an actual newline
+        self.assertEqual(result.content, 'x = "\\n".join(parts)\n')
 
 
 class TestEditFileTool(unittest.TestCase):

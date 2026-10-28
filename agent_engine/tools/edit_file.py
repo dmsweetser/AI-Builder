@@ -22,10 +22,6 @@ class EditFileTool(BaseTool):
         original = params["original_text"]
         new_text = params["new_text"]
 
-        # Interpret literal \n and \t sequences as actual newlines/tabs
-        original = original.replace("\\n", "\n").replace("\\t", "\t").replace("\\r", "\r")
-        new_text = new_text.replace("\\n", "\n").replace("\\t", "\t").replace("\\r", "\r")
-
         if not os.path.isfile(path):
             return ToolResult(False, "", error=f"File not found: {params['path']}")
 

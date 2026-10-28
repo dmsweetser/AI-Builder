@@ -327,6 +327,15 @@ Rules for the format:
 - You MUST include both [TOOL_START] and [TOOL_END]
 - Make exactly ONE tool call per response
 
+STRING LITERAL ESCAPING (CRITICAL):
+- When writing code that contains string literals with escape sequences (e.g., Python's "\n", "\t", "\r"),
+  you MUST double-escape them: use \\n instead of \n, \\t instead of \t, \\r instead of \r.
+- This is because the tool environment converts single-backslash escape sequences to their actual characters.
+- Example for Python: write 'hello\\nworld' in the PARAM_VALUE to produce the source code 'hello\nworld'.
+- Example for JavaScript: write 'line1\\nline2' to produce 'line1\\nline2' in the file.
+- Line breaks in the code itself should be actual newlines (press Enter), not \\n.
+- This rule applies to ALL string literals in ALL languages: Python, JavaScript, Java, C++, etc.
+
 Example:
 {example_block}
 

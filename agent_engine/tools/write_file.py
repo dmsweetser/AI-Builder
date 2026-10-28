@@ -19,8 +19,7 @@ class WriteFileTool(BaseTool):
         path = ensure_under_root(params["path"], self.root_dir)
         content = params["content"]
 
-        # Interpret literal \n and \t sequences as actual newlines/tabs
-        content = content.replace("\\n", "\n").replace("\\t", "\t").replace("\\r", "\r")
+
 
         try:
             dir_path = os.path.dirname(path)

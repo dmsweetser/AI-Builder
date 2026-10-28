@@ -1276,22 +1276,28 @@ function cancelRootPathChange() {
     if (el) el.blur();
 }
 
+function showNotification(message, type) {
+    // Simple alert-based notification (no toast system in current UI)
+    alert(message);
+}
+
 // === Live View Functions ===
 function showLiveView() {
-    var activeJob = getActiveJob();
-    if (!activeJob) {
-        // Check if there's a running job for this project
-        var runningJob = jobs.find(function(j) {
-            return j.status === 'running' && j.projectId === currentProjectId;
-        });
-        if (runningJob) {
-            activeJob = runningJob;
-        } else {
-            showNotification('No active job to view', 'warning');
-            return;
-        }
-    }
-    showLiveViewForJob(activeJob.id);
+    // Check if there's a running job for this project
+    var runningJob = null;
+    fetch('/api/queue')
+        .then(function(r) { return r.json(); })
+        .then(function(queueData) {
+            if (queueData.running && queueData.running.project_id === currentProjectId) {
+                runningJob = queueData.running;
+            }
+            if (runningJob) {
+                showLiveViewForJob(runningJob.job_id);
+            } else {
+                showNotification('No active job to view', 'warning');
+            }
+        })
+        .catch(function(err) { console.error('Failed to check job status:', err); showNotification('No active job to view', 'warning'); });
 }
 
 function showLiveViewForJob(jobId) {
@@ -1388,7 +1394,23 @@ function getActiveJob() {
     if (!container) return null;
     var jobId = container.dataset.jobId;
     if (jobId) {
-        return jobs.find(function(j) { return j.id === jobId || j.job_id === jobId; });
+        // Look up from the queue to get full job info
+        fetch('/api/queue')
+            .then(function(r) { return r.json(); })
+            .then(function(queueData) {
+                if (queueData.running && queueData.running.job_id === jobId) {
+                    return queueData.running;
+                }
+                // Check history
+                fetch('/api/history')
+                    .then(function(r) { return r.json(); })
+                    .then(function(history) {
+                        for (var i = 0; i < history.length; i++) {
+                            if (history[i].job_id === jobId) return history[i];
+                        }
+                    });
+            });
+        return null; // Async — caller should use showLiveViewForJob directly
     }
     return null;
 }
