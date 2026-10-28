@@ -16,10 +16,11 @@ let _loadedProjects = [];
 
 // === Available Tools ===
 const AVAILABLE_TOOLS = [
-    "list_directory", "search_files", "grep_code", "read_file",
+    "list_directory", "list_directory_deep", "search_files", "search_files_dir",
+    "grep_code", "grep_code_dir", "read_file", "read_file_range",
     "write_file", "edit_file", "delete_file", "find_symbol",
     "decompile_jar", "list_dependencies", "check_syntax", "get_file_info",
-    "create_tool", "compress_context"
+    "create_tool", "compress_context", "respond_to_user", "request_user_input"
 ];
 
 // === Utility Functions ===
@@ -463,7 +464,12 @@ function handleAgentStep(data, agentBox) {
     if (stepCount) stepCount.textContent = 'Step ' + data.step;
     var entry = document.createElement('div');
     entry.className = 'step-entry';
-    if (data.tool === 'llm_call') {
+    if (data.tool === 'respond_to_user') {
+        entry.classList.add('llm-step');
+        entry.style.borderLeftColor = 'var(--info)';
+        var respContent = data.result ? (data.result.content || '') : '';
+        entry.innerHTML = '<div class="step-tool" style="color:var(--info);">💬 AI Response</div><div class="step-result">' + escapeHtml(respContent) + '</div>';
+    } else if (data.tool === 'llm_call') {
         var msgCount = data.params ? data.params.messages : 0;
         entry.classList.add('llm-step');
         var rawReq = data.raw_request || '';
@@ -475,12 +481,12 @@ function handleAgentStep(data, agentBox) {
             html += '<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">';
             if (rawReq.length > 0) {
                 var reqId = 'raw-req-' + data.step + '-' + Math.random().toString(36).substr(2,5);
-                var reqPreview = rawReq.length > 2000 ? rawReq.substring(0, 2000) + '...' : rawReq;
+                var reqPreview = rawReq;
                 html += '<details class="raw-data-block"><summary class="raw-summary">📤 Raw Request (' + rawReq.length + ' chars)</summary><div class="raw-content"><pre>' + escapeHtml(reqPreview) + '</pre></div></details>';
             }
             if (rawResp.length > 0) {
                 var respId = 'raw-resp-' + data.step + '-' + Math.random().toString(36).substr(2,5);
-                var respPreview = rawResp.length > 2000 ? rawResp.substring(0, 2000) + '...' : rawResp;
+                var respPreview = rawResp;
                 html += '<details class="raw-data-block"><summary class="raw-summary">📥 Raw Response (' + rawResp.length + ' chars)</summary><div class="raw-content"><pre>' + escapeHtml(respPreview) + '</pre></div></details>';
             }
             html += '</div>';
@@ -578,7 +584,7 @@ function injectLiveInstruction() {
         })
         .catch(function(err) { console.error('Failed to inject instruction:', err); input.disabled = false; if (injectBtn) { injectBtn.disabled = false; injectBtn.textContent = 'INJECT'; } });
     } else if (currentRunningProjectId) {
-        // Agent is paused (pending_approval or pending_user_input) —
+        // Agent is paused (pending_approval or pending_user_input) or completed —
         // restart the run with the injected instruction as a continuation
         // from the previous job, so it picks up where it left off
         continueAgentRunWithInstruction(currentRunningProjectId, currentRunningJobId, instruction);
@@ -1059,10 +1065,19 @@ function renderPendingTools(pendingTools) {
             var item = document.createElement('div');
             item.className = 'pending-tool-item';
             var paramsStr = tool.parameters ? JSON.stringify(tool.parameters, null, 2) : '(none)';
+            var codePreview = tool.code ? escapeHtml(tool.code).substring(0, 1000) : '(no code)';
+            var showMoreId = 'code-show-' + tool.id;
+            var codeBlockId = 'code-block-' + tool.id;
             item.innerHTML =
                 '<div class="tool-name">' + escapeHtml(tool.name) + '</div>' +
                 '<div class="tool-desc">' + escapeHtml(tool.description || '') + '</div>' +
                 '<div class="tool-params">' + escapeHtml(paramsStr) + '</div>' +
+                '<details style="margin:8px 0;"><summary style="cursor:pointer;color:var(--info);">📄 View Tool Source Code (' + (tool.code ? tool.code.length : 0) + ' chars)</summary>' +
+                    '<div id="' + codeBlockId + '" style="margin-top:8px;padding:10px;background:#111;border-radius:4px;overflow:auto;max-height:400px;font-family:monospace;font-size:12px;line-height:1.4;white-space:pre-wrap;">' +
+                        codePreview + (tool.code && tool.code.length > 1000 ? '\n\n... [truncated, click "Expand" to see full code]' : '') +
+                    '</div>' +
+                    (tool.code && tool.code.length > 1000 ? '<button class="btn btn-xs btn-secondary" onclick="event.stopPropagation(); this.parentElement.querySelector(\'div\').style.maxHeight=\'none\'; this.style.display=\'none\';" style="margin-top:4px;">Expand Full Code</button>' : '') +
+                '</details>' +
                 '<div class="tool-actions">' +
                     '<button class="btn btn-sm btn-primary" onclick="approvePendingTool(\'' + tool.id + '\', \'' + escapeHtml(tool.name) + '\')">✓ APPROVE</button>' +
                     '<button class="btn btn-sm btn-danger" onclick="rejectPendingTool(\'' + tool.id + '\', \'' + escapeHtml(tool.name) + '\')">✗ REJECT</button>' +
@@ -1485,6 +1500,10 @@ function loadJobHistory(jobId) {
                             agentBox.innerHTML = '<div class="step-entry llm-step">No history available for this job.</div>';
                             if (statusText) { statusText.textContent = 'NO HISTORY'; statusText.style.color = 'var(--text-muted)'; }
                         }
+                        // Set currentRunningProjectId for inject continuation
+                        if (job && job.project_id) {
+                            currentRunningProjectId = job.project_id;
+                        }
                     });
             }
         })
@@ -1565,6 +1584,27 @@ function getActiveJob() {
         return null; // Async — caller should use showLiveViewForJob directly
     }
     return null;
+}
+
+
+// Browse for root directory
+function browseRootDirectory() {
+    var input = document.createElement('input');
+    input.type = 'file';
+    input.webkitdirectory = '';
+    input.directory = '';
+    input.multiple = '';
+    input.onchange = function(e) {
+        var path = e.target.files[0]?.webkitRelativePath || '';
+        if (path) {
+            // Get the root folder (first directory segment)
+            var parts = path.split('/');
+            var rootPath = parts[0];
+            var dirInput = document.getElementById('details-root-dir');
+            if (dirInput) dirInput.value = rootPath;
+        }
+    };
+    input.click();
 }
 
 // === Init ===

@@ -22,11 +22,15 @@ from agent_engine import run as agent_run
 def _get_app_dir():
     """Return the directory containing the app.
 
-    For PyInstaller one-file builds ``sys._MEIPASS`` points to the
-    extracted temp directory.  For normal dev it returns the directory
-    containing this file.
+    For PyInstaller one-file builds, we want the directory where the
+    executable lives (not the extracted temp directory), so that the
+    aib_instance directory is created relative to the executable.
     """
-    if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+    if getattr(sys, 'frozen', False):
+        # PyInstaller one-file build: use the directory containing the exe
+        return os.path.dirname(os.path.abspath(sys.executable))
+    if hasattr(sys, '_MEIPASS'):
+        # PyInstaller one-dir build: use the extracted temp directory
         return sys._MEIPASS
     return os.path.dirname(os.path.abspath(__file__))
 
@@ -1387,6 +1391,18 @@ def sanitize_output_dir_name(project_name):
     # Truncate to 100 chars
     return name[:100]
 
+def _find_available_port(start_port=5056, max_attempts=50):
+    """Find next available port starting from start_port."""
+    import socket
+    for port in range(start_port, start_port + max_attempts):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            try:
+                s.bind(('127.0.0.1', port))
+                return port
+            except OSError:
+                continue
+    return start_port
+
 # --- Start Worker on App Start ---
 init_directories()
 load_job_history()
@@ -1401,4 +1417,4 @@ def api_app_log():
         return jsonify({"log": list(_app_log)})
 
 if __name__ == "__main__":
-    app.run(port=5056, debug=True, threaded=True, use_reloader=False)
+    app.run(port=_find_available_port(), debug=True, threaded=True, use_reloader=False)
