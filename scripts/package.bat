@@ -43,9 +43,6 @@ pyinstaller ^
     --name ai_builder.exe ^
     --hidden-import=flask ^
     --hidden-import=dotenv ^
-    --hidden-import=azure.ai.inference ^
-    --hidden-import=azure.ai.inference.models ^
-    --hidden-import=azure.core.credentials ^
     --hidden-import=agent_engine ^
     --hidden-import=agent_engine.tools ^
     --add-data "templates;templates" ^
