@@ -939,7 +939,7 @@ class AgentEngine:
                         1 for h in self.step_history[-5:]
                         if h.get("tool") not in all_tool_names
                     )
-                    if consecutive_no_tool >= 3:
+                    if consecutive_no_tool >= 10:
                         # After 3 failed attempts, pause and ask the user
                         if self._step_callback:
                             try:
