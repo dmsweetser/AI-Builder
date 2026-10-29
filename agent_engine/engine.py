@@ -1028,7 +1028,7 @@ class AgentEngine:
 
                     # Check for repeated tool calls without progress
                     unique_recent = set(self._recent_tool_calls)
-                    if len(unique_recent) == 1 and len(self._recent_tool_calls) >= 3:
+                    if len(unique_recent) == 1 and len(self._recent_tool_calls) >= 10:
                         repeated_tool = list(unique_recent)[0]
                         self.logger.warning(f"Loop detected: {repeated_tool} called {len(self._recent_tool_calls)} times in a row without progress")
                         all_tool_names = self.tools.tool_names()
@@ -1204,7 +1204,7 @@ class AgentEngine:
                         })
                         self.step_count -= 1  # Don't count this as a real step
                         continue
-                    if consecutive_no_tool >= 3:
+                    if consecutive_no_tool >= 10:
                         # After 3 failed attempts, pause and ask the user
                         if self._step_callback:
                             try:
