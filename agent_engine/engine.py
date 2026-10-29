@@ -916,23 +916,226 @@ class AgentEngine:
                 with open(self.response_file, 'w', encoding='utf-8') as f:
                     f.write(response)
 
-                # Check for completion
+                # Parse tool calls FIRST — before checking for [DONE]
+                tool_calls = parse_tool_calls(response)
                 done, summary = is_done(response)
+
+                # If LLM produced tool calls (with or without [DONE]):
+                #   - Take ONLY the first tool call
+                #   - Strip ALL tool call blocks (including [DONE]) from the response
+                #   - Continue the loop normally (never break on [DONE] when tool calls exist)
+                if tool_calls:
+                    tool_calls = [tool_calls[0]]  # Only first tool call
+
+                    # Strip ALL tool call blocks from the response before appending to history
+                    # This prevents the LLM from seeing its own tool calls (including [DONE])
+                    cleaned_response = re.sub(
+                        r'\[TOOL_START\].*?\[TOOL_END\]',
+                        '',
+                        response,
+                        flags=re.DOTALL,
+                    ).strip()
+
+                    # Append cleaned response (may be empty or just text)
+                    if cleaned_response:
+                        self.messages.append({
+                            "role": "assistant",
+                            "content": cleaned_response,
+                        })
+
+                    # Log the first tool call only
+                    self.logger.info(f"  Tool: {tool_calls[0][0]}({json.dumps(tool_calls[0][1])})")
+
+                    # Process only the first tool call
+                    tool_name, params, rationale = tool_calls[0]
+                    step_entry = {
+                        "step": self.step_count,
+                        "tool": tool_name,
+                        "params": params,
+                    }
+                    if rationale:
+                        step_entry["rationale"] = rationale
+
+                    try:
+                        result = self.tools.execute(tool_name, params)
+                        step_entry["result"] = result.to_dict()
+                    except SecurityError as e:
+                        step_entry["result"] = ToolResult(False, "", error=f"SECURITY: {e}").to_dict()
+                        self.logger.warning(f"Security violation: {e}")
+                    except ToolError as e:
+                        step_entry["result"] = ToolResult(False, "", error=str(e)).to_dict()
+                        self.logger.warning(f"Tool error: {e}")
+                    except Exception as e:
+                        step_entry["result"] = ToolResult(False, "", error=f"Unexpected error: {e}").to_dict()
+                        self.logger.error(f"Unexpected tool error: {e}")
+
+                    # Track files seen for loop prevention
+                    if tool_name in ("read_file", "read_file_range"):
+                        path = params.get("path", "")
+                        self._files_seen.add(path)
+                        if tool_name == "read_file_range":
+                            line_range = params.get("line_range", "")
+                            self._file_lines_seen.setdefault(path, set()).add(line_range)
+
+                    # If create_tool was used, emit a pending approval event
+                    if tool_name == "create_tool":
+                        if self._step_callback:
+                            try:
+                                tool_name_val = params.get("name", "unknown")
+                                self._step_callback({
+                                    "type": "pending_approval",
+                                    "tool_name": tool_name_val,
+                                })
+                            except Exception:
+                                pass
+                        return {
+                            "status": "pending_approval",
+                            "steps": self.step_count,
+                            "summary": summary if done else "Pending tool approval",
+                            "max_steps": self.max_steps,
+                            "step_history": self.step_history,
+                        }
+
+                    # Feed tool result back to LLM
+                    self.logger.info(
+                        f"  Fed tool result for '{tool_name}' back to LLM "
+                        f"(msg length: {len(json.dumps(self.messages))} chars)"
+                    )
+                    self.messages.append({
+                        "role": "user",
+                        "content": f"[TOOL_RESULT]\n{json.dumps(step_entry['result'], indent=2)}\n[TOOL_RESULT]",
+                    })
+
+                    # Log the step
+                    self.step_history.append(step_entry)
+                    if self._step_callback:
+                        try:
+                            self._step_callback({
+                                "type": "step",
+                                "step": self.step_count,
+                                "tool": tool_name,
+                                "params": params,
+                                "result": step_entry["result"],
+                            })
+                        except Exception:
+                            pass
+
+                    # Update step count and continue (do NOT break)
+                    # Track recent tool calls for loop detection
+                    self._recent_tool_calls.append(tool_name)
+                    if len(self._recent_tool_calls) > 5:
+                        self._recent_tool_calls = self._recent_tool_calls[-5:]
+
+                    # Check for repeated tool calls without progress
+                    unique_recent = set(self._recent_tool_calls)
+                    if len(unique_recent) == 1 and len(self._recent_tool_calls) >= 3:
+                        repeated_tool = list(unique_recent)[0]
+                        self.logger.warning(f"Loop detected: {repeated_tool} called {len(self._recent_tool_calls)} times in a row without progress")
+                        all_tool_names = self.tools.tool_names()
+                        tool_list_str = ", ".join(sorted(all_tool_names))
+                        intervention = (
+                            f"\n\n[LOOP DETECTED] You have called {repeated_tool} {len(self._recent_tool_calls)} times in a row without making progress. "
+                            f"This is not productive. You MUST choose a DIFFERENT tool or take a different action. "
+                            f"Available tools: {tool_list_str}. "
+                            f"Think about what you've learned so far and what you need to do next. "
+                            f"Either make a concrete change with write_file/edit_file, or gather specific information with a different tool. "
+                            f"DO NOT call {repeated_tool} again. "
+                            f"If you need more context, use read_file_range to read specific sections of files. "
+                            f"If the conversation is getting too long, use compress_context to summarize prior work. "
+                            f"If you need to communicate with the user, use respond_to_user."
+                        )
+                        self.messages.append({"role": "user", "content": intervention})
+                        self._recent_tool_calls = []
+
+                    # Strong loop detection: if we've gone 15+ steps without [DONE]
+                    # and the same tool keeps being called, force a hard reset
+                    if self.step_count > 15 and len(self._recent_tool_calls) >= 5:
+                        if len(unique_recent) <= 2:
+                            self.logger.warning(
+                                f"Strong loop detected: {len(self._recent_tool_calls)} recent calls "
+                                f"using only {len(unique_recent)} tools after {self.step_count} steps. Forcing context reset."
+                            )
+                            if not self._compressed:
+                                self._compressed = True
+                                self.messages.append({
+                                    "role": "user",
+                                    "content": (
+                                        "[CONTEXT RESET] You have been running for many steps without completing. "
+                                        "Your context has been compressed. Here's what you know:\n\n"
+                                        f"Task: {self.instructions[:300]}\n\n"
+                                        "Review what you've done so far in the step history below. "
+                                        "Pick ONE concrete action to take next. "
+                                        "DO NOT explore further — take action with write_file, edit_file, or delete_file. "
+                                        "If you haven't made any changes yet, start by reading a specific file with read_file."
+                                    ),
+                                })
+                            else:
+                                self.messages.append({
+                                    "role": "user",
+                                    "content": (
+                                        "[HARD RESET] You are stuck in a loop. Stop exploring and take action. "
+                                        "Pick ONE file to modify and make a concrete change. "
+                                        "Use edit_file or write_file NOW. Do not call any other tool."
+                                    ),
+                                })
+                            self._recent_tool_calls = []
+
+                    # Check for repeated reads of the same file (not just same tool)
+                    if tool_name in ("read_file", "read_file_range"):
+                        path = params.get("path", "")
+                        if path and path in self._files_seen:
+                            if tool_name == "read_file" and path in self._files_seen:
+                                if path in self._file_lines_seen:
+                                    all_lines = self._file_lines_seen[path]
+                                    if len(all_lines) >= 3:
+                                        self.logger.warning(
+                                            f"Repeated read detected: {path} read {len(all_lines)} times"
+                                        )
+                                        next_action = (
+                                            f"\n\n[NOTE] You have already read {path} {len(all_lines)} times. "
+                                            f"Further reads will not give you new information. "
+                                            f"You should either: (1) make changes with edit_file/write_file, "
+                                            f"(2) read a DIFFERENT file, or "
+                                            f"(3) use check_syntax to verify your changes."
+                                        )
+                                        self.messages.append({"role": "user", "content": next_action})
+                                        self.step_count += 1
+                                        continue
+                            elif tool_name == "read_file_range":
+                                line_range = params.get("line_range", "")
+                                if path in self._file_lines_seen and line_range in self._file_lines_seen[path]:
+                                    self.logger.warning(
+                                        f"Duplicate read: {path} lines {line_range} already read"
+                                    )
+                                    next_action = (
+                                        f"\n\n[NOTE] You have already read {path} lines {line_range}. "
+                                        f"Try reading a different range or a different file."
+                                    )
+                                    self.messages.append({"role": "user", "content": next_action})
+                                    self.step_count += 1
+                                    continue
+
+                    # Track read budget: increment for read-only steps, reset for action steps
+                    if tool_name in ("read_file", "read_file_range"):
+                        self._read_step_count += 1
+                    elif tool_name in ("list_directory", "list_directory_deep", "grep_code",
+                                     "grep_code_dir", "search_files", "search_files_dir",
+                                     "get_file_info"):
+                        self._read_step_count += 1
+                    else:
+                        self._read_step_count = 0
+                        self._action_forced = False
+
+                    self.step_count += 1
+                    continue
+
+                # No tool calls — check for completion
                 if done:
                     final_summary = summary
                     self.logger.info(f"Agent completed: {summary[:200]}")
                     break
 
-                # Parse tool calls
-                tool_calls = parse_tool_calls(response)
-
-                # If LLM responded with tool calls AND [DONE], treat as done
-                # after processing the first tool call (handles multi-call + done)
-                if tool_calls and done:
-                    self.logger.info(
-                        f"LLM responded with tool call + [DONE] at step {self.step_count}. "
-                        f"Will complete after processing first tool."
-                    )
+                # No tool calls and no [DONE] — format error
                 if not tool_calls:
                     # No tool calls and no [DONE] — the LLM likely didn't
                     # produce a properly formatted tool call. Send a reminder
@@ -1058,274 +1261,6 @@ class AgentEngine:
                         except Exception:
                             pass
                     continue
-
-                # Only process the first tool call per step (enforce single-call rule)
-                if tool_calls:
-                    tool_calls = [tool_calls[0]]
-
-                # Strip tool call blocks from the response before appending to
-                # history.  This prevents the LLM from seeing its own tool
-                # calls in the conversation, which causes it to repeat them
-                # verbatim.
-                cleaned_response = re.sub(
-                    r'\[TOOL_START\].*?\[TOOL_END\]',
-                    '',
-                    response,
-                    flags=re.DOTALL,
-                ).strip()
-
-                # Append cleaned response once (before all tool results)
-                if cleaned_response:
-                    self.messages.append({
-                        "role": "assistant",
-                        "content": cleaned_response
-                    })
-
-                # Process each tool call
-                for tool_name, params, rationale in tool_calls:
-                    self.logger.info(f"  Tool: {tool_name}({json.dumps(params)})")
-
-                    step_entry = {
-                        "step": self.step_count,
-                        "tool": tool_name,
-                        "params": params,
-                    }
-                    if rationale:
-                        step_entry["rationale"] = rationale
-
-                    try:
-                        result = self.tools.execute(tool_name, params)
-                        step_entry["result"] = result.to_dict()
-                    except SecurityError as e:
-                        step_entry["result"] = ToolResult(False, "", error=f"SECURITY: {e}").to_dict()
-                        self.logger.warning(f"Security violation: {e}")
-                    except ToolError as e:
-                        step_entry["result"] = ToolResult(False, "", error=str(e)).to_dict()
-                        self.logger.warning(f"Tool error: {e}")
-                    except Exception as e:
-                        step_entry["result"] = ToolResult(False, "", error=f"Unexpected error: {e}").to_dict()
-                        self.logger.error(f"Unexpected tool error: {e}")
-
-                    # Track files seen for loop prevention
-                    if tool_name in ("read_file", "read_file_range"):
-                        path = params.get("path", "")
-                        self._files_seen.add(path)
-                        if tool_name == "read_file_range":
-                            line_range = params.get("line_range", "")
-                            self._file_lines_seen.setdefault(path, set()).add(line_range)
-
-                    # If create_tool was used, emit a pending approval event
-                    # and PAUSE the engine — do NOT continue the loop.
-                    # The user must approve/reject before the agent proceeds.
-                    if tool_name == "create_tool":
-                        if self._step_callback:
-                            try:
-                                tool_name_val = params.get("name", "unknown")
-                                self._step_callback({
-                                    "type": "pending_approval",
-                                    "tool_name": tool_name_val,
-                                })
-                            except Exception:
-                                pass
-                        # Pause: do NOT feed result back or call LLM again.
-                        # The engine returns so the UI can show the pending
-                        # approval. When the user approves, a new run is
-                        # started (which reloads approved tools into the
-                        # registry and rebuilds the system prompt).
-                        self.logger.info(
-                            "create_tool called — pausing engine for approval."
-                        )
-                        return {
-                            "status": "pending_approval",
-                            "steps": self.step_count,
-                            "summary": final_summary,
-                            "max_steps": self.max_steps,
-                            "step_history": self.step_history,
-                        }
-
-                    # Save step to history
-                    self.step_history.append(step_entry)
-                    with open(self.step_log_file, 'a', encoding='utf-8') as f:
-                        f.write(json.dumps(step_entry) + '\n')
-
-                    # Notify callback for real-time streaming
-                    if self._step_callback:
-                        try:
-                            self._step_callback({"type": "step", "step": step_entry["step"],
-                                                 "tool": step_entry["tool"],
-                                                 "params": step_entry.get("params", {}),
-                                                 "result": step_entry.get("result", {})})
-                        except Exception:
-                            pass
-
-                    # Feed tool result back to conversation as a user message
-                    # so the LLM properly sees and processes the result.
-                    # Format results in a readable way (not raw JSON) so the LLM
-                    # can easily extract file content for edit_file operations.
-                    # Apply truncation to prevent context overflow.
-                    res_dict = step_entry.get("result", {})
-                    raw_content = ""
-                    if res_dict.get("error"):
-                        result_display = f"Error: {res_dict['error']}"
-                    elif res_dict.get("summary"):
-                        result_display = res_dict["summary"]
-                        if res_dict.get("content"):
-                            result_display += f"\n\nOutput:\n{res_dict['content']}\n"
-                    elif res_dict.get("content"):
-                        result_display = res_dict["content"]
-                    else:
-                        result_display = "(no output)"
-
-                    # Truncate if needed
-                    if res_dict.get("content"):
-                        raw_content = res_dict["content"]
-                        result_display, was_truncated = truncate_tool_result(
-                            raw_content, self.max_tool_result_length, tool_name
-                        )
-                        if was_truncated:
-                            result_display += (
-                                f"\n\n[NOTE: This result was truncated from {len(raw_content)} "
-                                f"to {self.max_tool_result_length} characters. "
-                                f"The LLM was notified and can retry with filter parameters.]"
-                            )
-
-                    tool_result_msg = {
-                        "role": "user",
-                        "content": f"[TOOL RESULT for {tool_name}]\n{result_display}\n[END TOOL RESULT]\n\nNow continue with your next action."
-                    }
-                    self.messages.append(tool_result_msg)
-                    self.logger.info(f"  Fed tool result for '{tool_name}' back to LLM (msg length: {len(tool_result_msg['content'])} chars)")
-
-                    # If LLM responded with tool calls AND [DONE], mark as done
-                    # so the engine completes after processing this tool call.
-                    # This handles the case where the LLM says "here's my tool call
-                    # and I'm done" in a single response.
-                    if tool_calls and done:
-                        final_summary = summary
-                        self.logger.info(
-                            f"Agent completed after processing tool call at step {self.step_count}: {summary[:200]}"
-                        )
-                        break
-
-                # Track recent tool calls for loop detection
-                for tool_name, _, _ in tool_calls:
-                    self._recent_tool_calls.append(tool_name)
-                # Keep only last 5 calls
-                if len(self._recent_tool_calls) > 5:
-                    self._recent_tool_calls = self._recent_tool_calls[-5:]
-
-                # Check for repeated tool calls without progress
-                unique_recent = set(self._recent_tool_calls)
-                if len(unique_recent) == 1 and len(self._recent_tool_calls) >= 3:
-                    repeated_tool = list(unique_recent)[0]
-                    self.logger.warning(f"Loop detected: {repeated_tool} called {len(self._recent_tool_calls)} times in a row without progress")
-                    # Send a strong intervention message
-                    all_tool_names = self.tools.tool_names()
-                    tool_list_str = ", ".join(sorted(all_tool_names))
-                    intervention = (
-                        f"\n\n[LOOP DETECTED] You have called {repeated_tool} {len(self._recent_tool_calls)} times in a row without making progress. "
-                        f"This is not productive. You MUST choose a DIFFERENT tool or take a different action. "
-                        f"Available tools: {tool_list_str}. "
-                        f"Think about what you've learned so far and what you need to do next. "
-                        f"Either make a concrete change with write_file/edit_file, or gather specific information with a different tool. "
-                        f"DO NOT call {repeated_tool} again. "
-                        f"If you need more context, use read_file_range to read specific sections of files. "
-                        f"If the conversation is getting too long, use compress_context to summarize prior work. "
-                        f"If you need to communicate with the user, use respond_to_user."
-                    )
-                    self.messages.append({"role": "user", "content": intervention})
-                    # Reset the recent tool calls to prevent infinite loop
-                    self._recent_tool_calls = []
-                    continue
-
-                # Strong loop detection: if we've gone 15+ steps without [DONE]
-                # and the same tool keeps being called, force a hard reset
-                if self.step_count > 15 and len(self._recent_tool_calls) >= 5:
-                    # Check if we're stuck in a pattern of the same 1-2 tools
-                    if len(unique_recent) <= 2:
-                        self.logger.warning(
-                            f"Strong loop detected: {len(self._recent_tool_calls)} recent calls "
-                            f"using only {len(unique_recent)} tools after {self.step_count} steps. Forcing context reset."
-                        )
-                        # Force compress context and give a strong prompt
-                        if not self._compressed:
-                            # Compress now if not already done
-                            self._compressed = True
-                            self.messages.append({
-                                "role": "user",
-                                "content": (
-                                    "[CONTEXT RESET] You have been running for many steps without completing. "
-                                    "Your context has been compressed. Here's what you know:\n\n"
-                                    f"Task: {self.instructions[:300]}\n\n"
-                                    "Review what you've done so far in the step history below. "
-                                    "Pick ONE concrete action to take next. "
-                                    "DO NOT explore further — take action with write_file, edit_file, or delete_file. "
-                                    "If you haven't made any changes yet, start by reading a specific file with read_file."
-                                ),
-                            })
-                        else:
-                            self.messages.append({
-                                "role": "user",
-                                "content": (
-                                    "[HARD RESET] You are stuck in a loop. Stop exploring and take action. "
-                                    "Pick ONE file to modify and make a concrete change. "
-                                    "Use edit_file or write_file NOW. Do not call any other tool."
-                                ),
-                            })
-                        self._recent_tool_calls = []
-                        continue
-
-                # Check for repeated reads of the same file (not just same tool)
-                if tool_calls:
-                    tc_name, tc_params, _ = tool_calls[0]
-                    if tc_name in ("read_file", "read_file_range"):
-                        path = tc_params.get("path", "")
-                        if path and path in self._files_seen:
-                            # Check if we've already read this file or overlapping lines
-                            if tc_name == "read_file" and path in self._files_seen:
-                                # Full file read — check if we've read it before
-                                if path in self._file_lines_seen:
-                                    all_lines = self._file_lines_seen[path]
-                                    if len(all_lines) >= 3:
-                                        # We've read this file 3+ times already
-                                        self.logger.warning(
-                                            f"Repeated read detected: {path} read {len(all_lines)} times"
-                                        )
-                                        # Don't read again — suggest editing or moving on
-                                        next_action = (
-                                            f"\n\n[NOTE] You have already read {path} {len(all_lines)} times. "
-                                            f"Further reads will not give you new information. "
-                                            f"You should either: (1) make changes with edit_file/write_file, "
-                                            f"(2) read a DIFFERENT file, or "
-                                            f"(3) use check_syntax to verify your changes."
-                                        )
-                                        self.messages.append({"role": "user", "content": next_action})
-                                        continue
-                            elif tc_name == "read_file_range":
-                                line_range = tc_params.get("line_range", "")
-                                if path in self._file_lines_seen and line_range in self._file_lines_seen[path]:
-                                    self.logger.warning(
-                                        f"Duplicate read: {path} lines {line_range} already read"
-                                    )
-                                    next_action = (
-                                        f"\n\n[NOTE] You have already read {path} lines {line_range}. "
-                                        f"Try reading a different range or a different file."
-                                    )
-                                    self.messages.append({"role": "user", "content": next_action})
-                                    continue
-
-                    # Track read budget: increment counter for read-only steps, reset for action steps
-                    if tc_name in ("read_file", "read_file_range"):
-                        self._read_step_count += 1
-                    elif tc_name in ("list_directory", "list_directory_deep", "grep_code",
-                                     "grep_code_dir", "search_files", "search_files_dir",
-                                     "get_file_info"):
-                        # These are exploration steps — increment but less aggressively
-                        self._read_step_count += 1
-                    else:
-                        # Action step (write, edit, delete, check_syntax, etc.) — reset counter
-                        self._read_step_count = 0
-                        self._action_forced = False
             return {
                 "status": "completed" if final_summary else "max_steps_reached",
                 "steps": self.step_count,

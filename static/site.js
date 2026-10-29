@@ -587,7 +587,7 @@ function injectLiveInstruction() {
             if (statusText) { var orig = statusText.textContent; statusText.textContent = 'Instruction sent'; setTimeout(function() { statusText.textContent = orig; }, 1500); }
         })
         .catch(function(err) { console.error('Failed to inject instruction:', err); input.disabled = false; if (injectBtn) { injectBtn.disabled = false; injectBtn.textContent = 'INJECT'; } });
-    } else if (currentRunningProjectId) {
+    } else if (currentRunningProjectId || currentRunningJobId) {
         // Agent is paused (pending_approval or pending_user_input) or completed —
         // restart the run with the injected instruction as a continuation
         // from the previous job, so it picks up where it left off
