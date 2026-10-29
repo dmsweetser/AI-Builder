@@ -925,6 +925,14 @@ class AgentEngine:
 
                 # Parse tool calls
                 tool_calls = parse_tool_calls(response)
+
+                # If LLM responded with tool calls AND [DONE], treat as done
+                # after processing the first tool call (handles multi-call + done)
+                if tool_calls and done:
+                    self.logger.info(
+                        f"LLM responded with tool call + [DONE] at step {self.step_count}. "
+                        f"Will complete after processing first tool."
+                    )
                 if not tool_calls:
                     # No tool calls and no [DONE] — the LLM likely didn't
                     # produce a properly formatted tool call. Send a reminder
@@ -940,6 +948,60 @@ class AgentEngine:
                         if h.get("tool") not in all_tool_names
                     )
                     if consecutive_no_tool >= 10:
+                        # After 10 failed attempts, try a strong recovery
+                        # instead of just pausing for user input.
+                        self.logger.warning(
+                            f"Agent stuck: {consecutive_no_tool} consecutive format errors. "
+                            f"Attempting recovery..."
+                        )
+                        # Inject a strong recovery prompt that resets the LLM
+                        recovery_prompt = (
+                            "CRITICAL RECOVERY — You have failed to produce a valid tool call "
+                            "10 times in a row. This means your responses are being ignored. "
+                            "Here is exactly what you must do RIGHT NOW:\n\n"
+                            "1. Your ENTIRE response must be ONLY this exact format:\n\n"
+                            "[TOOL_START]\n"
+                            "[TOOL_NAME]\n"
+                            "list_directory\n"
+                            "[PARAM_NAME]\n"
+                            "path\n"
+                            "[PARAM_VALUE]\n"
+                            ".\n"
+                            "[TOOL_END]\n\n"
+                            "2. NOTHING ELSE. No explanation. No thinking. No [DONE].\n"
+                            "3. Copy the format above EXACTLY — every tag on its own line.\n"
+                            "4. This is your ONLY chance — produce this exact tool call."
+                        )
+                        self.messages.append({
+                            "role": "user",
+                            "content": recovery_prompt,
+                        })
+                        # Reset the step counter so we don't loop forever
+                        self.step_count -= 1
+                        continue
+                    if consecutive_no_tool >= 5:
+                        # After 5 failed attempts, escalate the intervention
+                        escalation = (
+                            "[URGENT FORMAT ERROR] You have failed to produce a valid tool call "
+                            f"{consecutive_no_tool} times in a row. Your responses are being silently ignored. "
+                            "You MUST produce a tool call in the EXACT format below — copy it verbatim:\n\n"
+                            "[TOOL_START]\n"
+                            "[TOOL_NAME]\n"
+                            "list_directory\n"
+                            "[PARAM_NAME]\n"
+                            "path\n"
+                            "[PARAM_VALUE]\n"
+                            ".\n"
+                            "[TOOL_END]\n\n"
+                            "Start with list_directory. NOTHING ELSE. Do not add any text."
+                        )
+                        self.messages.append({
+                            "role": "user",
+                            "content": escalation,
+                        })
+                        self.step_count -= 1  # Don't count this as a real step
+                        continue
+                    if consecutive_no_tool >= 3:
                         # After 3 failed attempts, pause and ask the user
                         if self._step_callback:
                             try:
@@ -948,8 +1010,8 @@ class AgentEngine:
                                     "step": self.step_count,
                                     "response": (
                                         "The agent failed to produce a valid tool call "
-                                        "after 3 attempts. You can try resuming with a "
-                                        "nudge, or stop the run.\n\n"
+                                        f"after {consecutive_no_tool} attempts. "
+                                        "You can try resuming with a nudge, or stop the run.\n\n"
                                         f"Last LLM response:\n{response[:500]}"
                                     ),
                                 })
@@ -1134,6 +1196,17 @@ class AgentEngine:
                     self.messages.append(tool_result_msg)
                     self.logger.info(f"  Fed tool result for '{tool_name}' back to LLM (msg length: {len(tool_result_msg['content'])} chars)")
 
+                    # If LLM responded with tool calls AND [DONE], mark as done
+                    # so the engine completes after processing this tool call.
+                    # This handles the case where the LLM says "here's my tool call
+                    # and I'm done" in a single response.
+                    if tool_calls and done:
+                        final_summary = summary
+                        self.logger.info(
+                            f"Agent completed after processing tool call at step {self.step_count}: {summary[:200]}"
+                        )
+                        break
+
                 # Track recent tool calls for loop detection
                 for tool_name, _, _ in tool_calls:
                     self._recent_tool_calls.append(tool_name)
@@ -1161,7 +1234,46 @@ class AgentEngine:
                         f"If you need to communicate with the user, use respond_to_user."
                     )
                     self.messages.append({"role": "user", "content": intervention})
+                    # Reset the recent tool calls to prevent infinite loop
+                    self._recent_tool_calls = []
                     continue
+
+                # Strong loop detection: if we've gone 15+ steps without [DONE]
+                # and the same tool keeps being called, force a hard reset
+                if self.step_count > 15 and len(self._recent_tool_calls) >= 5:
+                    # Check if we're stuck in a pattern of the same 1-2 tools
+                    if len(unique_recent) <= 2:
+                        self.logger.warning(
+                            f"Strong loop detected: {len(self._recent_tool_calls)} recent calls "
+                            f"using only {len(unique_recent)} tools after {self.step_count} steps. Forcing context reset."
+                        )
+                        # Force compress context and give a strong prompt
+                        if not self._compressed:
+                            # Compress now if not already done
+                            self._compressed = True
+                            self.messages.append({
+                                "role": "user",
+                                "content": (
+                                    "[CONTEXT RESET] You have been running for many steps without completing. "
+                                    "Your context has been compressed. Here's what you know:\n\n"
+                                    f"Task: {self.instructions[:300]}\n\n"
+                                    "Review what you've done so far in the step history below. "
+                                    "Pick ONE concrete action to take next. "
+                                    "DO NOT explore further — take action with write_file, edit_file, or delete_file. "
+                                    "If you haven't made any changes yet, start by reading a specific file with read_file."
+                                ),
+                            })
+                        else:
+                            self.messages.append({
+                                "role": "user",
+                                "content": (
+                                    "[HARD RESET] You are stuck in a loop. Stop exploring and take action. "
+                                    "Pick ONE file to modify and make a concrete change. "
+                                    "Use edit_file or write_file NOW. Do not call any other tool."
+                                ),
+                            })
+                        self._recent_tool_calls = []
+                        continue
 
                 # Check for repeated reads of the same file (not just same tool)
                 if tool_calls:

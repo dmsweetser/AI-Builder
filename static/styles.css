@@ -1184,6 +1184,9 @@ textarea {
     font-size: 8px;
     white-space: pre-wrap;
     word-break: break-word;
+    overflow-y: auto;
+    max-height: 300px;
+    line-height: 1.5;
 }
 
 .step-params {

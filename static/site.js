@@ -501,7 +501,7 @@ function handleAgentStep(data, agentBox) {
         entry.innerHTML = '<div class="step-tool" style="color:var(--warning);">⚠ Format reminder sent</div><div class="step-result" style="color:var(--warning);">' + escapeHtml(data.result ? data.result.content : '') + '</div>';
     } else {
         var ok = data.result && data.result.success !== false;
-        var resultPreview = data.result ? (data.result.content || '').substring(0, 500) : 'no result';
+        var resultPreview = data.result ? (data.result.content || '') : 'no result';
         entry.classList.add(ok ? 'success' : 'error');
         var html = '<div class="step-tool">' + (ok ? '✓' : '✗') + ' ' + escapeHtml(data.tool) + '</div>';
         if (data.rationale) {
@@ -1524,7 +1524,7 @@ function showLiveViewForJob(jobId) {
     container.scrollIntoView({ behavior: 'smooth' });
     container.dataset.jobId = jobId;
     currentRunningJobId = jobId;
-    currentRunningProjectId = null;  // Will be set when we load job history
+    currentRunningProjectId = null;
 
     // Check if the job is still running/paused in queue OR in history with pending status
     Promise.all([
@@ -1546,8 +1546,8 @@ function showLiveViewForJob(jobId) {
             isPendingInput = jobRecord.status === 'pending_user_input';
         }
 
-        if (isRunning || isPendingApproval || isPendingInput) {
-            // Job is running or paused - show the view and enable inject
+        if (isRunning && !isPendingApproval && !isPendingInput) {
+            // Job is actively running (not pending) - show the view and connect to SSE
             agentRunning = true;
             liveInjectActive = true;
             // Show stop button
@@ -1555,24 +1555,35 @@ function showLiveViewForJob(jobId) {
             if (stopBtn) stopBtn.style.display = 'inline-block';
             var agentBox = document.getElementById('agent-live-box');
             if (agentBox) {
-                var statusLabel = isPendingApproval ? 'PENDING APPROVAL' :
-                                  (isPendingInput ? 'AWAITING INPUT' : 'LIVE');
-                agentBox.innerHTML = '<div class="step-entry llm-step">📺 Viewing live feed for running job (' + statusLabel + ')...</div>';
+                agentBox.innerHTML = '<div class="step-entry llm-step">📺 Viewing live feed for running job (LIVE)...</div>';
             }
             var statusText = document.getElementById('agent-status-text');
-            if (statusText) {
-                statusText.textContent = statusLabel;
-                statusText.style.color = isPendingApproval || isPendingInput ? 'var(--warning)' : 'var(--success)';
-            }
+            if (statusText) { statusText.textContent = 'LIVE'; statusText.style.color = 'var(--success)'; }
             var injectInput = document.getElementById('live-inject-input');
             var injectBtn = document.getElementById('live-inject-btn');
             if (injectInput) { injectInput.disabled = false; injectInput.placeholder = 'Type instructions or questions...'; }
             if (injectBtn) { injectBtn.disabled = false; injectBtn.textContent = 'INJECT'; }
-            // Start SSE connection for live feed
+            // Connect to SSE for live feed (job is actively running, not pending)
             connectToJobSSE(jobId);
         } else {
-            // Job not running - load history and show it
+            // Job is pending, completed, or stopped - load history and show it (NO continuation)
             loadJobHistory(jobId);
+            // Enable inject if job is pending (user can inject to resume)
+            if (isPendingApproval || isPendingInput) {
+                agentRunning = false;
+                liveInjectActive = true;
+                var stopBtn = document.getElementById('details-stop-btn');
+                if (stopBtn) stopBtn.style.display = 'inline-block';
+                var injectInput = document.getElementById('live-inject-input');
+                var injectBtn = document.getElementById('live-inject-btn');
+                if (injectInput) { injectInput.disabled = false; injectInput.placeholder = 'Type instructions to resume...'; }
+                if (injectBtn) { injectBtn.disabled = false; injectBtn.textContent = 'INJECT'; }
+                var statusText = document.getElementById('agent-status-text');
+                if (statusText) {
+                    statusText.textContent = isPendingApproval ? 'PENDING APPROVAL' : 'AWAITING INPUT';
+                    statusText.style.color = 'var(--warning)';
+                }
+            }
         }
     })
     .catch(function(err) { console.error('Failed to check job status:', err); });
@@ -1600,7 +1611,7 @@ function loadJobHistory(jobId) {
                     if (error) {
                         html += '<div class="step-result" style="color:var(--danger);">Error: ' + escapeHtml(error) + '</div>';
                     } else if (content) {
-                        html += '<div class="step-result">' + escapeHtml(content.substring(0, 500)) + (content.length > 500 ? '...' : '') + '</div>';
+                        html += '<div class="step-result">' + escapeHtml(content) + '</div>';
                     }
                     entry.innerHTML = html;
                     agentBox.appendChild(entry);
@@ -1630,7 +1641,7 @@ function loadJobHistory(jobId) {
                                 if (error) {
                                     html += '<div class="step-result" style="color:var(--danger);">Error: ' + escapeHtml(error) + '</div>';
                                 } else if (content) {
-                                    html += '<div class="step-result">' + escapeHtml(content.substring(0, 500)) + (content.length > 500 ? '...' : '') + '</div>';
+                                    html += '<div class="step-result">' + escapeHtml(content) + '</div>';
                                 }
                                 entry.innerHTML = html;
                                 agentBox.appendChild(entry);
