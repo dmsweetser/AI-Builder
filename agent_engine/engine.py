@@ -957,6 +957,16 @@ class AgentEngine:
                         step_entry["rationale"] = rationale
 
                     try:
+                        # Emit tool_start event before executing
+                        if self._step_callback:
+                            try:
+                                self._step_callback({
+                                    "type": "tool_start",
+                                    "step": self.step_count,
+                                    "tool": tool_name,
+                                })
+                            except Exception:
+                                pass
                         result = self.tools.execute(tool_name, params)
                         step_entry["result"] = result.to_dict()
                     except SecurityError as e:
@@ -1034,15 +1044,8 @@ class AgentEngine:
                         all_tool_names = self.tools.tool_names()
                         tool_list_str = ", ".join(sorted(all_tool_names))
                         intervention = (
-                            f"\n\n[LOOP DETECTED] You have called {repeated_tool} {len(self._recent_tool_calls)} times in a row without making progress. "
-                            f"This is not productive. You MUST choose a DIFFERENT tool or take a different action. "
-                            f"Available tools: {tool_list_str}. "
-                            f"Think about what you've learned so far and what you need to do next. "
-                            f"Either make a concrete change with write_file/edit_file, or gather specific information with a different tool. "
-                            f"DO NOT call {repeated_tool} again. "
-                            f"If you need more context, use read_file_range to read specific sections of files. "
-                            f"If the conversation is getting too long, use compress_context to summarize prior work. "
-                            f"If you need to communicate with the user, use respond_to_user."
+                            f"\n\n[LOOP DETECTED] You called {repeated_tool} {len(self._recent_tool_calls)} times without progress. "
+                            f"STOP. Choose a DIFFERENT tool now. Available: {tool_list_str}."
                         )
                         self.messages.append({"role": "user", "content": intervention})
                         self._recent_tool_calls = []
@@ -1060,22 +1063,16 @@ class AgentEngine:
                                 self.messages.append({
                                     "role": "user",
                                     "content": (
-                                        "[CONTEXT RESET] You have been running for many steps without completing. "
-                                        "Your context has been compressed. Here's what you know:\n\n"
-                                        f"Task: {self.instructions[:300]}\n\n"
-                                        "Review what you've done so far in the step history below. "
-                                        "Pick ONE concrete action to take next. "
-                                        "DO NOT explore further — take action with write_file, edit_file, or delete_file. "
-                                        "If you haven't made any changes yet, start by reading a specific file with read_file."
+                                        "[CONTEXT RESET] You've run many steps without completing. "
+                                        f"Task: {self.instructions[:200]}\n\n"
+                                        "PICK ONE concrete action and take it NOW."
                                     ),
                                 })
                             else:
                                 self.messages.append({
                                     "role": "user",
                                     "content": (
-                                        "[HARD RESET] You are stuck in a loop. Stop exploring and take action. "
-                                        "Pick ONE file to modify and make a concrete change. "
-                                        "Use edit_file or write_file NOW. Do not call any other tool."
+                                        "[HARD RESET] You are stuck. Pick ONE file and modify it NOW."
                                     ),
                                 })
                             self._recent_tool_calls = []

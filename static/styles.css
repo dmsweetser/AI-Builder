@@ -1163,6 +1163,17 @@ textarea {
     animation: pending-pulse 2s ease-in-out infinite;
 }
 
+.step-entry.tool-running {
+    border-left-color: var(--mc-gold);
+    background: rgba(252, 219, 5, 0.08);
+    animation: tool-running-pulse 1.5s ease-in-out infinite;
+}
+
+.step-entry.tool-running .step-tool {
+    color: var(--mc-gold);
+    animation: pending-blink 1.2s ease-in-out infinite;
+}
+
 .step-tool {
     font-weight: 700;
     color: var(--mc-diamond);
@@ -1410,6 +1421,24 @@ textarea {
 @keyframes pending-blink {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.5; }
+}
+
+@keyframes tool-running-pulse {
+    0%, 100% { background: rgba(252, 219, 5, 0.08); }
+    50% { background: rgba(252, 219, 5, 0.18); }
+}
+
+/* === Inline Spinner for Tool Running === */
+.run-spinner-inline {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border: 2px solid rgba(252, 219, 5, 0.3);
+    border-radius: 0;
+    border-top-color: var(--mc-gold);
+    animation: spin 0.8s linear infinite;
+    margin-left: 6px;
+    vertical-align: middle;
 }
 
 /* === Scrollbar === */

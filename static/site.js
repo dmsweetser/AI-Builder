@@ -254,6 +254,7 @@ function _doRunProject(projectId, overrideInstruction) {
                         buffer = parseSSEMessage(buffer, function(eventType, data) {
                             if (eventType === 'status') handleAgentStatus(data);
                             else if (eventType === 'step') handleAgentStep(data, agentBox);
+                            else if (eventType === 'tool_start') handleToolStart(data, agentBox);
                             else if (eventType === 'pending_approval') handlePendingApproval(data, agentBox);
                             else if (eventType === 'pending_user_input') handlePendingUserInput(data, agentBox);
                         });
@@ -272,6 +273,7 @@ function _doRunProject(projectId, overrideInstruction) {
                 buffer = parseSSEMessage(buffer, function(eventType, data) {
                     if (eventType === 'status') handleAgentStatus(data);
                     else if (eventType === 'step') handleAgentStep(data, agentBox);
+                    else if (eventType === 'tool_start') handleToolStart(data, agentBox);
                     else if (eventType === 'pending_approval') handlePendingApproval(data, agentBox);
                     else if (eventType === 'pending_user_input') handlePendingUserInput(data, agentBox);
                 });
@@ -328,6 +330,7 @@ function startAgentSSE(projectId, enabledTools) {
                 buffer = parseSSEMessage(buffer, function(eventType, data) {
                     if (eventType === 'status') handleAgentStatus(data);
                     else if (eventType === 'step') handleAgentStep(data, agentBox);
+                    else if (eventType === 'tool_start') handleToolStart(data, agentBox);
                     else if (eventType === 'pending_approval') handlePendingApproval(data, agentBox);
                     else if (eventType === 'pending_user_input') handlePendingUserInput(data, agentBox);
                 });
@@ -464,6 +467,9 @@ function handleAgentStatus(data) {
 
 function handleAgentStep(data, agentBox) {
     if (!agentBox) return;
+    // Remove the "tool running" indicator for this step
+    var runningEntry = document.getElementById('tool-running-' + data.step);
+    if (runningEntry) runningEntry.remove();
     var stepCount = document.getElementById('agent-step-count');
     if (stepCount) stepCount.textContent = 'Step ' + data.step;
     var entry = document.createElement('div');
@@ -552,6 +558,22 @@ function handlePendingUserInput(data, agentBox) {
     if (statusText) { statusText.textContent = 'AWAITING INPUT'; statusText.style.color = 'var(--warning)'; }
     var runBtn = document.getElementById('details-run-btn');
     if (runBtn) { runBtn.disabled = true; runBtn.innerHTML = 'AWAITING INPUT...'; }
+}
+
+function handleToolStart(data, agentBox) {
+    if (!agentBox) return;
+    var entry = document.createElement('div');
+    entry.className = 'step-entry tool-running';
+    entry.id = 'tool-running-' + data.step;
+    entry.innerHTML = '<div class=\"step-tool\" style=\"color:var(--mc-gold);\">⏳ Running: ' + escapeHtml(data.tool) + ' <span class=\"run-spinner-inline\"></span></div>' +
+        (data.rationale ? '<div class=\"step-rationale\">💡 ' + escapeHtml(data.rationale) + '</div>' : '');
+    // Insert at top of box so user sees current tool immediately
+    if (agentBox.firstChild) agentBox.insertBefore(entry, agentBox.firstChild);
+    else agentBox.appendChild(entry);
+    agentBox.scrollTop = 0;
+    // Update status text
+    var statusText = document.getElementById('agent-status-text');
+    if (statusText) { statusText.textContent = 'RUNNING: ' + (data.tool || 'tool'); statusText.style.color = 'var(--mc-gold)'; }
 }
 
 function injectLiveInstruction() {
@@ -757,6 +779,7 @@ function continueAgentRunWithInstruction(projectId, prevJobId, newInstruction) {
                 buffer = parseSSEMessage(buffer, function(eventType, data) {
                     if (eventType === 'status') handleAgentStatus(data);
                     else if (eventType === 'step') handleAgentStep(data, agentBox);
+                    else if (eventType === 'tool_start') handleToolStart(data, agentBox);
                     else if (eventType === 'pending_approval') handlePendingApproval(data, agentBox);
                     else if (eventType === 'pending_user_input') handlePendingUserInput(data, agentBox);
                 });
@@ -1524,7 +1547,7 @@ function showLiveViewForJob(jobId) {
     container.scrollIntoView({ behavior: 'smooth' });
     container.dataset.jobId = jobId;
     currentRunningJobId = jobId;
-    currentRunningProjectId = null;
+    // Preserve currentRunningProjectId — don't set to null
 
     // Check if the job is still running/paused in queue OR in history with pending status
     Promise.all([
@@ -1567,29 +1590,37 @@ function showLiveViewForJob(jobId) {
             connectToJobSSE(jobId);
         } else {
             // Job is pending, completed, or stopped - load history and show it (NO continuation)
-            loadJobHistory(jobId);
-            // Enable inject if job is pending (user can inject to resume)
-            if (isPendingApproval || isPendingInput) {
-                agentRunning = false;
-                liveInjectActive = true;
-                var stopBtn = document.getElementById('details-stop-btn');
-                if (stopBtn) stopBtn.style.display = 'inline-block';
-                var injectInput = document.getElementById('live-inject-input');
-                var injectBtn = document.getElementById('live-inject-btn');
-                if (injectInput) { injectInput.disabled = false; injectInput.placeholder = 'Type instructions to resume...'; }
-                if (injectBtn) { injectBtn.disabled = false; injectBtn.textContent = 'INJECT'; }
-                var statusText = document.getElementById('agent-status-text');
-                if (statusText) {
-                    statusText.textContent = isPendingApproval ? 'PENDING APPROVAL' : 'AWAITING INPUT';
-                    statusText.style.color = 'var(--warning)';
+            loadJobHistory(jobId, function() {
+                // Enable inject if job is pending (user can inject to resume)
+                if (isPendingApproval || isPendingInput) {
+                    agentRunning = false;
+                    liveInjectActive = true;
+                    var stopBtn = document.getElementById('details-stop-btn');
+                    if (stopBtn) stopBtn.style.display = 'inline-block';
+                    var injectInput = document.getElementById('live-inject-input');
+                    var injectBtn = document.getElementById('live-inject-btn');
+                    if (injectInput) { injectInput.disabled = false; injectInput.placeholder = 'Type instructions to resume...'; }
+                    if (injectBtn) { injectBtn.disabled = false; injectBtn.textContent = 'INJECT'; }
+                    var statusText = document.getElementById('agent-status-text');
+                    if (statusText) {
+                        statusText.textContent = isPendingApproval ? 'PENDING APPROVAL' : 'AWAITING INPUT';
+                        statusText.style.color = 'var(--warning)';
+                    }
+                } else if (jobRecord) {
+                    // Completed or stopped job - show status
+                    var statusText = document.getElementById('agent-status-text');
+                    if (statusText) {
+                        statusText.textContent = jobRecord.status === 'completed' ? 'COMPLETED' : (jobRecord.status === 'error' ? 'ERROR' : (jobRecord.status === 'stopped' ? 'STOPPED' : jobRecord.status.toUpperCase()));
+                        statusText.style.color = jobRecord.status === 'completed' ? 'var(--success)' : (jobRecord.status === 'error' ? 'var(--danger)' : 'var(--text-muted)');
+                    }
                 }
-            }
+            });
         }
     })
     .catch(function(err) { console.error('Failed to check job status:', err); });
 }
 
-function loadJobHistory(jobId) {
+function loadJobHistory(jobId, callback) {
     var agentBox = document.getElementById('agent-live-box');
     var statusText = document.getElementById('agent-status-text');
 
@@ -1621,6 +1652,7 @@ function loadJobHistory(jobId) {
                 if (data.project_id) {
                     currentRunningProjectId = data.project_id;
                 }
+                if (callback) callback();
             } else {
                 // Try to get history from the job history API
                 fetch('/api/history')
@@ -1651,9 +1683,11 @@ function loadJobHistory(jobId) {
                             if (job && job.project_id) {
                                 currentRunningProjectId = job.project_id;
                             }
+                            if (callback) callback();
                         } else {
                             agentBox.innerHTML = '<div class="step-entry llm-step">No history available for this job.</div>';
                             if (statusText) { statusText.textContent = 'NO HISTORY'; statusText.style.color = 'var(--text-muted)'; }
+                            if (callback) callback();
                         }
                     });
             }
@@ -1696,6 +1730,7 @@ function connectToJobSSE(jobId) {
                 buffer = parseSSEMessage(buffer, function(eventType, data) {
                     if (eventType === 'status') handleAgentStatus(data);
                     else if (eventType === 'step') handleAgentStep(data, agentBox);
+                    else if (eventType === 'tool_start') handleToolStart(data, agentBox);
                     else if (eventType === 'pending_approval') handlePendingApproval(data, agentBox);
                     else if (eventType === 'pending_user_input') handlePendingUserInput(data, agentBox);
                 });
