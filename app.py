@@ -1407,6 +1407,102 @@ def api_agent_resume():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/agent/resend", methods=["POST"])
+def api_agent_resend():
+    """Resend the last LLM request to kick the agent if it stalled."""
+    data = request.json
+    job_id = data.get("job_id")
+    
+    if not job_id:
+        return jsonify({"error": "job_id required"}), 400
+    
+    # Find the output directory for this job
+    output_dir = None
+    for h in job_history:
+        if h.get("job_id") == job_id:
+            output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                      "aib_instance", "output", job_id)
+            break
+    
+    if not output_dir or not os.path.exists(output_dir):
+        return jsonify({"error": "Job output directory not found"}), 404
+    
+    # Find the last LLM request from the audit directory
+    audit_dir = os.path.join(output_dir, "llm_audit")
+    if not os.path.exists(audit_dir):
+        return jsonify({"error": "No audit data found"}), 404
+    
+    # Get the last request file
+    request_files = sorted([f for f in os.listdir(audit_dir) if f.endswith('_request.json')])
+    if not request_files:
+        return jsonify({"error": "No previous requests found"}), 404
+    
+    last_request_file = os.path.join(audit_dir, request_files[-1])
+    try:
+        with open(last_request_file, 'r', encoding='utf-8') as f:
+            last_request = json.load(f)
+        
+        # Re-send the request
+        import urllib.request
+        import ssl
+        
+        endpoint_url = EngineConfig.get_custom_endpoint_url()
+        api_key = EngineConfig.get_custom_api_key()
+        model_name = EngineConfig.get_custom_model_name()
+        timeout = EngineConfig.get_timeout()
+        
+        if not all([endpoint_url, model_name]):
+            return jsonify({"error": "Missing endpoint configuration"}), 500
+        
+        payload = {
+            "model": model_name,
+            "messages": last_request.get("messages", []),
+            "stream": True,
+        }
+        
+        headers = {"Content-Type": "application/json"}
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+        
+        verify_ssl = EngineConfig.get_custom_verify_ssl()
+        if verify_ssl:
+            context = ssl.create_default_context()
+        else:
+            context = ssl._create_unverified_context()
+        
+        data_bytes = json.dumps(payload).encode('utf-8')
+        req = urllib.request.Request(
+            endpoint_url,
+            data=data_bytes,
+            headers=headers,
+            method='POST',
+        )
+        
+        # Stream the response
+        response_content = ""
+        with urllib.request.urlopen(req, context=context, timeout=timeout) as response:
+            for line in response:
+                line = line.decode('utf-8').strip()
+                if not line.startswith('data: '):
+                    continue
+                data_str = line[6:]
+                if data_str == '[DONE]':
+                    break
+                try:
+                    chunk = json.loads(data_str)
+                    delta = chunk.get('choices', [{}])[0].get('delta', {})
+                    c = delta.get('content')
+                    if c:
+                        response_content += c
+                except json.JSONDecodeError:
+                    continue
+        
+        return jsonify({"status": "resent", "content_length": len(response_content)})
+    except Exception as e:
+        logging.error(f"Failed to resend request: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
 # --- Routes: Pending Tools ---
 @app.route("/api/tools/pending", methods=["GET"])
 def api_get_pending_tools():

@@ -599,6 +599,65 @@ function injectLiveInstruction() {
         if (injectBtn) { injectBtn.disabled = false; injectBtn.textContent = 'INJECT'; }
     }
 }
+// Resend the last request to kick the agent if it stalled
+function resendLastRequest() {
+    if (!currentRunningJobId) {
+        showNotification('No active job to resend', 'warning');
+        return;
+    }
+    var resendBtn = document.getElementById('live-resend-btn');
+    if (!resendBtn) return;
+    
+    // Disable button while resending
+    resendBtn.disabled = true;
+    resendBtn.textContent = 'RESENDING...';
+    
+    // Add a visual indicator in the live feed
+    var agentBox = document.getElementById('agent-live-box');
+    if (agentBox) {
+        var resendEntry = document.createElement('div');
+        resendEntry.className = 'step-entry';
+        resendEntry.style.borderLeftColor = 'var(--warning)';
+        resendEntry.style.background = 'rgba(252, 219, 5, 0.1)';
+        resendEntry.innerHTML = '<div class="step-tool" style="color:var(--warning);">🔄 RESENDING LAST REQUEST...</div>';
+        agentBox.appendChild(resendEntry);
+        agentBox.scrollTop = agentBox.scrollHeight;
+    }
+    
+    // Call the resend endpoint
+    fetch('/api/agent/resend', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ job_id: currentRunningJobId })
+    })
+    .then(function(response) {
+        if (!response.ok) throw new Error('Failed to resend');
+        return response.json();
+    })
+    .then(function(data) {
+        if (agentBox) {
+            resendEntry.innerHTML = '<div class="step-tool" style="color:var(--success);">✅ Request resent successfully</div>';
+            agentBox.scrollTop = agentBox.scrollHeight;
+        }
+        var statusText = document.getElementById('agent-status-text');
+        if (statusText) { statusText.textContent = 'RESENT'; statusText.style.color = 'var(--success)'; }
+        // Re-enable the button after a delay
+        setTimeout(function() {
+            resendBtn.disabled = false;
+            resendBtn.textContent = 'RESEND';
+        }, 2000);
+    })
+    .catch(function(err) {
+        console.error('Failed to resend:', err);
+        if (agentBox) {
+            resendEntry.innerHTML = '<div class="step-tool" style="color:var(--danger);">❌ Failed to resend: ' + err.message + '</div>';
+            agentBox.scrollTop = agentBox.scrollHeight;
+        }
+        resendBtn.disabled = false;
+        resendBtn.textContent = 'RESEND';
+    });
+}
+
 
 // Agent inject enter key handler
 document.addEventListener('keydown', function(e) {
@@ -763,6 +822,7 @@ function loadProjectsCached() {
 
 function selectProject(projectId) {
     currentProjectId = projectId;
+    currentRunningProjectId = projectId;  // Set for inject continuation
     localStorage.setItem('currentProjectId', projectId);
     document.getElementById('projects-panel').classList.remove('active');
     document.getElementById('project-details-panel').classList.add('active');
@@ -798,21 +858,19 @@ function selectProject(projectId) {
                     var isRunning = queueData.running && queueData.running.project_id === projectId;
                     var isQueued = queueData.queue && queueData.queue.some(function(j) { return j.project_id === projectId; });
                     updateRunButtonState(projectId, isRunning ? 'running' : (isQueued ? 'queued' : null));
-                    // Show VIEW LIVE button if project is running, pending_approval, or pending_user_input
+                    // Show VIEW LIVE button if project is running, pending, or has completed jobs
                     if (isRunning) {
                         var liveBtn = document.getElementById('details-live-btn');
                         if (liveBtn) liveBtn.style.display = 'inline-block';
                         var stopBtn = document.getElementById('details-stop-btn');
                         if (stopBtn) stopBtn.style.display = 'inline-block';
+                        currentRunningJobId = queueData.running.job_id;
                     } else {
-                        // Check job history for pending_approval or pending_user_input
+                        // Check job history for any job (running, pending, or completed)
                         fetch('/api/history')
                             .then(function(r) { return r.json(); })
                             .then(function(history) {
-                                var recentJob = history.find(function(h) {
-                                    return h.project_id === projectId &&
-                                           (h.status === 'pending_approval' || h.status === 'pending_user_input');
-                                });
+                                var recentJob = history.find(function(h) { return h.project_id === projectId; });
                                 if (recentJob) {
                                     var liveBtn = document.getElementById('details-live-btn');
                                     if (liveBtn) liveBtn.style.display = 'inline-block';
