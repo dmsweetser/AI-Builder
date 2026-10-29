@@ -1085,9 +1085,9 @@ def api_agent_run():
                 # for all tool operations. The root_dir is already set in the
                 # AgentEngine.__init__ from project_config["rootDirectory"].
                 engine.tools = get_registry(engine.root_dir, enabled_tools=enabled_tools)
-                from agent_engine.engine import build_system_prompt
-                engine.system_prompt = build_system_prompt(engine.tools.list_tools())
-                engine.messages[0]["content"] = engine.system_prompt
+                # Reload approved tools and rebuild system prompt so any tools
+                # approved since the previous run are visible to the LLM.
+                engine.reload_approved_tools()
 
                 # If continuing, load previous step history and reconstruct conversation
                 if prev_step_history:

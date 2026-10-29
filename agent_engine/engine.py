@@ -671,8 +671,24 @@ class AgentEngine:
         self._compress_threshold = 28  # Compress when message count exceeds this
         self._compressed = False  # Track if we've already compressed
 
+    def reload_approved_tools(self):
+        """Reload approved tools from disk and rebuild system prompt.
+
+        Call this after tool approval to make newly approved tools
+        visible to the LLM without restarting the engine.
+        """
+        self.tools._load_approved_tools()
+        self.system_prompt = build_system_prompt(self.tools.list_tools())
+        # Replace the system prompt message in-place so the LLM sees the
+        # updated tool list on the next call.
+        if self.messages and self.messages[0].get("role") == "system":
+            self.messages[0]["content"] = self.system_prompt
+
     def run(self) -> Dict[str, Any]:
         """Execute the agentic revision loop."""
+        # Reload approved tools so any tools approved since the last run
+        # are visible to the LLM immediately.
+        self.reload_approved_tools()
         self.logger.info(f"Starting agentic engine for: {self.root_dir}")
         self.logger.info(f"Instructions: {self.instructions[:200]}...")
 
@@ -804,26 +820,41 @@ class AgentEngine:
 
                     summary_text = "\n".join(summary_parts)
 
-                    # Replace all user/assistant messages (after system) with
-                    # a single compressed summary message
+                    # Keep the last N messages for recent context, compress the rest
+                    messages_to_compress = self.messages[1:]  # Exclude system prompt
+                    messages_to_keep = 6  # Keep last 6 messages (3 turns of user/assistant)
+                    messages_to_compress_list = messages_to_compress[:-messages_to_keep] if len(messages_to_compress) > messages_to_keep else []
+                    messages_to_keep_list = messages_to_compress[-messages_to_keep:] if len(messages_to_compress) > messages_to_keep else messages_to_compress
+
+                    # Build compressed summary for older messages
+                    compressed_summary = (
+                        f"[CONTEXT COMPRESSED]\n"
+                        f"Your prior conversation has been compressed to save context space.\n"
+                        f"Here is the summary of what was done, including file contents:\n\n"
+                        f"{summary_text}\n\n"
+                        f"[STATE: You have already read {len(self._files_seen)} files. "
+                        f"DO NOT read any more files. YOU MUST NOW TAKE ACTION.\n"
+                        f"Use edit_file to fix issues, write_file to create files, or delete_file to remove files.\n"
+                        f"If you need to make changes, use the file contents included above.\n"
+                        f"DO NOT explore further. TAKE ACTION NOW.]"
+                    )
+
+                    # Rebuild messages: system + compressed summary + last N messages
                     self.messages = [
                         self.messages[0],  # Keep system prompt
                         {
                             "role": "user",
-                            "content": (
-                                f"[CONTEXT COMPRESSED]\n"
-                                f"Your prior conversation has been compressed to save context space.\n"
-                                f"Here is the summary of what was done, including file contents:\n\n"
-                                f"{summary_text}\n\n"
-                                f"[STATE: You have already read {len(self._files_seen)} files. "
-                                f"DO NOT read any more files. YOU MUST NOW TAKE ACTION.\n"
-                                f"Use edit_file to fix issues, write_file to create files, or delete_file to remove files.\n"
-                                f"If you need to make changes, use the file contents included above.\n"
-                                f"DO NOT explore further. TAKE ACTION NOW.]\n\n"
-                                f"Continue with your next action."
-                            ),
+                            "content": compressed_summary,
                         },
                     ]
+                    # Append the most recent messages for recent context
+                    for msg in messages_to_keep_list:
+                        self.messages.append(msg)
+                    # Add a continuation prompt
+                    self.messages.append({
+                        "role": "user",
+                        "content": "Continue with your next action.",
+                    })
                     self._compressed = True
                     # Keep the read budget counter so it doesn't reset after compression
                     self.logger.info(
