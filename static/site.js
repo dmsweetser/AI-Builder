@@ -1477,6 +1477,7 @@ function showLiveViewForJob(jobId) {
     container.scrollIntoView({ behavior: 'smooth' });
     container.dataset.jobId = jobId;
     currentRunningJobId = jobId;
+    currentRunningProjectId = null;  // Will be set when we load job history
 
     // Check if the job is still running or paused
     fetch('/api/queue')
@@ -1508,7 +1509,7 @@ function showLiveViewForJob(jobId) {
                 // Start SSE connection for live feed
                 connectToJobSSE(jobId);
             } else {
-                // Job not running - load history
+                // Job not running - load history and show it
                 loadJobHistory(jobId);
             }
         })
@@ -1543,6 +1544,10 @@ function loadJobHistory(jobId) {
                     agentBox.appendChild(entry);
                 });
                 if (statusText) { statusText.textContent = 'HISTORY'; statusText.style.color = 'var(--text-muted)'; }
+                // Set currentRunningProjectId if available in data
+                if (data.project_id) {
+                    currentRunningProjectId = data.project_id;
+                }
             } else {
                 // Try to get history from the job history API
                 fetch('/api/history')
@@ -1569,13 +1574,13 @@ function loadJobHistory(jobId) {
                                 agentBox.appendChild(entry);
                             });
                             if (statusText) { statusText.textContent = 'HISTORY'; statusText.style.color = 'var(--text-muted)'; }
+                            // Set currentRunningProjectId for inject continuation
+                            if (job && job.project_id) {
+                                currentRunningProjectId = job.project_id;
+                            }
                         } else {
                             agentBox.innerHTML = '<div class="step-entry llm-step">No history available for this job.</div>';
                             if (statusText) { statusText.textContent = 'NO HISTORY'; statusText.style.color = 'var(--text-muted)'; }
-                        }
-                        // Set currentRunningProjectId for inject continuation
-                        if (job && job.project_id) {
-                            currentRunningProjectId = job.project_id;
                         }
                     });
             }

@@ -1285,6 +1285,7 @@ def api_agent_history(job_id):
     """Get the step history for a completed agent run."""
     step_log = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                             "aib_instance", "output", job_id, "steps.jsonl")
+    project_id = None
     if os.path.exists(step_log):
         steps = []
         with open(step_log, 'r', encoding='utf-8') as f:
@@ -1292,11 +1293,15 @@ def api_agent_history(job_id):
                 line = line.strip()
                 if line:
                     try:
-                        steps.append(json.loads(line))
+                        step_data = json.loads(line)
+                        steps.append(step_data)
+                        # Extract project_id from the first step if available
+                        if project_id is None and 'project_id' in step_data:
+                            project_id = step_data['project_id']
                     except json.JSONDecodeError:
                         pass
-        return jsonify({"steps": steps})
-    return jsonify({"steps": []})
+        return jsonify({"steps": steps, "project_id": project_id})
+    return jsonify({"steps": [], "project_id": project_id})
 
 
 @app.route("/api/agent/response/<job_id>", methods=["GET"])
