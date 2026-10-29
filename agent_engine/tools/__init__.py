@@ -286,6 +286,10 @@ class ToolRegistry:
         """Return tool definitions for the LLM prompt."""
         return [t.get_definition() for t in self._tools.values()]
 
+    def tool_names(self) -> set:
+        """Return a set of all registered tool names (built-in + dynamic)."""
+        return set(self._tools.keys())
+
     def execute(self, tool_name: str, params: Dict[str, Any]) -> ToolResult:
         """Execute a tool by name with validated parameters."""
         tool = self._tools.get(tool_name)

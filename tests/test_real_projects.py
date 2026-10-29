@@ -102,8 +102,8 @@ class TestRealProjectPython(unittest.TestCase):
             idx = call_count[0]
             call_count[0] += 1
             if idx < len(llm_responses):
-                return llm_responses[idx]
-            return '[DONE] Done.'
+                return {"content": llm_responses[idx]}
+            return {"content": '[DONE] Done.'}
 
         with mock.patch.object(ToolRegistry, 'execute', track_execute):
             with mock.patch.object(LLMClient, 'call', mock_llm):
@@ -173,8 +173,8 @@ class TestRealProjectJavaScript(unittest.TestCase):
             idx = call_count[0]
             call_count[0] += 1
             if idx < len(llm_responses):
-                return llm_responses[idx]
-            return '[DONE] Done.'
+                return {"content": llm_responses[idx]}
+            return {"content": '[DONE] Done.'}
 
         with mock.patch.object(ToolRegistry, 'execute', track_execute):
             with mock.patch.object(LLMClient, 'call', mock_llm):
@@ -248,8 +248,8 @@ class TestRealProjectMultiFile(unittest.TestCase):
             idx = call_count[0]
             call_count[0] += 1
             if idx < len(llm_responses):
-                return llm_responses[idx]
-            return '[DONE] Done.'
+                return {"content": llm_responses[idx]}
+            return {"content": '[DONE] Done.'}
 
         with mock.patch.object(ToolRegistry, 'execute', track_execute):
             with mock.patch.object(LLMClient, 'call', mock_llm):

@@ -273,8 +273,8 @@ class TestAgentEngineE2E(unittest.TestCase):
                 idx = call_count[0]
                 call_count[0] += 1
                 if idx < len(llm_responses):
-                    return llm_responses[idx]
-                return '[DONE] Task completed.'
+                    return {"content": llm_responses[idx]}
+                return {"content": '[DONE] Task completed.'}
 
             with patch.object(LLMClient, 'call', mock_llm_call):
                 engine = AgentEngine(self.project_config)
@@ -325,8 +325,8 @@ class TestAgentEngineE2E(unittest.TestCase):
                 idx = call_count[0]
                 call_count[0] += 1
                 if idx < len(llm_responses):
-                    return llm_responses[idx]
-                return '[DONE] Stopped repeating tool calls.'
+                    return {"content": llm_responses[idx]}
+                return {"content": '[DONE] Stopped repeating tool calls.'}
 
             with patch.object(LLMClient, 'call', mock_llm_call):
                 engine = AgentEngine(self.project_config)

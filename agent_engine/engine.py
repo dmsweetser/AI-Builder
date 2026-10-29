@@ -16,6 +16,7 @@ from agent_engine.tools.base import ToolResult
 
 
 import random as _random
+import threading
 import time as _time
 import urllib.error as _urllib_error
 
@@ -594,7 +595,7 @@ class AgentEngine:
     """
 
     def __init__(self, project_config: Dict[str, Any], output_dir: Optional[str] = None,
-                 step_callback=None):
+                 step_callback=None, stop_event: Optional[threading.Event] = None):
         self.project_config = project_config
         self.root_dir = project_config.get("rootDirectory", EngineConfig.get_root_directory())
         self.instructions = project_config.get("instructions", "")
@@ -671,6 +672,9 @@ class AgentEngine:
         self._compress_threshold = 28  # Compress when message count exceeds this
         self._compressed = False  # Track if we've already compressed
 
+        # Stop signal from the UI (set by /api/queue/running/stop)
+        self._stop_event = stop_event
+
     def reload_approved_tools(self):
         """Reload approved tools from disk and rebuild system prompt.
 
@@ -700,6 +704,16 @@ class AgentEngine:
             # Main loop
             final_summary = ""
             while self.step_count < self.max_steps or self._continue_requested:
+                # Check if the user requested a stop
+                if self._stop_event and self._stop_event.is_set():
+                    self.logger.info("Engine stop requested by user.")
+                    return {
+                        "status": "stopped",
+                        "steps": self.step_count,
+                        "summary": final_summary,
+                        "max_steps": self.max_steps,
+                        "step_history": self.step_history,
+                    }
                 if self.step_count >= self.max_steps and not self._continue_requested:
                     self.logger.info("Max steps reached. Waiting for user continuation.")
                     return {
@@ -920,19 +934,10 @@ class AgentEngine:
                         f"Response preview: {response[:200]}"
                     )
                     # Count consecutive non-tool-call steps
+                    all_tool_names = self.tools.tool_names()
                     consecutive_no_tool = sum(
                         1 for h in self.step_history[-5:]
-                        if h.get("tool") not in (
-                            "list_directory", "list_directory_deep",
-                            "search_files", "search_files_dir",
-                            "grep_code", "grep_code_dir",
-                            "read_file", "read_file_range",
-                            "write_file", "edit_file",
-                            "delete_file", "find_symbol", "decompile_jar",
-                            "list_dependencies", "check_syntax", "get_file_info",
-                            "create_tool", "compress_context",
-                            "respond_to_user", "request_user_input",
-                        )
+                        if h.get("tool") not in all_tool_names
                     )
                     if consecutive_no_tool >= 3:
                         # After 3 failed attempts, pause and ask the user
@@ -1142,13 +1147,12 @@ class AgentEngine:
                     repeated_tool = list(unique_recent)[0]
                     self.logger.warning(f"Loop detected: {repeated_tool} called {len(self._recent_tool_calls)} times in a row without progress")
                     # Send a strong intervention message
+                    all_tool_names = self.tools.tool_names()
+                    tool_list_str = ", ".join(sorted(all_tool_names))
                     intervention = (
                         f"\n\n[LOOP DETECTED] You have called {repeated_tool} {len(self._recent_tool_calls)} times in a row without making progress. "
                         f"This is not productive. You MUST choose a DIFFERENT tool or take a different action. "
-                        f"Available tools: list_directory, list_directory_deep, search_files, search_files_dir, "
-                        f"grep_code, grep_code_dir, read_file, read_file_range, write_file, edit_file, delete_file, "
-                        f"find_symbol, decompile_jar, list_dependencies, check_syntax, get_file_info, "
-                        f"create_tool, compress_context, respond_to_user, request_user_input. "
+                        f"Available tools: {tool_list_str}. "
                         f"Think about what you've learned so far and what you need to do next. "
                         f"Either make a concrete change with write_file/edit_file, or gather specific information with a different tool. "
                         f"DO NOT call {repeated_tool} again. "

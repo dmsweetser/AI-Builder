@@ -61,6 +61,11 @@ stop_event = threading.Event()
 worker_thread = None
 _worker_wake = threading.Event()  # Signals the worker to check the queue
 
+# Track per-job stop events for the SSE agent runs
+# Maps job_id -> threading.Event (set by stop endpoint to halt engine)
+_job_stop_events: Dict[str, threading.Event] = {}
+_job_stop_events_lock = threading.Lock()
+
 # SSE job tracking: maps SSE job_id -> output_dir (for inject endpoint)
 _sse_jobs = {}
 _sse_jobs_lock = threading.Lock()
@@ -372,14 +377,9 @@ path
 STEP 1: Use list_directory to explore the project structure. Do NOT use [DONE] yet - you must take action first."""
     })
     # Add tool results from step_history
+    all_tool_names = engine.tools.tool_names()
     for h in step_history:
-        if h.get("tool") in ("list_directory", "list_directory_deep", "search_files",
-                             "search_files_dir", "grep_code", "grep_code_dir",
-                             "read_file", "read_file_range", "write_file",
-                             "edit_file", "delete_file", "find_symbol",
-                             "decompile_jar", "list_dependencies", "check_syntax",
-                             "get_file_info", "create_tool", "compress_context",
-                             "respond_to_user", "request_user_input"):
+        if h.get("tool") in all_tool_names:
             result = h.get("result", {})
             content = result.get("content", "")
             error = result.get("error", "")
@@ -599,10 +599,21 @@ def api_get_queue():
         for j in job_queue:
             queue_with_names.append({**j, "project_name": project_map.get(j["project_id"], "Unknown"), "status": "queued"})
 
-        return jsonify({
-            "queue": queue_with_names,
-            "running": {**running_job, "project_name": running_name} if running_job else None
-        })
+    # Include SSE jobs
+    with _sse_jobs_lock:
+        sse_running = []
+        for job_id, job_info in _sse_jobs.items():
+            sse_running.append({
+                "job_id": job_id,
+                "status": "running",
+                "project_name": "SSE Job"
+            })
+
+    return jsonify({
+        "queue": queue_with_names,
+        "running": {**running_job, "project_name": running_name} if running_job else None,
+        "sse_jobs": sse_running
+    })
 
 @app.route("/api/job/<job_id>/actions", methods=["GET"])
 def api_get_job_actions(job_id):
@@ -659,9 +670,40 @@ def api_delete_from_queue(job_id):
 def api_stop_running():
     global running_job
     with job_queue_lock:
+        job_to_stop = running_job
         running_job = None
+    # Signal the SSE engine stop event if this is an SSE job
+    if job_to_stop:
+        job_id = job_to_stop["job_id"]
+        with _job_stop_events_lock:
+            stop_ev = _job_stop_events.pop(job_id, None)
+        if stop_ev:
+            stop_ev.set()
+            _log_app_event(f"Stop event set for SSE job {job_id}")
     start_worker()
     return jsonify({"status": "stopped"})
+
+
+@app.route("/api/agent/stop/<job_id>", methods=["POST"])
+def api_stop_agent(job_id):
+    """Stop a running SSE agent job by job_id."""
+    # Try to signal the stop event
+    with _job_stop_events_lock:
+        stop_ev = _job_stop_events.pop(job_id, None)
+    if stop_ev:
+        stop_ev.set()
+        _log_app_event(f"Stop event set for SSE job {job_id}")
+        return jsonify({"status": "stopped"})
+
+    # Job may have already completed (e.g., pending_user_input).
+    # Mark it as stopped in history if found.
+    for job in job_history:
+        if job.get("job_id") == job_id and job.get("status") in ("pending_user_input", "pending_approval", "running"):
+            job["status"] = "stopped"
+            _log_app_event(f"SSE job {job_id} marked as stopped in history")
+            return jsonify({"status": "stopped", "reason": "job_was_pending"})
+
+    return jsonify({"status": "not_found", "error": "Job not found or already stopped"}), 404
 
 @app.route("/api/projects/<pid>", methods=["DELETE"])
 def api_delete_project(pid):
@@ -1057,8 +1099,12 @@ def api_agent_run():
     _log_app_event(f"Agent run started — project={project_id}, job_id={job_id}")
 
     # Register SSE job so inject endpoint knows where to write
+    # Also track the stop_event for this job so the stop endpoint can signal it
+    job_stop_event = threading.Event()
     with _sse_jobs_lock:
-        _sse_jobs[job_id] = output_dir
+        _sse_jobs[job_id] = {"output_dir": output_dir, "stop_event": job_stop_event}
+    with _job_stop_events_lock:
+        _job_stop_events[job_id] = job_stop_event
 
     def generate():
         # Queue for events from background thread
@@ -1079,7 +1125,7 @@ def api_agent_run():
                     "job_id": job_id,
                     "enabled_tools": enabled_tools if enabled_tools else None,
                 }
-                engine = AgentEngine(config, output_dir=output_dir, step_callback=on_event)
+                engine = AgentEngine(config, output_dir=output_dir, step_callback=on_event, stop_event=job_stop_event)
                 # Ensure the engine's ToolRegistry uses the global aib_instance
                 # directory for pending tools file, but keeps the project's root_dir
                 # for all tool operations. The root_dir is already set in the
@@ -1197,6 +1243,11 @@ def api_agent_run():
                             }) + "\n"
                     except queue.Empty:
                         break
+                # Clean up stop event for this job
+                with _job_stop_events_lock:
+                    _job_stop_events.pop(job_id, None)
+                with _sse_jobs_lock:
+                    _sse_jobs.pop(job_id, None)
                 # Final result
                 _log_app_event(f"Agent run completed — job_id={job_id}, status={result.get('status')}, steps={result.get('steps')}")
                 yield "event: status\ndata: " + json.dumps({

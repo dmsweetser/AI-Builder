@@ -675,9 +675,27 @@ function stopProject(projectId) {
     agentRunning = false;
     liveInjectActive = false;
     if (agentSSEController) { agentSSEController.abort(); agentSSEController = null; }
-    fetch('/api/queue/running/stop', { method: 'POST' })
-        .then(function() { updateRunButtonState(projectId, false); loadJobs(); resetRunButtons(); })
-        .catch(function(err) { console.error('Failed to stop project:', err); });
+    // Stop the SSE engine job if there is one
+    var jobId = currentRunningJobId;
+    var promises = [fetch('/api/queue/running/stop', { method: 'POST' }).catch(function() {})];
+    if (jobId) {
+        promises.push(fetch('/api/agent/stop/' + jobId, { method: 'POST' }).catch(function() {}));
+    }
+    Promise.all(promises).then(function() {
+        // Hide the agent live container and show config section again
+        var container = document.getElementById('agent-live-container');
+        if (container) container.style.display = 'none';
+        var configSection = document.getElementById('project-config-section');
+        if (configSection) configSection.style.display = 'block';
+        var stopBtn = document.getElementById('details-stop-btn');
+        if (stopBtn) stopBtn.style.display = 'none';
+        var viewLiveBtn = document.getElementById('details-live-btn');
+        if (viewLiveBtn) viewLiveBtn.style.display = 'none';
+        updateRunButtonState(projectId, false);
+        loadJobs();
+        resetRunButtons();
+    })
+    .catch(function(err) { console.error('Failed to stop project:', err); });
 }
 
 function continueAgentRunWithInstruction(projectId, prevJobId, newInstruction) {
@@ -1440,80 +1458,124 @@ function showNotification(message, type) {
 
 // === Live View Functions ===
 function showLiveView(project_id) {
-    // Check if there's a running job for this project
-    var runningJob = null;
+    // Check if there's a running job for this project (queue or SSE)
     fetch('/api/queue')
         .then(function(r) { return r.json(); })
         .then(function(queueData) {
+            // Check queue-based running job
             if (queueData.running && queueData.running.project_id === project_id) {
-                runningJob = queueData.running;
+                showLiveViewForJob(queueData.running.job_id);
+                return;
             }
-            if (runningJob) {
-                showLiveViewForJob(runningJob.job_id);
-            } else {
-                // Check job history for pending_approval or pending_user_input
-                fetch('/api/history')
+            // Check SSE jobs
+            if (queueData.sse_jobs && queueData.sse_jobs.length > 0) {
+                // Check history to find which SSE job belongs to this project
+                return fetch('/api/history')
                     .then(function(r) { return r.json(); })
                     .then(function(history) {
-                        var pendingJob = history.find(function(h) {
-                            return h.project_id === currentProjectId &&
-                                   (h.status === 'pending_approval' || h.status === 'pending_user_input');
+                        var sseJob = queueData.sse_jobs.find(function(s) {
+                            return history.some(function(h) {
+                                return h.job_id === s.job_id && h.project_id === project_id;
+                            });
                         });
-                        if (pendingJob) {
-                            showLiveViewForJob(pendingJob.job_id);
-                        } else {
-                            showNotification('No active job to view', 'warning');
+                        if (sseJob) {
+                            showLiveViewForJob(sseJob.job_id);
+                            return;
                         }
+                        // Fall through to check pending jobs
+                        checkPendingJobs(project_id);
                     });
             }
+            // No running job found - check for pending jobs
+            checkPendingJobs(project_id);
         })
         .catch(function(err) { console.error('Failed to check job status:', err); showNotification('No active job to view', 'warning'); });
+}
+
+function checkPendingJobs(project_id) {
+    fetch('/api/history')
+        .then(function(r) { return r.json(); })
+        .then(function(history) {
+            var pendingJob = history.find(function(h) {
+                return h.project_id === project_id &&
+                       (h.status === 'pending_approval' || h.status === 'pending_user_input');
+            });
+            if (pendingJob) {
+                showLiveViewForJob(pendingJob.job_id);
+            } else {
+                showNotification('No active job to view', 'warning');
+            }
+        })
+        .catch(function(err) { console.error('Failed to check job history:', err); showNotification('No active job to view', 'warning'); });
 }
 
 function showLiveViewForJob(jobId) {
     var container = document.getElementById('agent-live-container');
     if (!container) return;
+
+    // Ensure the project-details panel is active so the container is visible
+    var detailsPanel = document.getElementById('project-details-panel');
+    if (detailsPanel) detailsPanel.classList.add('active');
+
+    // Hide project config section, show agent live view (same as RUN)
+    var configSection = document.getElementById('project-config-section');
+    if (configSection) configSection.style.display = 'none';
     container.style.display = 'block';
     container.scrollIntoView({ behavior: 'smooth' });
     container.dataset.jobId = jobId;
     currentRunningJobId = jobId;
     currentRunningProjectId = null;  // Will be set when we load job history
 
-    // Check if the job is still running or paused
-    fetch('/api/queue')
-        .then(function(r) { return r.json(); })
-        .then(function(queueData) {
-            var isRunning = queueData.running && queueData.running.job_id === jobId;
-            var isPendingApproval = queueData.running && queueData.running.status === 'pending_approval';
-            var isPendingInput = queueData.running && queueData.running.status === 'pending_user_input';
+    // Check if the job is still running/paused in queue OR in history with pending status
+    Promise.all([
+        fetch('/api/queue').then(function(r) { return r.json(); }),
+        fetch('/api/history').then(function(r) { return r.json(); })
+    ])
+    .then(function(results) {
+        var queueData = results[0];
+        var history = results[1];
+        var jobRecord = history.find(function(h) { return h.job_id === jobId; });
 
-            if (isRunning || isPendingApproval || isPendingInput) {
-                // Job is running or paused - show the view and enable inject
-                agentRunning = true;
-                liveInjectActive = true;
-                var agentBox = document.getElementById('agent-live-box');
-                if (agentBox) {
-                    var statusLabel = isPendingApproval ? 'PENDING APPROVAL' :
-                                      (isPendingInput ? 'AWAITING INPUT' : 'LIVE');
-                    agentBox.innerHTML = '<div class="step-entry llm-step">📺 Viewing live feed for running job (' + statusLabel + ')...</div>';
-                }
-                var statusText = document.getElementById('agent-status-text');
-                if (statusText) {
-                    statusText.textContent = statusLabel;
-                    statusText.style.color = isPendingApproval || isPendingInput ? 'var(--warning)' : 'var(--success)';
-                }
-                var injectInput = document.getElementById('live-inject-input');
-                var injectBtn = document.getElementById('live-inject-btn');
-                if (injectInput) { injectInput.disabled = false; injectInput.placeholder = 'Type instructions or questions...'; }
-                if (injectBtn) { injectBtn.disabled = false; injectBtn.textContent = 'INJECT'; }
-                // Start SSE connection for live feed
-                connectToJobSSE(jobId);
-            } else {
-                // Job not running - load history and show it
-                loadJobHistory(jobId);
+        var isRunning = queueData.running && queueData.running.job_id === jobId;
+        var isPendingApproval = queueData.running && queueData.running.status === 'pending_approval';
+        var isPendingInput = queueData.running && queueData.running.status === 'pending_user_input';
+
+        // Also check history for pending status (for paused SSE jobs)
+        if (!isRunning && !isPendingApproval && !isPendingInput && jobRecord) {
+            isPendingApproval = jobRecord.status === 'pending_approval';
+            isPendingInput = jobRecord.status === 'pending_user_input';
+        }
+
+        if (isRunning || isPendingApproval || isPendingInput) {
+            // Job is running or paused - show the view and enable inject
+            agentRunning = true;
+            liveInjectActive = true;
+            // Show stop button
+            var stopBtn = document.getElementById('details-stop-btn');
+            if (stopBtn) stopBtn.style.display = 'inline-block';
+            var agentBox = document.getElementById('agent-live-box');
+            if (agentBox) {
+                var statusLabel = isPendingApproval ? 'PENDING APPROVAL' :
+                                  (isPendingInput ? 'AWAITING INPUT' : 'LIVE');
+                agentBox.innerHTML = '<div class="step-entry llm-step">📺 Viewing live feed for running job (' + statusLabel + ')...</div>';
             }
-        })
-        .catch(function(err) { console.error('Failed to check job status:', err); });
+            var statusText = document.getElementById('agent-status-text');
+            if (statusText) {
+                statusText.textContent = statusLabel;
+                statusText.style.color = isPendingApproval || isPendingInput ? 'var(--warning)' : 'var(--success)';
+            }
+            var injectInput = document.getElementById('live-inject-input');
+            var injectBtn = document.getElementById('live-inject-btn');
+            if (injectInput) { injectInput.disabled = false; injectInput.placeholder = 'Type instructions or questions...'; }
+            if (injectBtn) { injectBtn.disabled = false; injectBtn.textContent = 'INJECT'; }
+            // Start SSE connection for live feed
+            connectToJobSSE(jobId);
+        } else {
+            // Job not running - load history and show it
+            loadJobHistory(jobId);
+        }
+    })
+    .catch(function(err) { console.error('Failed to check job status:', err); });
 }
 
 function loadJobHistory(jobId) {
