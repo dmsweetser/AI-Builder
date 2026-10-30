@@ -1,0 +1,32 @@
+[
+  {
+    "pattern": "",
+    "response": "[TOOL_START]\n[TOOL_NAME]\nlist_directory\n[PARAM_NAME]\npath\n[PARAM_VALUE]\n.\n[TOOL_END]",
+    "finish_reason": "stop",
+    "sequential": true
+  },
+  {
+    "pattern": "",
+    "response": "[TOOL_START]\n[TOOL_NAME]\nread_file\n[PARAM_NAME]\npath\n[PARAM_VALUE]\nsrc/main.py\n[TOOL_END]",
+    "finish_reason": "stop",
+    "sequential": true
+  },
+  {
+    "pattern": "",
+    "response": "[TOOL_START]\n[TOOL_NAME]\nedit_file\n[PARAM_NAME]\npath\n[PARAM_VALUE]\nsrc/main.py\n[PARAM_NAME]\noriginal_text\n[PARAM_VALUE]\ndef add(a, b):\n    return a + b\n\ndef multiply(a, b):\n    return a * b\n\n[PARAM_NAME]\nnew_text\n[PARAM_VALUE]\ndef add(a, b):\n    return a + b\n\ndef multiply(a, b):\n    return a * b\n\ndef divide(a, b):\n    if b == 0:\n        raise ValueError(\"Cannot divide by zero\")\n    return a / b\n[TOOL_END]",
+    "finish_reason": "stop",
+    "sequential": true
+  },
+  {
+    "pattern": "",
+    "response": "[TOOL_START]\n[TOOL_NAME]\ncheck_syntax\n[PARAM_NAME]\npath\n[PARAM_VALUE]\nsrc/main.py\n[TOOL_END]",
+    "finish_reason": "stop",
+    "sequential": true
+  },
+  {
+    "pattern": "",
+    "response": "[DONE] Added divide function to src/main.py with division-by-zero handling.",
+    "finish_reason": "stop",
+    "sequential": true
+  }
+]

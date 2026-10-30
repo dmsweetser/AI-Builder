@@ -88,7 +88,7 @@ class EngineConfig:
     @staticmethod
     def get_max_tool_result_length() -> int:
         """Maximum characters for a tool result before truncation. 0 = no truncation."""
-        return int(os.getenv("AIB_MAX_TOOL_RESULT_LENGTH", "2000"))
+        return int(os.getenv("AIB_MAX_TOOL_RESULT_LENGTH", "10000"))
 
     @staticmethod
     def get_live_instruction(job_id: str, base_dir: Optional[str] = None) -> Optional[str]:

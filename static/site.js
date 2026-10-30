@@ -1423,7 +1423,7 @@ function loadSettingsUI() {
             set('set-timeout', settings.timeout || '3600');
             set('set-max-context-tokens', settings.max_context_tokens || '0');
             set('set-max-output-tokens', settings.max_output_tokens || '0');
-            set('set-max-tool-result-length', settings.max_tool_result_length || '2000');
+            set('set-max-tool-result-length', settings.max_tool_result_length || '10000');
             set('set-root-dir', settings.root_directory || '');
             set('set-jd-cli', settings.jd_cli_path || '');
             set('set-java-home', settings.java_home || '');

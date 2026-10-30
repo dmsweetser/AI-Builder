@@ -962,7 +962,26 @@ class AgentEngine:
                             except Exception:
                                 pass
                         result = self.tools.execute(tool_name, params)
-                        step_entry["result"] = result.to_dict()
+                        result_dict = result.to_dict()
+
+                        # Truncate tool result content to prevent context overflow.
+                        # The LLM can only see the first N characters; if the
+                        # result is longer, it gets a notice and guidance on
+                        # how to request a narrower query.
+                        raw_content = result_dict.get("content", "")
+                        if raw_content and self.max_tool_result_length > 0:
+                            truncated, was_truncated = truncate_tool_result(
+                                raw_content, self.max_tool_result_length, tool_name
+                            )
+                            result_dict["content"] = truncated
+                            result_dict["truncated"] = was_truncated
+                            if was_truncated:
+                                self.logger.info(
+                                    f"  Truncated tool '{tool_name}' result: "
+                                    f"{len(raw_content)} -> {len(truncated)} chars "
+                                    f"(limit: {self.max_tool_result_length})"
+                                )
+                        step_entry["result"] = result_dict
                     except SecurityError as e:
                         step_entry["result"] = ToolResult(False, "", error=f"SECURITY: {e}").to_dict()
                         self.logger.warning(f"Security violation: {e}")

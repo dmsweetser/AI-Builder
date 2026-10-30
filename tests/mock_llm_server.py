@@ -17,6 +17,7 @@ import logging
 import threading
 import time
 from http.server import HTTPServer, BaseHTTPRequestHandler
+from pathlib import Path
 from typing import Dict, List, Any, Optional
 
 # Configure logging
@@ -150,7 +151,7 @@ class MockLLMHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header('Content-Type', 'text/event-stream')
         self.send_header('Cache-Control', 'no-cache')
-        self.send_header('Connection', 'keep-alive')
+        self.send_header('Connection', 'close')
         self.end_headers()
         
         # Send the initial chunk
@@ -416,8 +417,22 @@ if __name__ == '__main__':
     server = MockLLMServer(host=args.host, port=args.port)
     port = server.start()
     
-    # Create default responses
-    create_default_responses()
+    # Try to load sequential responses from JSON file (for E2E tests)
+    script_dir = Path(__file__).parent
+    responses_file = script_dir / "mock_llm_responses.json"
+    if responses_file.exists():
+        with open(responses_file) as f:
+            mock_responses = json.load(f)
+        for mr in mock_responses:
+            server.add_sequential_response(
+                mr["response"],
+                delay=mr.get("delay", 0.0),
+                finish_reason=mr.get("finish_reason", "stop")
+            )
+        logger.info(f"[MOCK] Loaded {len(mock_responses)} sequential responses from {responses_file}")
+    else:
+        # Create default responses
+        create_default_responses()
     
     try:
         # Keep the server running

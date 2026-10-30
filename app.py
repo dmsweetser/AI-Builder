@@ -94,7 +94,7 @@ def _load_settings_unlocked():
     loaded.setdefault('timeout', int(os.getenv("CUSTOM_TIMEOUT", "7200")))
     loaded.setdefault('max_context_tokens', int(os.getenv("AIB_MAX_CONTEXT_TOKENS", "262144")))
     loaded.setdefault('max_output_tokens', int(os.getenv("AIB_MAX_OUTPUT_TOKENS", "131072")))
-    loaded.setdefault('max_tool_result_length', int(os.getenv("AIB_MAX_TOOL_RESULT_LENGTH", "5000")))
+    loaded.setdefault('max_tool_result_length', int(os.getenv("AIB_MAX_TOOL_RESULT_LENGTH", "10000")))
     loaded.setdefault('root_directory', os.getenv("ROOT_DIRECTORY", ""))
     loaded.setdefault('jd_cli_path', os.getenv("JD_CLI_PATH", ""))
     loaded.setdefault('java_home', os.getenv("JAVA_HOME", ""))
@@ -134,7 +134,7 @@ def apply_settings_to_env():
     os.environ["CUSTOM_TIMEOUT"] = str(s.get('timeout', 3600))
     os.environ["AIB_MAX_CONTEXT_TOKENS"] = str(s.get('max_context_tokens', 0))
     os.environ["AIB_MAX_OUTPUT_TOKENS"] = str(s.get('max_output_tokens', 0))
-    os.environ["AIB_MAX_TOOL_RESULT_LENGTH"] = str(s.get('max_tool_result_length', 2000))
+    os.environ["AIB_MAX_TOOL_RESULT_LENGTH"] = str(s.get('max_tool_result_length', 10000))
     if s.get('root_directory'):
         os.environ["ROOT_DIRECTORY"] = s['root_directory']
     if s.get('jd_cli_path'):
@@ -1340,8 +1340,30 @@ def api_agent_run():
 @app.route("/api/agent/history/<job_id>", methods=["GET"])
 def api_agent_history(job_id):
     """Get the step history for a completed agent run."""
-    step_log = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                            "aib_instance", "output", job_id, "steps.jsonl")
+    # Try to find the output directory for this job
+    output_dir = None
+    
+    # First, check if this job_id is in history to get the project_id
+    for h in job_history:
+        if h.get("job_id") == job_id:
+            pid = h.get("project_id")
+            if pid:
+                projects = load_projects()
+                for p in projects:
+                    if p["id"] == pid:
+                        output_dir = p.get("output_dir")
+                        break
+            break
+    
+    # Fallback: try job_id as output directory name
+    if not output_dir:
+        output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                  "aib_instance", "output", job_id)
+    
+    if not output_dir or not os.path.exists(output_dir):
+        return jsonify({"steps": [], "project_id": None})
+    
+    step_log = os.path.join(output_dir, "steps.jsonl")
     project_id = None
     if os.path.exists(step_log):
         steps = []
@@ -1352,12 +1374,17 @@ def api_agent_history(job_id):
                     try:
                         step_data = json.loads(line)
                         steps.append(step_data)
-                        # Extract project_id from the first step if available
                         if project_id is None and 'project_id' in step_data:
                             project_id = step_data['project_id']
                     except json.JSONDecodeError:
                         pass
         return jsonify({"steps": steps, "project_id": project_id})
+    
+    # Also check for step_history in job_history entry
+    for h in job_history:
+        if h.get("job_id") == job_id and h.get("step_history"):
+            return jsonify({"steps": h["step_history"], "project_id": h.get("project_id")})
+    
     return jsonify({"steps": [], "project_id": project_id})
 
 
