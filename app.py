@@ -409,7 +409,7 @@ STEP 1: Use list_directory to explore the project structure. Do NOT use [DONE] y
                 "role": "user",
                 "content": f"[TOOL RESULT for {tool_name}]\n{result_display}\n[END TOOL RESULT]\n\nNow continue with your next action."
             })
-    # Add the continuation message
+    # Add the continuation message with a tool format reminder
     reconstructed_messages.append({
         "role": "user",
         "content": (
@@ -417,7 +417,11 @@ STEP 1: Use list_directory to explore the project structure. Do NOT use [DONE] y
             f"The user has new instructions for you. "
             f"Please continue working on the project with these new instructions:\n\n"
             f"{instructions}\n\n"
-            f"Explore the project again and take action."
+            f"Review what was already done, then take the next appropriate action.\n\n"
+            f"TOOL FORMAT REMINDER — your ENTIRE response must be exactly one of:\n"
+            f"1. A tool call: [TOOL_START] / [TOOL_NAME] / [PARAM_NAME] / [PARAM_VALUE] / [TOOL_END]\n"
+            f"2. A final completion: [DONE] Your summary.\n"
+            f"Do NOT write any other text. Do NOT explain what you will do — just act."
         )
     })
     engine.messages = reconstructed_messages
@@ -1169,7 +1173,11 @@ def api_agent_run():
                                         f"The user has new instructions for you. "
                                         f"Please continue working on the project with these new instructions:\n\n"
                                         f"{instructions}\n\n"
-                                        f"Review what was already done, then take the next appropriate action."
+                                        f"Review what was already done, then take the next appropriate action.\n\n"
+                                        f"TOOL FORMAT REMINDER — your ENTIRE response must be exactly one of:\n"
+                                        f"1. A tool call: [TOOL_START] / [TOOL_NAME] / [PARAM_NAME] / [PARAM_VALUE] / [TOOL_END]\n"
+                                        f"2. A final completion: [DONE] Your summary.\n"
+                                        f"Do NOT write any other text. Do NOT explain what you will do — just act."
                                     )
                                 })
                             engine.messages = prev_messages

@@ -1060,6 +1060,11 @@ class AgentEngine:
                 # No tool calls — check for completion
                 if done:
                     final_summary = summary
+                    # Add the DONE summary as a user-visible message so it shows up nicely in the UI
+                    self.messages.append({
+                        "role": "user",
+                        "content": f"[COMPLETION]\n{summary}",
+                    })
                     self.logger.info(f"Agent completed: {summary[:200]}")
                     break
 
