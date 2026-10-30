@@ -1064,8 +1064,7 @@ class AgentEngine:
                     break
 
                 # No tool calls and no [DONE] — LLM didn't produce a valid tool call.
-                # Just log and continue; the LLM will see the previous tool result
-                # and try again on the next turn.
+                # Inject "Please continue" to nudge it back on track.
                 self.logger.warning(
                     f"No tool calls in response (step {self.step_count}). "
                     f"Response preview: {response[:200]}"
@@ -1074,6 +1073,11 @@ class AgentEngine:
                 self.messages.append({
                     "role": "assistant",
                     "content": response,
+                })
+                # Nudge the LLM to take action
+                self.messages.append({
+                    "role": "user",
+                    "content": "Please continue with your next action.",
                 })
                 self.step_history.append({
                     "step": self.step_count,
