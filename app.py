@@ -1287,6 +1287,12 @@ def api_agent_run():
                     "params": ev.get("params", {}),
                     "result": ev.get("result", {}),
                 }) + "\n"
+            elif ev["type"] == "tool_start":
+                yield "event: tool_start\ndata: " + json.dumps({
+                    "step": ev.get("step", 0),
+                    "tool": ev.get("tool", "unknown"),
+                    "rationale": ev.get("rationale", ""),
+                }) + "\n"
             elif ev["type"] == "llm_call":
                 yield "event: step\ndata: " + json.dumps({
                     "type": "llm_call",

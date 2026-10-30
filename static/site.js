@@ -562,11 +562,12 @@ function handlePendingUserInput(data, agentBox) {
 
 function handleToolStart(data, agentBox) {
     if (!agentBox) return;
+    console.log('[handleToolStart] tool:', data.tool, 'step:', data.step);
     var entry = document.createElement('div');
     entry.className = 'step-entry tool-running';
     entry.id = 'tool-running-' + data.step;
-    entry.innerHTML = '<div class=\"step-tool\" style=\"color:var(--mc-gold);\">⏳ Running: ' + escapeHtml(data.tool) + ' <span class=\"run-spinner-inline\"></span></div>' +
-        (data.rationale ? '<div class=\"step-rationale\">💡 ' + escapeHtml(data.rationale) + '</div>' : '');
+    entry.innerHTML = '<div class="step-tool" style="color:var(--mc-gold);">⏳ Running: ' + escapeHtml(data.tool) + ' <span class="run-spinner-inline"></span></div>' +
+        (data.rationale ? '<div class="step-rationale">💡 ' + escapeHtml(data.rationale) + '</div>' : '');
     // Insert at top of box so user sees current tool immediately
     if (agentBox.firstChild) agentBox.insertBefore(entry, agentBox.firstChild);
     else agentBox.appendChild(entry);

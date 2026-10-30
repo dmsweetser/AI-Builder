@@ -373,30 +373,37 @@ class MockLLMServer:
 
 def create_default_responses():
     """Create default responses for testing."""
+    # Clear any existing responses from previous runs
+    MockLLMHandler.responses.clear()
+    MockLLMHandler.state.reset()
+    
     server = MockLLMServer()
     port = server.start()
-    
-    # Response 1: Initial list_directory call
-    server.add_response(
+
+    # Response 1: Initial list_directory call (tag-based format)
+    server.add_tool_call_response(
         r"list_directory",
-        "I'll help you with that. Let me explore the project structure.",
-        tool_calls=[MockLLMToolCall("list_directory", {"path": "."})]
+        "list_directory",
+        {"path": "."},
+        delay=0.0
     )
-    
+
     # Response 2: After list_directory, create a file
-    server.add_response(
-        r"CREATE_FILE",
-        "I've created the file as requested.",
-        tool_calls=[MockLLMToolCall("create_file", {"path": "test.txt", "content": "Hello, World!"})]
+    server.add_tool_call_response(
+        r"respond_to_user|write_file|edit_file",
+        "write_file",
+        {"path": "test.txt", "content": "Hello, World!"},
+        delay=0.0
     )
-    
+
     # Response 3: After create_file, respond to user
-    server.add_response(
+    server.add_tool_call_response(
         r"respond_to_user",
-        "Task completed successfully!",
-        tool_calls=[MockLLMToolCall("respond_to_user", {"message": "Task completed successfully!"})]
+        "respond_to_user",
+        {"message": "Task completed successfully!"},
+        delay=0.0
     )
-    
+
     return server
 
 
