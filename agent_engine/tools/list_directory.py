@@ -17,6 +17,9 @@ class ListDirectoryTool(BaseTool):
     parameters = {"path": "string"}
 
     def execute(self, params: Dict[str, str]) -> ToolResult:
+        import logging
+        logger = logging.getLogger(f"tool.{self.name}")
+        
         path = ensure_under_root(params["path"], self.root_dir)
         max_depth = params.get("max_depth", "")
         if max_depth:
@@ -26,7 +29,14 @@ class ListDirectoryTool(BaseTool):
         else:
             entries = []
             self._walk_dir(path, "", 1, entries)
-        return ToolResult(True, json.dumps(entries, indent=2), summary=f"{len(entries)} entries")
+        result_json = json.dumps(entries, indent=2)
+        # Log directory listing details for debugging
+        logger.info(
+            f"path='{params.get('path', '.')}' "
+            f"resolved='{path}' entries={len(entries)} "
+            f"output_chars={len(result_json)}"
+        )
+        return ToolResult(True, result_json, summary=f"{len(entries)} entries")
 
     def _walk_dir(self, full_path: str, rel_prefix: str, depth: int, entries: list):
         if depth < 0:

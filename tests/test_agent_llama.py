@@ -40,11 +40,11 @@ engine = AgentEngine(config, output_dir=output_dir, step_callback=on_event)
 # Run one step to test
 print("Running agent step 1...")
 response = engine.llm.call(engine.messages, system_prompt=engine.system_prompt)
-print(f"Response (first 500 chars): {response[:500]}")
-print(f"Response length: {len(response)}")
+print(f"Response (first 500 chars): {response.get('content', '')[:500]}")
+print(f"Response length: {len(response.get('content', ''))}")
 
 # Check for tool calls
-tool_calls = parse_tool_calls(response)
+tool_calls = parse_tool_calls(response.get('content', ''))
 print(f"Tool calls found: {len(tool_calls)}")
 for call in tool_calls:
     name = call[0]
@@ -55,5 +55,5 @@ for call in tool_calls:
         print(f"    Rationale: {rationale[:100]}")
 
 # Check for DONE
-done, summary = is_done(response)
+done, summary = is_done(response.get('content', ''))
 print(f"Done: {done}, Summary: {summary[:100] if summary else ''}")

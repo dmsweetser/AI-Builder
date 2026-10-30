@@ -568,10 +568,23 @@ function handleToolStart(data, agentBox) {
     entry.id = 'tool-running-' + data.step;
     entry.innerHTML = '<div class="step-tool" style="color:var(--mc-gold);">⏳ Running: ' + escapeHtml(data.tool) + ' <span class="run-spinner-inline"></span></div>' +
         (data.rationale ? '<div class="step-rationale">💡 ' + escapeHtml(data.rationale) + '</div>' : '');
-    // Insert at top of box so user sees current tool immediately
-    if (agentBox.firstChild) agentBox.insertBefore(entry, agentBox.firstChild);
-    else agentBox.appendChild(entry);
-    agentBox.scrollTop = 0;
+    // Insert inline: find the last tool step entry and place the indicator right after it.
+    // This keeps the "running" indicator next to the tool call in the thread,
+    // rather than floating at the top of the box.
+    var toolEntries = agentBox.querySelectorAll('.step-entry:not(.tool-running):not(.pending-approval)');
+    var lastToolEntry = toolEntries.length > 0 ? toolEntries[toolEntries.length - 1] : null;
+    if (lastToolEntry) {
+        if (lastToolEntry.nextSibling) {
+            agentBox.insertBefore(entry, lastToolEntry.nextSibling);
+        } else {
+            agentBox.appendChild(entry);
+        }
+    } else {
+        // No prior tool step yet — insert at top
+        if (agentBox.firstChild) agentBox.insertBefore(entry, agentBox.firstChild);
+        else agentBox.appendChild(entry);
+    }
+    agentBox.scrollTop = agentBox.scrollHeight;
     // Update status text
     var statusText = document.getElementById('agent-status-text');
     if (statusText) { statusText.textContent = 'RUNNING: ' + (data.tool || 'tool'); statusText.style.color = 'var(--mc-gold)'; }

@@ -656,14 +656,6 @@ class AgentEngine:
         self.step_count = 0
         self.max_steps = EngineConfig.get_max_steps()
         self.step_history: List[Dict[str, Any]] = []
-        self._recent_tool_calls: List[str] = []  # Track recent tool names for loop detection
-        self._permission_requested = False
-        self._continue_requested = False
-        self._files_seen: set = set()  # Track files already read
-        self._file_lines_seen: dict = {}  # Track (file, line_range) pairs already read
-        self._read_step_count = 0  # Track consecutive read-only steps
-        self._max_read_steps = 8  # Max steps allowed for reading before forcing action
-        self._action_forced = False  # Track if we've forced the LLM to act
 
         # Callback for real-time event streaming (called from worker thread)
         self._step_callback = step_callback
@@ -674,6 +666,9 @@ class AgentEngine:
 
         # Stop signal from the UI (set by /api/queue/running/stop)
         self._stop_event = stop_event
+
+        # Allow user to continue after max_steps
+        self._continue_requested = False
 
     def reload_approved_tools(self):
         """Reload approved tools from disk and rebuild system prompt.
@@ -846,7 +841,7 @@ class AgentEngine:
                         f"Your prior conversation has been compressed to save context space.\n"
                         f"Here is the summary of what was done, including file contents:\n\n"
                         f"{summary_text}\n\n"
-                        f"[STATE: You have already read {len(self._files_seen)} files. "
+                        f"[STATE: You have already read {len(files_read)} files. "
                         f"DO NOT read any more files. YOU MUST NOW TAKE ACTION.\n"
                         f"Use edit_file to fix issues, write_file to create files, or delete_file to remove files.\n"
                         f"If you need to make changes, use the file contents included above.\n"
@@ -870,7 +865,6 @@ class AgentEngine:
                         "content": "Continue with your next action.",
                     })
                     self._compressed = True
-                    # Keep the read budget counter so it doesn't reset after compression
                     self.logger.info(
                         f"Context compressed. Messages reduced to {len(self.messages)}. "
                         f"Files read: {len(files_read)}, Files modified: {len(files_modified)}"
@@ -979,14 +973,6 @@ class AgentEngine:
                         step_entry["result"] = ToolResult(False, "", error=f"Unexpected error: {e}").to_dict()
                         self.logger.error(f"Unexpected tool error: {e}")
 
-                    # Track files seen for loop prevention
-                    if tool_name in ("read_file", "read_file_range"):
-                        path = params.get("path", "")
-                        self._files_seen.add(path)
-                        if tool_name == "read_file_range":
-                            line_range = params.get("line_range", "")
-                            self._file_lines_seen.setdefault(path, set()).add(line_range)
-
                     # If create_tool was used, emit a pending approval event
                     if tool_name == "create_tool":
                         if self._step_callback:
@@ -1011,6 +997,24 @@ class AgentEngine:
                         f"  Fed tool result for '{tool_name}' back to LLM "
                         f"(msg length: {len(json.dumps(self.messages))} chars)"
                     )
+                    # Log directory listing details for debugging
+                    if tool_name in ("list_directory", "list_directory_deep"):
+                        dir_path = params.get("path", ".")
+                        result_content = step_entry.get("result", {}).get("content", "")
+                        result_len = len(result_content) if result_content else 0
+                        # Extract entry names for quick inspection
+                        try:
+                            entries = json.loads(result_content) if result_content else []
+                            entry_names = [e.get("name", "?") for e in entries[:10]]
+                            self.logger.info(
+                                f"  list_directory step={self.step_count} path='{dir_path}' "
+                                f"entries={len(entries)} names={entry_names}"
+                            )
+                        except json.JSONDecodeError:
+                            self.logger.info(
+                                f"  list_directory step={self.step_count} path='{dir_path}' "
+                                f"result_len={result_len} (not valid JSON)"
+                            )
                     self.messages.append({
                         "role": "user",
                         "content": f"[TOOL_RESULT]\n{json.dumps(step_entry['result'], indent=2)}\n[TOOL_RESULT]",
@@ -1030,99 +1034,7 @@ class AgentEngine:
                         except Exception:
                             pass
 
-                    # Update step count and continue (do NOT break)
-                    # Track recent tool calls for loop detection
-                    self._recent_tool_calls.append(tool_name)
-                    if len(self._recent_tool_calls) > 5:
-                        self._recent_tool_calls = self._recent_tool_calls[-5:]
-
-                    # Check for repeated tool calls without progress
-                    unique_recent = set(self._recent_tool_calls)
-                    if len(unique_recent) == 1 and len(self._recent_tool_calls) >= 10:
-                        repeated_tool = list(unique_recent)[0]
-                        self.logger.warning(f"Loop detected: {repeated_tool} called {len(self._recent_tool_calls)} times in a row without progress")
-                        all_tool_names = self.tools.tool_names()
-                        tool_list_str = ", ".join(sorted(all_tool_names))
-                        intervention = (
-                            f"\n\n[LOOP DETECTED] You called {repeated_tool} {len(self._recent_tool_calls)} times without progress. "
-                            f"STOP. Choose a DIFFERENT tool now. Available: {tool_list_str}."
-                        )
-                        self.messages.append({"role": "user", "content": intervention})
-                        self._recent_tool_calls = []
-
-                    # Strong loop detection: if we've gone 15+ steps without [DONE]
-                    # and the same tool keeps being called, force a hard reset
-                    if self.step_count > 15 and len(self._recent_tool_calls) >= 5:
-                        if len(unique_recent) <= 2:
-                            self.logger.warning(
-                                f"Strong loop detected: {len(self._recent_tool_calls)} recent calls "
-                                f"using only {len(unique_recent)} tools after {self.step_count} steps. Forcing context reset."
-                            )
-                            if not self._compressed:
-                                self._compressed = True
-                                self.messages.append({
-                                    "role": "user",
-                                    "content": (
-                                        "[CONTEXT RESET] You've run many steps without completing. "
-                                        f"Task: {self.instructions[:200]}\n\n"
-                                        "PICK ONE concrete action and take it NOW."
-                                    ),
-                                })
-                            else:
-                                self.messages.append({
-                                    "role": "user",
-                                    "content": (
-                                        "[HARD RESET] You are stuck. Pick ONE file and modify it NOW."
-                                    ),
-                                })
-                            self._recent_tool_calls = []
-
-                    # Check for repeated reads of the same file (not just same tool)
-                    if tool_name in ("read_file", "read_file_range"):
-                        path = params.get("path", "")
-                        if path and path in self._files_seen:
-                            if tool_name == "read_file" and path in self._files_seen:
-                                if path in self._file_lines_seen:
-                                    all_lines = self._file_lines_seen[path]
-                                    if len(all_lines) >= 3:
-                                        self.logger.warning(
-                                            f"Repeated read detected: {path} read {len(all_lines)} times"
-                                        )
-                                        next_action = (
-                                            f"\n\n[NOTE] You have already read {path} {len(all_lines)} times. "
-                                            f"Further reads will not give you new information. "
-                                            f"You should either: (1) make changes with edit_file/write_file, "
-                                            f"(2) read a DIFFERENT file, or "
-                                            f"(3) use check_syntax to verify your changes."
-                                        )
-                                        self.messages.append({"role": "user", "content": next_action})
-                                        self.step_count += 1
-                                        continue
-                            elif tool_name == "read_file_range":
-                                line_range = params.get("line_range", "")
-                                if path in self._file_lines_seen and line_range in self._file_lines_seen[path]:
-                                    self.logger.warning(
-                                        f"Duplicate read: {path} lines {line_range} already read"
-                                    )
-                                    next_action = (
-                                        f"\n\n[NOTE] You have already read {path} lines {line_range}. "
-                                        f"Try reading a different range or a different file."
-                                    )
-                                    self.messages.append({"role": "user", "content": next_action})
-                                    self.step_count += 1
-                                    continue
-
-                    # Track read budget: increment for read-only steps, reset for action steps
-                    if tool_name in ("read_file", "read_file_range"):
-                        self._read_step_count += 1
-                    elif tool_name in ("list_directory", "list_directory_deep", "grep_code",
-                                     "grep_code_dir", "search_files", "search_files_dir",
-                                     "get_file_info"):
-                        self._read_step_count += 1
-                    else:
-                        self._read_step_count = 0
-                        self._action_forced = False
-
+                    # Continue to next step (do NOT break)
                     self.step_count += 1
                     continue
 
@@ -1132,132 +1044,38 @@ class AgentEngine:
                     self.logger.info(f"Agent completed: {summary[:200]}")
                     break
 
-                # No tool calls and no [DONE] — format error
-                if not tool_calls:
-                    # No tool calls and no [DONE] — the LLM likely didn't
-                    # produce a properly formatted tool call. Send a reminder
-                    # back and let it try again (up to a retry budget).
-                    self.logger.warning(
-                        f"No tool calls in response (step {self.step_count}). "
-                        f"Response preview: {response[:200]}"
-                    )
-                    # Count consecutive non-tool-call steps
-                    all_tool_names = self.tools.tool_names()
-                    consecutive_no_tool = sum(
-                        1 for h in self.step_history[-5:]
-                        if h.get("tool") not in all_tool_names
-                    )
-                    if consecutive_no_tool >= 10:
-                        # After 10 failed attempts, try a strong recovery
-                        # instead of just pausing for user input.
-                        self.logger.warning(
-                            f"Agent stuck: {consecutive_no_tool} consecutive format errors. "
-                            f"Attempting recovery..."
-                        )
-                        # Inject a strong recovery prompt that resets the LLM
-                        recovery_prompt = (
-                            "CRITICAL RECOVERY — You have failed to produce a valid tool call "
-                            "10 times in a row. This means your responses are being ignored. "
-                            "Here is exactly what you must do RIGHT NOW:\n\n"
-                            "1. Your ENTIRE response must be ONLY this exact format:\n\n"
-                            "[TOOL_START]\n"
-                            "[TOOL_NAME]\n"
-                            "list_directory\n"
-                            "[PARAM_NAME]\n"
-                            "path\n"
-                            "[PARAM_VALUE]\n"
-                            ".\n"
-                            "[TOOL_END]\n\n"
-                            "2. NOTHING ELSE. No explanation. No thinking. No [DONE].\n"
-                            "3. Copy the format above EXACTLY — every tag on its own line.\n"
-                            "4. This is your ONLY chance — produce this exact tool call."
-                        )
-                        self.messages.append({
-                            "role": "user",
-                            "content": recovery_prompt,
+                # No tool calls and no [DONE] — LLM didn't produce a valid tool call.
+                # Just log and continue; the LLM will see the previous tool result
+                # and try again on the next turn.
+                self.logger.warning(
+                    f"No tool calls in response (step {self.step_count}). "
+                    f"Response preview: {response[:200]}"
+                )
+                # Append the raw response as-is so the LLM can see its own output
+                self.messages.append({
+                    "role": "assistant",
+                    "content": response,
+                })
+                self.step_history.append({
+                    "step": self.step_count,
+                    "tool": "llm_response",
+                    "params": {},
+                    "result": {"content": response, "success": False, "error": "no_tool_call"},
+                })
+                if self._step_callback:
+                    try:
+                        self._step_callback({
+                            "type": "step",
+                            "step": self.step_count,
+                            "tool": "llm_response",
+                            "params": {},
+                            "result": {"success": False, "content": "No tool call — LLM continued"},
                         })
-                        # Reset the step counter so we don't loop forever
-                        self.step_count -= 1
-                        continue
-                    if consecutive_no_tool >= 5:
-                        # After 5 failed attempts, escalate the intervention
-                        escalation = (
-                            "[URGENT FORMAT ERROR] You have failed to produce a valid tool call "
-                            f"{consecutive_no_tool} times in a row. Your responses are being silently ignored. "
-                            "You MUST produce a tool call in the EXACT format below — copy it verbatim:\n\n"
-                            "[TOOL_START]\n"
-                            "[TOOL_NAME]\n"
-                            "list_directory\n"
-                            "[PARAM_NAME]\n"
-                            "path\n"
-                            "[PARAM_VALUE]\n"
-                            ".\n"
-                            "[TOOL_END]\n\n"
-                            "Start with list_directory. NOTHING ELSE. Do not add any text."
-                        )
-                        self.messages.append({
-                            "role": "user",
-                            "content": escalation,
-                        })
-                        self.step_count -= 1  # Don't count this as a real step
-                        continue
-                    if consecutive_no_tool >= 10:
-                        # After 3 failed attempts, pause and ask the user
-                        if self._step_callback:
-                            try:
-                                self._step_callback({
-                                    "type": "pending_user_input",
-                                    "step": self.step_count,
-                                    "response": (
-                                        "The agent failed to produce a valid tool call "
-                                        f"after {consecutive_no_tool} attempts. "
-                                        "You can try resuming with a nudge, or stop the run.\n\n"
-                                        f"Last LLM response:\n{response[:500]}"
-                                    ),
-                                })
-                            except Exception:
-                                pass
-                        return {
-                            "status": "pending_user_input",
-                            "steps": self.step_count,
-                            "summary": response.strip(),
-                            "max_steps": self.max_steps,
-                            "step_history": self.step_history,
-                        }
-                    # Send a reminder and continue
-                    reminder = (
-                        "[FORMAT ERROR] Your response contained NO valid tool call. "
-                        "Your ENTIRE response must be ONLY a tool call block or [DONE]. "
-                        "Do NOT write any reasoning, thinking, or explanation text. "
-                        "Do NOT write \"I will...\" or \"Let me...\" or any natural language. "
-                        "Here is the EXACT format you must use — copy it verbatim:\n\n"
-                        "[TOOL_START]\n"
-                        "[TOOL_NAME]\n"
-                        "list_directory\n"
-                        "[PARAM_NAME]\n"
-                        "path\n"
-                        "[PARAM_VALUE]\n"
-                        ".\n"
-                        "[TOOL_END]\n\n"
-                        "Start with list_directory to explore the project. NOTHING ELSE."
-                    )
-                    self.messages.append({
-                        "role": "user",
-                        "content": f"{reminder}\n\nPlease try again with a proper tool call.",
-                    })
-                    # Log this as an llm_call retry so it shows in the feed
-                    if self._step_callback:
-                        try:
-                            self._step_callback({
-                                "type": "step",
-                                "step": self.step_count,
-                                "tool": "format_retry",
-                                "params": {},
-                                "result": {"success": True, "content": "Format reminder sent — retrying…"},
-                            })
-                        except Exception:
-                            pass
-                    continue
+                    except Exception:
+                        pass
+                self.step_count += 1
+                continue
+
             return {
                 "status": "completed" if final_summary else "max_steps_reached",
                 "steps": self.step_count,

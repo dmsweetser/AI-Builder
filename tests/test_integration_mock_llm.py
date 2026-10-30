@@ -34,6 +34,14 @@ sys.path.insert(0, str(project_root))
 
 from tests.mock_llm_server import MockLLMServer, MockLLMHandler, MockLLMToolCall
 
+# Skip Flask-dependent tests if Flask is not installed
+_flask_available = False
+try:
+    import flask  # noqa: F401
+    _flask_available = True
+except ImportError:
+    pass
+
 
 class TestMockLLMServer(unittest.TestCase):
     """Test the mock LLM server itself."""
@@ -519,6 +527,7 @@ class TestAIBuilderIntegration(unittest.TestCase):
         )
 
 
+@unittest.skipUnless(_flask_available, "Flask not installed")
 class TestAIBuilderFlaskAPI(unittest.TestCase):
     """Test the Flask API endpoints with the mock LLM server."""
     
@@ -595,6 +604,7 @@ class TestAIBuilderFlaskAPI(unittest.TestCase):
         self.assertIsInstance(data, dict)
 
 
+@unittest.skipUnless(_flask_available, "Flask not installed")
 class TestE2EAgenticLoop(unittest.TestCase):
     """End-to-end tests for the agentic loop using the mock LLM server.
     
