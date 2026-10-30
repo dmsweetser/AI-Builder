@@ -349,13 +349,23 @@ def get_concurrent_job_info(pid):
                 return False, True, job["job_id"]
         return False, False, None
 
-def _reconstruct_from_step_history(engine, step_history, instructions):
+def _reconstruct_from_step_history(engine, step_history, instructions, is_continuation=False):
     """Reconstruct conversation history from step_history (fallback when conversation_history.json is not available)."""
     reconstructed_messages = [engine.messages[0]]  # system prompt
-    # Add the initial user prompt
-    reconstructed_messages.append({
-        "role": "user",
-        "content": f"""TASK INSTRUCTIONS:
+    
+    if is_continuation and step_history:
+        # Continuation: use the original first user prompt (task instructions) without re-listing
+        first_user = next((m for m in engine.messages if m.get("role") == "user"), None)
+        if first_user:
+            reconstructed_messages.append({
+                "role": "user",
+                "content": first_user["content"],
+            })
+    else:
+        # Fresh start: tell the LLM to start with list_directory
+        reconstructed_messages.append({
+            "role": "user",
+            "content": f"""TASK INSTRUCTIONS:
 {instructions}
 
 CRITICAL INSTRUCTIONS:
@@ -375,7 +385,7 @@ path
 [TOOL_END]
 
 STEP 1: Use list_directory to explore the project structure. Do NOT use [DONE] yet - you must take action first."""
-    })
+        })
     # Add tool results from step_history
     all_tool_names = engine.tools.tool_names()
     for h in step_history:
@@ -1151,7 +1161,7 @@ def api_agent_run():
                             if prev_messages and prev_messages[-1].get("role") == "user":
                                 # Remove the old continuation message
                                 prev_messages.pop()
-                                # Add the new continuation message
+                                # Add the new continuation message — don't tell it to re-explore
                                 prev_messages.append({
                                     "role": "user",
                                     "content": (
@@ -1159,17 +1169,17 @@ def api_agent_run():
                                         f"The user has new instructions for you. "
                                         f"Please continue working on the project with these new instructions:\n\n"
                                         f"{instructions}\n\n"
-                                        f"Explore the project again and take action."
+                                        f"Review what was already done, then take the next appropriate action."
                                     )
                                 })
                             engine.messages = prev_messages
                         except Exception as e:
                             logging.warning(f"Failed to load conversation history: {e}")
                             # Fall back to reconstructing from step_history
-                            _reconstruct_from_step_history(engine, prev_step_history, instructions)
+                            _reconstruct_from_step_history(engine, prev_step_history, instructions, is_continuation=True)
                     else:
                         # Fall back to reconstructing from step_history
-                        _reconstruct_from_step_history(engine, prev_step_history, instructions)
+                        _reconstruct_from_step_history(engine, prev_step_history, instructions, is_continuation=True)
 
                 result = engine.run()
                 engine_result[0] = result
