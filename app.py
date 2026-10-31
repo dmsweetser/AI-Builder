@@ -384,7 +384,7 @@ a relevant param name
 a relevant param value
 [TOOL_END]
 
-STEP 1: If you haven't already done so, use list_directory to explore the project structure. Do NOT use [DONE] yet - you must take action first."""
+TEP 1: Use list_directory to explore the project structure. Do NOT use [DONE] yet - you must take action first."""
         })
     # Add tool results from step_history
     all_tool_names = engine.tools.tool_names()
