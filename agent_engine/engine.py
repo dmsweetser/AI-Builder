@@ -292,7 +292,7 @@ WORKFLOW:
 5. VERIFY: Use check_syntax to validate your changes before moving on.
 6. ITERATE: If syntax errors or issues are found, fix them. Repeat until done.
 
-CRITICAL: You MUST take at least one tool call before using [DONE]. You cannot complete the task without using tools.
+CRITICAL: You MUST take at least one tool call before using task_completed. You cannot complete the task without using tools.
 
 RULES:
 - ALWAYS use read_file before edit_file to get the exact text to replace.
@@ -304,7 +304,7 @@ RULES:
 - For large codebases, be selective: grep for relevant code, don't read everything.
 - You have a maximum of {EngineConfig.get_max_steps()} steps total. Use them wisely.
 - After making changes, verify them. If check_syntax fails, fix the errors.
-- When done, respond with: [DONE] followed by a summary of all changes made.
+- When done, use the task_completed tool with a summary of all changes made.
 - To create a new tool, use create_tool. It proposes the tool for user approval - it does NOT execute arbitrary code. Wait for user approval in the live feed before expecting the tool to be available.
 - Use respond_to_user to communicate findings, status updates, or questions to the user.
 - Use request_user_input when you need clarification or a decision before proceeding.
@@ -316,7 +316,7 @@ TRUNCATION HANDLING:
 PARAMETER FORMAT (tag-based, NO EXCEPTIONS):
 - Your ENTIRE response MUST be exactly ONE of the following:
   1. A single tool call block using [TOOL_START]...[TOOL_END]
-  2. A final completion: [DONE] followed by a summary
+  2. A final completion: task_completed tool with a summary
 - You are FORBIDDEN from writing any other text outside of tool call blocks.
 - Do NOT write any reasoning, thinking, or explanation text.
 - Do NOT write "I will..." or "Let me..." or any natural language.
@@ -363,9 +363,9 @@ Example:
 RESPONSE FORMAT:
 After each tool result, your ENTIRE response must be exactly one of:
 1. A tool call block (see PARAMETER FORMAT above) — nothing else
-2. Or a final response: [DONE] Your summary of changes.
+2. A task_completed tool call with a summary of all changes made
 
-You are NOT allowed to write any text outside of tool call blocks or [DONE].
+You are NOT allowed to write any text outside of tool call blocks.
 Any text outside these formats will be ignored.
 
 CRITICAL: Make EXACTLY ONE tool call per response. Do not include multiple tool call blocks. If you include more than one [TOOL_START]...[TOOL_END] block, only the FIRST one will be executed — the rest will be ignored as invalid output.
@@ -396,8 +396,8 @@ def build_user_prompt(instructions: str, context: str = "") -> str:
 CRITICAL INSTRUCTIONS:
 1. You MUST use a tool call to take action. Do NOT just talk about what you will do.
 2. Your FIRST action MUST be: list_directory with path="."
-3. Do NOT use [DONE] until you have actually used tools and gathered information.
-4. Your ENTIRE response must be ONLY a tool call block or [DONE]. No other text.
+3. Do NOT use task_completed until you have actually used tools and gathered information.
+4. Your ENTIRE response must be ONLY a tool call block or a task_completed tool call. No other text.
 5. Format your tool call EXACTLY like this example:
 
 [TOOL_START]
@@ -409,7 +409,7 @@ path
 .
 [TOOL_END]
 
-STEP 1: Use list_directory to explore the project structure. Do NOT use [DONE] yet - you must take action first."""
+STEP 1: Use list_directory to explore the project structure. Do NOT use task_completed yet - you must take action first."""
     if context:
         prompt += f"\n\nRELEVANT CONTEXT:\n{context}"
     return prompt
@@ -546,9 +546,25 @@ def _parse_params(params_block: str) -> Optional[Dict[str, str]]:
 
 def is_done(response: str) -> Tuple[bool, str]:
     """Check if the LLM has indicated completion."""
+    # Check for [DONE] marker (legacy)
     match = re.search(r'\[DONE\]\s*(.*)', response, re.DOTALL)
     if match:
         return True, match.group(1).strip()
+    # Check for task_completed tool call
+    task_match = re.search(
+        r'\[TOOL_START\].*?\[TOOL_NAME\]\s*task_completed\s.*?\[TOOL_END\]',
+        response,
+        flags=re.DOTALL,
+    )
+    if task_match:
+        # Extract the summary from the task_completed tool call
+        summary_match = re.search(
+            r'\[PARAM_VALUE\]\s*(.*?)\s*\[TOOL_END\]',
+            task_match.group(0),
+            re.DOTALL,
+        )
+        if summary_match:
+            return True, summary_match.group(1).strip()
     return False, ""
 
 
@@ -591,7 +607,7 @@ class AgentEngine:
     2. Parse tool calls from LLM response
     3. Execute tools (with full validation)
     4. Feed results back
-    5. Repeat until [DONE] or max_steps reached
+    5. Repeat until task_completed or max_steps reached
     """
 
     def __init__(self, project_config: Dict[str, Any], output_dir: Optional[str] = None,
@@ -910,25 +926,46 @@ class AgentEngine:
                 with open(self.response_file, 'w', encoding='utf-8') as f:
                     f.write(response)
 
+                # Strip anything outside valid tool call blocks — only keep
+                # [TOOL_START]...[TOOL_END] blocks and [DONE] / task_completed markers.
+                # This keeps conversation history clean and prevents the LLM from
+                # seeing its own stray text on subsequent turns.
+                tool_blocks = re.findall(
+                    r'\[TOOL_START\].*?\[TOOL_END\]',
+                    response,
+                    flags=re.DOTALL,
+                )
+                # Also extract [DONE] or task_completed marker if present
+                done_match = re.search(r'\[DONE\]\s*(.*)', response, re.DOTALL)
+                task_done_match = re.search(
+                    r'\[TOOL_START\].*?\[TOOL_NAME\]\s*task_completed\s.*?\[TOOL_END\]',
+                    response,
+                    flags=re.DOTALL,
+                )
+                # Keep only tool blocks + DONE marker (stripped of tool syntax)
+                cleaned_parts = list(tool_blocks)
+                if done_match:
+                    cleaned_parts.append(f"[DONE] {done_match.group(1).strip()}")
+                elif task_done_match:
+                    # Extract the summary from the task_completed tool call
+                    summary_match = re.search(
+                        r'\[PARAM_VALUE\]\s*(.*?)\s*\[TOOL_END\]',
+                        task_done_match.group(0),
+                        re.DOTALL,
+                    )
+                    if summary_match:
+                        cleaned_parts.append(f"[DONE] {summary_match.group(1).strip()}")
+                cleaned_response = "\n\n".join(cleaned_parts).strip()
+
                 # Parse tool calls FIRST — before checking for [DONE]
                 tool_calls = parse_tool_calls(response)
                 done, summary = is_done(response)
 
                 # If LLM produced tool calls (with or without [DONE]):
                 #   - Take ONLY the first tool call
-                #   - Strip ALL tool call blocks (including [DONE]) from the response
                 #   - Continue the loop normally (never break on [DONE] when tool calls exist)
                 if tool_calls:
                     tool_calls = [tool_calls[0]]  # Only first tool call
-
-                    # Strip ALL tool call blocks from the response before appending to history
-                    # This prevents the LLM from seeing its own tool calls (including [DONE])
-                    cleaned_response = re.sub(
-                        r'\[TOOL_START\].*?\[TOOL_END\]',
-                        '',
-                        response,
-                        flags=re.DOTALL,
-                    ).strip()
 
                     # Append cleaned response (may be empty or just text)
                     if cleaned_response:

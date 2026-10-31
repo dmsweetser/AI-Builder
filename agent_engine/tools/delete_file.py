@@ -25,6 +25,10 @@ class DeleteFileTool(BaseTool):
 
         try:
             os.remove(path)
+            # Verify the file was actually deleted
+            if os.path.exists(path):
+                return ToolResult(False, "",
+                                  error="Delete verification failed: file still exists after deletion")
             return ToolResult(True, f"Deleted: {params['path']}",
                               summary=f"Removed: {params['path']}")
         except OSError as e:

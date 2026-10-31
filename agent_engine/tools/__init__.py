@@ -26,6 +26,7 @@ from agent_engine.tools.create_tool import CreateToolTool
 from agent_engine.tools.compress_context import CompressContextTool
 from agent_engine.tools.respond_to_user import RespondToUserTool
 from agent_engine.tools.request_user_input import RequestUserInputTool
+from agent_engine.tools.task_completed import TaskCompletedTool
 
 # ------------------------------------------------------------------
 # Module-level singleton: shared across all API endpoints and agent engines
@@ -90,6 +91,7 @@ class ToolRegistry:
             CompressContextTool,
             RespondToUserTool,
             RequestUserInputTool,
+            TaskCompletedTool,
         ]
         # enabled_tools=None or [] means "use all tools"
         use_all = enabled_tools is None or len(enabled_tools) == 0

@@ -1,0 +1,11 @@
+2026-10-30 - Tool format reminder updated to verbose format with task_completed tool
+2026-10-30 - task_completed tool created to replace [DONE] marker
+2026-10-30 - Engine now strips non-tool content from LLM responses
+2026-10-30 - delete_file tool now verifies file was actually deleted
+2026-10-30 - edit_file and write_file already had verification (verified)
+2026-10-30 - 49 unit tests pass (3 skipped)
+2026-10-30 - E2E test passes: divide function added to src/main.py
+2026-10-30 - is_done() updated to detect task_completed tool calls
+2026-10-30 - All [DONE] references in prompts replaced with task_completed
+2026-10-30 - 49 unit tests pass (3 skipped) after all changes
+2026-10-30 - E2E test passes after all changes: divide function added
