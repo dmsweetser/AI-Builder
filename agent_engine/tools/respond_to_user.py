@@ -9,7 +9,7 @@ class RespondToUserTool(BaseTool):
     description = (
         "Respond to the user with a message. Use this to communicate findings, "
         "ask questions, or provide status updates. After using this tool, you "
-        "may continue with more tool calls or use [DONE] to finish."
+        "may continue with more tool calls or use task_completed to finish."
     )
     parameters = {"message": "string"}
 

@@ -9,8 +9,7 @@ class TaskCompletedTool(BaseTool):
     """Signals that the task is complete and provides a summary."""
     
     name = "task_completed"
-    description = ("Signals that the task is complete. Use this instead of [DONE]. "
-                   "Provide a summary of all changes made.")
+    description = ("Signals that the task is complete. Provide a summary of all changes made.")
     parameters = {
         "summary": {
             "type": "string",

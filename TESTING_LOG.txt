@@ -9,3 +9,52 @@
 2026-10-30 - All [DONE] references in prompts replaced with task_completed
 2026-10-30 - 49 unit tests pass (3 skipped) after all changes
 2026-10-30 - E2E test passes after all changes: divide function added
+2026-10-30 - Round 1: Created test_new_features.py with 35 tests covering:
+2026-10-30 -   is_done() with task_completed tool call detection (6 tests)
+2026-10-30 -   Non-tool content stripping from LLM responses (6 tests)
+2026-10-30 -   Tool result truncation behavior (8 tests)
+2026-10-30 -   task_completed tool execution (3 tests)
+2026-10-30 -   delete_file verification (3 tests)
+2026-10-30 -   Continuation message verbose format (2 tests)
+2026-10-30 -   Conversation history sanitization (3 tests)
+2026-10-30 -   edit_file/write_file verification (3 tests)
+2026-10-30 -   System prompt task_completed references (2 tests)
+2026-10-30 -   All 35 new tests PASS
+2026-10-30 -   Full test suite: 49 unit tests pass (3 skipped), E2E test passes
+2026-10-30 - Round 2: E2E test updated to use task_completed tool (not [DONE])
+2026-10-30 -   E2E test passes with task_completed: divide function added
+2026-10-30 - Round 2: Browser UI test - main page loads (HTTP 200)
+2026-10-30 -   Settings endpoint works correctly
+2026-10-30 -   Static files (site.js, styles.css, favicon.ico) served correctly
+2026-10-30 -   Main page contains AI Builder branding, site.js, styles.css links
+2026-10-30 - Round 3: Removed [DONE] from prompts and tool descriptions
+2026-10-30 -   app.py continuation prompt: [DONE] → task_completed (also fixed TEP→STEP typo)
+2026-10-30 -   respond_to_user.py description: [DONE] → task_completed
+2026-10-30 -   task_completed.py description: removed "instead of [DONE]" reference
+2026-10-30 -   test_new_features.py docstrings: clarified backward compatibility
+2026-10-30 -   [DONE] still in is_done() and stripping code for legacy backward compat
+2026-10-30 -   [DONE] still in SSE streaming code (OpenAI protocol, not our completion)
+2026-10-30 -   All 35 new tests PASS, 49 unit tests PASS, E2E test PASS
+2026-10-30 - Round 4: COMPLETE REMOVAL of [DONE] (no backward compatibility)
+2026-10-30 -   engine.py is_done(): removed legacy [DONE] regex, only task_completed detected
+2026-10-30 -   engine.py stripping: removed [DONE] extraction from cleaned response
+2026-10-30 -   test_new_features.py: test_legacy_done_marker now asserts [DONE] returns False
+2026-10-30 -   test_new_features.py: test_done_marker_stripped verifies [DONE] not preserved
+2026-10-30 -   test_new_features.py: test_task_completed_preserved checks tool block (not [DONE])
+2026-10-30 -   test_new_features.py: _strip_non_tool() simplified (no [DONE] handling)
+2026-10-30 -   All 35 new tests PASS, 49 unit tests PASS, E2E test PASS
+2026-10-30 - Round 5: Edge case test suite created (test_edge_cases.py, 35 tests)
+2026-10-30 -   is_done() edge cases: whitespace in name, nested block, no summary, empty summary,
+2026-10-30 -     [DONE] in param value, special chars in summary (6 tests)
+2026-10-30 -   Stripping edge cases: text before/after, multiple blocks, empty, whitespace,
+2026-10-30 -     unclosed block, task_completed with surrounding text, newlines in params (7 tests)
+2026-10-30 -   parse_tool_calls edge cases: no tools, no params, missing PARAM_NAME,
+2026-10-30 -     multiple tools, malformed, unicode in params (6 tests)
+2026-10-30 -   Truncation edge cases: exact limit, one over, newlines, partial word,
+2026-10-30 -     total chars in notice, empty content (6 tests)
+2026-10-30 -   task_completed edge cases: very long summary, unicode, newlines in summary (3 tests)
+2026-10-30 -   delete_file edge cases: symlink, directory, spaces in name (3 tests)
+2026-10-30 -   Continuation edge cases: no system prompt, existing history (2 tests)
+2026-10-30 -   SSE protocol edge cases: [DONE] in stream, [DONE] after tool call (2 tests)
+2026-10-30 -   All 35 edge case tests PASS
+2026-10-30 -   TOTAL: 49 + 35 + 35 = 119 unit tests pass (3 skipped), E2E test passes

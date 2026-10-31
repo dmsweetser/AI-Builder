@@ -545,11 +545,7 @@ def _parse_params(params_block: str) -> Optional[Dict[str, str]]:
 
 
 def is_done(response: str) -> Tuple[bool, str]:
-    """Check if the LLM has indicated completion."""
-    # Check for [DONE] marker (legacy)
-    match = re.search(r'\[DONE\]\s*(.*)', response, re.DOTALL)
-    if match:
-        return True, match.group(1).strip()
+    """Check if the LLM has indicated completion via task_completed tool call."""
     # Check for task_completed tool call
     task_match = re.search(
         r'\[TOOL_START\].*?\[TOOL_NAME\]\s*task_completed\s.*?\[TOOL_END\]',
@@ -927,7 +923,7 @@ class AgentEngine:
                     f.write(response)
 
                 # Strip anything outside valid tool call blocks — only keep
-                # [TOOL_START]...[TOOL_END] blocks and [DONE] / task_completed markers.
+                # [TOOL_START]...[TOOL_END] blocks.
                 # This keeps conversation history clean and prevents the LLM from
                 # seeing its own stray text on subsequent turns.
                 tool_blocks = re.findall(
@@ -935,35 +931,17 @@ class AgentEngine:
                     response,
                     flags=re.DOTALL,
                 )
-                # Also extract [DONE] or task_completed marker if present
-                done_match = re.search(r'\[DONE\]\s*(.*)', response, re.DOTALL)
-                task_done_match = re.search(
-                    r'\[TOOL_START\].*?\[TOOL_NAME\]\s*task_completed\s.*?\[TOOL_END\]',
-                    response,
-                    flags=re.DOTALL,
-                )
-                # Keep only tool blocks + DONE marker (stripped of tool syntax)
+                # Keep only tool blocks (task_completed will be extracted via is_done)
                 cleaned_parts = list(tool_blocks)
-                if done_match:
-                    cleaned_parts.append(f"[DONE] {done_match.group(1).strip()}")
-                elif task_done_match:
-                    # Extract the summary from the task_completed tool call
-                    summary_match = re.search(
-                        r'\[PARAM_VALUE\]\s*(.*?)\s*\[TOOL_END\]',
-                        task_done_match.group(0),
-                        re.DOTALL,
-                    )
-                    if summary_match:
-                        cleaned_parts.append(f"[DONE] {summary_match.group(1).strip()}")
                 cleaned_response = "\n\n".join(cleaned_parts).strip()
 
-                # Parse tool calls FIRST — before checking for [DONE]
+                # Parse tool calls FIRST — before checking for task_completed
                 tool_calls = parse_tool_calls(response)
                 done, summary = is_done(response)
 
-                # If LLM produced tool calls (with or without [DONE]):
+                # If LLM produced tool calls (with or without task_completed):
                 #   - Take ONLY the first tool call
-                #   - Continue the loop normally (never break on [DONE] when tool calls exist)
+                #   - Continue the loop normally (never break on task_completed when tool calls exist)
                 if tool_calls:
                     tool_calls = [tool_calls[0]]  # Only first tool call
 
@@ -1105,7 +1083,7 @@ class AgentEngine:
                     self.logger.info(f"Agent completed: {summary[:200]}")
                     break
 
-                # No tool calls and no [DONE] — LLM didn't produce a valid tool call.
+                # No tool calls — LLM didn't produce a valid tool call.
                 # Inject "Please continue" to nudge it back on track.
                 self.logger.warning(
                     f"No tool calls in response (step {self.step_count}). "

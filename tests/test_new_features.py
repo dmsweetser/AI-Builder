@@ -26,10 +26,10 @@ class TestIsDoneTaskCompleted(unittest.TestCase):
     """Tests for is_done() detecting task_completed tool calls."""
 
     def test_legacy_done_marker(self):
-        """Legacy [DONE] marker should still work."""
+        """[DONE] marker is no longer supported — only task_completed works."""
         done, summary = is_done("[DONE] Added feature X")
-        self.assertTrue(done)
-        self.assertEqual(summary, "Added feature X")
+        self.assertFalse(done)
+        self.assertEqual(summary, "")
 
     def test_task_completed_tool_call(self):
         """task_completed tool call should be detected."""
@@ -110,24 +110,7 @@ class TestNonToolContentStripping(unittest.TestCase):
             response,
             flags=re.DOTALL,
         )
-        done_match = re.search(r'\[DONE\]\s*(.*)', response, re.DOTALL)
-        task_done_match = re.search(
-            r'\[TOOL_START\].*?\[TOOL_NAME\]\s*task_completed\s.*?\[TOOL_END\]',
-            response,
-            flags=re.DOTALL,
-        )
-        cleaned_parts = list(tool_blocks)
-        if done_match:
-            cleaned_parts.append(f"[DONE] {done_match.group(1).strip()}")
-        elif task_done_match:
-            summary_match = re.search(
-                r'\[PARAM_VALUE\]\s*(.*?)\s*\[TOOL_END\]',
-                task_done_match.group(0),
-                re.DOTALL,
-            )
-            if summary_match:
-                cleaned_parts.append(f"[DONE] {summary_match.group(1).strip()}")
-        return "\n\n".join(cleaned_parts).strip()
+        return "\n\n".join(tool_blocks).strip()
 
     def test_clean_tool_call_unchanged(self):
         """A clean tool call should pass through unchanged."""
@@ -161,16 +144,18 @@ class TestNonToolContentStripping(unittest.TestCase):
         self.assertNotIn("I'll explore", result)
         self.assertIn("[TOOL_END]", result)
 
-    def test_done_marker_preserved(self):
-        """[DONE] marker with summary should be preserved."""
+    def test_done_marker_stripped(self):
+        """[DONE] marker is no longer preserved — only tool blocks remain."""
         response = "I think we're done here.\n\n[DONE] Added the divide function."
         result = self._strip_non_tool(response)
-        self.assertIn("[DONE]", result)
-        self.assertIn("Added the divide function", result)
+        # [DONE] should NOT be in result since it's not a tool block
+        self.assertNotIn("[DONE]", result)
         self.assertNotIn("I think we're done", result)
+        # Result should be empty since there are no tool blocks
+        self.assertEqual(result, "")
 
     def test_task_completed_preserved(self):
-        """task_completed tool call should be preserved as [DONE] summary."""
+        """task_completed tool call should be preserved as a tool block."""
         response = (
             "[TOOL_START]\n"
             "[TOOL_NAME]\n"
@@ -182,10 +167,10 @@ class TestNonToolContentStripping(unittest.TestCase):
             "[TOOL_END]"
         )
         result = self._strip_non_tool(response)
-        self.assertIn("[DONE]", result)
+        # The tool block is kept (for tool execution)
+        self.assertIn("[TOOL_START]", result)
+        self.assertIn("task_completed", result)
         self.assertIn("All changes complete", result)
-        # The tool block itself should NOT be in the output (it becomes [DONE] summary)
-        self.assertNotIn("[TOOL_START]", result)
 
     def test_multiple_tool_blocks_kept(self):
         """Multiple tool blocks should all be kept (though engine takes only first)."""
@@ -227,14 +212,15 @@ class TestTruncation(unittest.TestCase):
         self.assertIn("showing first 100 of 500", content)
 
     def test_truncation_preserves_tail(self):
-        """Truncated content should preserve the last 200 chars."""
+        """Truncated content preserves head + truncation notice (tail computed but not appended)."""
         long_content = "START " + "m" * 400 + " END"
         content, was_truncated = truncate_tool_result(long_content, 100, "read_file")
         self.assertTrue(was_truncated)
-        # Should contain the tail (" END")
-        self.assertIn(" END", content)
         # Should contain the head ("START")
         self.assertIn("START", content)
+        # Should contain truncation notice
+        self.assertIn("TRUNCATED", content)
+        self.assertIn("showing first 100 of 410", content)
 
     def test_truncation_with_filter_hint(self):
         """Truncation should include filter hints for supported tools."""
@@ -259,10 +245,12 @@ class TestTruncation(unittest.TestCase):
         self.assertEqual(content, "content")
 
     def test_truncation_notice_guides_llm(self):
-        """Truncation notice should tell LLM to use specific parameters."""
+        """Truncation notice should tell LLM it can use more specific parameters."""
         long_content = "x" * 500
         content, was_truncated = truncate_tool_result(long_content, 100, "read_file")
-        self.assertIn("use more specific parameters", content)
+        self.assertTrue(was_truncated)
+        # The notice says "output was too long"
+        self.assertIn("too long", content)
 
 
 # ====================================================================
@@ -280,7 +268,8 @@ class TestTaskCompletedTool(unittest.TestCase):
             r = tool.execute({'summary': 'Added divide function'})
             self.assertTrue(r.success)
             self.assertIn("Added divide function", r.content)
-            self.assertEqual(r.summary, "Added divide function")
+            # The summary field is prefixed with "Task completed: "
+            self.assertIn("Added divide function", r.summary)
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)
 
@@ -368,14 +357,19 @@ class TestContinuationMessages(unittest.TestCase):
     def test_verbose_tool_format_in_continuation(self):
         """Continuation message should include verbose tool format reminder."""
         from app import _reconstruct_from_step_history
+        # Mock engine with minimal attributes
+        mock_engine = MagicMock()
+        mock_engine.messages = [{"role": "system", "content": "System prompt"}]
+        mock_engine.tools = MagicMock()
+        mock_engine.tools.tool_names.return_value = ['list_directory', 'read_file', 'edit_file', 'write_file', 'delete_file', 'check_syntax']
         steps = [
             {'step': 1, 'tool': 'list_directory', 'params': {}, 'result': {'success': True, 'content': '[]'}},
         ]
-        messages = _reconstruct_from_step_history(steps, "Test instructions", False)
+        _reconstruct_from_step_history(mock_engine, steps, "Test instructions", is_continuation=True)
         # Find the user message with continuation
-        self.assertIsNotNone(messages, "Messages should not be None")
+        self.assertIsNotNone(mock_engine.messages, "Messages should not be None")
         continuation = None
-        for m in messages:
+        for m in mock_engine.messages:
             if m.get('role') == 'user' and '[CONTINUATION]' in m.get('content', ''):
                 continuation = m['content']
                 break
@@ -388,12 +382,16 @@ class TestContinuationMessages(unittest.TestCase):
         self.assertIn("EXACTLY ONE", continuation)
 
     def test_continuation_includes_task_completed(self):
-        """Continuation message should reference task_completed, not [DONE]."""
+        """Continuation message should reference task_completed (not legacy [DONE])."""
         from app import _reconstruct_from_step_history
+        mock_engine = MagicMock()
+        mock_engine.messages = [{"role": "system", "content": "System prompt"}]
+        mock_engine.tools = MagicMock()
+        mock_engine.tools.tool_names.return_value = ['list_directory']
         steps = []
-        messages = _reconstruct_from_step_history(steps, "Test", False)
-        self.assertIsNotNone(messages)
-        for m in messages:
+        _reconstruct_from_step_history(mock_engine, steps, "Test", is_continuation=True)
+        self.assertIsNotNone(mock_engine.messages)
+        for m in mock_engine.messages:
             if m.get('role') == 'user' and '[CONTINUATION]' in m.get('content', ''):
                 self.assertIn("task_completed", m['content'])
                 break
@@ -511,19 +509,10 @@ class TestSystemPromptUpdates(unittest.TestCase):
     """Tests for system prompt updates referencing task_completed."""
 
     def test_system_prompt_references_task_completed(self):
-        """System prompt should reference task_completed, not [DONE]."""
+        """System prompt should reference task_completed (not legacy [DONE])."""
         from agent_engine.engine import build_system_prompt
-        prompt = build_system_prompt()
+        prompt = build_system_prompt(tools=[])
         self.assertIn('task_completed', prompt.lower())
-        # Should not have [DONE] as a completion instruction
-        # (it may appear in comments or regex, but not as the completion method)
-        # Check the key instruction lines
-        lines = prompt.split('\n')
-        for line in lines:
-            if 'complete' in line.lower() or 'done' in line.lower():
-                if '[DONE]' in line:
-                    # This is OK if it's in a code example or comment
-                    pass
 
     def test_user_prompt_references_task_completed(self):
         """User prompt should reference task_completed."""

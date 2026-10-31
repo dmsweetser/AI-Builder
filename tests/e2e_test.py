@@ -127,10 +127,10 @@ def main():
             "finish_reason": "stop",
             "sequential": True
         },
-        # Step 5: DONE
+        # Step 5: task_completed (replaces [DONE])
         {
             "pattern": "",
-            "response": "[DONE] Added divide function to src/main.py with division-by-zero handling.",
+            "response": "[TOOL_START]\n[TOOL_NAME]\ntask_completed\n[PARAM_NAME]\nsummary\n[PARAM_VALUE]\nAdded divide function to src/main.py with division-by-zero handling.\n[TOOL_END]",
             "finish_reason": "stop",
             "sequential": True
         },

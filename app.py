@@ -371,8 +371,8 @@ def _reconstruct_from_step_history(engine, step_history, instructions, is_contin
 CRITICAL INSTRUCTIONS:
 1. You MUST use a tool call to take action. Do NOT just talk about what you will do.
 2. Your FIRST action MUST be: list_directory with path="."
-3. Do NOT use [DONE] until you have actually used tools and gathered information.
-4. Your ENTIRE response must be ONLY a tool call block or [DONE]. No other text.
+3. Do NOT use task_completed until you have actually used tools and gathered information.
+4. Your ENTIRE response must be ONLY a tool call block or task_completed tool call. No other text.
 5. Format your tool call EXACTLY like this example:
 
 [TOOL_START]
@@ -384,7 +384,7 @@ a relevant param name
 a relevant param value
 [TOOL_END]
 
-TEP 1: Use list_directory to explore the project structure. Do NOT use [DONE] yet - you must take action first."""
+STEP 1: Use list_directory to explore the project structure. Do NOT use task_completed yet - you must take action first."""
         })
     # Add tool results from step_history
     all_tool_names = engine.tools.tool_names()
