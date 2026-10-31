@@ -67,34 +67,7 @@ def wait_for_server(port, name, max_wait=60):
 def main():
     log("Starting E2E test...")
 
-    # 1. Start mock LLM server
-    mock_proc = subprocess.Popen(
-        [sys.executable, "tests/mock_llm_server.py", "--port", str(MOCK_PORT)],
-        cwd=str(PROJECT_ROOT),
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        start_new_session=True,
-    )
-    log(f"Mock LLM started (PID {mock_proc.pid})")
-
-    # 2. Configure settings
-    settings = {
-        "custom_endpoint_url": f"http://127.0.0.1:{MOCK_PORT}/v1/chat/completions",
-        "custom_api_key": "",
-        "custom_model_name": "mock-llm",
-        "custom_verify_ssl": False,
-        "max_steps": 20,
-        "timeout": 300,
-        "max_context_tokens": 0,
-        "max_output_tokens": 0,
-        "max_tool_result_length": 10000,
-    }
-    settings_path = PROJECT_ROOT / "aib_instance" / "settings.json"
-    with open(settings_path, 'w') as f:
-        json.dump(settings, f, indent=2)
-    log("Settings configured")
-
-    # 3. Create test project
+    # 1. Create test project
     test_dir = Path("/tmp/e2e_truncation_test")
     test_dir.mkdir(parents=True, exist_ok=True)
     src_dir = test_dir / "src"
@@ -122,7 +95,8 @@ def main():
     log(f"Files: README.md ({(test_dir / 'README.md').stat().st_size} bytes), "
         f"src/main.py, src/utils.py, requirements.txt ({(test_dir / 'requirements.txt').stat().st_size} bytes)")
 
-    # Configure mock LLM with sequential responses for the E2E test
+    # 2. Configure mock LLM with sequential responses for the E2E test
+    #    (MUST be created BEFORE starting the mock LLM server)
     mock_settings_path = PROJECT_ROOT / "tests" / "mock_llm_responses.json"
     mock_responses = [
         # Step 1: list_directory
@@ -164,6 +138,33 @@ def main():
     with open(mock_settings_path, 'w') as f:
         json.dump(mock_responses, f, indent=2)
     log("Mock LLM responses configured")
+
+    # 3. Start mock LLM server (now that responses file exists)
+    mock_proc = subprocess.Popen(
+        [sys.executable, "tests/mock_llm_server.py", "--port", str(MOCK_PORT)],
+        cwd=str(PROJECT_ROOT),
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    log(f"Mock LLM started (PID {mock_proc.pid})")
+
+    # 4. Configure settings
+    settings = {
+        "custom_endpoint_url": f"http://127.0.0.1:{MOCK_PORT}/v1/chat/completions",
+        "custom_api_key": "",
+        "custom_model_name": "mock-llm",
+        "custom_verify_ssl": False,
+        "max_steps": 20,
+        "timeout": 300,
+        "max_context_tokens": 0,
+        "max_output_tokens": 0,
+        "max_tool_result_length": 10000,
+    }
+    settings_path = PROJECT_ROOT / "aib_instance" / "settings.json"
+    with open(settings_path, 'w') as f:
+        json.dump(settings, f, indent=2)
+    log("Settings configured")
 
     # 4. Start Flask app
     flask_proc = subprocess.Popen(
