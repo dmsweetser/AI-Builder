@@ -58,3 +58,37 @@
 2026-10-30 -   SSE protocol edge cases: [DONE] in stream, [DONE] after tool call (2 tests)
 2026-10-30 -   All 35 edge case tests PASS
 2026-10-30 -   TOTAL: 49 + 35 + 35 = 119 unit tests pass (3 skipped), E2E test passes
+2026-10-31 - Round 6: Untested engine features tested (test_untested_features.py, 28 tests)
+2026-10-31 -   First tool call only: parse_tool_calls extracts all, engine takes first (2 tests)
+2026-10-31 -   No-tool-call nudge: parse_tool_calls detects no tools, is_done detects task_completed,
+2026-10-31 -     nudge message verified (3 tests)
+2026-10-31 -   _estimate_tokens(): empty string, short text, proportional, 4:1 ratio (4 tests)
+2026-10-31 -   _trim_messages_to_context(): unlimited, fits budget, trims oldest, keeps system (4 tests)
+2026-10-31 -   _audit_filename(): format, no audit dir returns empty (2 tests)
+2026-10-31 -   reload_approved_tools(): updates system prompt (1 test)
+2026-10-31 -   _run_script(): empty script, whitespace-only (2 tests)
+2026-10-31 -   Context compression: threshold, _compressed flag (1 test)
+2026-10-31 -   Stop event handling: engine stops when event set (1 test)
+2026-10-31 -   Max steps handling: engine returns max_steps_reached (1 test)
+2026-10-31 -   Pending tool approval: create_tool returns pending_approval (1 test)
+2026-10-31 -   build_system_prompt(): task_completed, tool format, workflow (3 tests)
+2026-10-31 -   build_user_prompt(): instructions, context, task_completed (3 tests)
+2026-10-31 -   All 28 untested features tests PASS
+2026-10-31 -   TOTAL: 49 + 35 + 35 + 28 = 147 unit tests pass (3 skipped), E2E test passes
+2026-10-31 - Round 7: Remaining features tested (test_remaining_features.py, 52 tests)
+2026-10-31 -   ToolResult: success, failure, with summary, to_dict, with error (6 tests)
+2026-10-31 -   EngineConfig: root_dir, max_steps, max_context_tokens, max_output_tokens,
+2026-10-31 -     max_tool_result_length, timeout, enabled_tools, endpoint_url, api_key, model_name,
+2026-10-31 -     verify_ssl, live_instruction (13 tests)
+2026-10-31 -   Exceptions: SecurityError, ToolError, EngineError (6 tests)
+2026-10-31 -   _extract_rationale(): present, multiline, absent, empty (4 tests)
+2026-10-31 -   _parse_params(): valid, single, none, malformed, newlines, colon, empty (7 tests)
+2026-10-31 -   parse_tool_calls: [PARAM_END] normalization, alt pattern, rationale, empty value (4 tests)
+2026-10-31 -   truncate_tool_result: list_directory hint, search_files hint, grep_code hint,
+2026-10-31 -     no hint for unsupported (4 tests)
+2026-10-31 -   ToolRegistry: list_directory, read_file, write_file, unknown tool, missing param,
+2026-10-31 -     enabled_tools filtering (6 tests)
+2026-10-31 -   LLMClient: context trimming with max_tokens, no trimming when zero (2 tests)
+2026-10-31 -   EngineConfig live_instruction: file exists, file not exists (2 tests)
+2026-10-31 -   All 52 remaining features tests PASS
+2026-10-31 -   TOTAL: 49 + 35 + 35 + 28 + 52 = 199 unit tests pass (3 skipped), E2E test passes
