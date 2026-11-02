@@ -291,6 +291,15 @@ WORKFLOW:
 4. MODIFY: Use write_file (new files), edit_file (targeted changes), or delete_file.
 5. VERIFY: Use check_syntax to validate your changes before moving on.
 6. ITERATE: If syntax errors or issues are found, fix them. Repeat until done.
+7. COMPLETE: When all work is done, use the task_completed tool to signal completion.
+
+COMPLETION (CRITICAL — READ CAREFULLY):
+- The ONLY way to conclude a run is to use the task_completed tool.
+- When you have finished all the work described in the task instructions, call task_completed with a summary of all changes made.
+- The run will IMMEDIATELY stop after task_completed is executed — no further tool calls will be made.
+- Do NOT use task_completed until you have actually used tools and made changes. You must take at least one tool action before completing.
+- If you are unsure whether the task is complete, review the task instructions and verify all requirements are met.
+- Once you call task_completed, the run is OVER. Do not make any additional tool calls after it.
 
 CRITICAL: You MUST take at least one tool call before using task_completed. You cannot complete the task without using tools.
 
@@ -367,6 +376,8 @@ After each tool result, your ENTIRE response must be exactly one of:
 
 You are NOT allowed to write any text outside of tool call blocks.
 Any text outside these formats will be ignored.
+
+CRITICAL: task_completed is the FINAL tool call. Once you call task_completed, the run ends immediately. Do not make any additional tool calls after task_completed.
 
 CRITICAL: Make EXACTLY ONE tool call per response. Do not include multiple tool call blocks. If you include more than one [TOOL_START]...[TOOL_END] block, only the FIRST one will be executed — the rest will be ignored as invalid output.
 
@@ -842,10 +853,76 @@ class AgentEngine:
 
                 # If LLM produced tool calls (with or without task_completed):
                 #   - Take ONLY the first tool call
-                #   - Continue the loop normally (never break on task_completed when tool calls exist)
+                #   - If it's task_completed, CONCLUDE the run immediately
+                #   - Otherwise, continue the loop normally
                 if tool_calls:
                     tool_calls = [tool_calls[0]]  # Only first tool call
 
+                    # Check if the first tool call is task_completed — this CONCLUDES the run
+                    if tool_calls[0][0] == "task_completed":
+                        # Extract summary from params
+                        task_summary = tool_calls[0][1].get("summary", "Task completed.")
+                        # Append cleaned response for history
+                        if cleaned_response:
+                            self.messages.append({
+                                "role": "assistant",
+                                "content": cleaned_response,
+                            })
+                        # Log the tool call
+                        self.logger.info(f"  Tool: {tool_calls[0][0]}({json.dumps(tool_calls[0][1])})")
+                        step_entry = {
+                            "step": self.step_count,
+                            "tool": "task_completed",
+                            "params": tool_calls[0][1],
+                        }
+                        if tool_calls[0][2]:
+                            step_entry["rationale"] = tool_calls[0][2]
+                        # Execute the tool (returns a ToolResult)
+                        try:
+                            if self._step_callback:
+                                try:
+                                    self._step_callback({
+                                        "type": "tool_start",
+                                        "step": self.step_count,
+                                        "tool": "task_completed",
+                                    })
+                                except Exception:
+                                    pass
+                            result = self.tools.execute("task_completed", tool_calls[0][1])
+                            result_dict = result.to_dict()
+                            step_entry["result"] = result_dict
+                        except Exception as e:
+                            step_entry["result"] = ToolResult(False, "", error=str(e)).to_dict()
+                            self.logger.error(f"task_completed execution error: {e}")
+
+                        # Append tool result to messages for history
+                        self.messages.append({
+                            "role": "user",
+                            "content": f"[TOOL_RESULT]\n{json.dumps(step_entry['result'], indent=2)}\n[TOOL_RESULT]",
+                        })
+                        self.step_history.append(step_entry)
+                        if self._step_callback:
+                            try:
+                                self._step_callback({
+                                    "type": "step",
+                                    "step": self.step_count,
+                                    "tool": "task_completed",
+                                    "params": tool_calls[0][1],
+                                    "result": step_entry["result"],
+                                })
+                            except Exception:
+                                pass
+
+                        # CONCLUDE THE RUN — task_completed is the final action
+                        final_summary = task_summary
+                        self.messages.append({
+                            "role": "user",
+                            "content": f"[COMPLETION]\n{final_summary}",
+                        })
+                        self.logger.info(f"Agent completed via task_completed: {final_summary[:200]}")
+                        break
+
+                    # Not task_completed — process as regular tool call
                     # Append cleaned response (may be empty or just text)
                     if cleaned_response:
                         self.messages.append({
