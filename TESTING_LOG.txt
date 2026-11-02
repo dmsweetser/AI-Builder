@@ -107,3 +107,26 @@
 2026-11-02 -   index.html: compress_context checkbox added to create project form
 2026-11-02 -   site.js: compress_context included in add-project-form submit
 2026-11-02 -   49 unit tests PASS, E2E test PASS
+2026-11-02 - Round 9: request_user_input pause + manual compression prompt + delete tools + STOP button + HTML escape fix
+2026-11-02 -   engine.py: request_user_input now returns early with pending_user_input status (pauses agent)
+2026-11-02 -   engine.py: Auto-compression removed; replaced with context_warning SSE event at 80% threshold
+2026-11-02 -   engine.py: _compress_enabled, _compress_threshold, _compressed fields removed
+2026-11-02 -   engine.py: Context warning adds user message prompting agent to use compress_context tool
+2026-11-02 -   app.py: compress_context removed from project config, SSE run endpoint, and project creation
+2026-11-02 -   app.py: api_agent_inject now writes resume_input.txt to allow resuming from pending_user_input
+2026-11-02 -   app.py: Added DELETE /api/tools/approved/<tool_name> endpoint for deleting approved tools
+2026-11-02 -   app.py: context_compress SSE handler replaced with context_warning handler
+2026-11-02 -   request_user_input.py: Description updated to clarify it WILL PAUSE processing
+2026-11-02 -   respond_to_user.py: Description updated to clarify it does NOT pause the agent
+2026-11-02 -   site.js: escapeHtml() no longer escapes quotes (fixes &quot; display in chat)
+2026-11-02 -   site.js: handleContextWarning() shows context usage percentage warning
+2026-11-02 -   site.js: renderApprovedTools() includes DELETE button and parameter display
+2026-11-02 -   site.js: deleteApprovedTool() function added for approved tool deletion
+2026-11-02 -   site.js: renderPendingTools() improved formatting with better source code display
+2026-11-02 -   site.js: stopCurrentJob() function added for STOP from VIEW LIVE screen
+2026-11-02 -   site.js: liveStopBtn shown/hidden in _doRunProject, continueAgentRunWithInstruction, showLiveViewForJob
+2026-11-02 -   site.js: compress_context references removed from all project forms and JS
+2026-11-02 -   site.js: AVAILABLE_TOOLS no longer includes compress_context
+2026-11-02 -   index.html: compress_context checkbox removed from create and detail forms
+2026-11-02 -   index.html: STOP button added to agent live feed header
+2026-11-02 -   E2E test PASS, 49 unit tests PASS

@@ -20,13 +20,13 @@ const AVAILABLE_TOOLS = [
     "grep_code", "grep_code_dir", "read_file", "read_file_range",
     "write_file", "edit_file", "delete_file", "find_symbol",
     "decompile_jar", "list_dependencies", "check_syntax", "get_file_info",
-    "create_tool", "compress_context", "respond_to_user", "request_user_input"
+    "create_tool", "respond_to_user", "request_user_input"
 ];
 
 // === Utility Functions ===
 function escapeHtml(str) {
     if (!str) return '';
-    return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 function copyToClipboard(text, buttonEl) {
@@ -222,8 +222,10 @@ function _doRunProject(projectId, overrideInstruction) {
     if (agentBox) agentBox.innerHTML = '';
     var runBtn = document.getElementById('details-run-btn');
     var stopBtn = document.getElementById('details-stop-btn');
+    var liveStopBtn = document.getElementById('live-stop-btn');
     if (runBtn) { runBtn.disabled = true; runBtn.innerHTML = '<span class="run-spinner"></span> RUNNING...'; }
     if (stopBtn) stopBtn.style.display = 'inline-block';
+    if (liveStopBtn) liveStopBtn.style.display = 'inline-block';
     // Keep inject button enabled so user can inject at will
     var injectInput = document.getElementById('live-inject-input');
     var injectBtn = document.getElementById('live-inject-btn');
@@ -257,7 +259,7 @@ function _doRunProject(projectId, overrideInstruction) {
                             else if (eventType === 'tool_start') handleToolStart(data, agentBox);
                             else if (eventType === 'pending_approval') handlePendingApproval(data, agentBox);
                             else if (eventType === 'pending_user_input') handlePendingUserInput(data, agentBox);
-                    else if (eventType === 'context_compress') handleContextCompress(data, agentBox);
+                    else if (eventType === 'context_warning') handleContextWarning(data, agentBox);
                         });
                     }
                     agentRunning = false;
@@ -277,7 +279,7 @@ function _doRunProject(projectId, overrideInstruction) {
                     else if (eventType === 'tool_start') handleToolStart(data, agentBox);
                     else if (eventType === 'pending_approval') handlePendingApproval(data, agentBox);
                     else if (eventType === 'pending_user_input') handlePendingUserInput(data, agentBox);
-                    else if (eventType === 'context_compress') handleContextCompress(data, agentBox);
+                    else if (eventType === 'context_warning') handleContextWarning(data, agentBox);
                 });
                 setTimeout(processChunk, 0);
             });
@@ -335,7 +337,7 @@ function startAgentSSE(projectId, enabledTools) {
                     else if (eventType === 'tool_start') handleToolStart(data, agentBox);
                     else if (eventType === 'pending_approval') handlePendingApproval(data, agentBox);
                     else if (eventType === 'pending_user_input') handlePendingUserInput(data, agentBox);
-                    else if (eventType === 'context_compress') handleContextCompress(data, agentBox);
+                    else if (eventType === 'context_warning') handleContextWarning(data, agentBox);
                 });
                 setTimeout(processChunk, 0);
             });
@@ -563,29 +565,20 @@ function handlePendingUserInput(data, agentBox) {
     if (runBtn) { runBtn.disabled = true; runBtn.innerHTML = 'AWAITING INPUT...'; }
 }
 
-function handleContextCompress(data, agentBox) {
+function handleContextWarning(data, agentBox) {
     if (!agentBox) return;
     var entry = document.createElement('div');
     entry.className = 'step-entry';
-    entry.style.borderLeftColor = 'var(--info)';
-    entry.style.background = 'rgba(33, 150, 243, 0.08)';
-    entry.innerHTML = '<div class="step-tool" style="color:var(--info);">🗜️ Context Compressed</div>' +
+    entry.style.borderLeftColor = 'var(--warning)';
+    entry.style.background = 'rgba(252, 219, 5, 0.08)';
+    entry.innerHTML = '<div class="step-tool" style="color:var(--warning);">⚠️ Context Warning</div>' +
         '<div class="step-result" style="font-size:11px;color:var(--text-muted);">' +
-        'Messages: ' + data.original_messages + ' → ' + data.compressed_messages +
-        ' | Files read: ' + data.files_read + ' | Files modified: ' + data.files_modified +
-        '</div>';
+        'Context at ' + data.usage_pct + '% (' + data.current_tokens + '/' + data.max_tokens + ' tokens). ' +
+        'The agent will use the compress_context tool to reduce context.</div>';
     // Insert at top (like other system events)
     if (agentBox.firstChild) agentBox.insertBefore(entry, agentBox.firstChild);
     else agentBox.appendChild(entry);
     agentBox.scrollTop = agentBox.scrollHeight;
-    // Update status text briefly
-    var statusText = document.getElementById('agent-status-text');
-    if (statusText) {
-        var orig = statusText.textContent;
-        statusText.textContent = 'Context compressed';
-        statusText.style.color = 'var(--info)';
-        setTimeout(function() { if (statusText) statusText.textContent = orig; }, 2000);
-    }
 }
 
 function handleToolStart(data, agentBox) {
@@ -755,11 +748,34 @@ function stopProject(projectId) {
         if (stopBtn) stopBtn.style.display = 'none';
         var viewLiveBtn = document.getElementById('details-live-btn');
         if (viewLiveBtn) viewLiveBtn.style.display = 'none';
+        var liveStopBtn = document.getElementById('live-stop-btn');
+        if (liveStopBtn) liveStopBtn.style.display = 'none';
         updateRunButtonState(projectId, false);
         loadJobs();
         resetRunButtons();
     })
     .catch(function(err) { console.error('Failed to stop project:', err); });
+}
+
+function stopCurrentJob() {
+    // Stop the currently running job from the VIEW LIVE screen
+    agentRunning = false;
+    liveInjectActive = false;
+    if (agentSSEController) { agentSSEController.abort(); agentSSEController = null; }
+    var jobId = currentRunningJobId;
+    var promises = [fetch('/api/queue/running/stop', { method: 'POST' }).catch(function() {})];
+    if (jobId) {
+        promises.push(fetch('/api/agent/stop/' + jobId, { method: 'POST' }).catch(function() {}));
+    }
+    Promise.all(promises).then(function() {
+        var liveStopBtn = document.getElementById('live-stop-btn');
+        if (liveStopBtn) liveStopBtn.style.display = 'none';
+        var statusText = document.getElementById('agent-status-text');
+        if (statusText) { statusText.textContent = 'STOPPED'; statusText.style.color = 'var(--danger)'; }
+        loadJobs();
+        resetRunButtons();
+    })
+    .catch(function(err) { console.error('Failed to stop job:', err); });
 }
 
 function continueAgentRunWithInstruction(projectId, prevJobId, newInstruction) {
@@ -779,8 +795,10 @@ function continueAgentRunWithInstruction(projectId, prevJobId, newInstruction) {
     var enabledTools = getEnabledTools();
     var runBtn = document.getElementById('details-run-btn');
     var stopBtn = document.getElementById('details-stop-btn');
+    var liveStopBtn = document.getElementById('live-stop-btn');
     if (runBtn) { runBtn.disabled = true; runBtn.innerHTML = '<span class="run-spinner"></span> RUNNING...'; }
     if (stopBtn) stopBtn.style.display = 'inline-block';
+    if (liveStopBtn) liveStopBtn.style.display = 'inline-block';
     var configSection = document.getElementById('project-config-section');
     var agentLive = document.getElementById('agent-live-container');
     if (configSection) configSection.style.display = 'none';
@@ -824,7 +842,7 @@ function continueAgentRunWithInstruction(projectId, prevJobId, newInstruction) {
                     else if (eventType === 'tool_start') handleToolStart(data, agentBox);
                     else if (eventType === 'pending_approval') handlePendingApproval(data, agentBox);
                     else if (eventType === 'pending_user_input') handlePendingUserInput(data, agentBox);
-                    else if (eventType === 'context_compress') handleContextCompress(data, agentBox);
+                    else if (eventType === 'context_warning') handleContextWarning(data, agentBox);
                 });
                 setTimeout(processChunk, 0);
             });
@@ -935,9 +953,6 @@ function selectProject(projectId) {
             safeSet('details-root-dir', project.rootDirectory || '');
             safeSet('details-instructions', project.instructions || '');
             buildToolSelector(project.enabled_tools || []);
-            // Load compress_context toggle
-            var ccEl = document.getElementById('details-compress-context');
-            if (ccEl) ccEl.checked = project.compress_context !== false;  // default true
             // Check if this project has a running job and show VIEW LIVE button
             fetch('/api/queue')
                 .then(function(r) { return r.json(); })
@@ -1033,9 +1048,6 @@ function saveProjectChanges() {
     var projectId = document.getElementById('run-project-id') ? document.getElementById('run-project-id').value : null;
     if (!projectId) return;
     var formData = new FormData(document.getElementById('project-details-form'));
-    // Add compress_context checkbox
-    var ccEl = document.getElementById('details-compress-context');
-    if (ccEl) formData.append('compress_context', ccEl.checked ? 'true' : 'false');
     // Add enabled_tools from the tool selector
     var checkboxes = document.querySelectorAll('#details-tool-selector input[type="checkbox"]');
     checkboxes.forEach(function(cb) {
@@ -1211,10 +1223,36 @@ function renderApprovedTools() {
         .then(function(tools) {
             if (!tools || tools.length === 0) { list.innerHTML = '<div class="note">NO APPROVED TOOLS YET.</div>'; return; }
             list.innerHTML = tools.map(function(t) {
-                return '<div style="padding:10px 14px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:6px;"><strong style="color:var(--success);">' + escapeHtml(t.name) + '</strong><span style="color:var(--text-muted);font-size:11px;margin-left:8px;">' + escapeHtml(t.description || '') + '</span></div>';
+                var desc = t.description ? escapeHtml(t.description).substring(0, 150) : '';
+                var params = t.parameters ? '<div style="margin-top:4px;font-size:11px;color:var(--text-muted);">Params: ' + escapeHtml(JSON.stringify(t.parameters)) + '</div>' : '';
+                return '<div style="padding:10px 14px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:8px;">' +
+                    '<div style="display:flex;justify-content:space-between;align-items:center;">' +
+                        '<div>' +
+                            '<strong style="color:var(--success);font-size:13px;">' + escapeHtml(t.name) + '</strong>' +
+                            (desc ? '<span style="color:var(--text-muted);font-size:11px;margin-left:8px;">' + desc + '</span>' : '') +
+                        '</div>' +
+                        '<button class="btn btn-xs btn-danger" onclick="deleteApprovedTool(\'' + escapeHtml(t.name) + '\', this)" style="padding:2px 8px;">DELETE</button>' +
+                    '</div>' +
+                    params +
+                '</div>';
             }).join('');
         })
         .catch(function(err) { console.error('Failed to load approved tools:', err); list.innerHTML = '<div class="note warning">Failed to load approved tools.</div>'; });
+}
+
+function deleteApprovedTool(toolName, btnEl) {
+    if (!confirm('Delete approved tool "' + toolName + '"? This cannot be undone.')) return;
+    fetch('/api/tools/approved/' + encodeURIComponent(toolName), { method: 'DELETE' })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.status === 'deleted') {
+                alert('Tool "' + toolName + '" deleted.');
+                loadPendingTools();
+            } else {
+                alert('Failed to delete tool: ' + (data.error || 'Unknown error'));
+            }
+        })
+        .catch(function(err) { console.error('Failed to delete tool:', err); alert('Failed to delete tool.'); });
 }
 
 function renderPendingTools(pendingTools) {
@@ -1228,20 +1266,24 @@ function renderPendingTools(pendingTools) {
             var item = document.createElement('div');
             item.className = 'pending-tool-item';
             var paramsStr = tool.parameters ? JSON.stringify(tool.parameters, null, 2) : '(none)';
-            var codePreview = tool.code ? escapeHtml(tool.code).substring(0, 1000) : '(no code)';
+            var codePreview = tool.code ? tool.code.substring(0, 1500) : '(no code)';
+            var codeId = 'code-block-' + tool.id;
             var showMoreId = 'code-show-' + tool.id;
-            var codeBlockId = 'code-block-' + tool.id;
             item.innerHTML =
-                '<div class="tool-name">' + escapeHtml(tool.name) + '</div>' +
-                '<div class="tool-desc">' + escapeHtml(tool.description || '') + '</div>' +
-                '<div class="tool-params">' + escapeHtml(paramsStr) + '</div>' +
-                '<details style="margin:8px 0;"><summary style="cursor:pointer;color:var(--info);">📄 View Tool Source Code (' + (tool.code ? tool.code.length : 0) + ' chars)</summary>' +
-                    '<div id="' + codeBlockId + '" style="margin-top:8px;padding:10px;background:#111;border-radius:4px;overflow:auto;max-height:400px;font-family:monospace;font-size:12px;line-height:1.4;white-space:pre-wrap;">' +
-                        codePreview + (tool.code && tool.code.length > 1000 ? '\n\n... [truncated, click "Expand" to see full code]' : '') +
+                '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">' +
+                    '<span class="tool-name" style="font-size:14px;font-weight:bold;">' + escapeHtml(tool.name) + '</span>' +
+                    '<span style="font-size:11px;color:var(--text-muted);">' + (tool.code ? tool.code.length : 0) + ' chars</span>' +
+                '</div>' +
+                '<div class="tool-desc" style="margin-bottom:6px;">' + escapeHtml(tool.description || '') + '</div>' +
+                '<div class="tool-params" style="margin-bottom:8px;font-size:11px;color:var(--text-muted);">Params: ' + escapeHtml(paramsStr) + '</div>' +
+                '<details style="margin:8px 0;border:1px solid var(--border);border-radius:4px;overflow:hidden;">' +
+                    '<summary style="cursor:pointer;color:var(--info);padding:6px 10px;background:var(--bg-card);font-weight:bold;">📄 View Tool Source Code</summary>' +
+                    '<div id="' + codeId + '" style="margin:0;padding:10px;background:#0d0d0d;overflow:auto;max-height:300px;font-family:monospace;font-size:12px;line-height:1.5;white-space:pre-wrap;color:#e0e0e0;">' +
+                        codePreview + (tool.code && tool.code.length > 1500 ? '\n\n... [truncated, click "Expand" to see full code]' : '') +
                     '</div>' +
-                    (tool.code && tool.code.length > 1000 ? '<button class="btn btn-xs btn-secondary" onclick="event.stopPropagation(); this.parentElement.querySelector(\'div\').style.maxHeight=\'none\'; this.style.display=\'none\';" style="margin-top:4px;">Expand Full Code</button>' : '') +
+                    (tool.code && tool.code.length > 1500 ? '<button class="btn btn-xs btn-secondary" onclick="event.stopPropagation(); var el=this.parentElement.querySelector(\'' + codeId + '\'); el.style.maxHeight=\'none\'; this.style.display=\'none\';" style="margin:4px 10px 8px;">Expand Full Code</button>' : '') +
                 '</details>' +
-                '<div class="tool-actions">' +
+                '<div class="tool-actions" style="margin-top:8px;display:flex;gap:6px;">' +
                     '<button class="btn btn-sm btn-primary" onclick="approvePendingTool(\'' + tool.id + '\', \'' + escapeHtml(tool.name) + '\')">✓ APPROVE</button>' +
                     '<button class="btn btn-sm btn-danger" onclick="rejectPendingTool(\'' + tool.id + '\', \'' + escapeHtml(tool.name) + '\')">✗ REJECT</button>' +
                 '</div>';
@@ -1625,6 +1667,8 @@ function showLiveViewForJob(jobId) {
             // Show stop button
             var stopBtn = document.getElementById('details-stop-btn');
             if (stopBtn) stopBtn.style.display = 'inline-block';
+            var liveStopBtn = document.getElementById('live-stop-btn');
+            if (liveStopBtn) liveStopBtn.style.display = 'inline-block';
             var agentBox = document.getElementById('agent-live-box');
             if (agentBox) {
                 agentBox.innerHTML = '<div class="step-entry llm-step">📺 Viewing live feed for running job (LIVE)...</div>';
@@ -1782,7 +1826,7 @@ function connectToJobSSE(jobId) {
                     else if (eventType === 'tool_start') handleToolStart(data, agentBox);
                     else if (eventType === 'pending_approval') handlePendingApproval(data, agentBox);
                     else if (eventType === 'pending_user_input') handlePendingUserInput(data, agentBox);
-                    else if (eventType === 'context_compress') handleContextCompress(data, agentBox);
+                    else if (eventType === 'context_warning') handleContextWarning(data, agentBox);
                 });
                 setTimeout(processChunk, 0);
             });
@@ -1855,9 +1899,6 @@ document.addEventListener('DOMContentLoaded', function() {
                     formData.append('enabled_tools', cb.value);
                 }
             });
-            // Add compress_context checkbox
-            var ccEl = document.getElementById('add-compress-context');
-            if (ccEl) formData.append('compress_context', ccEl.checked ? 'true' : 'false');
             var formRef = this;
             fetch('/api/projects', { method: 'POST', body: formData })
                 .then(function(res) { return res.json(); })

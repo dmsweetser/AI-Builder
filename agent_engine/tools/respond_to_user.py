@@ -8,8 +8,10 @@ class RespondToUserTool(BaseTool):
     name = "respond_to_user"
     description = (
         "Respond to the user with a message. Use this to communicate findings, "
-        "ask questions, or provide status updates. After using this tool, you "
-        "may continue with more tool calls or use task_completed to finish."
+        "ask questions, or provide status updates.\n"
+        "This tool does NOT pause the agent — the run will continue after this tool completes.\n"
+        "If you need to PAUSE and wait for the user to respond, use request_user_input instead.\n"
+        "After using this tool, you may continue with more tool calls or use task_completed to finish."
     )
     parameters = {"message": "string"}
 

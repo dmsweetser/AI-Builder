@@ -8,10 +8,15 @@ from agent_engine.tools.base import BaseTool, ToolResult
 class RequestUserInputTool(BaseTool):
     name = "request_user_input"
     description = (
-        "Request input from the user. Use this when you need clarification, "
-        "a decision, or confirmation before proceeding. The run will pause "
-        "until the user provides input. After receiving input, continue with "
-        "your task using the new information."
+        "OPTIONAL: Use this tool to PAUSE the agent and request input from the user.\n"
+        "This will STOP the agent's execution and wait for the user to respond.\n"
+        "The user can then provide input which will be written to a file and the agent will resume.\n"
+        "Use this when you need the user to provide information, make a decision, or confirm an action.\n"
+        "This tool WILL PAUSE processing — the agent will wait until the user provides input.\n"
+        "If you just need to display information to the user without pausing, use respond_to_user instead.\n"
+        "\n"
+        "Parameters:\n"
+        "  question: The question or prompt to show the user. Be specific and clear.\n"
     )
     parameters = {"question": "string"}
 

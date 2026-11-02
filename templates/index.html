@@ -94,12 +94,6 @@
                             <label>Enabled Tools</label>
                             <div id="add-tool-selector" class="tool-selector-grid"></div>
                         </div>
-                        <div class="form-group">
-                            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
-                                <input type="checkbox" id="add-compress-context" checked style="width:auto;">
-                                Auto-compress context during run
-                            </label>
-                        </div>
                         <div class="form-actions">
                             <button type="submit" class="btn btn-primary">CREATE PROJECT</button>
                             <button type="button" class="btn btn-secondary" onclick="toggleCreateForm()">CANCEL</button>
@@ -144,13 +138,6 @@
                             <div id="details-tool-selector" class="tool-selector-grid"></div>
                         </div>
 
-                        <div class="form-group">
-                            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
-                                <input type="checkbox" id="details-compress-context" onchange="autoSaveProject()" style="width:auto;">
-                                Auto-compress context during run
-                            </label>
-                        </div>
-
                         <div class="form-actions">
                             <button type="button" class="btn btn-primary run-btn" id="details-run-btn" onclick="runProject(currentProjectId)">RUN AI BUILDER</button>
                             <button type="button" class="btn btn-info" id="details-live-btn" onclick="showLiveView(currentProjectId)" style="display:none;">📺 VIEW LIVE</button>
@@ -168,6 +155,9 @@
                             <span id="agent-status-text">AGENT RUNNING</span>
                             <span id="agent-step-count" class="status-text"></span>
                         </h3>
+                        <div style="display:flex;gap:6px;">
+                            <button type="button" class="btn btn-danger btn-sm" id="live-stop-btn" onclick="stopCurrentJob()" style="display:none;">⏹ STOP</button>
+                        </div>
                     </div>
                     <div id="agent-live-box" class="agent-box"></div>
                     <div class="agent-inject">

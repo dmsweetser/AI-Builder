@@ -672,10 +672,9 @@ class AgentEngine:
         # Callback for real-time event streaming (called from worker thread)
         self._step_callback = step_callback
 
-        # Context compression settings
-        self._compress_threshold = 28  # Compress when message count exceeds this
-        self._compressed = False  # Track if we've already compressed
-        self._compress_enabled = project_config.get("compress_context", True)
+        # Context management: manual compression prompt when context is large
+        # Removed auto-compression; user now manually triggers compress_context tool
+        self._context_warning_shown = False
 
         # Stop signal from the UI (set by /api/queue/running/stop)
         self._stop_event = stop_event
@@ -754,148 +753,35 @@ class AgentEngine:
                         )
                     })
 
-                # Auto-compress context if conversation is getting too long
-                if (self._compress_enabled and
-                    not self._compressed and
-                    len(self.messages) > self._compress_threshold):
-                    self.logger.info(
-                        f"Auto-compressing context: {len(self.messages)} messages "
-                        f"(threshold: {self._compress_threshold})"
-                    )
-                    # Build a compact summary from the step history
-                    summary_parts = []
-                    summary_parts.append(
-                        f"Project: {self.root_dir}"
-                    )
-                    summary_parts.append(
-                        f"Task: {self.instructions[:300]}"
-                    )
-
-                    # Track what files were read and key findings
-                    files_read = {}
-                    files_modified = []
-                    for h in self.step_history:
-                        tool = h.get("tool", "unknown")
-                        params = h.get("params", {})
-                        result = h.get("result", {})
-                        content = result.get("content", "")
-                        summary = result.get("summary", "")
-                        error = result.get("error", "")
-
-                        if error:
-                            summary_parts.append(
-                                f"  - {tool}: FAILED ({error})"
-                            )
-                        elif tool in ("read_file", "read_file_range"):
-                            path = params.get("path", "unknown")
-                            line_range = params.get("line_range", "full")
-                            files_read[path] = {
-                                "lines": line_range,
-                                "size": len(content),
-                            }
-                            # Include key excerpts for files we might need to edit
-                            if len(content) > 0 and len(content) < 3000:
-                                # Include the full content for small files
-                                files_read[path]["content"] = content[:2000]
-                            elif len(content) > 0:
-                                # Include first 500 and last 500 chars for large files
-                                files_read[path]["content"] = content[:500] + "\n... [truncated] ...\n" + content[-500:]
-                        elif tool in ("write_file", "edit_file", "delete_file"):
-                            path = params.get("path", "unknown")
-                            files_modified.append((tool, path))
-                        elif tool in ("list_directory", "list_directory_deep"):
-                            path = params.get("path", ".")
-                            summary_parts.append(
-                                f"  - {tool}: {path}"
-                            )
-                        elif tool in ("grep_code", "grep_code_dir",
-                                      "search_files", "search_files_dir"):
-                            pattern = params.get("pattern", "")
-                            directory = params.get("directory", "root")
-                            summary_parts.append(
-                                f"  - {tool}: pattern='{pattern}' dir='{directory}'"
-                            )
-                        elif tool == "check_syntax":
-                            path = params.get("path", "unknown")
-                            if "passed" in (summary or "").lower() or "ok" in (summary or "").lower():
-                                summary_parts.append(f"  - {tool}: {path} OK")
-                            else:
-                                summary_parts.append(f"  - {tool}: {path} FAILED ({error})")
-                        else:
-                            summary_parts.append(
-                                f"  - {tool}: {params}"
-                            )
-
-                    # Add file content summaries (critical for LLM to continue editing)
-                    if files_read:
-                        summary_parts.append("\nFILES READ (content included):")
-                        for path, info in files_read.items():
-                            summary_parts.append(f"\n--- {path} (lines {info.get('lines', 'full')}, {info['size']} bytes) ---")
-                            if "content" in info:
-                                summary_parts.append(info["content"])
-                            else:
-                                summary_parts.append(f"[content truncated, {info['size']} bytes]")
-
-                    if files_modified:
-                        summary_parts.append("\nFILES MODIFIED:")
-                        for tool, path in files_modified:
-                            summary_parts.append(f"  - {tool}: {path}")
-
-                    summary_text = "\n".join(summary_parts)
-
-                    # Keep the last N messages for recent context, compress the rest
-                    messages_to_compress = self.messages[1:]  # Exclude system prompt
-                    messages_to_keep = 6  # Keep last 6 messages (3 turns of user/assistant)
-                    messages_to_compress_list = messages_to_compress[:-messages_to_keep] if len(messages_to_compress) > messages_to_keep else []
-                    messages_to_keep_list = messages_to_compress[-messages_to_keep:] if len(messages_to_compress) > messages_to_keep else messages_to_compress
-
-                    # Build compressed summary for older messages
-                    compressed_summary = (
-                        f"[CONTEXT COMPRESSED]\n"
-                        f"Your prior conversation has been compressed to save context space.\n"
-                        f"Here is the summary of what was done, including file contents:\n\n"
-                        f"{summary_text}\n\n"
-                        f"[STATE: You have already read {len(files_read)} files. "
-                        f"DO NOT read any more files. YOU MUST NOW TAKE ACTION.\n"
-                        f"Use edit_file to fix issues, write_file to create files, or delete_file to remove files.\n"
-                        f"If you need to make changes, use the file contents included above.\n"
-                        f"DO NOT explore further. TAKE ACTION NOW.]"
-                    )
-
-                    # Rebuild messages: system + compressed summary + last N messages
-                    self.messages = [
-                        self.messages[0],  # Keep system prompt
-                        {
+                # Check if context is getting large — prompt user to manually compress
+                if (not self._context_warning_shown and
+                    self.max_context_tokens > 0):
+                    current_tokens = sum(_estimate_tokens(m.get("content", "")) for m in self.messages)
+                    usage_pct = current_tokens / self.max_context_tokens if self.max_context_tokens > 0 else 0
+                    if usage_pct >= 0.8:
+                        # Emit context warning event for UI
+                        if self._step_callback:
+                            try:
+                                self._step_callback({
+                                    "type": "context_warning",
+                                    "step": self.step_count,
+                                    "current_tokens": current_tokens,
+                                    "max_tokens": self.max_context_tokens,
+                                    "usage_pct": round(usage_pct * 100, 1),
+                                })
+                            except Exception:
+                                pass
+                        self._context_warning_shown = True
+                        # Add a user message prompting the agent to compress
+                        self.messages.append({
                             "role": "user",
-                            "content": compressed_summary,
-                        },
-                    ]
-                    # Append the most recent messages for recent context
-                    for msg in messages_to_keep_list:
-                        self.messages.append(msg)
-                    # Add a continuation prompt
-                    self.messages.append({
-                        "role": "user",
-                        "content": "Continue with your next action.",
-                    })
-                    self._compressed = True
-                    self.logger.info(
-                        f"Context compressed. Messages reduced to {len(self.messages)}. "
-                        f"Files read: {len(files_read)}, Files modified: {len(files_modified)}"
-                    )
-                    # Emit context compression event for UI indicator
-                    if self._step_callback:
-                        try:
-                            self._step_callback({
-                                "type": "context_compress",
-                                "step": self.step_count,
-                                "files_read": len(files_read),
-                                "files_modified": len(files_modified),
-                                "original_messages": len(messages_to_compress),
-                                "compressed_messages": len(self.messages),
-                            })
-                        except Exception:
-                            pass
+                            "content": (
+                                f"[CONTEXT WARNING] Your conversation context is at {round(usage_pct * 100, 1)}% of the context window "
+                                f"({current_tokens}/{self.max_context_tokens} tokens). "
+                                f"Please use the compress_context tool to summarize prior steps and free up context space "
+                                f"before continuing with your task."
+                            ),
+                        })
 
                 # Call LLM
                 try:
@@ -1039,6 +925,32 @@ class AgentEngine:
                             "summary": summary if done else "Pending tool approval",
                             "max_steps": self.max_steps,
                             "step_history": self.step_history,
+                        }
+
+                    # If request_user_input was used, PAUSE the agent for user response
+                    if tool_name == "request_user_input":
+                        question = params.get("question", "Please provide input:")
+                        # Write the question to a file so the UI can read it
+                        os.makedirs(self.output_dir, exist_ok=True)
+                        question_file = os.path.join(self.output_dir, "user_input_request.txt")
+                        with open(question_file, "w") as f:
+                            f.write(question)
+                        if self._step_callback:
+                            try:
+                                self._step_callback({
+                                    "type": "pending_user_input",
+                                    "step": self.step_count,
+                                    "question": question,
+                                })
+                            except Exception:
+                                pass
+                        return {
+                            "status": "pending_user_input",
+                            "steps": self.step_count,
+                            "summary": f"Waiting for user input: {question[:200]}",
+                            "max_steps": self.max_steps,
+                            "step_history": self.step_history,
+                            "question": question,
                         }
 
                     # Feed tool result back to LLM

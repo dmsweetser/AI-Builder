@@ -506,7 +506,6 @@ def api_create_project():
         "output_dir": output_dir,
         "run_number": 0,
         "last_job_id": None,
-        "compress_context": data.get("compress_context", True),
     }
 
     projects.append(project)
@@ -534,7 +533,6 @@ def api_update_project(pid):
         "instructions": request.form.get("instructions", project.get("instructions", "")),
         "preScript": request.form.get("preScript", project.get("preScript", "")),
         "postScript": request.form.get("postScript", project.get("postScript", "")),
-        "compress_context": request.form.get("compress_context", project.get("compress_context", True)),
     })
 
     # Update output_dir path if rootDirectory changed
@@ -1168,7 +1166,6 @@ def api_agent_run():
                     "instructions": instructions,
                     "job_id": job_id,
                     "enabled_tools": enabled_tools if enabled_tools else None,
-                    "compress_context": project.get("compress_context", True) if project else True,
                 }
                 engine = AgentEngine(config, output_dir=output_dir, step_callback=on_event, stop_event=job_stop_event)
                 # Ensure the engine's ToolRegistry uses the global aib_instance
@@ -1411,13 +1408,12 @@ def api_agent_run():
                     "step": ev.get("step", 0),
                     "response": ev.get("response", ""),
                 }) + "\n"
-            elif ev["type"] == "context_compress":
-                yield "event: context_compress\ndata: " + json.dumps({
+            elif ev["type"] == "context_warning":
+                yield "event: context_warning\ndata: " + json.dumps({
                     "step": ev.get("step", 0),
-                    "files_read": ev.get("files_read", 0),
-                    "files_modified": ev.get("files_modified", 0),
-                    "original_messages": ev.get("original_messages", 0),
-                    "compressed_messages": ev.get("compressed_messages", 0),
+                    "current_tokens": ev.get("current_tokens", 0),
+                    "max_tokens": ev.get("max_tokens", 0),
+                    "usage_pct": ev.get("usage_pct", 0),
                 }) + "\n"
 
     return Response(generate(), mimetype='text/event-stream')
@@ -1533,6 +1529,11 @@ def api_agent_inject():
     _log_app_event(f"Live instruction injected — job_id={job_id}")
     try:
         with open(instruction_file, 'w') as f:
+            f.write(instruction)
+        # If the agent was paused for user input, write a resume signal
+        # so the engine knows to continue
+        resume_file = os.path.join(output_dir, "resume_input.txt")
+        with open(resume_file, 'w', encoding='utf-8') as f:
             f.write(instruction)
         return jsonify({"status": "injected"})
     except Exception as e:
@@ -1735,6 +1736,33 @@ def api_get_approved_tools():
         except Exception:
             pass
     return jsonify(approved_tools)
+
+
+@app.route("/api/tools/approved/<tool_name>", methods=["DELETE"])
+def api_delete_approved_tool(tool_name):
+    """Delete an approved dynamic tool."""
+    try:
+        # Find and remove the tool file from approved tools directory
+        approved_dir = os.path.join(_AIB_INSTANCE, "approved_tools")
+        tool_file = os.path.join(approved_dir, f"{tool_name}.py")
+        if os.path.exists(tool_file):
+            os.remove(tool_file)
+            logging.info(f"Deleted approved tool file: {tool_file}")
+
+        # Also remove from pending tools file if it exists there as approved
+        pending_file = EngineConfig.get_pending_tools_file()
+        if os.path.exists(pending_file):
+            with open(pending_file, 'r') as f:
+                pending_tools = json.load(f)
+            new_tools = [t for t in pending_tools if t.get("name") != tool_name]
+            if len(new_tools) < len(pending_tools):
+                with open(pending_file, 'w') as f:
+                    json.dump(new_tools, f, indent=2)
+                logging.info(f"Removed tool '{tool_name}' from pending tools file")
+
+        return jsonify({"status": "deleted", "name": tool_name})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 # --- App System Log ---
