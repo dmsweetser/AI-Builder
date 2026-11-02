@@ -675,6 +675,7 @@ class AgentEngine:
         # Context compression settings
         self._compress_threshold = 28  # Compress when message count exceeds this
         self._compressed = False  # Track if we've already compressed
+        self._compress_enabled = project_config.get("compress_context", True)
 
         # Stop signal from the UI (set by /api/queue/running/stop)
         self._stop_event = stop_event
@@ -754,7 +755,8 @@ class AgentEngine:
                     })
 
                 # Auto-compress context if conversation is getting too long
-                if (not self._compressed and
+                if (self._compress_enabled and
+                    not self._compressed and
                     len(self.messages) > self._compress_threshold):
                     self.logger.info(
                         f"Auto-compressing context: {len(self.messages)} messages "
@@ -881,6 +883,19 @@ class AgentEngine:
                         f"Context compressed. Messages reduced to {len(self.messages)}. "
                         f"Files read: {len(files_read)}, Files modified: {len(files_modified)}"
                     )
+                    # Emit context compression event for UI indicator
+                    if self._step_callback:
+                        try:
+                            self._step_callback({
+                                "type": "context_compress",
+                                "step": self.step_count,
+                                "files_read": len(files_read),
+                                "files_modified": len(files_modified),
+                                "original_messages": len(messages_to_compress),
+                                "compressed_messages": len(self.messages),
+                            })
+                        except Exception:
+                            pass
 
                 # Call LLM
                 try:

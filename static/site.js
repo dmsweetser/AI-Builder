@@ -257,6 +257,7 @@ function _doRunProject(projectId, overrideInstruction) {
                             else if (eventType === 'tool_start') handleToolStart(data, agentBox);
                             else if (eventType === 'pending_approval') handlePendingApproval(data, agentBox);
                             else if (eventType === 'pending_user_input') handlePendingUserInput(data, agentBox);
+                    else if (eventType === 'context_compress') handleContextCompress(data, agentBox);
                         });
                     }
                     agentRunning = false;
@@ -276,6 +277,7 @@ function _doRunProject(projectId, overrideInstruction) {
                     else if (eventType === 'tool_start') handleToolStart(data, agentBox);
                     else if (eventType === 'pending_approval') handlePendingApproval(data, agentBox);
                     else if (eventType === 'pending_user_input') handlePendingUserInput(data, agentBox);
+                    else if (eventType === 'context_compress') handleContextCompress(data, agentBox);
                 });
                 setTimeout(processChunk, 0);
             });
@@ -333,6 +335,7 @@ function startAgentSSE(projectId, enabledTools) {
                     else if (eventType === 'tool_start') handleToolStart(data, agentBox);
                     else if (eventType === 'pending_approval') handlePendingApproval(data, agentBox);
                     else if (eventType === 'pending_user_input') handlePendingUserInput(data, agentBox);
+                    else if (eventType === 'context_compress') handleContextCompress(data, agentBox);
                 });
                 setTimeout(processChunk, 0);
             });
@@ -558,6 +561,31 @@ function handlePendingUserInput(data, agentBox) {
     if (statusText) { statusText.textContent = 'AWAITING INPUT'; statusText.style.color = 'var(--warning)'; }
     var runBtn = document.getElementById('details-run-btn');
     if (runBtn) { runBtn.disabled = true; runBtn.innerHTML = 'AWAITING INPUT...'; }
+}
+
+function handleContextCompress(data, agentBox) {
+    if (!agentBox) return;
+    var entry = document.createElement('div');
+    entry.className = 'step-entry';
+    entry.style.borderLeftColor = 'var(--info)';
+    entry.style.background = 'rgba(33, 150, 243, 0.08)';
+    entry.innerHTML = '<div class="step-tool" style="color:var(--info);">🗜️ Context Compressed</div>' +
+        '<div class="step-result" style="font-size:11px;color:var(--text-muted);">' +
+        'Messages: ' + data.original_messages + ' → ' + data.compressed_messages +
+        ' | Files read: ' + data.files_read + ' | Files modified: ' + data.files_modified +
+        '</div>';
+    // Insert at top (like other system events)
+    if (agentBox.firstChild) agentBox.insertBefore(entry, agentBox.firstChild);
+    else agentBox.appendChild(entry);
+    agentBox.scrollTop = agentBox.scrollHeight;
+    // Update status text briefly
+    var statusText = document.getElementById('agent-status-text');
+    if (statusText) {
+        var orig = statusText.textContent;
+        statusText.textContent = 'Context compressed';
+        statusText.style.color = 'var(--info)';
+        setTimeout(function() { if (statusText) statusText.textContent = orig; }, 2000);
+    }
 }
 
 function handleToolStart(data, agentBox) {
@@ -796,6 +824,7 @@ function continueAgentRunWithInstruction(projectId, prevJobId, newInstruction) {
                     else if (eventType === 'tool_start') handleToolStart(data, agentBox);
                     else if (eventType === 'pending_approval') handlePendingApproval(data, agentBox);
                     else if (eventType === 'pending_user_input') handlePendingUserInput(data, agentBox);
+                    else if (eventType === 'context_compress') handleContextCompress(data, agentBox);
                 });
                 setTimeout(processChunk, 0);
             });
@@ -906,6 +935,9 @@ function selectProject(projectId) {
             safeSet('details-root-dir', project.rootDirectory || '');
             safeSet('details-instructions', project.instructions || '');
             buildToolSelector(project.enabled_tools || []);
+            // Load compress_context toggle
+            var ccEl = document.getElementById('details-compress-context');
+            if (ccEl) ccEl.checked = project.compress_context !== false;  // default true
             // Check if this project has a running job and show VIEW LIVE button
             fetch('/api/queue')
                 .then(function(r) { return r.json(); })
@@ -1001,6 +1033,9 @@ function saveProjectChanges() {
     var projectId = document.getElementById('run-project-id') ? document.getElementById('run-project-id').value : null;
     if (!projectId) return;
     var formData = new FormData(document.getElementById('project-details-form'));
+    // Add compress_context checkbox
+    var ccEl = document.getElementById('details-compress-context');
+    if (ccEl) formData.append('compress_context', ccEl.checked ? 'true' : 'false');
     // Add enabled_tools from the tool selector
     var checkboxes = document.querySelectorAll('#details-tool-selector input[type="checkbox"]');
     checkboxes.forEach(function(cb) {
@@ -1747,6 +1782,7 @@ function connectToJobSSE(jobId) {
                     else if (eventType === 'tool_start') handleToolStart(data, agentBox);
                     else if (eventType === 'pending_approval') handlePendingApproval(data, agentBox);
                     else if (eventType === 'pending_user_input') handlePendingUserInput(data, agentBox);
+                    else if (eventType === 'context_compress') handleContextCompress(data, agentBox);
                 });
                 setTimeout(processChunk, 0);
             });
@@ -1819,6 +1855,9 @@ document.addEventListener('DOMContentLoaded', function() {
                     formData.append('enabled_tools', cb.value);
                 }
             });
+            // Add compress_context checkbox
+            var ccEl = document.getElementById('add-compress-context');
+            if (ccEl) formData.append('compress_context', ccEl.checked ? 'true' : 'false');
             var formRef = this;
             fetch('/api/projects', { method: 'POST', body: formData })
                 .then(function(res) { return res.json(); })

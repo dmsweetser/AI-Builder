@@ -506,6 +506,7 @@ def api_create_project():
         "output_dir": output_dir,
         "run_number": 0,
         "last_job_id": None,
+        "compress_context": data.get("compress_context", True),
     }
 
     projects.append(project)
@@ -533,6 +534,7 @@ def api_update_project(pid):
         "instructions": request.form.get("instructions", project.get("instructions", "")),
         "preScript": request.form.get("preScript", project.get("preScript", "")),
         "postScript": request.form.get("postScript", project.get("postScript", "")),
+        "compress_context": request.form.get("compress_context", project.get("compress_context", True)),
     })
 
     # Update output_dir path if rootDirectory changed
@@ -1166,6 +1168,7 @@ def api_agent_run():
                     "instructions": instructions,
                     "job_id": job_id,
                     "enabled_tools": enabled_tools if enabled_tools else None,
+                    "compress_context": project.get("compress_context", True) if project else True,
                 }
                 engine = AgentEngine(config, output_dir=output_dir, step_callback=on_event, stop_event=job_stop_event)
                 # Ensure the engine's ToolRegistry uses the global aib_instance
@@ -1408,6 +1411,14 @@ def api_agent_run():
                     "step": ev.get("step", 0),
                     "response": ev.get("response", ""),
                 }) + "\n"
+            elif ev["type"] == "context_compress":
+                yield "event: context_compress\ndata: " + json.dumps({
+                    "step": ev.get("step", 0),
+                    "files_read": ev.get("files_read", 0),
+                    "files_modified": ev.get("files_modified", 0),
+                    "original_messages": ev.get("original_messages", 0),
+                    "compressed_messages": ev.get("compressed_messages", 0),
+                }) + "\n"
 
     return Response(generate(), mimetype='text/event-stream')
 
@@ -1497,8 +1508,14 @@ def api_agent_inject():
         return jsonify({"error": "job_id and instruction required"}), 400
 
     # Look up the SSE job's output directory
+    job_info = None
     with _sse_jobs_lock:
-        output_dir = _sse_jobs.get(job_id)
+        job_info = _sse_jobs.get(job_id)
+
+    if job_info:
+        output_dir = job_info.get("output_dir") if isinstance(job_info, dict) else job_info
+    else:
+        output_dir = None
 
     if not output_dir:
         # Fallback: try to find in job_history

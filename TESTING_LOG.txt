@@ -92,3 +92,18 @@
 2026-10-31 -   EngineConfig live_instruction: file exists, file not exists (2 tests)
 2026-10-31 -   All 52 remaining features tests PASS
 2026-10-31 -   TOTAL: 49 + 35 + 35 + 28 + 52 = 199 unit tests pass (3 skipped), E2E test passes
+2026-11-02 - Round 8: Context compression visual indicator + per-project toggle
+2026-11-02 -   engine.py: Added _compress_enabled flag from project config compress_context
+2026-11-02 -   engine.py: Auto-compression now checks self._compress_enabled before triggering
+2026-11-02 -   engine.py: Emits context_compress SSE event with files_read/files_modified counts
+2026-11-02 -   app.py: api_agent_inject fixed — _sse_jobs stores dicts, extract output_dir properly
+2026-11-02 -   app.py: Project config now includes compress_context field (default True)
+2026-11-02 -   app.py: SSE run endpoint passes compress_context to engine config
+2026-11-02 -   app.py: context_compress SSE event handler added to generate()
+2026-11-02 -   site.js: handleContextCompress() displays compression event in live feed
+2026-11-02 -   site.js: context_compress handler wired into all 5 SSE event dispatchers
+2026-11-02 -   index.html: compress_context toggle added to project details form
+2026-11-02 -   site.js: compress_context loaded/saved in selectProject/saveProjectChanges
+2026-11-02 -   index.html: compress_context checkbox added to create project form
+2026-11-02 -   site.js: compress_context included in add-project-form submit
+2026-11-02 -   49 unit tests PASS, E2E test PASS
