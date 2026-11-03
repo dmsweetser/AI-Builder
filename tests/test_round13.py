@@ -22,21 +22,20 @@ class TestSingletonRegistry(unittest.TestCase):
 
     def test_singleton_returns_same_instance(self):
         """Multiple get_registry() calls should return the same instance."""
-        r1 = get_registry("/tmp/test1")
-        r2 = get_registry("/tmp/test2")
+        r1 = get_registry()
+        r2 = get_registry()
         self.assertIs(r1, r2, "get_registry() should return the same singleton")
 
     def test_singleton_ignores_root_dir_after_first_call(self):
         """Second call's root_dir should be ignored."""
         r1 = get_registry("/tmp/test1")
         r2 = get_registry("/tmp/test2")
-        self.assertEqual(r1.root_dir, "/tmp/test1")
-        # r2 is the same object, so root_dir is still "/tmp/test1"
-        self.assertEqual(r2.root_dir, "/tmp/test1")
+        # Both are the same object; root_dir is not stored on the registry
+        self.assertIs(r1, r2)
 
     def test_all_tools_registered_without_filtering(self):
         """All built-in tools should be registered — no enabled_tools filtering."""
-        registry = get_registry(tempfile.mkdtemp())
+        registry = get_registry()
         tools = registry.list_tools()
         tool_names = [t['name'] for t in tools]
         # Verify all expected tools are present
@@ -45,14 +44,15 @@ class TestSingletonRegistry(unittest.TestCase):
             'grep_code', 'grep_code_dir', 'read_file', 'read_file_range',
             'write_file', 'edit_file', 'delete_file', 'find_symbol',
             'decompile_jar', 'list_dependencies', 'check_syntax', 'get_file_info',
-            'create_tool', 'respond_to_user', 'request_user_input', 'task_completed',
+            'create_tool', 'compress_context',
+            'respond_to_user', 'request_user_input', 'task_completed',
         ]
         for name in expected_tools:
             self.assertIn(name, tool_names, f"Tool '{name}' not registered")
 
     def test_tool_approval_makes_tool_available(self):
         """Approved tools should be loadable via reload_approved_tools()."""
-        registry = get_registry(tempfile.mkdtemp())
+        registry = get_registry()
         # Initially, the tool list should be stable
         initial_tools = set(t['name'] for t in registry.list_tools())
         # Reload should not change anything (no pending tools)
@@ -62,8 +62,8 @@ class TestSingletonRegistry(unittest.TestCase):
 
     def test_registry_shared_across_calls(self):
         """A tool registered in one registry instance should be visible in another."""
-        r1 = get_registry(tempfile.mkdtemp())
-        r2 = get_registry(tempfile.mkdtemp())
+        r1 = get_registry()
+        r2 = get_registry()
         # Both should have the same tools
         tools1 = set(t['name'] for t in r1.list_tools())
         tools2 = set(t['name'] for t in r2.list_tools())

@@ -488,7 +488,7 @@ class TestToolRegistry(unittest.TestCase):
     def test_all_tools_registered(self):
         """All expected tools should be registered."""
         from agent_engine.tools import get_registry
-        registry = get_registry(TEST_PROJECT)
+        registry = get_registry()
         tools = registry.list_tools()
         tool_names = [t['name'] for t in tools]
         expected = [
@@ -503,7 +503,7 @@ class TestToolRegistry(unittest.TestCase):
     def test_no_filtering_applied(self):
         """All tools should be registered regardless of enabled_tools."""
         from agent_engine.tools import get_registry
-        registry = get_registry(TEST_PROJECT)
+        registry = get_registry()
         tools = registry.list_tools()
         tool_names = [t['name'] for t in tools]
         # All built-in tools should be present — no filtering
@@ -514,9 +514,9 @@ class TestToolRegistry(unittest.TestCase):
     def test_unknown_tool_raises_error(self):
         """Executing unknown tool should raise ToolError."""
         from agent_engine.tools import get_registry
-        registry = get_registry(TEST_PROJECT)
+        registry = get_registry()
         with self.assertRaises(ToolError):
-            registry.execute('nonexistent_tool', {'path': 'test.txt'})
+            registry.execute('nonexistent_tool', {'path': 'test.txt'}, '/tmp')
 
 
 # ====================================================================

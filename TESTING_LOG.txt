@@ -247,6 +247,31 @@
 2026-11-03 -     AvailableToolsList: task_completed in list, no checkbox filtering (2 tests)
 2026-11-03 -   Validation:
 2026-11-03 -     All 235 unit tests PASS (3 skipped)
+2026-11-03 -     Total test coverage: 235 unit + 1 E2E = 236 tests (3 skipped)
+2026-11-03 - Round 14: Fix execution directory + global tool enable/disable
+2026-11-03 -   PROBLEM 1: Singleton ToolRegistry was created once with the first
+2026-11-03 -     project's root_dir, and all subsequent projects/tools used that
+2026-11-03 -     same root_dir. Projects executed in aib_instance instead of their own
+2026-11-03 -     root directory.
+2026-11-03 -   Fix: Refactored ToolRegistry to hold tool *definitions* (classes),
+2026-11-03 -     not tool instances. The execute() method now takes root_dir as a
+2026-11-03 -     parameter and creates the tool instance per-execution with the
+2026-11-03 -     correct project root. This way:
+2026-11-03 -     - Tool definitions are shared (singleton)
+2026-11-03 -     - Tool execution uses the correct project root
+2026-11-03 -     - Each project's tools operate on its own directory
+2026-11-03 -   PROBLEM 2: No way to globally enable/disable built-in tools.
+2026-11-03 -   Fix: Added _enabled_tools set to ToolRegistry. When non-empty,
+2026-11-03 -     only those tools are available; when empty, all are available.
+2026-11-03 -     Added /api/tools/enable/<tool_name> (POST) and
+2026-11-03 -     /api/tools/status (GET) endpoints.
+2026-11-03 -   Frontend: Added "Built-in Tools (Enable / Disable)" section to Tools tab.
+2026-11-03 -     Shows all tools with ENABLED/DISABLED toggle buttons.
+2026-11-03 -     Toggling updates the registry in real-time and reloads the list.
+2026-11-03 -   Updated all tests to use ToolRegistry() (no args) and pass root_dir
+2026-11-03 -     to execute(). Fixed _mock_tool_execute to accept root_dir param.
+2026-11-03 -   Validation:
+2026-11-03 -     All 235 unit tests PASS (3 skipped)
 2026-11-03 -     Total test coverage: 235 unit + 1 E2E = 236 tests (3 skipped)</parameter>
 <parameter=old_string>
 2026-11-02 -   TOTAL: 49 + 35 + 35 + 40 + 52 + 28 + 22 = 261 unit tests pass (3 skipped), E2E test passes

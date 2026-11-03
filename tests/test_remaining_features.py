@@ -404,8 +404,8 @@ class TestToolRegistry(unittest.TestCase):
         from agent_engine.tools import ToolRegistry
         tmpdir = tempfile.mkdtemp()
         try:
-            registry = ToolRegistry(tmpdir)
-            result = registry.execute("list_directory", {"path": "."})
+            registry = ToolRegistry()
+            result = registry.execute("list_directory", {"path": "."}, tmpdir)
             self.assertTrue(result.success)
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)
@@ -418,8 +418,8 @@ class TestToolRegistry(unittest.TestCase):
             test_file = os.path.join(tmpdir, "test.txt")
             with open(test_file, "w") as f:
                 f.write("hello")
-            registry = ToolRegistry(tmpdir)
-            result = registry.execute("read_file", {"path": "test.txt"})
+            registry = ToolRegistry()
+            result = registry.execute("read_file", {"path": "test.txt"}, tmpdir)
             self.assertTrue(result.success)
             self.assertIn("hello", result.content)
         finally:
@@ -430,11 +430,11 @@ class TestToolRegistry(unittest.TestCase):
         from agent_engine.tools import ToolRegistry
         tmpdir = tempfile.mkdtemp()
         try:
-            registry = ToolRegistry(tmpdir)
+            registry = ToolRegistry()
             result = registry.execute("write_file", {
                 "path": "new.txt",
                 "content": "new content"
-            })
+            }, tmpdir)
             self.assertTrue(result.success)
             with open(os.path.join(tmpdir, "new.txt")) as f:
                 self.assertEqual(f.read(), "new content")
@@ -446,9 +446,9 @@ class TestToolRegistry(unittest.TestCase):
         from agent_engine.tools import ToolRegistry
         tmpdir = tempfile.mkdtemp()
         try:
-            registry = ToolRegistry(tmpdir)
+            registry = ToolRegistry()
             with self.assertRaises(Exception):
-                registry.execute("unknown_tool", {})
+                registry.execute("unknown_tool", {}, tmpdir)
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)
 
@@ -457,9 +457,9 @@ class TestToolRegistry(unittest.TestCase):
         from agent_engine.tools import ToolRegistry
         tmpdir = tempfile.mkdtemp()
         try:
-            registry = ToolRegistry(tmpdir)
+            registry = ToolRegistry()
             with self.assertRaises(Exception):
-                registry.execute("read_file", {})
+                registry.execute("read_file", {}, tmpdir)
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)
 
@@ -468,7 +468,7 @@ class TestToolRegistry(unittest.TestCase):
         from agent_engine.tools import ToolRegistry
         tmpdir = tempfile.mkdtemp()
         try:
-            registry = ToolRegistry(tmpdir)
+            registry = ToolRegistry()
             tools = registry.list_tools()
             tool_names = [t["name"] for t in tools]
             self.assertIn("list_directory", tool_names)

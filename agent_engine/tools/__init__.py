@@ -1,4 +1,12 @@
-"""Tool registry - aggregates all tools."""
+"""Tool registry - aggregates all tools.
+
+A shared singleton for tool *definitions* (classes + dynamic tools).
+Tool *instances* are created per-execution with the correct project root_dir,
+so each project's tools operate on its own directory.
+
+Global enable/disable is managed via the ``_enabled_tools`` set — when
+non-empty, only those tools are available; when empty, all are available.
+"""
 
 import json
 import logging
@@ -6,7 +14,7 @@ import os
 import tempfile
 import importlib.util
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set, Type
 from agent_engine.tools.base import BaseTool, ToolResult
 from agent_engine.security import ensure_under_root, validate_tool_params, SecurityError, ToolError
 from agent_engine.tools.list_directory import ListDirectoryTool
@@ -30,24 +38,52 @@ from agent_engine.tools.task_completed import TaskCompletedTool
 
 # ------------------------------------------------------------------
 # Module-level singleton: shared across ALL projects and agent engines.
-# Every engine uses this SAME registry — tools are always up-to-date.
+# Tool *definitions* (classes + dynamic entries) are shared.
+# Tool *instances* are created per-execution with the correct root_dir.
 # ------------------------------------------------------------------
 _shared_registry: Optional["ToolRegistry"] = None
 
+# ------------------------------------------------------------------
+# Global built-in tool class registry — maps name → class.
+# This is populated once at module import and never changes.
+# ------------------------------------------------------------------
+_BUILTIN_TOOL_CLASSES: Dict[str, Type[BaseTool]] = {}
 
-def get_registry(root_dir: str = None, enabled_tools=None) -> "ToolRegistry":
+
+def _init_builtin_classes():
+    """Populate _BUILTIN_TOOL_CLASSES with all built-in tool classes."""
+    for _cls in [
+        ListDirectoryTool, ListDirectoryDeepTool,
+        SearchFilesTool, SearchFilesDirTool,
+        GrepCodeTool, GrepCodeDirTool,
+        ReadFileTool, ReadFileRangeTool,
+        WriteFileTool, EditFileTool, DeleteFileTool,
+        FindSymbolTool, DecompileJarTool,
+        ListDependenciesTool, CheckSyntaxTool, GetFileInfoTool,
+        CreateToolTool, CompressContextTool,
+        RespondToUserTool, RequestUserInputTool, TaskCompletedTool,
+    ]:
+        # Instantiate once just to get the name
+        _instance = _cls("/tmp")
+        _BUILTIN_TOOL_CLASSES[_instance.name] = _cls
+
+
+_init_builtin_classes()
+
+
+def get_registry(_root_dir=None):
     """Return the shared ToolRegistry singleton.
 
-    Always returns the same instance.  The first call creates it with
-    the given root_dir; subsequent calls ignore root_dir and enabled_tools
-    because the registry is global and unfiltered.
+    The registry holds tool definitions and the global enabled/disabled set.
+    Tool instances are created per-execution with the correct root_dir,
+    so each project's tools operate on its own directory.
 
-    NOTE: For tests that need a fresh registry, call ``_reset_registry()``
-    first or use ``ToolRegistry(root_dir)`` directly.
+    The ``_root_dir`` parameter is accepted for backward compatibility but
+    is ignored — the singleton is shared across all projects.
     """
     global _shared_registry
     if _shared_registry is None:
-        _shared_registry = ToolRegistry(root_dir or os.getcwd())
+        _shared_registry = ToolRegistry()
     return _shared_registry
 
 
@@ -61,73 +97,35 @@ class ToolRegistry:
     """Registry of all available tools.
 
     A true singleton shared by every agent engine and every API endpoint.
-    All built-in tools are always registered.  Approved dynamic tools are
-    loaded from disk and registered automatically — no filtering, no
-    per-project tool lists.
+    Tool *definitions* (classes + dynamic entries) are shared.
+    Tool *instances* are created per-execution with the correct root_dir.
+
+    Global enable/disable: when ``_enabled_tools`` is non-empty, only those
+    tools are available; when empty, all are available.
     """
 
-    def __init__(self, root_dir: str):
-        self.root_dir = root_dir
-        self._tools: Dict[str, BaseTool] = {}
-        self._register_tools()
-        self._load_approved_tools()
-
-    # ------------------------------------------------------------------
-    # Registration
-    # ------------------------------------------------------------------
-
-    def _register_tools(self):
-        """Register all built-in tool classes.  All tools are always available."""
-        tool_classes = [
-            ListDirectoryTool,
-            ListDirectoryDeepTool,
-            SearchFilesTool,
-            SearchFilesDirTool,
-            GrepCodeTool,
-            GrepCodeDirTool,
-            ReadFileTool,
-            ReadFileRangeTool,
-            WriteFileTool,
-            EditFileTool,
-            DeleteFileTool,
-            FindSymbolTool,
-            DecompileJarTool,
-            ListDependenciesTool,
-            CheckSyntaxTool,
-            GetFileInfoTool,
-            CreateToolTool,
-            CompressContextTool,
-            RespondToUserTool,
-            RequestUserInputTool,
-            TaskCompletedTool,
-        ]
-        for tool_cls in tool_classes:
-            tool = tool_cls(self.root_dir)
-            self._tools[tool.name] = tool
+    def __init__(self):
+        # Dynamic tool entries loaded from disk (approved tools)
+        self._dynamic_entries: Dict[str, Dict[str, Any]] = {}
+        # Global enabled/disabled set — empty means "all enabled"
+        self._enabled_tools: Set[str] = set()
 
     # ------------------------------------------------------------------
     # Dynamic tool loading (approved from pending)
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _pending_tools_file(root_dir: str) -> str:
-        """Return the global pending tools file path (app-level, not per-project)."""
+    def _pending_tools_file() -> str:
+        """Return the global pending tools file path (app-level)."""
         from agent_engine.config import EngineConfig
-        # Use the configured global path, but fall back to root_dir/output
-        # for backwards compatibility with tests and legacy setups
         try:
             return EngineConfig.get_pending_tools_file()
         except Exception:
-            return os.path.join(root_dir, "output", "pending_tools.json")
+            return os.path.join(os.getcwd(), "output", "pending_tools.json")
 
     def _load_approved_tools(self):
-        """Load any previously-approved dynamic tools from disk.
-
-        Approved tools are always loaded regardless of enabled_tools filter,
-        because approval is an explicit user action that should make the tool
-        available immediately.
-        """
-        pending_file = self._pending_tools_file(self.root_dir)
+        """Load any previously-approved dynamic tools from disk."""
+        pending_file = self._pending_tools_file()
         if not os.path.exists(pending_file):
             return
         try:
@@ -138,11 +136,11 @@ class ToolRegistry:
 
         for entry in pending_tools:
             if entry.get("status") == "approved":
-                self._register_dynamic_tool(entry)
+                self._dynamic_entries[entry["name"]] = entry
 
     def approve_tool(self, tool_id: str) -> Dict[str, Any]:
         """Approve a pending tool: mark it approved and register it."""
-        pending_file = self._pending_tools_file(self.root_dir)
+        pending_file = self._pending_tools_file()
         pending_tools = []
         if os.path.exists(pending_file):
             try:
@@ -157,23 +155,18 @@ class ToolRegistry:
                 entry["approved_at"] = __import__("datetime").datetime.now().isoformat()
                 with open(pending_file, 'w') as f:
                     json.dump(pending_tools, f, indent=2)
-                self._register_dynamic_tool(entry)
+                self._dynamic_entries[entry["name"]] = entry
                 return {"status": "approved", "tool_id": tool_id, "tool_name": entry["name"]}
 
         return {"status": "not_found", "tool_id": tool_id}
 
     def reload_approved_tools(self):
-        """Reload approved tools from disk and register any new ones.
-
-        Called after tool approval to make approved tools immediately
-        available.  Since the registry is a shared singleton, this
-        automatically makes new tools visible to ALL running engines.
-        """
+        """Reload approved tools from disk and register any new ones."""
         self._load_approved_tools()
 
     def reject_tool(self, tool_id: str) -> Dict[str, Any]:
         """Reject a pending tool: mark it rejected and unregister if loaded."""
-        pending_file = self._pending_tools_file(self.root_dir)
+        pending_file = self._pending_tools_file()
         pending_tools = []
         if os.path.exists(pending_file):
             try:
@@ -188,14 +181,14 @@ class ToolRegistry:
                 entry["rejected_at"] = __import__("datetime").datetime.now().isoformat()
                 with open(pending_file, 'w') as f:
                     json.dump(pending_tools, f, indent=2)
-                self._tools.pop(entry["name"], None)
+                self._dynamic_entries.pop(entry["name"], None)
                 return {"status": "rejected", "tool_id": tool_id, "tool_name": entry["name"]}
 
         return {"status": "not_found", "tool_id": tool_id}
 
     def get_pending_tools(self) -> List[Dict[str, Any]]:
         """Return all pending (awaiting approval) tools."""
-        pending_file = self._pending_tools_file(self.root_dir)
+        pending_file = self._pending_tools_file()
         if not os.path.exists(pending_file):
             return []
         try:
@@ -205,112 +198,182 @@ class ToolRegistry:
         except Exception:
             return []
 
-    def _register_dynamic_tool(self, entry: Dict[str, Any]):
-        """Register a dynamically-created tool from a pending entry.
+    def get_approved_tools(self) -> List[Dict[str, Any]]:
+        """Return all approved dynamic tool entries."""
+        return list(self._dynamic_entries.values())
 
-        Supports two code styles:
-        1. Class-based: defines a ``Tool`` class inheriting from ``BaseTool``.
-        2. Function-based: defines an ``execute(**kwargs)`` function (legacy
-           ``execute_python`` style).  A wrapper class is created automatically.
+    # ------------------------------------------------------------------
+    # Global enable/disable
+    # ------------------------------------------------------------------
+
+    def set_tool_enabled(self, tool_name: str, enabled: bool) -> Dict[str, Any]:
+        """Enable or disable a built-in tool globally.
+
+        When a tool is disabled, it is removed from the tool list and
+        cannot be executed.  This applies to all projects immediately.
         """
-        tool_name = entry["name"]
-        tool_code = entry["code"]
+        # Check if it's a built-in or dynamic tool
+        if tool_name in _BUILTIN_TOOL_CLASSES:
+            if enabled:
+                self._enabled_tools.discard(tool_name)
+            else:
+                self._enabled_tools.add(tool_name)
+            return {"status": "updated", "tool": tool_name, "enabled": enabled}
+        elif tool_name in self._dynamic_entries:
+            if enabled:
+                self._enabled_tools.discard(tool_name)
+            else:
+                self._enabled_tools.add(tool_name)
+            return {"status": "updated", "tool": tool_name, "enabled": enabled}
+        else:
+            return {"status": "not_found", "tool": tool_name}
 
-        # Check if already registered
-        if tool_name in self._tools:
-            return
+    def get_enabled_tools(self) -> List[str]:
+        """Return the list of currently enabled tool names."""
+        all_names = set(_BUILTIN_TOOL_CLASSES.keys()) | set(self._dynamic_entries.keys())
+        if not self._enabled_tools:
+            return sorted(all_names)
+        return sorted(all_names - self._enabled_tools)
 
-        # Build a namespace with all required names
-        ns = {
-            '__name__': f'_dynamic_tool_{uuid.uuid4().hex[:8]}',
-            '__builtins__': __builtins__,
-            'BaseTool': BaseTool,
-            'ToolResult': ToolResult,
-            'ToolError': ToolError,
-            'ensure_under_root': ensure_under_root,
-            'validate_tool_params': validate_tool_params,
-            'SecurityError': SecurityError,
-            'os': __import__('os'),
-            'json': __import__('json'),
-            're': __import__('re'),
-            'subprocess': __import__('subprocess'),
-            'tempfile': __import__('tempfile'),
-            'shutil': __import__('shutil'),
-            'threading': __import__('threading'),
-            'datetime': __import__('datetime'),
-        }
+    def get_tool_status(self) -> Dict[str, bool]:
+        """Return a dict of tool_name → enabled for all known tools."""
+        all_names = set(_BUILTIN_TOOL_CLASSES.keys()) | set(self._dynamic_entries.keys())
+        return {name: name not in self._enabled_tools for name in sorted(all_names)}
 
-        try:
-            exec(tool_code, ns)
-        except Exception as e:
-            logging.warning(f"Failed to execute dynamic tool code: {e}")
-            return
+    # ------------------------------------------------------------------
+    # Tool instance creation (per-execution with correct root_dir)
+    # ------------------------------------------------------------------
 
-        # Try class-based approach first
-        tool_cls = ns.get('Tool')
-        if tool_cls and isinstance(tool_cls, type) and issubclass(tool_cls, BaseTool):
+    def _create_tool_instance(self, tool_name: str, root_dir: str) -> Optional[BaseTool]:
+        """Create a tool instance for execution.
+
+        Returns None if the tool is disabled or not found.
+        """
+        # Check if disabled
+        if tool_name in self._enabled_tools:
+            return None
+
+        # Built-in tool
+        if tool_name in _BUILTIN_TOOL_CLASSES:
+            cls = _BUILTIN_TOOL_CLASSES[tool_name]
             try:
-                tool_instance = tool_cls(self.root_dir)
-                self._tools[tool_name] = tool_instance
-                return
+                return cls(root_dir)
             except Exception as e:
-                logging.warning(f"Failed to instantiate dynamic tool class: {e}")
+                logging.warning(f"Failed to instantiate built-in tool '{tool_name}': {e}")
+                return None
 
-        # Fallback: function-based execute(**kwargs) wrapper
-        execute_fn = ns.get('execute')
-        if callable(execute_fn):
-            class _DynamicFunctionTool(BaseTool):
-                """Wrapper for function-based dynamic tools."""
-                name = tool_name
-                description = entry.get("description", "")
-                parameters = entry.get("parameters", {})
-
-                def __init__(self, root_dir: str):
-                    super().__init__(root_dir)
-                    self._execute_fn = execute_fn
-
-                def execute(self, params: Dict[str, Any]) -> ToolResult:
-                    try:
-                        result = self._execute_fn(params=params)
-                        if isinstance(result, ToolResult):
-                            return result
-                        return ToolResult(
-                            success=True,
-                            content=str(result),
-                            summary=f"Executed {self.name}",
-                        )
-                    except Exception as e:
-                        return ToolResult(
-                            success=False,
-                            content="",
-                            error=str(e),
-                            summary=f"Failed to execute {self.name}",
-                        )
-
+        # Dynamic tool — instantiate from entry
+        if tool_name in self._dynamic_entries:
+            entry = self._dynamic_entries[tool_name]
+            tool_code = entry["code"]
+            ns = {
+                '__name__': f'_dynamic_tool_{uuid.uuid4().hex[:8]}',
+                '__builtins__': __builtins__,
+                'BaseTool': BaseTool,
+                'ToolResult': ToolResult,
+                'ToolError': ToolError,
+                'ensure_under_root': ensure_under_root,
+                'validate_tool_params': validate_tool_params,
+                'SecurityError': SecurityError,
+                'os': __import__('os'),
+                'json': __import__('json'),
+                're': __import__('re'),
+                'subprocess': __import__('subprocess'),
+                'tempfile': __import__('tempfile'),
+                'shutil': __import__('shutil'),
+                'threading': __import__('threading'),
+                'datetime': __import__('datetime'),
+            }
             try:
-                tool_instance = _DynamicFunctionTool(self.root_dir)
-                self._tools[tool_name] = tool_instance
-                return
+                exec(tool_code, ns)
             except Exception as e:
-                logging.warning(f"Failed to instantiate function-based dynamic tool: {e}")
+                logging.warning(f"Failed to execute dynamic tool code: {e}")
+                return None
+
+            tool_cls = ns.get('Tool')
+            if tool_cls and isinstance(tool_cls, type) and issubclass(tool_cls, BaseTool):
+                try:
+                    return tool_cls(root_dir)
+                except Exception as e:
+                    logging.warning(f"Failed to instantiate dynamic tool class: {e}")
+                    return None
+
+            execute_fn = ns.get('execute')
+            if callable(execute_fn):
+                class _DynamicFunctionTool(BaseTool):
+                    """Wrapper for function-based dynamic tools."""
+                    name = tool_name
+                    description = entry.get("description", "")
+                    parameters = entry.get("parameters", {})
+
+                    def __init__(self, root_dir: str):
+                        super().__init__(root_dir)
+                        self._execute_fn = execute_fn
+
+                    def execute(self, params: Dict[str, Any]) -> ToolResult:
+                        try:
+                            result = self._execute_fn(params=params)
+                            if isinstance(result, ToolResult):
+                                return result
+                            return ToolResult(
+                                success=True,
+                                content=str(result),
+                                summary=f"Executed {self.name}",
+                            )
+                        except Exception as e:
+                            return ToolResult(
+                                success=False,
+                                content="",
+                                error=str(e),
+                                summary=f"Failed to execute {self.name}",
+                            )
+                try:
+                    return _DynamicFunctionTool(root_dir)
+                except Exception as e:
+                    logging.warning(f"Failed to instantiate function-based dynamic tool: {e}")
+                    return None
+
+        return None
 
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
     def list_tools(self) -> List[Dict[str, Any]]:
-        """Return tool definitions for the LLM prompt."""
-        return [t.get_definition() for t in self._tools.values()]
+        """Return tool definitions for the LLM prompt.
+
+        Only includes tools that are enabled (not in _enabled_tools set).
+        """
+        defs = []
+        for name, cls in _BUILTIN_TOOL_CLASSES.items():
+            if name not in self._enabled_tools:
+                # Instantiate once with dummy root_dir just to get the definition
+                try:
+                    defs.append(cls("/tmp").get_definition())
+                except Exception:
+                    pass
+        for name, entry in self._dynamic_entries.items():
+            if name not in self._enabled_tools:
+                defs.append({
+                    "name": entry["name"],
+                    "description": entry.get("description", ""),
+                    "parameters": entry.get("parameters", {}),
+                })
+        return defs
 
     def tool_names(self) -> set:
         """Return a set of all registered tool names (built-in + dynamic)."""
-        return set(self._tools.keys())
+        return set(_BUILTIN_TOOL_CLASSES.keys()) | set(self._dynamic_entries.keys())
 
-    def execute(self, tool_name: str, params: Dict[str, Any]) -> ToolResult:
-        """Execute a tool by name with validated parameters."""
-        tool = self._tools.get(tool_name)
+    def execute(self, tool_name: str, params: Dict[str, Any], root_dir: str) -> ToolResult:
+        """Execute a tool by name with validated parameters.
+
+        Creates a tool instance with the given root_dir for this execution.
+        """
+        tool = self._create_tool_instance(tool_name, root_dir)
         if not tool:
-            available = [t.name for t in self._tools.values()]
+            available = [t for t in _BUILTIN_TOOL_CLASSES.keys() if t not in self._enabled_tools]
+            available += [n for n in self._dynamic_entries.keys() if n not in self._enabled_tools]
             raise ToolError(f"Unknown tool: {tool_name}. Available: {available}")
 
         schema = tool.parameters

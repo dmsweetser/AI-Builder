@@ -41,7 +41,6 @@ def _make_engine(tmpdir, enabled_tools, max_steps=10, max_context_tokens=0,
     return AgentEngine({
         "rootDirectory": tmpdir,
         "instructions": "Test",
-        "enabled_tools": enabled_tools,
         "custom_endpoint_url": "http://test",
         "custom_api_key": "test",
         "custom_model_name": "test",
@@ -52,10 +51,10 @@ def _make_engine(tmpdir, enabled_tools, max_steps=10, max_context_tokens=0,
 def _mock_tool_execute(engine, tool_name, result_fn):
     """Patch engine.tools.execute to return a custom result for a tool."""
     original = engine.tools.execute
-    def mock_execute(tn, params):
+    def mock_execute(tn, params, root_dir=None):
         if tn == tool_name:
             return result_fn(params)
-        return original(tn, params)
+        return original(tn, params, root_dir)
     engine.tools.execute = mock_execute
 
 

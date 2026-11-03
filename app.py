@@ -1679,7 +1679,7 @@ def api_agent_resend():
 def api_get_pending_tools():
     """List all pending tool proposals awaiting user review."""
     # Use the AI Builder's aib_instance directory for pending tools
-    registry = get_registry(_AIB_INSTANCE)
+    registry = get_registry()
     pending = registry.get_pending_tools()
     return jsonify(pending)
 
@@ -1688,7 +1688,7 @@ def api_get_pending_tools():
 def api_approve_tool(tool_id):
     """Approve a pending tool proposal — registers it immediately."""
     # Use the AI Builder's aib_instance directory for pending tools
-    registry = get_registry(_AIB_INSTANCE)
+    registry = get_registry()
     result = registry.approve_tool(tool_id)
     if result["status"] == "approved":
         # The registry is a shared singleton — the newly registered tool
@@ -1712,7 +1712,7 @@ def api_approve_tool(tool_id):
 def api_reject_tool(tool_id):
     """Reject a pending tool proposal — removes it from pending."""
     # Use the AI Builder's aib_instance directory for pending tools
-    registry = get_registry(_AIB_INSTANCE)
+    registry = get_registry()
     result = registry.reject_tool(tool_id)
     if result["status"] == "rejected":
         return jsonify(result)
@@ -1766,6 +1766,34 @@ def api_delete_approved_tool(tool_name):
         return jsonify({"status": "deleted", "name": tool_name})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+# --- Routes: Global Tool Enable/Disable ---
+@app.route("/api/tools/enable/<tool_name>", methods=["POST"])
+def api_set_tool_enabled(tool_name):
+    """Enable or disable a built-in tool globally."""
+    data = request.json or {}
+    enabled = data.get("enabled", True)
+    registry = get_registry()
+    result = registry.set_tool_enabled(tool_name, enabled)
+    if result["status"] == "updated":
+        # Reload approved tools so running engines pick up the change
+        with _sse_jobs_lock:
+            for job_id, job_info in _sse_jobs.items():
+                if isinstance(job_info, dict) and "engine" in job_info:
+                    engine = job_info["engine"]
+                    try:
+                        engine.reload_approved_tools()
+                    except Exception as e:
+                        logging.warning(f"Failed to reload tools for job {job_id}: {e}")
+    return jsonify(result)
+
+
+@app.route("/api/tools/status", methods=["GET"])
+def api_get_tool_status():
+    """Return the enabled/disabled status of all known tools."""
+    registry = get_registry()
+    return jsonify(registry.get_tool_status())
 
 
 # --- App System Log ---

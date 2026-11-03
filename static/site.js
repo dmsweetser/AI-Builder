@@ -1186,7 +1186,7 @@ function clearJobHistory() {
 function loadPendingTools() {
     fetch('/api/tools/pending')
         .then(function(r) { return r.json(); })
-        .then(function(tools) { renderPendingTools(tools); renderApprovedTools(); })
+        .then(function(tools) { renderPendingTools(tools); renderApprovedTools(); renderBuiltInTools(); })
         .catch(function(err) { console.error('Failed to load pending tools:', err); var list = document.getElementById('pending-tools-list'); if (list) list.innerHTML = '<div class="note warning">Failed to load pending tools.</div>'; });
 }
 
@@ -1296,6 +1296,69 @@ function clearPendingApprovalState() {
     var injectBtn = document.getElementById('live-inject-btn');
     if (injectInput) { injectInput.disabled = false; injectInput.placeholder = 'Type instructions or questions...'; }
     if (injectBtn) { injectBtn.disabled = false; injectBtn.textContent = 'INJECT'; }
+}
+
+// === Built-in Tool Enable/Disable ===
+function renderBuiltInTools() {
+    var list = document.getElementById('built-in-tools-list');
+    if (!list) return;
+    fetch('/api/tools/status')
+        .then(function(r) { return r.json(); })
+        .then(function(toolStatus) {
+            if (!toolStatus || Object.keys(toolStatus).length === 0) {
+                list.innerHTML = '<div class="note">No built-in tools loaded.</div>';
+                return;
+            }
+            var tools = Object.keys(toolStatus).sort();
+            list.innerHTML = tools.map(function(name) {
+                var enabled = toolStatus[name];
+                var toggleLabel = enabled ? 'ENABLED' : 'DISABLED';
+                var btnClass = enabled ? 'btn-success' : 'btn-danger';
+                return '<div class="tool-status-item" data-tool-name="' + escapeHtml(name) + '">' +
+                    '<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;">' +
+                        '<span style="font-weight:bold;font-size:13px;color:var(--info);">' + escapeHtml(name) + '</span>' +
+                        '<button class="btn btn-xs ' + btnClass + '" ' +
+                            'onclick="toggleBuiltInTool(\'' + escapeHtml(name) + '\', this)" ' +
+                            'style="padding:3px 10px;font-size:10px;min-width:80px;">' +
+                            toggleLabel +
+                        '</button>' +
+                    '</div>' +
+                '</div>';
+            }).join('');
+        })
+        .catch(function(err) { console.error('Failed to load tool status:', err); list.innerHTML = '<div class="note warning">Failed to load tool status.</div>'; });
+}
+
+function toggleBuiltInTool(toolName, btnEl) {
+    var item = btnEl.closest('.tool-status-item');
+    if (!item) return;
+    var currentState = btnEl.textContent.trim() === 'ENABLED';
+    var newState = !currentState;
+    // Optimistic UI update
+    btnEl.textContent = newState ? 'ENABLING...' : 'DISABLING...';
+    btnEl.disabled = true;
+    fetch('/api/tools/enable/' + encodeURIComponent(toolName), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: newState })
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (data.status === 'updated') {
+            var newLabel = newState ? 'ENABLED' : 'DISABLED';
+            var newClass = newState ? 'btn-success' : 'btn-danger';
+            btnEl.textContent = newLabel;
+            btnEl.className = 'btn btn-xs ' + newClass;
+            btnEl.disabled = false;
+            // Reload the full list to reflect state
+            renderBuiltInTools();
+        } else {
+            alert('Failed to update tool: ' + (data.error || 'Unknown error'));
+            btnEl.disabled = false;
+            renderBuiltInTools();
+        }
+    })
+    .catch(function(err) { console.error('Failed to toggle tool:', err); btnEl.disabled = false; renderBuiltInTools(); });
 }
 
 // === Chat ===

@@ -938,7 +938,7 @@ class AgentEngine:
                                     })
                                 except Exception:
                                     pass
-                            result = self.tools.execute("task_completed", tool_calls[0][1])
+                            result = self.tools.execute("task_completed", tool_calls[0][1], self.root_dir)
                             result_dict = result.to_dict()
                             step_entry["result"] = result_dict
                         except Exception as e:
@@ -1004,7 +1004,7 @@ class AgentEngine:
                                 })
                             except Exception:
                                 pass
-                        result = self.tools.execute(tool_name, params)
+                        result = self.tools.execute(tool_name, params, self.root_dir)
                         result_dict = result.to_dict()
 
                         # Truncate tool result content to prevent context overflow.
