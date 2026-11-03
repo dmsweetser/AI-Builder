@@ -25,10 +25,6 @@ class EngineConfig:
         return os.path.join(instance_dir, "pending_tools.json")
 
     @staticmethod
-    def get_ai_builder_dir(root_dir: str) -> str:
-        return os.path.join(root_dir, "aib_instance", "output")
-
-    @staticmethod
     def get_log_file_path(root_dir: str) -> str:
         return os.path.join(root_dir, "aib_instance", "output", "utility.log")
 

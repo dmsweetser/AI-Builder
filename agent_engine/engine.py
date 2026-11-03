@@ -792,6 +792,20 @@ class AgentEngine:
                 self.step_count += 1
                 self.logger.info(f"Step {self.step_count}/{self.max_steps}")
 
+                # Check for tool approval resume signal (written by approval endpoint)
+                # If a tool was approved while the engine was paused, the engine
+                # needs to know to continue its loop and use the new tool.
+                tool_approved_file = os.path.join(self.output_dir, "_tool_approved_resume.txt")
+                if os.path.exists(tool_approved_file):
+                    try:
+                        approved_tool = open(tool_approved_file, 'r').read().strip()
+                        os.remove(tool_approved_file)
+                        self.logger.info(f"Tool approval resume detected — approved tool: {approved_tool}")
+                        # Reload approved tools to ensure the new tool is in the registry
+                        self.reload_approved_tools()
+                    except Exception:
+                        pass
+
                 # Check for live instructions injected mid-run
                 live_instruction = EngineConfig.get_live_instruction(
                     self.job_id, base_dir=self.output_dir
@@ -1011,8 +1025,12 @@ class AgentEngine:
                         # The LLM can only see the first N characters; if the
                         # result is longer, it gets a notice and guidance on
                         # how to request a narrower query.
+                        # NOTE: respond_to_user and request_user_input are NOT
+                        # truncated — the user must see the full message.
                         raw_content = result_dict.get("content", "")
-                        if raw_content and self.max_tool_result_length > 0:
+                        if (raw_content
+                                and self.max_tool_result_length > 0
+                                and tool_name not in ("respond_to_user", "request_user_input")):
                             truncated, was_truncated = truncate_tool_result(
                                 raw_content, self.max_tool_result_length, tool_name
                             )

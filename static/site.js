@@ -558,7 +558,12 @@ function handlePendingUserInput(data, agentBox) {
     liveInjectActive = true;
     var entry = document.createElement('div');
     entry.className = 'step-entry pending-approval';
-    entry.innerHTML = '<div class="step-tool" style="color:var(--warning);">⏸ AGENT NEEDS HELP</div><div class="step-result" style="color:var(--warning);white-space:pre-wrap;">' + escapeHtml(data.response || 'The agent is waiting for your input.') + '</div>';
+    // Use the actual question from the SSE event if available,
+    // otherwise fall back to the response field
+    var questionText = data.question || data.response || 'The agent is waiting for your input.';
+    entry.innerHTML = '<div class="step-tool" style="color:var(--warning);">⏸ AGENT NEEDS HELP</div>' +
+        '<div class="step-result" style="color:var(--warning);white-space:pre-wrap;">' + escapeHtml(questionText) + '</div>' +
+        '<div class="step-result" style="color:var(--text-muted);font-size:11px;margin-top:6px;">👉 Type instructions below and click INJECT or RUN to continue</div>';
     agentBox.appendChild(entry);
     agentBox.scrollTop = agentBox.scrollHeight;
     var injectInput = document.getElementById('live-inject-input');
@@ -593,8 +598,15 @@ function handleToolStart(data, agentBox) {
     var entry = document.createElement('div');
     entry.className = 'step-entry tool-running';
     entry.id = 'tool-running-' + data.step;
-    entry.innerHTML = '<div class="step-tool" style="color:var(--mc-gold);">⏳ Running: ' + escapeHtml(data.tool) + ' <span class="run-spinner-inline"></span></div>' +
-        (data.rationale ? '<div class="step-rationale">💡 ' + escapeHtml(data.rationale) + '</div>' : '');
+    // Show the actual tool name, rationale, and params — not just "THINKING"
+    var html = '<div class="step-tool" style="color:var(--mc-gold);">🔧 ' + escapeHtml(data.tool) + ' <span class="run-spinner-inline"></span></div>';
+    if (data.rationale) {
+        html += '<div class="step-rationale">💡 ' + escapeHtml(data.rationale) + '</div>';
+    }
+    if (data.params && Object.keys(data.params).length) {
+        html += '<div class="step-params">' + escapeHtml(JSON.stringify(data.params)) + '</div>';
+    }
+    entry.innerHTML = html;
     // Insert inline: find the last tool step entry and place the indicator right after it.
     // This keeps the "running" indicator next to the tool call in the thread,
     // rather than floating at the top of the box.
@@ -649,7 +661,7 @@ function injectLiveInstruction() {
             var statusText = document.getElementById('agent-status-text');
             if (statusText) { var orig = statusText.textContent; statusText.textContent = 'Instruction sent'; setTimeout(function() { statusText.textContent = orig; }, 1500); }
         })
-        .catch(function(err) { console.error('Failed to inject instruction:', err); input.disabled = false; if (injectBtn) { injectBtn.disabled = false; injectBtn.textContent = 'INJECT'; } });
+        .catch(function(err) { console.error('Failed to inject instruction:', err); input.value = ''; input.disabled = false; if (injectBtn) { injectBtn.disabled = false; injectBtn.textContent = 'INJECT'; } });
     } else if (currentRunningProjectId || currentRunningJobId) {
         // Agent is paused (pending_approval or pending_user_input) or completed —
         // restart the run with the injected instruction as a continuation
@@ -1760,21 +1772,9 @@ function loadJobHistory(jobId, callback) {
             if (data.steps && data.steps.length > 0) {
                 agentBox.innerHTML = '';
                 data.steps.forEach(function(step) {
-                    var entry = document.createElement('div');
-                    entry.className = 'step-entry';
-                    entry.style.borderLeftColor = 'var(--mc-blue)';
-                    var toolName = step.tool || 'unknown';
-                    var result = step.result || {};
-                    var content = result.content || result.summary || '';
-                    var error = result.error || '';
-                    var html = '<div class="step-tool">' + escapeHtml(toolName) + '</div>';
-                    if (error) {
-                        html += '<div class="step-result" style="color:var(--danger);">Error: ' + escapeHtml(error) + '</div>';
-                    } else if (content) {
-                        html += '<div class="step-result">' + escapeHtml(content) + '</div>';
-                    }
-                    entry.innerHTML = html;
-                    agentBox.appendChild(entry);
+                    // Reuse handleAgentStep so all tools render with proper formatting
+                    // (respond_to_user full content, task_completed celebration, etc.)
+                    handleAgentStep(step, agentBox);
                 });
                 if (statusText) { statusText.textContent = 'HISTORY'; statusText.style.color = 'var(--text-muted)'; }
                 // Set currentRunningProjectId if available in data
@@ -1791,21 +1791,8 @@ function loadJobHistory(jobId, callback) {
                         if (job && job.step_history && job.step_history.length > 0) {
                             agentBox.innerHTML = '';
                             job.step_history.forEach(function(step) {
-                                var entry = document.createElement('div');
-                                entry.className = 'step-entry';
-                                entry.style.borderLeftColor = 'var(--mc-blue)';
-                                var toolName = step.tool || 'unknown';
-                                var result = step.result || {};
-                                var content = result.content || result.summary || '';
-                                var error = result.error || '';
-                                var html = '<div class="step-tool">' + escapeHtml(toolName) + '</div>';
-                                if (error) {
-                                    html += '<div class="step-result" style="color:var(--danger);">Error: ' + escapeHtml(error) + '</div>';
-                                } else if (content) {
-                                    html += '<div class="step-result">' + escapeHtml(content) + '</div>';
-                                }
-                                entry.innerHTML = html;
-                                agentBox.appendChild(entry);
+                                // Reuse handleAgentStep for consistent formatting
+                                handleAgentStep(step, agentBox);
                             });
                             if (statusText) { statusText.textContent = 'HISTORY'; statusText.style.color = 'var(--text-muted)'; }
                             // Set currentRunningProjectId for inject continuation

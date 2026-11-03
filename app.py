@@ -1386,6 +1386,7 @@ def api_agent_run():
                 yield "event: pending_user_input\ndata: " + json.dumps({
                     "step": ev.get("step", 0),
                     "response": ev.get("response", ""),
+                    "question": ev.get("question", ""),
                 }) + "\n"
                 # Also emit a status event so the UI knows the agent is paused
                 yield "event: status\ndata: " + json.dumps({
@@ -1397,6 +1398,7 @@ def api_agent_run():
                 yield "event: pending_user_input\ndata: " + json.dumps({
                     "step": ev.get("step", 0),
                     "response": ev.get("response", ""),
+                    "question": ev.get("question", ""),
                 }) + "\n"
             elif ev["type"] == "context_warning":
                 yield "event: context_warning\ndata: " + json.dumps({
@@ -1704,6 +1706,16 @@ def api_approve_tool(tool_id):
                         logging.info(f"Rebuilt system prompt for SSE job {job_id} after tool approval")
                     except Exception as e:
                         logging.warning(f"Failed to reload approved tools for job {job_id}: {e}")
+        # Write a resume signal so the engine picks up the newly approved
+        # tool on its next iteration (if it's paused in pending_approval).
+        output_dir = os.path.join(_AIB_INSTANCE, "output")
+        resume_file = os.path.join(output_dir, "_tool_approved_resume.txt")
+        try:
+            os.makedirs(output_dir, exist_ok=True)
+            with open(resume_file, 'w') as f:
+                f.write(result.get("tool_name", "unknown"))
+        except Exception:
+            pass  # Non-critical — engine will detect approval via registry
         return jsonify(result)
     return jsonify(result), 404
 

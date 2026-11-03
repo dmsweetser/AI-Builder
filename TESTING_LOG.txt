@@ -1,3 +1,13 @@
+2026-10-30 - ToolRegistry refactored to module-level static class:
+  - Created _BUILTIN_TOOL_CLASSES dict (21 tool classes) populated once at import
+  - get_registry() creates singleton on first call, returns same instance always
+  - get_registry(_root_dir=None) accepts arg for backward compat but ignores it
+  - _dynamic_entries (approved tools) loaded once from disk at init, only appended
+  - _enabled_tools set manages global enable/disable
+  - _reset_registry() helper added for test isolation (clears singleton)
+  - Tool instances created per-execution with correct root_dir (no cross-engine leakage)
+  - All 251 unit tests pass, E2E test passes
+  - Static registry verified: 21 built-in classes, singleton behavior confirmed
 2026-10-30 - Tool format reminder updated to verbose format with task_completed tool
 2026-10-30 - task_completed tool created to replace [DONE] marker
 2026-10-30 - Engine now strips non-tool content from LLM responses
@@ -272,6 +282,56 @@
 2026-11-03 -     to execute(). Fixed _mock_tool_execute to accept root_dir param.
 2026-11-03 -   Validation:
 2026-11-03 -     All 235 unit tests PASS (3 skipped)
-2026-11-03 -     Total test coverage: 235 unit + 1 E2E = 236 tests (3 skipped)</parameter>
+2026-11-03 -     Total test coverage: 235 unit + 1 E2E = 236 tests (3 skipped)
+2026-11-03 - Round 15: respond_to_user truncation fix, request_user_input display,
+2026-11-03 -   VIEW LIVE re-entry, tool approval resume, inject textbox clearing,
+2026-11-03 -   tool start details, and queue behavior
+2026-11-03 -   ISSUE 1 — respond_to_user messages truncated in live view:
+2026-11-03 -     Root cause: truncate_tool_result() was applied to ALL tools based on
+2026-11-03 -       max_tool_result_length. The user needs to see the full AI response.
+2026-11-03 -     Fix: Added exclusion for "respond_to_user" and "request_user_input"
+2026-11-03 -       in the truncation condition in engine.py. These two tools now
+2026-11-03 -       always send their full content to the LLM and UI.
+2026-11-03 -   ISSUE 2 — request_user_input question hidden in live view:
+2026-11-03 -     Root cause: handlePendingUserInput() only showed data.response
+2026-11-03 -       (a generic message), not the actual question from the agent.
+2026-11-03 -     Fix: Updated handlePendingUserInput() to use data.question if
+2026-11-03 -       available, with fallback to data.response. Added helper text
+2026-11-03 -       guiding the user to inject instructions. Also added "question"
+2026-11-03 -       field to both pending_user_input SSE event handlers in app.py
+2026-11-03 -       (the __pending_user_input__ and pending_user_input handlers).
+2026-11-03 -   ISSUE 3 — VIEW LIVE re-entry formatting broken:
+2026-11-03 -     Root cause: loadJobHistory() rebuilt the feed with a generic
+2026-11-03 -       format (plain tool name + content), losing all special formatting
+2026-11-03 -       from handleAgentStep() (respond_to_user full content,
+2026-11-03 -       task_completed celebration, rationale, params).
+2026-11-03 -     Fix: Replaced the generic entry creation in loadJobHistory() with
+2026-11-03 -       handleAgentStep(step, agentBox) for each step. This ensures
+2026-11-03 -       consistent formatting whether viewing live or re-entering.
+2026-11-03 -   ISSUE 4 — Approving pending tool mid-run doesn't make it available:
+2026-11-03 -     Root cause: The approval endpoint reloads the engine's tools and
+2026-11-03 -       rebuilds the system prompt, but the engine is paused in
+2026-11-03 -       pending_approval status and won't check the registry until
+2026-11-03 -       it resumes. No resume signal was written.
+2026-11-03 -     Fix: Added _tool_approved_resume.txt write in api_approve_tool().
+2026-11-03 -       Engine checks for this file on each step iteration and calls
+2026-11-03 -       reload_approved_tools() when detected.
+2026-11-03 -   ISSUE 5 — Tool steps show as "THINKING":
+2026-11-03 -     Root cause: handleToolStart() only showed "⏳ Running: {tool_name}"
+2026-11-03 -       with rationale, but no params or actual tool details.
+2026-11-03 -     Fix: Updated handleToolStart() to show the tool name (🔧), rationale,
+2026-11-03 -       and parameters inline. Replaced "⏳ Running:" with "🔧 {tool_name}".
+2026-11-03 -   ISSUE 6 — Inject textbox doesn't clear on error:
+2026-11-03 -     Root cause: The .catch() handler for injectLiveInstruction() only
+2026-11-03 -       re-enabled the input but didn't clear the text.
+2026-11-03 -     Fix: Added input.value = '' to the .catch() handler.
+2026-11-03 -   ISSUE 7 — Queue behavior for second project:
+2026-11-03 -     Verified: get_concurrent_job_info() and queue guards in app.py
+2026-11-03 -       correctly prevent running/queued projects from starting again.
+2026-11-03 -     New projects are added to the queue and executed after the
+2026-11-03 -       current one completes (worker thread picks them up).
+2026-11-03 -   Validation:
+2026-11-03 -     All 251 unit tests PASS (3 skipped)
+2026-11-03 -     Total test coverage: 251 unit + 1 E2E = 252 tests (3 skipped)</parameter>
 <parameter=old_string>
 2026-11-02 -   TOTAL: 49 + 35 + 35 + 40 + 52 + 28 + 22 = 261 unit tests pass (3 skipped), E2E test passes

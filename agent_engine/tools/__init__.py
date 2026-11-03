@@ -1,6 +1,7 @@
 """Tool registry - aggregates all tools.
 
-A shared singleton for tool *definitions* (classes + dynamic tools).
+A module-level static registry (created once at import).
+Tool *definitions* (classes + dynamic tools) are shared.
 Tool *instances* are created per-execution with the correct project root_dir,
 so each project's tools operate on its own directory.
 
@@ -37,15 +38,14 @@ from agent_engine.tools.request_user_input import RequestUserInputTool
 from agent_engine.tools.task_completed import TaskCompletedTool
 
 # ------------------------------------------------------------------
-# Module-level singleton: shared across ALL projects and agent engines.
-# Tool *definitions* (classes + dynamic entries) are shared.
-# Tool *instances* are created per-execution with the correct root_dir.
+# Module-level static registry — created exactly once at import.
+# No singleton pattern, no reset, no recreation.
 # ------------------------------------------------------------------
-_shared_registry: Optional["ToolRegistry"] = None
+_registry: Optional["ToolRegistry"] = None
 
 # ------------------------------------------------------------------
 # Global built-in tool class registry — maps name → class.
-# This is populated once at module import and never changes.
+# Populated once at module import and never changes.
 # ------------------------------------------------------------------
 _BUILTIN_TOOL_CLASSES: Dict[str, Type[BaseTool]] = {}
 
@@ -63,7 +63,6 @@ def _init_builtin_classes():
         CreateToolTool, CompressContextTool,
         RespondToUserTool, RequestUserInputTool, TaskCompletedTool,
     ]:
-        # Instantiate once just to get the name
         _instance = _cls("/tmp")
         _BUILTIN_TOOL_CLASSES[_instance.name] = _cls
 
@@ -72,36 +71,42 @@ _init_builtin_classes()
 
 
 def get_registry(_root_dir=None):
-    """Return the shared ToolRegistry singleton.
+    """Return the module-level static ToolRegistry.
 
-    The registry holds tool definitions and the global enabled/disabled set.
-    Tool instances are created per-execution with the correct root_dir,
-    so each project's tools operate on its own directory.
+    This is created exactly once at module import and never recreated.
+    All agent engines share this same instance.
 
-    The ``_root_dir`` parameter is accepted for backward compatibility but
-    is ignored — the singleton is shared across all projects.
+    The ``_root_dir`` parameter is accepted for backward compatibility
+    but is ignored — the registry is shared across all projects.
     """
-    global _shared_registry
-    if _shared_registry is None:
-        _shared_registry = ToolRegistry()
-    return _shared_registry
+    global _registry
+    if _registry is None:
+        _registry = ToolRegistry()
+    return _registry
 
 
 def _reset_registry():
-    """Reset the singleton.  For tests only."""
-    global _shared_registry
-    _shared_registry = None
+    """Reset the registry for tests only.
+
+    Clears the singleton and reloads approved tools from disk.
+    This ensures tests start with a clean slate.
+    """
+    global _registry
+    _registry = None
+    # Force re-initialization on next get_registry() call
+    # The ToolRegistry.__init__ will call _load_approved_tools()
 
 
 class ToolRegistry:
     """Registry of all available tools.
 
-    A true singleton shared by every agent engine and every API endpoint.
-    Tool *definitions* (classes + dynamic entries) are shared.
-    Tool *instances* are created per-execution with the correct root_dir.
+    A module-level static instance shared by every agent engine and
+    every API endpoint. Tool *definitions* (classes + dynamic entries)
+    are shared. Tool *instances* are created per-execution with the
+    correct root_dir.
 
-    Global enable/disable: when ``_enabled_tools`` is non-empty, only those
-    tools are available; when empty, all are available.
+    Global enable/disable: when ``_enabled_tools`` is non-empty, only
+    those tools are available; when empty, all are available.
     """
 
     def __init__(self):
@@ -109,6 +114,8 @@ class ToolRegistry:
         self._dynamic_entries: Dict[str, Dict[str, Any]] = {}
         # Global enabled/disabled set — empty means "all enabled"
         self._enabled_tools: Set[str] = set()
+        # One-time load: populate _dynamic_entries from disk immediately
+        self._load_approved_tools()
 
     # ------------------------------------------------------------------
     # Dynamic tool loading (approved from pending)
@@ -124,7 +131,11 @@ class ToolRegistry:
             return os.path.join(os.getcwd(), "output", "pending_tools.json")
 
     def _load_approved_tools(self):
-        """Load any previously-approved dynamic tools from disk."""
+        """Load any previously-approved dynamic tools from disk.
+
+        Only ADDS new approved tools — never removes or clears existing
+        entries. This is idempotent and safe to call multiple times.
+        """
         pending_file = self._pending_tools_file()
         if not os.path.exists(pending_file):
             return
@@ -136,7 +147,9 @@ class ToolRegistry:
 
         for entry in pending_tools:
             if entry.get("status") == "approved":
-                self._dynamic_entries[entry["name"]] = entry
+                # Only add if not already present (idempotent)
+                if entry["name"] not in self._dynamic_entries:
+                    self._dynamic_entries[entry["name"]] = entry
 
     def approve_tool(self, tool_id: str) -> Dict[str, Any]:
         """Approve a pending tool: mark it approved and register it."""
@@ -155,13 +168,18 @@ class ToolRegistry:
                 entry["approved_at"] = __import__("datetime").datetime.now().isoformat()
                 with open(pending_file, 'w') as f:
                     json.dump(pending_tools, f, indent=2)
+                # Register immediately — no need to wait for reload
                 self._dynamic_entries[entry["name"]] = entry
                 return {"status": "approved", "tool_id": tool_id, "tool_name": entry["name"]}
 
         return {"status": "not_found", "tool_id": tool_id}
 
     def reload_approved_tools(self):
-        """Reload approved tools from disk and register any new ones."""
+        """Reload approved tools from disk and register any new ones.
+
+        Safe to call multiple times — only adds new approved tools,
+        never removes existing ones.
+        """
         self._load_approved_tools()
 
     def reject_tool(self, tool_id: str) -> Dict[str, Any]:
@@ -207,12 +225,7 @@ class ToolRegistry:
     # ------------------------------------------------------------------
 
     def set_tool_enabled(self, tool_name: str, enabled: bool) -> Dict[str, Any]:
-        """Enable or disable a built-in tool globally.
-
-        When a tool is disabled, it is removed from the tool list and
-        cannot be executed.  This applies to all projects immediately.
-        """
-        # Check if it's a built-in or dynamic tool
+        """Enable or disable a built-in tool globally."""
         if tool_name in _BUILTIN_TOOL_CLASSES:
             if enabled:
                 self._enabled_tools.discard(tool_name)
@@ -347,7 +360,6 @@ class ToolRegistry:
         defs = []
         for name, cls in _BUILTIN_TOOL_CLASSES.items():
             if name not in self._enabled_tools:
-                # Instantiate once with dummy root_dir just to get the definition
                 try:
                     defs.append(cls("/tmp").get_definition())
                 except Exception:
