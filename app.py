@@ -1154,6 +1154,7 @@ def api_agent_run():
         engine_result: list = [None]
         engine_error: list = [None]
         engine_step_history: list = [None]
+        engine_ref: list = [None]  # Store engine reference for tool reload
 
         def on_event(event):
             event_queue.put(event)
@@ -1176,6 +1177,10 @@ def api_agent_run():
                 # Reload approved tools and rebuild system prompt so any tools
                 # approved since the previous run are visible to the LLM.
                 engine.reload_approved_tools()
+                
+                # Store engine reference so approval endpoint can reload tools
+                with _sse_jobs_lock:
+                    _sse_jobs[job_id]["engine"] = engine
 
                 # If continuing, load previous step history and reconstruct conversation
                 if prev_step_history:
@@ -1701,6 +1706,17 @@ def api_approve_tool(tool_id):
     registry = get_registry(_AIB_INSTANCE)
     result = registry.approve_tool(tool_id)
     if result["status"] == "approved":
+        # Signal all running SSE engines to reload approved tools
+        # This makes the newly approved tool immediately available
+        with _sse_jobs_lock:
+            for job_id, job_info in _sse_jobs.items():
+                if isinstance(job_info, dict) and "engine" in job_info:
+                    engine = job_info["engine"]
+                    try:
+                        engine.reload_approved_tools()
+                        logging.info(f"Reloaded approved tools for SSE job {job_id}")
+                    except Exception as e:
+                        logging.warning(f"Failed to reload approved tools for job {job_id}: {e}")
         return jsonify(result)
     return jsonify(result), 404
 

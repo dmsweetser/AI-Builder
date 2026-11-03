@@ -259,7 +259,7 @@ def main():
         was_truncated = result.get('truncated', False)
         if was_truncated:
             truncated_count += 1
-        status = "✓" if result.get('success', False) else "✗"
+        status = "✓" if result.get('success', result.get('status', False)) else "✗"
         trunc_note = f" [TRUNCATED {len(content)} chars]" if was_truncated else ""
         content_preview = content[:80].replace('\n', ' ')
         log(f"  Step {s.get('step', '?'):2d}: {status} {tool:20s} | {content_preview}{trunc_note}")

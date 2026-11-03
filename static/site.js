@@ -1266,9 +1266,8 @@ function renderPendingTools(pendingTools) {
             var item = document.createElement('div');
             item.className = 'pending-tool-item';
             var paramsStr = tool.parameters ? JSON.stringify(tool.parameters, null, 2) : '(none)';
-            var codePreview = tool.code ? tool.code.substring(0, 1500) : '(no code)';
+            var codePreview = tool.code ? tool.code : '(no code)';
             var codeId = 'code-block-' + tool.id;
-            var showMoreId = 'code-show-' + tool.id;
             item.innerHTML =
                 '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">' +
                     '<span class="tool-name" style="font-size:14px;font-weight:bold;">' + escapeHtml(tool.name) + '</span>' +
@@ -1278,14 +1277,13 @@ function renderPendingTools(pendingTools) {
                 '<div class="tool-params" style="margin-bottom:8px;font-size:11px;color:var(--text-muted);">Params: ' + escapeHtml(paramsStr) + '</div>' +
                 '<details style="margin:8px 0;border:1px solid var(--border);border-radius:4px;overflow:hidden;">' +
                     '<summary style="cursor:pointer;color:var(--info);padding:6px 10px;background:var(--bg-card);font-weight:bold;">📄 View Tool Source Code</summary>' +
-                    '<div id="' + codeId + '" style="margin:0;padding:10px;background:#0d0d0d;overflow:auto;max-height:300px;font-family:monospace;font-size:12px;line-height:1.5;white-space:pre-wrap;color:#e0e0e0;">' +
-                        codePreview + (tool.code && tool.code.length > 1500 ? '\n\n... [truncated, click "Expand" to see full code]' : '') +
+                    '<div id="' + codeId + '" style="margin:0;padding:10px;background:#0d0d0d;overflow:auto;max-height:600px;font-family:monospace;font-size:12px;line-height:1.5;white-space:pre-wrap;color:#e0e0e0;">' +
+                        codePreview +
                     '</div>' +
-                    (tool.code && tool.code.length > 1500 ? '<button class="btn btn-xs btn-secondary" onclick="event.stopPropagation(); var el=this.parentElement.querySelector(\'' + codeId + '\'); el.style.maxHeight=\'none\'; this.style.display=\'none\';" style="margin:4px 10px 8px;">Expand Full Code</button>' : '') +
                 '</details>' +
                 '<div class="tool-actions" style="margin-top:8px;display:flex;gap:6px;">' +
                     '<button class="btn btn-sm btn-primary" onclick="approvePendingTool(\'' + tool.id + '\', \'' + escapeHtml(tool.name) + '\')">✓ APPROVE</button>' +
-                    '<button class="btn btn-sm btn-danger" onclick="rejectPendingTool(\'' + tool.id + '\', \'' + escapeHtml(tool.name) + '\')">✗ REJECT</button>' +
+                    '<button class="btn btn-sm btn-danger" onclick="rejectPendingTool(\'' + tool.id + '\', \'' + escapeHtml(tool.name) + '\')">✗ REJECT</button>'
                 '</div>';
             list.appendChild(item);
         });

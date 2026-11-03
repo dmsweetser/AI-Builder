@@ -116,7 +116,12 @@ class ToolRegistry:
             return os.path.join(root_dir, "output", "pending_tools.json")
 
     def _load_approved_tools(self):
-        """Load any previously-approved dynamic tools from disk."""
+        """Load any previously-approved dynamic tools from disk.
+
+        Approved tools are always loaded regardless of enabled_tools filter,
+        because approval is an explicit user action that should make the tool
+        available immediately.
+        """
         pending_file = self._pending_tools_file(self.root_dir)
         if not os.path.exists(pending_file):
             return
@@ -126,14 +131,9 @@ class ToolRegistry:
         except Exception:
             return
 
-        # Only load approved tools that are in the enabled_tools list
-        # (or all tools if enabled_tools is None/empty)
-        use_all = self._enabled_tools is None or len(self._enabled_tools) == 0
-
         for entry in pending_tools:
             if entry.get("status") == "approved":
-                if use_all or entry.get("name") in self._enabled_tools:
-                    self._register_dynamic_tool(entry)
+                self._register_dynamic_tool(entry)
 
     def approve_tool(self, tool_id: str) -> Dict[str, Any]:
         """Approve a pending tool: mark it approved and register it."""
@@ -156,6 +156,15 @@ class ToolRegistry:
                 return {"status": "approved", "tool_id": tool_id, "tool_name": entry["name"]}
 
         return {"status": "not_found", "tool_id": tool_id}
+
+    def reload_approved_tools(self):
+        """Reload approved tools from disk and register any new ones.
+        
+        This should be called after tool approval to make approved tools
+        immediately available without restarting the engine.
+        """
+        # First, reload all approved tools (this will skip already-registered ones)
+        self._load_approved_tools()
 
     def reject_tool(self, tool_id: str) -> Dict[str, Any]:
         """Reject a pending tool: mark it rejected and unregister if loaded."""

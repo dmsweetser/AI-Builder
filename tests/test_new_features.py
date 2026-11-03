@@ -520,6 +520,46 @@ class TestSystemPromptUpdates(unittest.TestCase):
         prompt = build_user_prompt("Test task")
         self.assertIn('task_completed', prompt.lower())
 
+    def test_system_prompt_emphasizes_task_completed_conclusion(self):
+        """System prompt should emphasize task_completed as the ONLY way to conclude."""
+        from agent_engine.engine import build_system_prompt
+        prompt = build_system_prompt(tools=[])
+        self.assertIn('ONLY way to conclude', prompt)
+        self.assertIn('IMMEDIATELY stop', prompt)
+        self.assertIn('FINAL tool call', prompt)
+        self.assertIn('Do not make any additional tool calls after task_completed', prompt)
+
+    def test_task_completed_in_response_format(self):
+        """RESPONSE FORMAT section should state task_completed is FINAL."""
+        from agent_engine.engine import build_system_prompt
+        prompt = build_system_prompt(tools=[])
+        self.assertIn('task_completed is the FINAL tool call', prompt)
+
+
+# ====================================================================
+# HTML Escaping Safety Tests
+# ====================================================================
+
+class TestHTMLEscapingSafety(unittest.TestCase):
+    """Tests for HTML escaping safety in the frontend (verify JS source)."""
+
+    def test_escapeHtml_does_not_escape_quotes(self):
+        """escapeHtml() in site.js should NOT replace quotes with &quot;."""
+        js_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'static', 'site.js')
+        with open(js_path) as f:
+            js = f.read()
+        # Find the escapeHtml function and verify it doesn't replace quotes
+        import re
+        match = re.search(r'function escapeHtml\s*\([^)]*\)\s*\{([^}]+)\}', js)
+        self.assertIsNotNone(match, "escapeHtml function not found in site.js")
+        func_body = match.group(1)
+        # Should NOT have &quot; replacement
+        self.assertNotIn('&quot;', func_body)
+        # Should have & < > replacements
+        self.assertIn('&amp;', func_body)
+        self.assertIn('&lt;', func_body)
+        self.assertIn('&gt;', func_body)
+
 
 if __name__ == '__main__':
     unittest.main()

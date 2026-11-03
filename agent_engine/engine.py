@@ -706,6 +706,73 @@ class AgentEngine:
         if self.messages and self.messages[0].get("role") == "system":
             self.messages[0]["content"] = self.system_prompt
 
+    def _reload_project_settings(self):
+        """Reload project settings from disk to pick up live changes.
+
+        Checks if the project file has been modified since last load.
+        If so, reloads rootDirectory, instructions, and enabled_tools.
+        If enabled_tools changed, reloads the tool registry and rebuilds
+        the system prompt so the LLM sees updated tool definitions.
+        """
+        try:
+            import json as _json
+            # Determine the projects file path
+            projects_file = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                "aib_instance", "projects.json"
+            )
+            # Also check the app-level projects file
+            if not os.path.exists(projects_file):
+                projects_file = os.path.join(
+                    os.path.dirname(os.path.abspath(__file__)),
+                    "..", "aib_instance", "projects.json"
+                )
+            if not os.path.exists(projects_file):
+                return
+
+            # Find the project by ID in the projects file
+            project_id = self.project_config.get("id")
+            if not project_id:
+                return
+
+            with open(projects_file, 'r', encoding='utf-8') as f:
+                projects = _json.load(f)
+
+            for p in projects:
+                if p.get("id") == project_id:
+                    # Check if any relevant settings changed
+                    old_root = self.project_config.get("rootDirectory", "")
+                    old_instructions = self.project_config.get("instructions", "")
+                    old_tools = self.project_config.get("enabled_tools")
+
+                    new_root = p.get("rootDirectory", "")
+                    new_instructions = p.get("instructions", "")
+                    new_tools = p.get("enabled_tools", [])
+
+                    # Compare enabled_tools (normalize None to empty list)
+                    old_tools_list = old_tools if old_tools is not None else []
+                    new_tools_list = new_tools if new_tools is not None else []
+                    tools_changed = set(old_tools_list) != set(new_tools_list)
+
+                    if new_root and new_root != old_root:
+                        self.root_dir = new_root
+                        self.project_config["rootDirectory"] = new_root
+                    if new_instructions and new_instructions != old_instructions:
+                        self.instructions = new_instructions
+                        self.project_config["instructions"] = new_instructions
+                    if tools_changed:
+                        # Reload tool registry with new enabled_tools
+                        from agent_engine.tools import ToolRegistry
+                        self.tools = ToolRegistry(self.root_dir, enabled_tools=new_tools if new_tools else None)
+                        self.system_prompt = build_system_prompt(self.tools.list_tools())
+                        if self.messages and self.messages[0].get("role") == "system":
+                            self.messages[0]["content"] = self.system_prompt
+                        self.project_config["enabled_tools"] = new_tools
+                        logging.info(f"Reloaded tool registry for project {project_id}: enabled_tools changed")
+                        break
+        except Exception as e:
+            logging.debug(f"Project settings reload check failed (non-critical): {e}")
+
     def run(self) -> Dict[str, Any]:
         """Execute the agentic revision loop."""
         # Reload approved tools so any tools approved since the last run
@@ -795,6 +862,9 @@ class AgentEngine:
                         })
 
                 # Call LLM
+                # Reload project settings to pick up live changes (instructions,
+                # enabled_tools, rootDirectory) before each LLM call.
+                self._reload_project_settings()
                 try:
                     msg_summary = f"{sum(1 for m in self.messages if m['role']=='system')}S/{sum(1 for m in self.messages if m['role']=='user')}U/{sum(1 for m in self.messages if m['role']=='assistant')}A"
                     self.logger.info(f"Calling LLM with {len(self.messages)} messages ({msg_summary})")

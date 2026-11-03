@@ -273,14 +273,14 @@ class TestRunScript(unittest.TestCase):
 
 
 # ====================================================================
-# Context compression — auto-compress when conversation gets too long
+# Context warning — prompt when context reaches 80% of window
 # ====================================================================
 
-class TestContextCompression(unittest.TestCase):
-    """Tests for context compression behavior."""
+class TestContextWarning(unittest.TestCase):
+    """Tests for context warning behavior (replaces auto-compression)."""
 
-    def test_compress_threshold(self):
-        """Engine should compress when message count exceeds threshold."""
+    def test_context_warning_flag(self):
+        """Engine should have _context_warning_shown flag, not auto-compress."""
         tmpdir = tempfile.mkdtemp()
         try:
             project_config = {
@@ -289,9 +289,11 @@ class TestContextCompression(unittest.TestCase):
                 "enabled_tools": ["list_directory"],
             }
             engine = AgentEngine(project_config)
-            # Default threshold is 28
-            self.assertEqual(engine._compress_threshold, 28)
-            self.assertFalse(engine._compressed)
+            # Should have context warning flag, not compression flags
+            self.assertFalse(engine._context_warning_shown)
+            self.assertFalse(hasattr(engine, '_compress_enabled'))
+            self.assertFalse(hasattr(engine, '_compress_threshold'))
+            self.assertFalse(hasattr(engine, '_compressed'))
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)
 
