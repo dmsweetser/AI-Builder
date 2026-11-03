@@ -37,7 +37,7 @@ def _get_app_dir():
 import sys
 _app_dir = _get_app_dir()
 
-from agent_engine import AgentEngine, EngineConfig, ToolRegistry, ToolResult, get_registry
+from agent_engine import AgentEngine, EngineConfig, ToolResult, get_registry
 from agent_engine.config import EngineConfig as Config
 
 app = Flask(__name__,
@@ -296,10 +296,6 @@ def run_with_agent_engine(project_config: Dict[str, Any], output_dir: str = None
     os.environ["AIB_PRE_SCRIPT"] = project_config.get("preScript", "")
     os.environ["AIB_POST_SCRIPT"] = project_config.get("postScript", "")
 
-    enabled_tools = project_config.get("enabled_tools")
-    if enabled_tools:
-        os.environ["AIB_ENABLED_TOOLS"] = json.dumps(enabled_tools)
-
     os.environ["AIB_OUTPUT_DIR"] = output_dir
 
     return agent_run(project_config, output_dir=output_dir)
@@ -521,11 +517,6 @@ def api_update_project(pid):
     root_directory = request.form.get("rootDirectory", project.get("rootDirectory", ""))
     if not root_directory:
         return jsonify({"error": "Root directory is required"}), 400
-
-    # Get enabled tools from form (if present)
-    enabled_tools = request.form.getlist("enabled_tools")
-    if enabled_tools:
-        project["enabled_tools"] = enabled_tools
 
     project.update({
         "name": request.form.get("name", project["name"]),
@@ -1040,7 +1031,6 @@ def api_agent_run():
     project_id = data.get("project_id")
     instructions = data.get("instructions", "")
     root_dir = data.get("rootDirectory", "")
-    enabled_tools = data.get("enabled_tools", [])
     continue_from_job = data.get("continue_from_job")  # job_id to continue from
 
     if not project_id and not instructions:
@@ -1166,16 +1156,11 @@ def api_agent_run():
                     "rootDirectory": root_dir,
                     "instructions": instructions,
                     "job_id": job_id,
-                    "enabled_tools": enabled_tools if enabled_tools else None,
                 }
                 engine = AgentEngine(config, output_dir=output_dir, step_callback=on_event, stop_event=job_stop_event)
-                # Ensure the engine's ToolRegistry uses the global aib_instance
-                # directory for pending tools file, but keeps the project's root_dir
-                # for all tool operations. The root_dir is already set in the
-                # AgentEngine.__init__ from project_config["rootDirectory"].
-                engine.tools = get_registry(engine.root_dir, enabled_tools=enabled_tools)
-                # Reload approved tools and rebuild system prompt so any tools
-                # approved since the previous run are visible to the LLM.
+                # Engine already uses the shared singleton ToolRegistry via get_registry().
+                # Reload approved tools so any tools approved since the previous run
+                # are visible to the LLM immediately.
                 engine.reload_approved_tools()
                 
                 # Store engine reference so approval endpoint can reload tools
@@ -1706,15 +1691,17 @@ def api_approve_tool(tool_id):
     registry = get_registry(_AIB_INSTANCE)
     result = registry.approve_tool(tool_id)
     if result["status"] == "approved":
-        # Signal all running SSE engines to reload approved tools
-        # This makes the newly approved tool immediately available
+        # The registry is a shared singleton — the newly registered tool
+        # is now visible to ALL running engines automatically.
+        # Also rebuild the system prompt in the running engine so the LLM
+        # sees the new tool definition on its next call.
         with _sse_jobs_lock:
             for job_id, job_info in _sse_jobs.items():
                 if isinstance(job_info, dict) and "engine" in job_info:
                     engine = job_info["engine"]
                     try:
                         engine.reload_approved_tools()
-                        logging.info(f"Reloaded approved tools for SSE job {job_id}")
+                        logging.info(f"Rebuilt system prompt for SSE job {job_id} after tool approval")
                     except Exception as e:
                         logging.warning(f"Failed to reload approved tools for job {job_id}: {e}")
         return jsonify(result)

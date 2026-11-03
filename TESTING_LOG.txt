@@ -195,6 +195,58 @@
 2026-11-02 -   All 22 engine loop tests PASS
 2026-11-02 -   All 101 new_features + edge_cases + untested_features tests PASS
 2026-11-02 -   All 49 comprehensive tests PASS (3 skipped)
-2026-11-02 -   TOTAL: 261 unit tests pass (3 skipped)</parameter>
+2026-11-02 -   TOTAL: 261 unit tests pass (3 skipped)
+2026-11-03 - Round 13: ToolRegistry made true singleton — shared across all projects, no per-project filtering
+2026-11-03 -   PROBLEM: Tool approval mid-run didn't work. When a tool was approved, the running engine's
+2026-11-03 -     registry wasn't updated because each engine had its own ToolRegistry instance with its own
+2026-11-03 -     enabled_tools filter. The get_registry() singleton was only used for the pending_tools file
+2026-11-03 -     path, not as the actual tool registry.
+2026-11-03 -   Fix: ToolRegistry is now a true singleton shared by ALL agent engines.
+2026-11-03 -     - agent_engine/tools/__init__.py: get_registry() now returns the shared ToolRegistry.
+2026-11-03 -       The singleton is created on first call and reused for all subsequent calls.
+2026-11-03 -     - AgentEngine.__init__: Uses get_registry(root_dir) instead of creating a new registry.
+2026-11-03 -       All engines share the same registry instance.
+2026-11-03 -     - app.py SSE endpoint: Removed the `engine.tools = get_registry(engine.root_dir, ...)` line
+2026-11-03 -       that was creating a separate registry. Engine already uses the shared singleton.
+2026-11-03 -     - All built-in tools are always registered — no enabled_tools filtering at all.
+2026-11-03 -     - _load_approved_tools() always loads approved tools (no filtering).
+2026-11-03 -     - New tools approved mid-run are instantly visible to ALL running engines.
+2026-11-03 -   Removed per-project enabled_tools:
+2026-11-03 -     - app.py: Removed enabled_tools from SSE run endpoint params and worker run path.
+2026-11-03 -     - app.py: Removed enabled_tools from project update form handling.
+2026-11-03 -     - engine.py: Removed enabled_tools from _reload_project_settings() tool-reload logic.
+2026-11-03 -       (No longer needed — all tools always available.)
+2026-11-03 -     - site.js: getEnabledTools() now returns ALL tools (no checkbox filtering).
+2026-11-03 -     - site.js: buildToolSelectorForElement() now shows informational text instead of checkboxes.
+2026-11-03 -     - site.js: saveProjectChanges() no longer sends enabled_tools from checkboxes.
+2026-11-03 -     - site.js: toggleCreateForm() no longer builds tool selector.
+2026-11-03 -   Tests updated:
+2026-11-03 -     - test_engine_loop.py: ToolRegistry → get_registry() for respond_to_user and compress_context tests.
+2026-11-03 -     - test_new_features.py: ToolRegistry → get_registry() for task_completed test.
+2026-11-03 -     - test_ai_builder_comprehensive.py: ToolRegistry tests updated — test_tool_filtering →
+2026-11-03 -       test_no_filtering_applied (verifies all tools present, no filtering).
+2026-11-03 -     - test_remaining_features.py: ToolRegistry tests use ToolRegistry() directly (isolated instances
+2026-11-03 -       for tests that need separate tmpdirs). test_enabled_tools_filtering → test_all_tools_available.
+2026-11-03 -   Validation:
+2026-11-03 -     All 224 unit tests PASS (3 skipped)
+2026-11-03 -     E2E test PASS: agent ran 20 steps, added divide function, task_completed executed
+2026-11-03 -     Total test coverage: 224 unit + 1 E2E = 225 tests (3 skipped)
+2026-11-03 - Round 14: TaskCompleted celebration rendering + test coverage
+2026-11-03 -   PROBLEM: task_completed showed as a generic tool result in the live feed,
+2026-11-03 -     looking like a normal step instead of a celebration of completion.
+2026-11-03 -   Fix: Added special case in handleAgentStep() for task_completed tool.
+2026-11-03 -     Renders as: 🎉 TASK COMPLETED (green, bold, 16px)
+2026-11-03 -     Shows rationale if present, summary in a green-bordered box,
+2026-11-03 -     and params summary in italic below.
+2026-11-03 -   Added task_completed to AVAILABLE_TOOLS list in site.js.
+2026-11-03 -   Created tests/test_round13.py with 11 new tests:
+2026-11-03 -     SingletonRegistry: same instance, ignores root_dir, all tools registered,
+2026-11-03 -       tool approval loads, shared across calls (5 tests)
+2026-11-03 -     TaskCompletedCelebrationRendering: emoji header, success not error,
+2026-11-03 -       summary extracted, content format (4 tests)
+2026-11-03 -     AvailableToolsList: task_completed in list, no checkbox filtering (2 tests)
+2026-11-03 -   Validation:
+2026-11-03 -     All 235 unit tests PASS (3 skipped)
+2026-11-03 -     Total test coverage: 235 unit + 1 E2E = 236 tests (3 skipped)</parameter>
 <parameter=old_string>
 2026-11-02 -   TOTAL: 49 + 35 + 35 + 40 + 52 + 28 + 22 = 261 unit tests pass (3 skipped), E2E test passes

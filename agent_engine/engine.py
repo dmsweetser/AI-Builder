@@ -11,7 +11,7 @@ import platform
 from typing import Any, Dict, List, Tuple, Optional
 from agent_engine.config import EngineConfig
 from agent_engine.security import SecurityError, ToolError, EngineError
-from agent_engine.tools import ToolRegistry
+from agent_engine.tools import get_registry
 from agent_engine.tools.base import ToolResult
 
 
@@ -653,12 +653,9 @@ class AgentEngine:
         sh.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
         self.logger.addHandler(sh)
 
-        # Initialize tools with optional filtering
-        # Prefer enabled_tools from project_config, fall back to env var
-        enabled_tools = project_config.get("enabled_tools")
-        if enabled_tools is None:
-            enabled_tools = EngineConfig.get_enabled_tools()
-        self.tools = ToolRegistry(self.root_dir, enabled_tools=enabled_tools)
+        # Use the shared singleton ToolRegistry — all engines share the same
+        # tool list, so newly-approved tools are instantly available.
+        self.tools = get_registry(self.root_dir)
         self.max_context_tokens = EngineConfig.get_max_context_tokens()
         self.max_output_tokens = EngineConfig.get_max_output_tokens()
         self.max_tool_result_length = EngineConfig.get_max_tool_result_length()
@@ -710,9 +707,8 @@ class AgentEngine:
         """Reload project settings from disk to pick up live changes.
 
         Checks if the project file has been modified since last load.
-        If so, reloads rootDirectory, instructions, and enabled_tools.
-        If enabled_tools changed, reloads the tool registry and rebuilds
-        the system prompt so the LLM sees updated tool definitions.
+        If so, reloads rootDirectory and instructions.
+        (enabled_tools filtering has been removed — all tools are always available.)
         """
         try:
             import json as _json
@@ -743,16 +739,9 @@ class AgentEngine:
                     # Check if any relevant settings changed
                     old_root = self.project_config.get("rootDirectory", "")
                     old_instructions = self.project_config.get("instructions", "")
-                    old_tools = self.project_config.get("enabled_tools")
 
                     new_root = p.get("rootDirectory", "")
                     new_instructions = p.get("instructions", "")
-                    new_tools = p.get("enabled_tools", [])
-
-                    # Compare enabled_tools (normalize None to empty list)
-                    old_tools_list = old_tools if old_tools is not None else []
-                    new_tools_list = new_tools if new_tools is not None else []
-                    tools_changed = set(old_tools_list) != set(new_tools_list)
 
                     if new_root and new_root != old_root:
                         self.root_dir = new_root
@@ -760,16 +749,7 @@ class AgentEngine:
                     if new_instructions and new_instructions != old_instructions:
                         self.instructions = new_instructions
                         self.project_config["instructions"] = new_instructions
-                    if tools_changed:
-                        # Reload tool registry with new enabled_tools
-                        from agent_engine.tools import ToolRegistry
-                        self.tools = ToolRegistry(self.root_dir, enabled_tools=new_tools if new_tools else None)
-                        self.system_prompt = build_system_prompt(self.tools.list_tools())
-                        if self.messages and self.messages[0].get("role") == "system":
-                            self.messages[0]["content"] = self.system_prompt
-                        self.project_config["enabled_tools"] = new_tools
-                        logging.info(f"Reloaded tool registry for project {project_id}: enabled_tools changed")
-                        break
+                    break
         except Exception as e:
             logging.debug(f"Project settings reload check failed (non-critical): {e}")
 

@@ -393,17 +393,18 @@ class TestTruncationFilterHints(unittest.TestCase):
 
 
 # ====================================================================
-# ToolRegistry — execute with various tools
+# ToolRegistry — execute with various tools (all tools always available)
 # ====================================================================
 
 class TestToolRegistry(unittest.TestCase):
-    """Tests for ToolRegistry execute."""
+    """Tests for ToolRegistry execute — all tools always registered."""
 
     def test_execute_list_directory(self):
         """list_directory should work."""
+        from agent_engine.tools import ToolRegistry
         tmpdir = tempfile.mkdtemp()
         try:
-            registry = ToolRegistry(tmpdir, enabled_tools=["list_directory"])
+            registry = ToolRegistry(tmpdir)
             result = registry.execute("list_directory", {"path": "."})
             self.assertTrue(result.success)
         finally:
@@ -411,12 +412,13 @@ class TestToolRegistry(unittest.TestCase):
 
     def test_execute_read_file(self):
         """read_file should work."""
+        from agent_engine.tools import ToolRegistry
         tmpdir = tempfile.mkdtemp()
         try:
             test_file = os.path.join(tmpdir, "test.txt")
             with open(test_file, "w") as f:
                 f.write("hello")
-            registry = ToolRegistry(tmpdir, enabled_tools=["read_file"])
+            registry = ToolRegistry(tmpdir)
             result = registry.execute("read_file", {"path": "test.txt"})
             self.assertTrue(result.success)
             self.assertIn("hello", result.content)
@@ -425,9 +427,10 @@ class TestToolRegistry(unittest.TestCase):
 
     def test_execute_write_file(self):
         """write_file should work."""
+        from agent_engine.tools import ToolRegistry
         tmpdir = tempfile.mkdtemp()
         try:
-            registry = ToolRegistry(tmpdir, enabled_tools=["write_file"])
+            registry = ToolRegistry(tmpdir)
             result = registry.execute("write_file", {
                 "path": "new.txt",
                 "content": "new content"
@@ -440,9 +443,10 @@ class TestToolRegistry(unittest.TestCase):
 
     def test_execute_unknown_tool_raises(self):
         """Unknown tool should raise an error."""
+        from agent_engine.tools import ToolRegistry
         tmpdir = tempfile.mkdtemp()
         try:
-            registry = ToolRegistry(tmpdir, enabled_tools=["list_directory"])
+            registry = ToolRegistry(tmpdir)
             with self.assertRaises(Exception):
                 registry.execute("unknown_tool", {})
         finally:
@@ -450,23 +454,26 @@ class TestToolRegistry(unittest.TestCase):
 
     def test_execute_missing_required_param(self):
         """Missing required param should raise an error."""
+        from agent_engine.tools import ToolRegistry
         tmpdir = tempfile.mkdtemp()
         try:
-            registry = ToolRegistry(tmpdir, enabled_tools=["read_file"])
+            registry = ToolRegistry(tmpdir)
             with self.assertRaises(Exception):
                 registry.execute("read_file", {})
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)
 
-    def test_enabled_tools_filtering(self):
-        """Only enabled tools should be available."""
+    def test_all_tools_available(self):
+        """All tools should be available — no filtering."""
+        from agent_engine.tools import ToolRegistry
         tmpdir = tempfile.mkdtemp()
         try:
-            registry = ToolRegistry(tmpdir, enabled_tools=["list_directory"])
+            registry = ToolRegistry(tmpdir)
             tools = registry.list_tools()
             tool_names = [t["name"] for t in tools]
             self.assertIn("list_directory", tool_names)
-            self.assertNotIn("read_file", tool_names)
+            self.assertIn("read_file", tool_names)
+            self.assertIn("write_file", tool_names)
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)
 

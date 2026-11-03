@@ -27,7 +27,6 @@ from agent_engine.tools.get_file_info import GetFileInfoTool
 from agent_engine.tools.list_dependencies import ListDependenciesTool
 from agent_engine.tools.find_symbol import FindSymbolTool
 from agent_engine.tools.decompile_jar import DecompileJarTool
-from agent_engine.tools import ToolRegistry
 from agent_engine.config import EngineConfig
 
 
@@ -480,15 +479,16 @@ class TestFileSystemTools(unittest.TestCase):
 
 
 # ====================================================================
-# ToolRegistry Tests
+# ToolRegistry Tests — the registry is now a shared singleton (all tools always available)
 # ====================================================================
 
 class TestToolRegistry(unittest.TestCase):
-    """Tests for the tool registry."""
+    """Tests for the shared ToolRegistry singleton."""
 
     def test_all_tools_registered(self):
         """All expected tools should be registered."""
-        registry = ToolRegistry(TEST_PROJECT)
+        from agent_engine.tools import get_registry
+        registry = get_registry(TEST_PROJECT)
         tools = registry.list_tools()
         tool_names = [t['name'] for t in tools]
         expected = [
@@ -500,18 +500,21 @@ class TestToolRegistry(unittest.TestCase):
         for name in expected:
             self.assertIn(name, tool_names, f"Tool '{name}' not registered")
 
-    def test_tool_filtering(self):
-        """Should only register enabled tools."""
-        registry = ToolRegistry(TEST_PROJECT, enabled_tools=['read_file', 'write_file'])
+    def test_no_filtering_applied(self):
+        """All tools should be registered regardless of enabled_tools."""
+        from agent_engine.tools import get_registry
+        registry = get_registry(TEST_PROJECT)
         tools = registry.list_tools()
         tool_names = [t['name'] for t in tools]
-        self.assertEqual(len(tool_names), 2)
+        # All built-in tools should be present — no filtering
+        self.assertGreater(len(tool_names), 10)
         self.assertIn('read_file', tool_names)
         self.assertIn('write_file', tool_names)
 
     def test_unknown_tool_raises_error(self):
         """Executing unknown tool should raise ToolError."""
-        registry = ToolRegistry(TEST_PROJECT)
+        from agent_engine.tools import get_registry
+        registry = get_registry(TEST_PROJECT)
         with self.assertRaises(ToolError):
             registry.execute('nonexistent_tool', {'path': 'test.txt'})
 

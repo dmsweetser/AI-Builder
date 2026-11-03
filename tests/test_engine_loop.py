@@ -530,10 +530,10 @@ class TestRespondToUserTool(unittest.TestCase):
 
     def test_tool_is_registered(self):
         """respond_to_user should be in the tool registry."""
-        from agent_engine.tools import ToolRegistry
+        from agent_engine.tools import get_registry
         tmpdir = tempfile.mkdtemp()
         try:
-            registry = ToolRegistry(tmpdir, enabled_tools=['respond_to_user'])
+            registry = get_registry(tmpdir)
             tools = registry.list_tools()
             tool_names = [t['name'] for t in tools]
             self.assertIn('respond_to_user', tool_names)
@@ -561,10 +561,10 @@ class TestCompressContextTool(unittest.TestCase):
 
     def test_tool_is_registered(self):
         """compress_context should be in the tool registry."""
-        from agent_engine.tools import ToolRegistry
+        from agent_engine.tools import get_registry
         tmpdir = tempfile.mkdtemp()
         try:
-            registry = ToolRegistry(tmpdir, enabled_tools=['compress_context'])
+            registry = get_registry(tmpdir)
             tools = registry.list_tools()
             tool_names = [t['name'] for t in tools]
             self.assertIn('compress_context', tool_names)

@@ -20,7 +20,7 @@ const AVAILABLE_TOOLS = [
     "grep_code", "grep_code_dir", "read_file", "read_file_range",
     "write_file", "edit_file", "delete_file", "find_symbol",
     "decompile_jar", "list_dependencies", "check_syntax", "get_file_info",
-    "create_tool", "respond_to_user", "request_user_input"
+    "create_tool", "respond_to_user", "request_user_input", "task_completed"
 ];
 
 // === Utility Functions ===
@@ -133,10 +133,6 @@ function showTab(tabName) {
 function toggleCreateForm() {
     var form = document.getElementById('create-project-form');
     if (form) form.style.display = form.style.display === 'none' ? 'block' : 'none';
-    // Build tool selector when form is shown
-    if (form && form.style.display === 'block') {
-        buildToolSelectorForElement('add-tool-selector', []);
-    }
 }
 
 // === Project Management ===
@@ -207,6 +203,7 @@ function _doRunProject(projectId, overrideInstruction) {
     var rootDir = document.getElementById('details-root-dir') ? document.getElementById('details-root-dir').value : '';
     if (!rootDir) { alert('Please set a root directory first.'); return; }
     var instructions = overrideInstruction || (document.getElementById('details-instructions') ? document.getElementById('details-instructions').value : '');
+    // All tools are always available — getEnabledTools() returns the full list.
     var enabledTools = getEnabledTools();
     // Use /api/agent/run which streams SSE — no conflict with worker
     agentRunning = true;
@@ -510,6 +507,15 @@ function handleAgentStep(data, agentBox) {
     } else if (data.tool === 'format_retry') {
         entry.classList.add('llm-step');
         entry.innerHTML = '<div class="step-tool" style="color:var(--warning);">⚠ Format reminder sent</div><div class="step-result" style="color:var(--warning);">' + escapeHtml(data.result ? data.result.content : '') + '</div>';
+    } else if (data.tool === 'task_completed') {
+        // Celebration entry for task completion
+        var summary = data.result ? (data.result.content || '') : '';
+        var rationaleHtml = data.rationale ? '<div class="step-rationale">💡 ' + escapeHtml(data.rationale) + '</div>' : '';
+        var paramsHtml = data.params && data.params.summary ? '<div class="step-result" style="margin-top:6px;font-style:italic;color:var(--text-muted);">Summary: ' + escapeHtml(data.params.summary) + '</div>' : '';
+        entry.innerHTML = '<div class="step-tool" style="color:var(--success);font-weight:bold;font-size:16px;">🎉 TASK COMPLETED</div>' +
+            rationaleHtml +
+            '<div class="step-result" style="margin-top:6px;padding:8px;background:rgba(46,204,113,0.1);border:1px solid var(--success);border-radius:4px;">' + escapeHtml(summary) + '</div>' +
+            paramsHtml;
     } else {
         var ok = data.result && data.result.success !== false;
         var resultPreview = data.result ? (data.result.content || '') : 'no result';
@@ -1048,13 +1054,7 @@ function saveProjectChanges() {
     var projectId = document.getElementById('run-project-id') ? document.getElementById('run-project-id').value : null;
     if (!projectId) return;
     var formData = new FormData(document.getElementById('project-details-form'));
-    // Add enabled_tools from the tool selector
-    var checkboxes = document.querySelectorAll('#details-tool-selector input[type="checkbox"]');
-    checkboxes.forEach(function(cb) {
-        if (cb.checked) {
-            formData.append('enabled_tools', cb.value);
-        }
-    });
+    // enabled_tools is no longer per-project — all tools are always available.
     fetch('/api/projects/' + projectId, { method: 'POST', body: formData })
         .then(function(res) { return res.json(); })
         .then(function(data) { if (data.status === 'saved') console.log('Project saved'); })
@@ -1069,38 +1069,13 @@ function buildToolSelector(enabledTools) {
 function buildToolSelectorForElement(elementId, enabledTools) {
     var container = document.getElementById(elementId);
     if (!container) return;
-    container.innerHTML = '';
-    fetch('/api/tools/approved')
-        .then(function(r) { return r.json(); })
-        .then(function(approvedTools) {
-            var allTools = AVAILABLE_TOOLS.concat(approvedTools.map(function(t) { return t.name; }));
-            allTools.forEach(function(tool) {
-                var checked = enabledTools.length === 0 || enabledTools.indexOf(tool) !== -1;
-                var label = document.createElement('label');
-                label.className = 'tool-checkbox';
-                var isCustom = approvedTools.some(function(t) { return t.name === tool; });
-                var badge = isCustom ? ' <span style="color:var(--warning);font-size:9px;">[CUSTOM]</span>' : '';
-                label.innerHTML = '<input type="checkbox" name="enabled_tools" value="' + tool + '"' + (checked ? ' checked' : '') + '> ' + tool + badge;
-                container.appendChild(label);
-            });
-        })
-        .catch(function() {
-            AVAILABLE_TOOLS.forEach(function(tool) {
-                var checked = enabledTools.length === 0 || enabledTools.indexOf(tool) !== -1;
-                var label = document.createElement('label');
-                label.className = 'tool-checkbox';
-                label.innerHTML = '<input type="checkbox" name="enabled_tools" value="' + tool + '"' + (checked ? ' checked' : '') + '> ' + tool;
-                container.appendChild(label);
-            });
-        });
+    container.innerHTML = '<div style="color:var(--text-muted);font-size:11px;padding:8px;">All built-in tools are always available. New tools are approved in the TOOLS tab and become available immediately.</div>';
 }
 
 
 function getEnabledTools() {
-    var checkboxes = document.querySelectorAll('#details-tool-selector input[type="checkbox"]');
-    var enabled = [];
-    checkboxes.forEach(function(cb) { if (cb.checked) enabled.push(cb.value); });
-    return enabled;
+    // All tools are always available — no per-project filtering.
+    return AVAILABLE_TOOLS.slice();
 }
 
 // === Jobs ===

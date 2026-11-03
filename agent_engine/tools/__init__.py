@@ -29,7 +29,8 @@ from agent_engine.tools.request_user_input import RequestUserInputTool
 from agent_engine.tools.task_completed import TaskCompletedTool
 
 # ------------------------------------------------------------------
-# Module-level singleton: shared across all API endpoints and agent engines
+# Module-level singleton: shared across ALL projects and agent engines.
+# Every engine uses this SAME registry — tools are always up-to-date.
 # ------------------------------------------------------------------
 _shared_registry: Optional["ToolRegistry"] = None
 
@@ -37,39 +38,46 @@ _shared_registry: Optional["ToolRegistry"] = None
 def get_registry(root_dir: str = None, enabled_tools=None) -> "ToolRegistry":
     """Return the shared ToolRegistry singleton.
 
-    On first call (or if root_dir changed), creates a new registry.
-    Subsequent calls return the same instance unless root_dir differs.
+    Always returns the same instance.  The first call creates it with
+    the given root_dir; subsequent calls ignore root_dir and enabled_tools
+    because the registry is global and unfiltered.
+
+    NOTE: For tests that need a fresh registry, call ``_reset_registry()``
+    first or use ``ToolRegistry(root_dir)`` directly.
     """
     global _shared_registry
     if _shared_registry is None:
-        _shared_registry = ToolRegistry(root_dir or os.getcwd(), enabled_tools=enabled_tools)
-    elif root_dir is not None and _shared_registry.root_dir != root_dir:
-        _shared_registry = ToolRegistry(root_dir, enabled_tools=enabled_tools)
+        _shared_registry = ToolRegistry(root_dir or os.getcwd())
     return _shared_registry
+
+
+def _reset_registry():
+    """Reset the singleton.  For tests only."""
+    global _shared_registry
+    _shared_registry = None
 
 
 class ToolRegistry:
     """Registry of all available tools.
 
-    Supports dynamically loading approved tools from
-    ``aib_instance/pending_tools.json``.  When a tool is approved,
-    its code is written to a temp file and imported so the tool
-    becomes immediately available without a restart.
+    A true singleton shared by every agent engine and every API endpoint.
+    All built-in tools are always registered.  Approved dynamic tools are
+    loaded from disk and registered automatically — no filtering, no
+    per-project tool lists.
     """
 
-    def __init__(self, root_dir: str, enabled_tools=None):
+    def __init__(self, root_dir: str):
         self.root_dir = root_dir
         self._tools: Dict[str, BaseTool] = {}
-        self._enabled_tools = enabled_tools
-        self._register_tools(enabled_tools=enabled_tools)
+        self._register_tools()
         self._load_approved_tools()
 
     # ------------------------------------------------------------------
     # Registration
     # ------------------------------------------------------------------
 
-    def _register_tools(self, enabled_tools=None):
-        """Register all built-in tool classes, optionally filtering."""
+    def _register_tools(self):
+        """Register all built-in tool classes.  All tools are always available."""
         tool_classes = [
             ListDirectoryTool,
             ListDirectoryDeepTool,
@@ -93,12 +101,9 @@ class ToolRegistry:
             RequestUserInputTool,
             TaskCompletedTool,
         ]
-        # enabled_tools=None or [] means "use all tools"
-        use_all = enabled_tools is None or len(enabled_tools) == 0
         for tool_cls in tool_classes:
             tool = tool_cls(self.root_dir)
-            if use_all or tool.name in enabled_tools:
-                self._tools[tool.name] = tool
+            self._tools[tool.name] = tool
 
     # ------------------------------------------------------------------
     # Dynamic tool loading (approved from pending)
@@ -159,11 +164,11 @@ class ToolRegistry:
 
     def reload_approved_tools(self):
         """Reload approved tools from disk and register any new ones.
-        
-        This should be called after tool approval to make approved tools
-        immediately available without restarting the engine.
+
+        Called after tool approval to make approved tools immediately
+        available.  Since the registry is a shared singleton, this
+        automatically makes new tools visible to ALL running engines.
         """
-        # First, reload all approved tools (this will skip already-registered ones)
         self._load_approved_tools()
 
     def reject_tool(self, tool_id: str) -> Dict[str, Any]:

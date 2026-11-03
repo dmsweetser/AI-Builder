@@ -285,10 +285,10 @@ class TestTaskCompletedTool(unittest.TestCase):
 
     def test_tool_is_registered(self):
         """task_completed should be in the tool registry."""
-        from agent_engine.tools import ToolRegistry
+        from agent_engine.tools import get_registry
         tmpdir = tempfile.mkdtemp()
         try:
-            registry = ToolRegistry(tmpdir, enabled_tools=['task_completed'])
+            registry = get_registry(tmpdir)
             tools = registry.list_tools()
             tool_names = [t['name'] for t in tools]
             self.assertIn('task_completed', tool_names)
