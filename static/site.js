@@ -235,7 +235,7 @@ function _doRunProject(projectId, overrideInstruction) {
     fetch('/api/agent/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ project_id: projectId, rootDirectory: rootDir, instructions: instructions, enabled_tools: enabledTools })
+        body: JSON.stringify({ project_id: projectId, rootDirectory: rootDir, instructions: instructions })
     })
     .then(function(response) {
         if (!response.ok) throw new Error('Failed to start agent run');
@@ -309,7 +309,7 @@ function startAgentSSE(projectId, enabledTools) {
     fetch('/api/agent/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ project_id: projectId, enabled_tools: enabledTools }),
+        body: JSON.stringify({ project_id: projectId }),
         signal: agentSSEController.signal
     })
     .then(function(response) {
@@ -577,21 +577,18 @@ function handlePendingApproval(data, agentBox) {
 
                 var codePreview = '';
                 if (tool.code) {
-                    try {
-                        var codeText = JSON.parse('"' + tool.code.replace(/"/g, '\"') + '"');
-                        codePreview = '<pre style="background:var(--bg-primary);padding:8px;border-radius:4px;max-height:200px;overflow:auto;font-size:11px;margin:8px 0;white-space:pre-wrap;">' + escapeHtml(codeText) + '</pre>';
-                    } catch(e) {
-                        codePreview = '<pre style="background:var(--bg-primary);padding:8px;border-radius:4px;max-height:200px;overflow:auto;font-size:11px;margin:8px 0;">' + escapeHtml(tool.code) + '</pre>';
-                    }
+                    codePreview = '<pre style="background:var(--bg-primary);padding:8px;border-radius:4px;max-height:200px;overflow:auto;font-size:11px;margin:8px 0;white-space:pre-wrap;">' + escapeHtml(tool.code) + '</pre>';
                 }
 
+                var approveUrl = '/api/tools/pending/' + encodeURIComponent(tool.name) + '/approve';
+                var rejectUrl = '/api/tools/pending/' + encodeURIComponent(tool.name) + '/reject';
                 toolEntry.innerHTML =
                     '<div style="font-weight:bold;margin-bottom:4px;">📦 ' + escapeHtml(tool.name) + '</div>' +
                     '<div style="font-size:12px;color:var(--text-muted);margin-bottom:4px;">' + escapeHtml(tool.description || '') + '</div>' +
                     codePreview +
                     '<div style="display:flex;gap:8px;margin-top:8px;">' +
-                    '<button class="btn btn-success btn-sm" onclick="approveToolFromLive(\'\' + escapeHtml(tool.name) + \'\', \'\' + escapeHtml(outputDir) + \'\', \'\' + escapeHtml(jobId) + \'\')">✅ APPROVE</button>' +
-                    '<button class="btn btn-danger btn-sm" onclick="rejectToolFromLive(\'\' + escapeHtml(tool.name) + \'\', \'\' + escapeHtml(outputDir) + \'\')">❌ REJECT</button>' +
+                    '<button class="btn btn-success btn-sm" data-url="' + approveUrl + '" data-output-dir="' + escapeHtml(outputDir) + '" data-job-id="' + escapeHtml(jobId) + '">✅ APPROVE</button>' +
+                    '<button class="btn btn-danger btn-sm" data-url="' + rejectUrl + '" data-output-dir="' + escapeHtml(outputDir) + '">❌ REJECT</button>' +
                     '</div>';
                 actions.appendChild(toolEntry);
             });
@@ -676,6 +673,35 @@ function clearPendingApprovalState() {
     if (injectInput) { injectInput.disabled = false; injectInput.placeholder = 'Type instructions or questions...'; }
     if (injectBtn) { injectBtn.disabled = false; injectBtn.textContent = 'INJECT'; }
 }
+
+// Event delegation for approve/reject buttons in pending approval section
+document.addEventListener('click', function(e) {
+    var btn = e.target.closest('[data-url]');
+    if (!btn) return;
+    var url = btn.dataset.url;
+    var outputDir = btn.dataset.outputDir || '';
+    var jobId = btn.dataset.jobId || '';
+    var isApprove = url.indexOf('/approve') !== -1;
+
+    fetch(url, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({project_output_dir: outputDir})
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (isApprove && data.status === 'approved') {
+            alert('Tool approved! The agent will continue shortly.');
+            clearPendingApprovalState();
+        } else if (!isApprove && data.status === 'rejected') {
+            alert('Tool rejected.');
+            clearPendingApprovalState();
+        } else {
+            alert('Failed: ' + (data.error || 'Unknown error'));
+        }
+    })
+    .catch(function(err) { console.error('Failed:', err); alert('Failed to process tool.'); });
+});
 
 
 
@@ -935,7 +961,7 @@ function continueAgentRunWithInstruction(projectId, prevJobId, newInstruction) {
     fetch('/api/agent/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ project_id: projectId, instructions: newInstruction, continue_from_job: prevJobId, enabled_tools: enabledTools }),
+        body: JSON.stringify({ project_id: projectId, instructions: newInstruction, continue_from_job: prevJobId }),
         signal: agentSSEController.signal
     })
     .then(function(response) {
@@ -1178,10 +1204,10 @@ function saveProjectChanges() {
     var projectId = document.getElementById('run-project-id') ? document.getElementById('run-project-id').value : null;
     if (!projectId) return;
     var formData = new FormData(document.getElementById('project-details-form'));
-    // Collect disabled_tools from checkboxes
-    var checkboxes = document.querySelectorAll('#details-tool-selector input[type="checkbox"]:checked');
+    // Collect disabled_tools: unchecked boxes = disabled
+    var unchecked = document.querySelectorAll('#details-tool-selector input[type="checkbox"]:not(:checked)');
     var disabledTools = [];
-    checkboxes.forEach(function(cb) { disabledTools.push(cb.value); });
+    unchecked.forEach(function(cb) { disabledTools.push(cb.value); });
     // Save disabled_tools via dedicated endpoint
     fetch('/api/projects/' + projectId + '/tools', {
         method: 'POST',
@@ -1216,9 +1242,10 @@ function buildToolSelectorForElement(elementId, disabledTools, customTools) {
     html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:4px;">';
     var tools = AVAILABLE_TOOLS.slice().sort();
     tools.forEach(function(toolName) {
-        var isDisabled = disabledTools && disabledTools.indexOf(toolName) !== -1;
+        // All tools checked by default; unchecked = disabled
+        var isChecked = disabledTools && disabledTools.indexOf(toolName) === -1;
         html += '<label style="display:flex;align-items:center;gap:6px;font-size:12px;padding:4px 8px;background:var(--muted);border-radius:4px;cursor:pointer;">' +
-            '<input type="checkbox" class="builtin-tool-cb" name="disabled_tools" value="' + toolName + '" ' + (isDisabled ? 'checked' : '') + '>' +
+            '<input type="checkbox" class="tool-cb" data-toolname="' + escapeHtml(toolName) + '" value="' + toolName + '" ' + (isChecked ? 'checked' : '') + '>' +
             escapeHtml(toolName) + '</label>';
     });
     html += '</div></div>';
@@ -1229,15 +1256,15 @@ function buildToolSelectorForElement(elementId, disabledTools, customTools) {
         html += '<div style="font-size:11px;font-weight:bold;color:var(--text-muted);margin-bottom:4px;">CUSTOM TOOLS (project-local)</div>';
         html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:4px;">';
         customTools.forEach(function(toolName) {
-            var isDisabled = disabledTools && disabledTools.indexOf(toolName) !== -1;
+            var isChecked = disabledTools && disabledTools.indexOf(toolName) === -1;
             html += '<label style="display:flex;align-items:center;gap:6px;font-size:12px;padding:4px 8px;background:var(--muted);border-radius:4px;cursor:pointer;">' +
-                '<input type="checkbox" class="custom-tool-cb" name="disabled_tools" value="' + toolName + '" ' + (isDisabled ? 'checked' : '') + '>' +
+                '<input type="checkbox" class="tool-cb" data-toolname="' + escapeHtml(toolName) + '" value="' + toolName + '" ' + (isChecked ? 'checked' : '') + '>' +
                 escapeHtml(toolName) + ' <span style="font-size:10px;color:var(--text-muted);">(custom)</span></label>';
         });
         html += '</div></div>';
     }
 
-    html += '<div style="color:var(--text-muted);font-size:11px;padding:4px 0;">Check tools to disable them for this project. Unchecked = enabled.</div>';
+    html += '<div style="color:var(--text-muted);font-size:11px;padding:4px 0;">Checked = enabled. Uncheck to disable.</div>';
     container.innerHTML = html;
 }
 

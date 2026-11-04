@@ -498,7 +498,7 @@ def api_create_project():
         "preScript": data.get("preScript", ""),
         "postScript": data.get("postScript", ""),
         "isArchived": False,
-        "enabled_tools": [],
+        "disabled_tools": [],
         "output_dir": output_dir,
         "run_number": 0,
         "last_job_id": None,
@@ -529,6 +529,8 @@ def api_update_project(pid):
     # Update output_dir path if rootDirectory changed
     project["output_dir"] = os.path.join(_AIB_INSTANCE, "output", sanitize_output_dir_name(project["name"]))
 
+    # Clean up old enabled_tools field if present
+    project.pop("enabled_tools", None)
     save_projects(projects)
     return jsonify({"status": "saved", "project": project})
 
@@ -1122,6 +1124,7 @@ def api_agent_run():
         f.write(instructions)
     os.environ["AIB_INSTRUCTIONS_FILE"] = instructions_file
     os.environ["AIB_JOB_ID"] = job_id
+    os.environ["AIB_OUTPUT_DIR"] = output_dir
     # Engine config — apply current settings so the engine doesn't fall back to stale defaults
     apply_settings_to_env()
     # Also set endpoint-specific vars (may differ from saved settings if user hasn't saved yet)
@@ -1702,6 +1705,8 @@ def api_set_project_tools(pid):
     data = request.get_json(silent=True) or {}
     disabled_tools = data.get("disabled_tools", [])
     project["disabled_tools"] = disabled_tools
+    # Clean up old enabled_tools field if present
+    project.pop("enabled_tools", None)
     save_projects(projects)
     # Reload tools in running engines for this project
     with _sse_jobs_lock:
@@ -1716,7 +1721,7 @@ def api_set_project_tools(pid):
 
 
 # --- Routes: Pending Tools ---
-@app.route("/api/tools/pending", methods=["GET"])
+@app.route("/api/tools/pending", methods=["GET", "POST"])
 def api_get_pending_tools():
     """List all pending tool proposals awaiting user review (per-project)."""
     data = request.get_json(silent=True) or {}

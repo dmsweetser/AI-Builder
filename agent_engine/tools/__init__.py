@@ -6,7 +6,7 @@ Tool *instances* are created per-execution with the correct project root_dir.
 
 Per-project tool loading: each project can have its own set of
 project-local tools (stored in its tools/active/ directory) and
-can disable specific built-in tools via projects.json enabled_tools field.
+can disable specific built-in tools via projects.json disabled_tools field.
 """
 
 import json
@@ -91,7 +91,7 @@ class ToolRegistry:
 
     Per-project tool loading: each project can have its own set of
     project-local tools (stored in its tools/active/ directory) and
-    can disable specific built-in tools via projects.json enabled_tools field.
+    can disable specific built-in tools via projects.json disabled_tools field.
     """
 
     def __init__(self):

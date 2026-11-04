@@ -861,7 +861,7 @@ class AgentEngine:
                     self.max_context_tokens > 0):
                     current_tokens = sum(_estimate_tokens(m.get("content", "")) for m in self.messages)
                     usage_pct = current_tokens / self.max_context_tokens if self.max_context_tokens > 0 else 0
-                    if usage_pct >= 0.8:
+                    if usage_pct >= 0.5:
                         # Emit context warning event for UI
                         if self._step_callback:
                             try:
