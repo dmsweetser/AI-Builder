@@ -1,3 +1,11 @@
+2026-11-03 - Pending tool approval execution bug fixed:
+  - Root cause: _create_tool_instance() required dynamic tools to be BaseTool subclasses
+    via issubclass(tool_cls, BaseTool), but LLM generates plain class Tool
+  - Fix: Removed issubclass check — now accepts any class with __init__ and execute
+  - Verified all 3 code formats: plain class, BaseTool subclass, function-based
+  - All 7 pending tool approval tests pass (plain class, subclass, function, fresh registry,
+    list_tools inclusion, rejected tool exclusion, multiple tools)
+  - Full test suite: 258 tests pass (3 skipped), E2E passes
 2026-10-30 - ToolRegistry refactored to module-level static class:
   - Created _BUILTIN_TOOL_CLASSES dict (21 tool classes) populated once at import
   - get_registry() creates singleton on first call, returns same instance always

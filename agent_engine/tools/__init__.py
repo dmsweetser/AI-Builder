@@ -304,7 +304,7 @@ class ToolRegistry:
                 return None
 
             tool_cls = ns.get('Tool')
-            if tool_cls and isinstance(tool_cls, type) and issubclass(tool_cls, BaseTool):
+            if tool_cls and isinstance(tool_cls, type):
                 try:
                     return tool_cls(root_dir)
                 except Exception as e:
