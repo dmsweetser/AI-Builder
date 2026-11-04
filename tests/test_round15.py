@@ -87,10 +87,11 @@ class TestToolApprovalResume(unittest.TestCase):
         self.assertIn('self.reload_approved_tools()', content)
 
     def test_approval_endpoint_writes_resume_file(self):
-        """Approval endpoint should write _tool_approved_resume.txt."""
+        """Approval endpoint should reload engine tool loader (new per-project system)."""
         with open(os.path.join(os.path.dirname(__file__), '..', 'app.py')) as f:
             content = f.read()
-        self.assertIn('_tool_approved_resume', content)
+        # The approval endpoint should reload the engine's tool loader
+        self.assertIn('engine.reload_approved_tools()', content)
 
 
 class TestQueueBehavior(unittest.TestCase):
@@ -171,14 +172,14 @@ class TestToolApprovalEndpoint(unittest.TestCase):
     """Verify the approval endpoint properly handles the resume signal."""
 
     def test_approval_endpoint_writes_resume_file(self):
-        """The approval endpoint should write a resume signal file."""
+        """The approval endpoint should reload engine tools (new per-project system)."""
         with open(os.path.join(os.path.dirname(__file__), '..', 'app.py')) as f:
             content = f.read()
-        # Should have the resume file write in api_approve_tool
+        # Should reload the engine's tool loader on approval
         approve_idx = content.find('def api_approve_tool')
         self.assertGreater(approve_idx, 0)
         approve_section = content[approve_idx:approve_idx+2000]
-        self.assertIn('_tool_approved_resume', approve_section)
+        self.assertIn('engine.reload_approved_tools()', approve_section)
 
 
 if __name__ == '__main__':

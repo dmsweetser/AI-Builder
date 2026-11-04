@@ -226,7 +226,7 @@ class TestReloadApprovedTools(unittest.TestCase):
             engine = AgentEngine(project_config)
             old_prompt = engine.system_prompt
             # Mock the tool reload
-            with patch.object(engine.tools, '_load_approved_tools'):
+            with patch.object(engine, '_reload_project_tool_loader'):
                 engine.reload_approved_tools()
             # System prompt should be updated (tool list changed)
             self.assertIsNotNone(engine.system_prompt)

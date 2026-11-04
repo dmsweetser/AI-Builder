@@ -1667,53 +1667,53 @@ def api_agent_resend():
 # --- Routes: Pending Tools ---
 @app.route("/api/tools/pending", methods=["GET"])
 def api_get_pending_tools():
-    """List all pending tool proposals awaiting user review."""
-    # Use the AI Builder's aib_instance directory for pending tools
+    """List all pending tool proposals awaiting user review (per-project)."""
+    data = request.get_json(silent=True) or {}
+    project_output_dir = data.get("project_output_dir", "")
+    if not project_output_dir:
+        return jsonify({"error": "project_output_dir required"}), 400
+
     registry = get_registry()
-    pending = registry.get_pending_tools()
+    pending = registry.get_project_pending_tools(project_output_dir)
     return jsonify(pending)
 
 
-@app.route("/api/tools/pending/<tool_id>/approve", methods=["POST"])
-def api_approve_tool(tool_id):
-    """Approve a pending tool proposal — registers it immediately."""
-    # Use the AI Builder's aib_instance directory for pending tools
+@app.route("/api/tools/pending/<tool_name>/approve", methods=["POST"])
+def api_approve_tool(tool_name):
+    """Approve a pending tool proposal — moves it to active."""
+    data = request.get_json(silent=True) or {}
+    project_output_dir = data.get("project_output_dir", "")
+    if not project_output_dir:
+        return jsonify({"error": "project_output_dir required"}), 400
+
     registry = get_registry()
-    result = registry.approve_tool(tool_id)
+    result = registry.approve_project_tool(project_output_dir, tool_name)
     if result["status"] == "approved":
-        # The registry is a shared singleton — the newly registered tool
-        # is now visible to ALL running engines automatically.
-        # Also rebuild the system prompt in the running engine so the LLM
-        # sees the new tool definition on its next call.
+        # Reload the tool loader in the running engine so the new tool
+        # is visible to the LLM immediately.
         with _sse_jobs_lock:
             for job_id, job_info in _sse_jobs.items():
                 if isinstance(job_info, dict) and "engine" in job_info:
                     engine = job_info["engine"]
                     try:
                         engine.reload_approved_tools()
-                        logging.info(f"Rebuilt system prompt for SSE job {job_id} after tool approval")
+                        logging.info(f"Rebuilt tool loader for SSE job {job_id} after tool approval")
                     except Exception as e:
-                        logging.warning(f"Failed to reload approved tools for job {job_id}: {e}")
-        # Write a resume signal so the engine picks up the newly approved
-        # tool on its next iteration (if it's paused in pending_approval).
-        output_dir = os.path.join(_AIB_INSTANCE, "output")
-        resume_file = os.path.join(output_dir, "_tool_approved_resume.txt")
-        try:
-            os.makedirs(output_dir, exist_ok=True)
-            with open(resume_file, 'w') as f:
-                f.write(result.get("tool_name", "unknown"))
-        except Exception:
-            pass  # Non-critical — engine will detect approval via registry
+                        logging.warning(f"Failed to reload tools for job {job_id}: {e}")
         return jsonify(result)
     return jsonify(result), 404
 
 
-@app.route("/api/tools/pending/<tool_id>/reject", methods=["POST"])
-def api_reject_tool(tool_id):
-    """Reject a pending tool proposal — removes it from pending."""
-    # Use the AI Builder's aib_instance directory for pending tools
+@app.route("/api/tools/pending/<tool_name>/reject", methods=["POST"])
+def api_reject_tool(tool_name):
+    """Reject a pending tool proposal — removes it."""
+    data = request.get_json(silent=True) or {}
+    project_output_dir = data.get("project_output_dir", "")
+    if not project_output_dir:
+        return jsonify({"error": "project_output_dir required"}), 400
+
     registry = get_registry()
-    result = registry.reject_tool(tool_id)
+    result = registry.reject_project_tool(project_output_dir, tool_name)
     if result["status"] == "rejected":
         return jsonify(result)
     return jsonify(result), 404
@@ -1721,51 +1721,29 @@ def api_reject_tool(tool_id):
 
 @app.route("/api/tools/approved", methods=["GET"])
 def api_get_approved_tools():
-    """List all approved (registered) dynamic tools."""
-    pending_file = EngineConfig.get_pending_tools_file()
-    approved_tools = []
-    if os.path.exists(pending_file):
-        try:
-            with open(pending_file, 'r') as f:
-                pending_tools = json.load(f)
-            for entry in pending_tools:
-                if entry.get("status") == "approved":
-                    approved_tools.append({
-                        "name": entry["name"],
-                        "description": entry.get("description", ""),
-                        "parameters": entry.get("parameters", {}),
-                        "approved_at": entry.get("approved_at", ""),
-                    })
-        except Exception:
-            pass
-    return jsonify(approved_tools)
+    """List all approved (registered) project-local tools (per-project)."""
+    data = request.get_json(silent=True) or {}
+    project_output_dir = data.get("project_output_dir", "")
+    if not project_output_dir:
+        return jsonify({"error": "project_output_dir required"}), 400
+
+    registry = get_registry()
+    loader = registry._get_or_create_loader(project_output_dir)
+    tools = loader.list_tools()
+    return jsonify(tools)
 
 
 @app.route("/api/tools/approved/<tool_name>", methods=["DELETE"])
 def api_delete_approved_tool(tool_name):
-    """Delete an approved dynamic tool."""
-    try:
-        # Find and remove the tool file from approved tools directory
-        approved_dir = os.path.join(_AIB_INSTANCE, "approved_tools")
-        tool_file = os.path.join(approved_dir, f"{tool_name}.py")
-        if os.path.exists(tool_file):
-            os.remove(tool_file)
-            logging.info(f"Deleted approved tool file: {tool_file}")
+    """Delete an approved project-local tool."""
+    data = request.get_json(silent=True) or {}
+    project_output_dir = data.get("project_output_dir", "")
+    if not project_output_dir:
+        return jsonify({"error": "project_output_dir required"}), 400
 
-        # Also remove from pending tools file if it exists there as approved
-        pending_file = EngineConfig.get_pending_tools_file()
-        if os.path.exists(pending_file):
-            with open(pending_file, 'r') as f:
-                pending_tools = json.load(f)
-            new_tools = [t for t in pending_tools if t.get("name") != tool_name]
-            if len(new_tools) < len(pending_tools):
-                with open(pending_file, 'w') as f:
-                    json.dump(new_tools, f, indent=2)
-                logging.info(f"Removed tool '{tool_name}' from pending tools file")
-
-        return jsonify({"status": "deleted", "name": tool_name})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    registry = get_registry()
+    result = registry.delete_project_tool(project_output_dir, tool_name)
+    return jsonify(result)
 
 
 # --- Routes: Global Tool Enable/Disable ---

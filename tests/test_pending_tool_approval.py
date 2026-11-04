@@ -1,9 +1,9 @@
 """Integration test: create_tool -> approve -> use approved tool in a real engine run.
 
-Tests the full pending tool approval flow:
-1. Agent proposes a tool via create_tool
+Tests the full pending tool approval flow with the new per-project system:
+1. Agent proposes a tool via create_tool (writes .py to pending/)
 2. Tool appears as pending
-3. User approves it
+3. User approves it (moves to active/)
 4. Agent can then use the approved tool
 5. Agent completes with task_completed
 """
@@ -19,280 +19,281 @@ from unittest.mock import patch, MagicMock
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from agent_engine.engine import AgentEngine
-from agent_engine.tools.base import ToolResult
+from agent_engine.tools.base import BaseTool, ToolResult
 from agent_engine.tools import get_registry, _reset_registry
+from agent_engine.tools.project_tool_loader import ProjectToolLoader
 
 
-def _make_engine(tmpdir, max_steps=10):
-    """Helper to create an engine with standard config."""
-    os.environ["AIB_OUTPUT_DIR"] = tmpdir
-    os.environ["AIB_JOB_ID"] = "test-job"
-    os.environ["AIB_MAX_STEPS"] = str(max_steps)
-    os.environ["AIB_MAX_CONTEXT_TOKENS"] = "0"
-    os.environ["AIB_MAX_TOOL_RESULT_LENGTH"] = "10000"
-    return AgentEngine({
-        "rootDirectory": tmpdir,
-        "instructions": "Test",
-        "custom_endpoint_url": "http://test",
-        "custom_api_key": "test",
-        "custom_model_name": "test",
-        "custom_verify_ssl": False,
-    }, output_dir=tmpdir)
+def _make_project_dir():
+    """Create a temp directory structure for a project."""
+    tmpdir = tempfile.mkdtemp()
+    output_dir = os.path.join(tmpdir, "output")
+    os.makedirs(output_dir, exist_ok=True)
+    return tmpdir, output_dir
+
+
+def _create_pending_tool_file(output_dir, tool_name, code):
+    """Create a pending tool .py file."""
+    pending_dir = os.path.join(output_dir, "tools", "pending")
+    os.makedirs(pending_dir, exist_ok=True)
+    tool_file = os.path.join(pending_dir, f"{tool_name}.py")
+    with open(tool_file, 'w') as f:
+        f.write(code)
+    return tool_file
 
 
 class TestPendingToolApprovalFlow(unittest.TestCase):
     """Tests for the full pending tool approval -> execution flow."""
 
-    def _get_pending_file(self):
-        """Get the actual pending tools file path used by the registry."""
-        from agent_engine.config import EngineConfig
-        try:
-            return EngineConfig.get_pending_tools_file()
-        except Exception:
-            return os.path.join(os.getcwd(), "output", "pending_tools.json")
-
-    def _create_pending_tool(self, name, code):
-        """Create a pending tool entry in the pending tools file."""
-        pending_file = self._get_pending_file()
-        os.makedirs(os.path.dirname(pending_file), exist_ok=True)
-        pending_tools = []
-        if os.path.exists(pending_file):
-            try:
-                with open(pending_file, 'r') as f:
-                    pending_tools = json.load(f)
-            except Exception:
-                pass
-        # Remove any existing entry with same name
-        pending_tools = [t for t in pending_tools if t.get("name") != name]
-        pending_tools.append({
-            "id": f"test-{name}",
-            "name": name,
-            "description": f"Test tool {name}",
-            "parameters": {},
-            "code": code,
-            "status": "pending",
-            "created_at": "2026-10-30T00:00:00"
-        })
-        with open(pending_file, 'w') as f:
-            json.dump(pending_tools, f, indent=2)
-
     def test_plain_class_tool_executes_after_approval(self):
         """Plain class tool (LLM format) should execute after approval."""
-        tmpdir = tempfile.mkdtemp()
-        pending_file = os.path.join(tmpdir, "pending_tools.json")
-        try:
-            _reset_registry()
-            registry = get_registry()
+        _, output_dir = _make_project_dir()
+        _reset_registry()
+        registry = get_registry()
 
-            # Create pending tool
-            code = '''class Tool:
-    def __init__(self, root_dir):
-        self.name = "echo_tool"
-        self.description = "Echoes back input"
-        self.parameters = {"message": "string"}
-    def execute(self, params):
+        code = '''
+from agent_engine.tools.base import BaseTool, ToolResult
+from typing import Dict, Any
+
+class EchoTool(BaseTool):
+    """Echoes back input."""
+    name = "echo_tool"
+    description = "Echoes back input"
+    parameters = {"message": "string"}
+
+    def execute(self, params: Dict[str, Any]) -> ToolResult:
         msg = params.get("message", "none")
-        return ToolResult(success=True, content="Echo: " + str(msg), summary="Done")'''
-            self._create_pending_tool("echo_tool", code)
+        return ToolResult(success=True, content="Echo: " + str(msg), summary="Done")
+'''
+        _create_pending_tool_file(output_dir, "echo_tool", code)
 
-            # Approve it
-            result = registry.approve_tool("test-echo_tool")
-            self.assertEqual(result["status"], "approved")
+        loader = registry._get_or_create_loader(output_dir)
+        result = loader.approve_tool("echo_tool")
+        self.assertEqual(result["status"], "approved")
 
-            # Verify it's in dynamic entries
-            self.assertIn("echo_tool", registry._dynamic_entries)
+        # Verify it's available
+        self.assertIn("echo_tool", loader.get_tool_names())
 
-            # Execute it
-            exec_result = registry.execute("echo_tool", {"message": "hello"}, tmpdir)
-            self.assertTrue(exec_result.success)
-            self.assertIn("Echo: hello", exec_result.content)
+        # Execute it
+        exec_result = registry.execute("echo_tool", {"message": "hello"}, output_dir, output_dir)
+        self.assertTrue(exec_result.success)
+        self.assertIn("Echo: hello", exec_result.content)
 
-        finally:
-            shutil.rmtree(tmpdir, ignore_errors=True)
+        shutil.rmtree(os.path.dirname(output_dir), ignore_errors=True)
 
     def test_subclass_tool_executes_after_approval(self):
         """BaseTool subclass tool should execute after approval."""
-        tmpdir = tempfile.mkdtemp()
-        pending_file = os.path.join(tmpdir, "pending_tools.json")
-        try:
-            _reset_registry()
-            registry = get_registry()
+        _, output_dir = _make_project_dir()
+        _reset_registry()
+        registry = get_registry()
 
-            code = '''class Tool(BaseTool):
+        code = '''
+from agent_engine.tools.base import BaseTool, ToolResult
+from typing import Dict, Any
+
+class GreetTool(BaseTool):
+    """Greets someone."""
     name = "greet_tool"
     description = "Greets someone"
     parameters = {"name": "string"}
-    def execute(self, params):
+
+    def execute(self, params: Dict[str, Any]) -> ToolResult:
         name = params.get("name", "world")
-        return ToolResult(success=True, content="Hello, " + str(name) + "!", summary="Done")'''
-            self._create_pending_tool("greet_tool", code)
+        return ToolResult(success=True, content="Hello, " + str(name) + "!", summary="Done")
+'''
+        _create_pending_tool_file(output_dir, "greet_tool", code)
 
-            result = registry.approve_tool("test-greet_tool")
-            self.assertEqual(result["status"], "approved")
+        registry._get_or_create_loader(output_dir).approve_tool("greet_tool")
 
-            exec_result = registry.execute("greet_tool", {"name": "Daniel"}, tmpdir)
-            self.assertTrue(exec_result.success)
-            self.assertIn("Hello, Daniel!", exec_result.content)
+        exec_result = registry.execute("greet_tool", {"name": "Daniel"}, output_dir, output_dir)
+        self.assertTrue(exec_result.success)
+        self.assertIn("Hello, Daniel!", exec_result.content)
 
-        finally:
-            shutil.rmtree(tmpdir, ignore_errors=True)
+        shutil.rmtree(os.path.dirname(output_dir), ignore_errors=True)
 
     def test_function_tool_executes_after_approval(self):
-        """Function-based tool should execute after approval."""
-        tmpdir = tempfile.mkdtemp()
-        pending_file = os.path.join(tmpdir, "pending_tools.json")
-        try:
-            _reset_registry()
-            registry = get_registry()
+        """Function-based tool (wrapped by create_tool) should execute after approval."""
+        _, output_dir = _make_project_dir()
+        _reset_registry()
+        registry = get_registry()
 
-            code = '''def execute(params):
-    x = params.get("x", 0)
-    return ToolResult(success=True, content="Result: " + str(x), summary="Done")'''
-            self._create_pending_tool("math_tool", code)
+        # This is what create_tool generates for a function-based tool
+        code = '''"""Auto-generated tool: math_tool"""
+from agent_engine.tools.base import BaseTool, ToolResult
+from typing import Dict, Any
 
-            result = registry.approve_tool("test-math_tool")
-            self.assertEqual(result["status"], "approved")
 
-            exec_result = registry.execute("math_tool", {"x": 42}, tmpdir)
-            self.assertTrue(exec_result.success)
-            self.assertIn("Result: 42", exec_result.content)
+class MathToolTool(BaseTool):
+    """A simple math tool."""
+    name = "math_tool"
+    description = "A simple math tool for testing."
+    parameters = {"x": "string?"}
 
-        finally:
-            shutil.rmtree(tmpdir, ignore_errors=True)
+    def execute(self, params: Dict[str, Any]) -> ToolResult:
+        x = params.get("x", "0")
+        return ToolResult(success=True, content="Result: " + str(x), summary="Done")
+'''
+        _create_pending_tool_file(output_dir, "math_tool", code)
+
+        loader = registry._get_or_create_loader(output_dir)
+        loader.approve_tool("math_tool")
+
+        exec_result = registry.execute("math_tool", {"x": "42"}, output_dir, output_dir)
+        self.assertTrue(exec_result.success)
+        self.assertIn("Result: 42", exec_result.content)
+
+        shutil.rmtree(os.path.dirname(output_dir), ignore_errors=True)
 
     def test_fresh_registry_sees_approved_tool(self):
-        """A fresh registry (after _reset_registry) should see approved tools from disk."""
-        tmpdir = tempfile.mkdtemp()
-        pending_file = os.path.join(tmpdir, "pending_tools.json")
-        try:
-            # Create and approve via first registry
-            _reset_registry()
-            reg1 = get_registry()
+        """A fresh registry should see approved tools from disk."""
+        _, output_dir = _make_project_dir()
+        _reset_registry()
 
-            code = '''class Tool:
-    def __init__(self, root_dir):
-        self.name = "verify_tool"
-        self.description = "Verification tool"
-        self.parameters = {}
-    def execute(self, params):
-        return ToolResult(success=True, content="Verified!", summary="Done")'''
-            self._create_pending_tool("verify_tool", code)
-            reg1.approve_tool("test-verify_tool")
+        code = '''
+from agent_engine.tools.base import BaseTool, ToolResult
+from typing import Dict, Any
 
-            # Now create a fresh registry (simulates engine restart)
-            _reset_registry()
-            reg2 = get_registry()
+class VerifyTool(BaseTool):
+    """Verification tool."""
+    name = "verify_tool"
+    description = "Verification tool"
+    parameters = {}
 
-            # Should see the approved tool from disk
-            self.assertIn("verify_tool", reg2._dynamic_entries)
-            self.assertIn("verify_tool", [t['name'] for t in reg2.list_tools()])
+    def execute(self, params: Dict[str, Any]) -> ToolResult:
+        return ToolResult(success=True, content="Verified!", summary="Done")
+'''
+        _create_pending_tool_file(output_dir, "verify_tool", code)
 
-            # Should be able to execute it
-            exec_result = reg2.execute("verify_tool", {}, tmpdir)
-            self.assertTrue(exec_result.success)
-            self.assertEqual(exec_result.content, "Verified!")
+        # Approve via first loader
+        loader1 = ProjectToolLoader(output_dir)
+        loader1.approve_tool("verify_tool")
 
-        finally:
-            shutil.rmtree(tmpdir, ignore_errors=True)
+        # Fresh registry should see it
+        _reset_registry()
+        registry = get_registry()
+        loader2 = registry._get_or_create_loader(output_dir)
+        self.assertIn("verify_tool", loader2.get_tool_names())
+
+        exec_result = registry.execute("verify_tool", {}, output_dir, output_dir)
+        self.assertTrue(exec_result.success)
+        self.assertEqual(exec_result.content, "Verified!")
+
+        shutil.rmtree(os.path.dirname(output_dir), ignore_errors=True)
 
     def test_approved_tool_in_list_tools(self):
-        """Approved tools should appear in list_tools() output."""
-        tmpdir = tempfile.mkdtemp()
-        pending_file = os.path.join(tmpdir, "pending_tools.json")
-        try:
-            _reset_registry()
-            registry = get_registry()
+        """Approved tools should appear in loader.list_tools() output."""
+        _, output_dir = _make_project_dir()
+        _reset_registry()
+        registry = get_registry()
 
-            code = '''class Tool:
-    def __init__(self, root_dir):
-        self.name = "list_test"
-        self.description = "A list test tool"
-        self.parameters = {}
-    def execute(self, params):
-        return ToolResult(success=True, content="ok", summary="Done")'''
-            self._create_pending_tool("list_test", code)
-            registry.approve_tool("test-list_test")
+        code = '''
+from agent_engine.tools.base import BaseTool, ToolResult
+from typing import Dict, Any
 
-            tools = registry.list_tools()
-            tool_names = [t['name'] for t in tools]
-            self.assertIn("list_test", tool_names)
+class ListTestTool(BaseTool):
+    """A list test tool."""
+    name = "list_test"
+    description = "A list test tool"
+    parameters = {}
 
-            # Verify the tool definition includes description and parameters
-            list_test_def = next(t for t in tools if t['name'] == 'list_test')
-            self.assertEqual(list_test_def['description'], "Test tool list_test")
-            self.assertEqual(list_test_def['parameters'], {})
+    def execute(self, params: Dict[str, Any]) -> ToolResult:
+        return ToolResult(success=True, content="ok", summary="Done")
+'''
+        _create_pending_tool_file(output_dir, "list_test", code)
+        registry._get_or_create_loader(output_dir).approve_tool("list_test")
 
-        finally:
-            shutil.rmtree(tmpdir, ignore_errors=True)
+        tools = registry._get_or_create_loader(output_dir).list_tools()
+        tool_names = [t['name'] for t in tools]
+        self.assertIn("list_test", tool_names)
+
+        list_test_def = next(t for t in tools if t['name'] == 'list_test')
+        self.assertEqual(list_test_def['description'], "A list test tool")
+        self.assertEqual(list_test_def['parameters'], {})
+
+        shutil.rmtree(os.path.dirname(output_dir), ignore_errors=True)
 
     def test_rejected_tool_not_available(self):
         """Rejected tools should not be available for execution."""
-        tmpdir = tempfile.mkdtemp()
-        pending_file = os.path.join(tmpdir, "pending_tools.json")
-        try:
-            _reset_registry()
-            registry = get_registry()
+        _, output_dir = _make_project_dir()
+        _reset_registry()
+        registry = get_registry()
 
-            code = '''class Tool:
-    def __init__(self, root_dir):
-        self.name = "rejected_tool"
-        self.description = "A rejected tool"
-        self.parameters = {}
-    def execute(self, params):
-        return ToolResult(success=True, content="should not happen", summary="Done")'''
-            self._create_pending_tool("rejected_tool", code)
-            registry.reject_tool("test-rejected_tool")
+        code = '''
+from agent_engine.tools.base import BaseTool, ToolResult
+from typing import Dict, Any
 
-            # Should NOT be in dynamic entries
-            self.assertNotIn("rejected_tool", registry._dynamic_entries)
+class RejectedTool(BaseTool):
+    """A rejected tool."""
+    name = "rejected_tool"
+    description = "A rejected tool"
+    parameters = {}
 
-            # Should NOT be in list_tools
-            tool_names = [t['name'] for t in registry.list_tools()]
-            self.assertNotIn("rejected_tool", tool_names)
+    def execute(self, params: Dict[str, Any]) -> ToolResult:
+        return ToolResult(success=True, content="should not happen", summary="Done")
+'''
+        _create_pending_tool_file(output_dir, "rejected_tool", code)
+        loader = registry._get_or_create_loader(output_dir)
+        loader.reject_tool("rejected_tool")
 
-        finally:
-            shutil.rmtree(tmpdir, ignore_errors=True)
+        # Should NOT be available
+        self.assertNotIn("rejected_tool", loader.get_tool_names())
+
+        # Pending tools should be empty
+        pending = loader.get_pending_tools()
+        self.assertEqual(len(pending), 0)
+
+        shutil.rmtree(os.path.dirname(output_dir), ignore_errors=True)
 
     def test_multiple_approved_tools_all_executable(self):
         """Multiple approved tools should all be executable."""
-        tmpdir = tempfile.mkdtemp()
-        pending_file = os.path.join(tmpdir, "pending_tools.json")
-        try:
-            _reset_registry()
-            registry = get_registry()
+        _, output_dir = _make_project_dir()
+        _reset_registry()
+        registry = get_registry()
 
-            code1 = '''class Tool:
-    def __init__(self, root_dir):
-        self.name = "tool_a"
-        self.description = "Tool A"
-        self.parameters = {}
-    def execute(self, params):
-        return ToolResult(success=True, content="A", summary="Done")'''
-            code2 = '''class Tool:
-    def __init__(self, root_dir):
-        self.name = "tool_b"
-        self.description = "Tool B"
-        self.parameters = {}
-    def execute(self, params):
-        return ToolResult(success=True, content="B", summary="Done")'''
+        code1 = '''
+from agent_engine.tools.base import BaseTool, ToolResult
+from typing import Dict, Any
 
-            self._create_pending_tool("tool_a", code1)
-            self._create_pending_tool("tool_b", code2)
+class ToolA(BaseTool):
+    """Tool A."""
+    name = "tool_a"
+    description = "Tool A"
+    parameters = {}
 
-            registry.approve_tool("test-tool_a")
-            registry.approve_tool("test-tool_b")
+    def execute(self, params: Dict[str, Any]) -> ToolResult:
+        return ToolResult(success=True, content="A", summary="Done")
+'''
+        code2 = '''
+from agent_engine.tools.base import BaseTool, ToolResult
+from typing import Dict, Any
 
-            # Both should be executable
-            r1 = registry.execute("tool_a", {}, tmpdir)
-            self.assertTrue(r1.success)
-            self.assertEqual(r1.content, "A")
+class ToolB(BaseTool):
+    """Tool B."""
+    name = "tool_b"
+    description = "Tool B"
+    parameters = {}
 
-            r2 = registry.execute("tool_b", {}, tmpdir)
-            self.assertTrue(r2.success)
-            self.assertEqual(r2.content, "B")
+    def execute(self, params: Dict[str, Any]) -> ToolResult:
+        return ToolResult(success=True, content="B", summary="Done")
+'''
 
-        finally:
-            shutil.rmtree(tmpdir, ignore_errors=True)
+        _create_pending_tool_file(output_dir, "tool_a", code1)
+        _create_pending_tool_file(output_dir, "tool_b", code2)
+
+        loader = registry._get_or_create_loader(output_dir)
+        loader.approve_tool("tool_a")
+        loader.approve_tool("tool_b")
+
+        # Both should be executable
+        r1 = registry.execute("tool_a", {}, output_dir, output_dir)
+        self.assertTrue(r1.success)
+        self.assertEqual(r1.content, "A")
+
+        r2 = registry.execute("tool_b", {}, output_dir, output_dir)
+        self.assertTrue(r2.success)
+        self.assertEqual(r2.content, "B")
+
+        shutil.rmtree(os.path.dirname(output_dir), ignore_errors=True)
 
 
 if __name__ == '__main__':

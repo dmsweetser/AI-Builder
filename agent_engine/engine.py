@@ -325,7 +325,7 @@ RULES:
 - You have a maximum of {EngineConfig.get_max_steps()} steps total. Use them wisely.
 - After making changes, verify them. If check_syntax fails, fix the errors.
 - When done, use the task_completed tool with a summary of all changes made.
-- To create a new tool, use create_tool. It proposes the tool for user approval - it does NOT execute arbitrary code. Wait for user approval in the live feed before expecting the tool to be available. The tool code must define a top-level function named ``execute(params)`` that returns a ``ToolResult``.
+- To create a new tool, use create_tool. It proposes the tool for user approval - it does NOT execute arbitrary code. Wait for user approval in the live feed before expecting the tool to be available. The tool code must define a class that inherits from BaseTool with name, description, parameters, and an execute(params) method.
 - Use respond_to_user to communicate findings, status updates, or questions to the user.
 - Use request_user_input when you need clarification or a decision before proceeding.
 
@@ -723,17 +723,24 @@ class AgentEngine:
         self._continue_requested = False
 
     def reload_approved_tools(self):
-        """Reload approved tools from disk and rebuild system prompt.
+        """Reload project-local tools and rebuild system prompt.
 
         Call this after tool approval to make newly approved tools
         visible to the LLM without restarting the engine.
         """
-        self.tools._load_approved_tools()
+        # Reload project-local tools
+        self._reload_project_tool_loader()
         self.system_prompt = build_system_prompt(self.tools.list_tools(), self.instance_prefix)
         # Replace the system prompt message in-place so the LLM sees the
         # updated tool list on the next call.
         if self.messages and self.messages[0].get("role") == "system":
             self.messages[0]["content"] = self.system_prompt
+
+    def _reload_project_tool_loader(self):
+        """Reload the project-local tool loader for this project."""
+        project_output_dir = self.output_dir
+        disabled_tools = set(self.project_config.get("enabled_tools", []))
+        self.tools.reload_project_tools(project_output_dir, disabled_tools)
 
     def _reload_project_settings(self):
         """Reload project settings from disk to pick up live changes.
@@ -790,22 +797,6 @@ class AgentEngine:
         # Reload approved tools so any tools approved since the last run
         # are visible to the LLM immediately.
         self.reload_approved_tools()
-
-        # Check for pending tool approvals and notify the LLM if found
-        pending = self.tools.get_pending_tools()
-        if pending:
-            pending_names = ", ".join(t["name"] for t in pending)
-            self.logger.info(f"Found {len(pending)} pending tool(s): {pending_names}")
-            # Add a system message to inform the LLM about pending tools
-            pending_msg = (
-                f"[PENDING TOOLS] There are {len(pending)} tool(s) awaiting approval:\n"
-            )
-            for t in pending:
-                pending_msg += f"  - {t['name']}: {t.get('description', 'No description')}\n"
-            pending_msg += "You cannot use these tools until they are approved. "
-            pending_msg += "Wait for the user to approve them, or suggest using an existing tool."
-            # Insert after system message (index 0)
-            self.messages.insert(1, {"role": "user", "content": pending_msg})
 
         self.logger.info(f"Starting agentic engine for: {self.root_dir}")
         self.logger.info(f"Instructions: {self.instructions[:200]}...")
@@ -1004,7 +995,7 @@ class AgentEngine:
                                     })
                                 except Exception:
                                     pass
-                            result = self.tools.execute("task_completed", tool_calls[0][1], self.root_dir)
+                            result = self.tools.execute("task_completed", tool_calls[0][1], self.root_dir, self.output_dir, set(self.project_config.get("enabled_tools", [])))
                             result_dict = result.to_dict()
                             step_entry["result"] = result_dict
                         except Exception as e:
@@ -1070,7 +1061,7 @@ class AgentEngine:
                                 })
                             except Exception:
                                 pass
-                        result = self.tools.execute(tool_name, params, self.root_dir)
+                        result = self.tools.execute(tool_name, params, self.root_dir, self.output_dir, set(self.project_config.get("enabled_tools", [])))
                         result_dict = result.to_dict()
 
                         # Truncate tool result content to prevent context overflow.

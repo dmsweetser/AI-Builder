@@ -1,30 +1,35 @@
-"""create_tool tool."""
+"""create_tool tool — creates a project-local tool for approval.
+
+The tool creates a .py file in the project's tools/pending/ directory.
+The code is passed as a plain text param_value block (not JSON).
+The resulting tool uses the same class-based format as built-in tools.
+"""
 import os
-import json
 import re
 import uuid
-from datetime import datetime
 from typing import Any, Dict
 from agent_engine.tools.base import BaseTool, ToolResult
-from agent_engine.config import EngineConfig
 
 
 class CreateToolTool(BaseTool):
-    """Tool that allows the agent to propose new tools for user approval.
+    """Tool that allows the agent to propose a new project-local tool for user approval.
 
     The proposed tool is NOT registered until the user explicitly approves it.
-    This replaces the old ``execute_python`` arbitrary-code-execution tool.
+    The tool code is provided as a plain Python class inheriting from BaseTool,
+    following the same format as built-in tools.
+
+    Usage: provide a unique name, clear description, parameter schema (simple
+    format: {"path": "string?", "content": "string?"}), and the Python code
+    as a param_value block.
     """
     name = "create_tool"
     description = (
-        "Propose a new tool for user approval. The proposed tool will NOT be "
-        "available until a user explicitly approves it via the UI. "
-        "Provide a unique name, clear description, parameter schema, and "
-        "the Python implementation code. The code runs inside a sandboxed "
-        "context with access to ``self.root_dir`` (str), ``self.params`` (dict), "
-        "and ``self.tool_name`` (str). Define a top-level function named "
-        "``execute(params)`` that returns a ``ToolResult(success, content, error, summary)``. "
-        "Use this instead of ``execute_python`` which has been removed."
+        "Propose a new project-local tool for user approval. The proposed tool "
+        "will NOT be available until approved. Provide a unique name, clear "
+        "description, parameter schema (simple format like {\"path\": \"string?\"}), "
+        "and the Python implementation code. The code must define a class that "
+        "inherits from BaseTool with name, description, parameters, and an "
+        "execute(params) method. Use self.root_dir for the project path."
     )
     parameters = {
         "name": "string",
@@ -43,52 +48,81 @@ class CreateToolTool(BaseTool):
         if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_-]*$', tool_name):
             return ToolResult(False, "", error="Tool name must match: ^[a-zA-Z_][a-zA-Z0-9_-]*$")
 
-        # Validate description is reasonable
+        # Validate description
         if len(tool_desc) < 10:
             return ToolResult(False, "", error="Description must be at least 10 characters")
 
-        # Parse parameter schema
+        # Parse parameter schema (simple format: {"key": "string?"})
         try:
+            import json
             param_schema = json.loads(tool_params_json) if tool_params_json else {}
         except json.JSONDecodeError as e:
             return ToolResult(False, "", error=f"Invalid JSON for parameters: {e}")
 
-        # Build pending tool record
-        pending_id = str(uuid.uuid4())[:8]
-        timestamp = datetime.now().isoformat()
+        # Determine the project's output directory
+        # The engine sets AIB_OUTPUT_DIR to the project's output directory
+        output_dir = os.environ.get("AIB_OUTPUT_DIR", "")
+        if not output_dir:
+            return ToolResult(False, "", error="AIB_OUTPUT_DIR not set — cannot create tool")
 
-        pending_tool = {
-            "id": pending_id,
-            "name": tool_name,
-            "description": tool_desc,
-            "parameters": param_schema,
-            "code": tool_code,
-            "status": "pending",
-            "submitted_at": timestamp,
-        }
+        # Create the pending tools directory
+        pending_dir = os.path.join(output_dir, "tools", "pending")
+        os.makedirs(pending_dir, exist_ok=True)
 
-        # Persist to the GLOBAL pending tools file (aib_instance/output/pending_tools.json)
-        # This is where ToolRegistry looks for pending tools
-        pending_file = EngineConfig.get_pending_tools_file()
-        os.makedirs(os.path.dirname(pending_file), exist_ok=True)
+        # Write the tool .py file
+        tool_file = os.path.join(pending_dir, f"{tool_name}.py")
 
-        pending_tools = []
-        if os.path.exists(pending_file):
-            try:
-                with open(pending_file, 'r') as f:
-                    pending_tools = json.load(f)
-            except Exception:
-                pending_tools = []
+        # Build the tool file content
+        file_content = self._build_tool_file(tool_name, tool_desc, tool_params_json, tool_code)
 
-        # Deduplicate: remove any existing entry with the same tool name
-        pending_tools = [t for t in pending_tools if t.get("name") != tool_name or t.get("status") != "pending"]
-
-        pending_tools.append(pending_tool)
-        with open(pending_file, 'w') as f:
-            json.dump(pending_tools, f, indent=2)
+        with open(tool_file, 'w', encoding='utf-8') as f:
+            f.write(file_content)
 
         return ToolResult(
             True,
-            json.dumps(pending_tool, indent=2),
-            summary=f"Tool '{tool_name}' proposed for approval (ID: {pending_id}). Awaiting user review.",
+            f"Tool '{tool_name}' proposed for approval.\n\n"
+            f"Code preview (first 500 chars):\n{tool_code[:500]}\n\n"
+            f"Go to the TOOLS tab to review and approve or reject.",
+            summary=f"Tool '{tool_name}' proposed for approval.",
         )
+
+    def _build_tool_file(self, tool_name: str, description: str,
+                         parameters_json: str, code: str) -> str:
+        """Build the .py file content for a tool.
+
+        If the code already contains a proper class, wrap it.
+        Otherwise, create a class wrapper around the provided code.
+        """
+        # Check if the code already has a class definition
+        if re.search(r'class\s+\w+\s*\(', code):
+            # Code has a class — use it as-is
+            return code
+
+        # Code is a function — wrap it in a class
+        class_body = f'''\"\"\"Auto-generated tool: {tool_name}\"\"\"
+from agent_engine.tools.base import BaseTool, ToolResult
+from typing import Dict, Any
+
+
+class {tool_name.title().replace("_", "")}Tool(BaseTool):
+    """{description}"""
+    name = "{tool_name}"
+    description = "{description}"
+    parameters = {parameters_json}
+
+    def execute(self, params: Dict[str, Any]) -> ToolResult:
+        """Execute the tool logic."""
+{self._indent_code(code)}
+'''
+        return class_body
+
+    def _indent_code(self, code: str, spaces=8) -> str:
+        """Indent code blocks for embedding in a class method."""
+        lines = code.split('\n')
+        indented = []
+        for line in lines:
+            if line.strip():
+                indented.append(' ' * spaces + line)
+            else:
+                indented.append('')
+        return '\n'.join(indented)
