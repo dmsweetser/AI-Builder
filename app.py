@@ -48,7 +48,8 @@ app = Flask(__name__,
 _AIB_INSTANCE = os.path.join(_app_dir, "aib_instance")
 STATUS_FILE = os.path.join(_AIB_INSTANCE, "run_status.json")
 HISTORY_FILE = os.path.join(_AIB_INSTANCE, "job_history.json")
-PROJECTS_FILE = os.path.join(_AIB_INSTANCE, "projects.json")
+PROJECTS_DIR = os.path.join(_AIB_INSTANCE, "projects")
+os.makedirs(PROJECTS_DIR, exist_ok=True)
 CHATS_DIR = os.path.join(_AIB_INSTANCE, "chats")
 SETTINGS_FILE = os.path.join(_AIB_INSTANCE, "settings.json")
 
@@ -160,7 +161,7 @@ def init_directories():
     os.makedirs(_AIB_INSTANCE, exist_ok=True)
     os.makedirs(os.path.dirname(STATUS_FILE), exist_ok=True)
     os.makedirs(os.path.dirname(HISTORY_FILE), exist_ok=True)
-    os.makedirs(os.path.dirname(PROJECTS_FILE), exist_ok=True)
+    os.makedirs(os.path.dirname(PROJECTS_DIR), exist_ok=True)
     os.makedirs(CHATS_DIR, exist_ok=True)
     os.makedirs(os.path.dirname(SETTINGS_FILE), exist_ok=True)
     # Ensure output directory exists for agent engine
@@ -188,26 +189,44 @@ def save_job_history():
         pass
 
 def load_projects():
-    if not os.path.exists(PROJECTS_FILE):
-        with open(PROJECTS_FILE, "w", encoding="utf-8") as f:
-            json.dump([], f)
-    with open(PROJECTS_FILE, "r", encoding="utf-8") as f:
-        projects = json.load(f)
-
-    # Migrate legacy projects (no output_dir/run_number fields)
-    for p in projects:
-        if "output_dir" not in p:
-            p["output_dir"] = os.path.join(_AIB_INSTANCE, "output", p["id"])
-            p["run_number"] = 0
-            p["last_job_id"] = None
-        # Ensure output directory exists
-        os.makedirs(p.get("output_dir", ""), exist_ok=True)
-
+    """Load all projects from individual JSON files in PROJECTS_DIR."""
+    projects = []
+    if os.path.isdir(PROJECTS_DIR):
+        for fname in sorted(os.listdir(PROJECTS_DIR)):
+            if fname.endswith(".json"):
+                fpath = os.path.join(PROJECTS_DIR, fname)
+                try:
+                    with open(fpath, "r", encoding="utf-8") as f:
+                        p = json.load(f)
+                    # Migrate legacy fields
+                    if "output_dir" not in p:
+                        p["output_dir"] = os.path.join(_AIB_INSTANCE, "output", p["id"])
+                        p["run_number"] = 0
+                        p["last_job_id"] = None
+                    os.makedirs(p.get("output_dir", ""), exist_ok=True)
+                    projects.append(p)
+                except Exception:
+                    continue
     return projects
 
-def save_projects(projects):
-    with open(PROJECTS_FILE, "w", encoding="utf-8") as f:
-        json.dump(projects, f, indent=2)
+
+def save_project(project):
+    """Save a single project to its own JSON file."""
+    pid = project.get("id", "")
+    if not pid:
+        raise ValueError("Project must have an id")
+    fpath = os.path.join(PROJECTS_DIR, f"{pid}.json")
+    with open(fpath, "w", encoding="utf-8") as f:
+        json.dump(project, f, indent=2)
+
+
+def delete_project_file(pid):
+    """Delete a project's JSON file."""
+    fpath = os.path.join(PROJECTS_DIR, f"{pid}.json")
+    if os.path.exists(fpath):
+        os.remove(fpath)
+        return True
+    return False
 
 # --- Worker Thread ---
 def worker():
@@ -268,8 +287,7 @@ def worker():
             # Update project's last_job_id
             if project:
                 project["last_job_id"] = job_id
-                _, projs = get_project(pid)
-                save_projects(projs)
+                save_project(project)
             save_job_history()
             with job_queue_lock:
                 running_job = None
@@ -505,7 +523,7 @@ def api_create_project():
     }
 
     projects.append(project)
-    save_projects(projects)
+    save_project(project)
     return jsonify(project)
 
 @app.route("/api/projects/<pid>", methods=["POST"])
@@ -531,7 +549,7 @@ def api_update_project(pid):
 
     # Clean up old enabled_tools field if present
     project.pop("enabled_tools", None)
-    save_projects(projects)
+    save_project(project)
     return jsonify({"status": "saved", "project": project})
 
 @app.route("/api/projects/<pid>/archive", methods=["POST"])
@@ -540,8 +558,8 @@ def api_archive_project(pid):
     for project in projects:
         if project["id"] == pid:
             project["isArchived"] = True
+            save_project(project)
             break
-    save_projects(projects)
     return jsonify({"status": "archived"})
 
 @app.route("/api/projects/<pid>/unarchive", methods=["POST"])
@@ -550,8 +568,8 @@ def api_unarchive_project(pid):
     for project in projects:
         if project["id"] == pid:
             project["isArchived"] = False
+            save_project(project)
             break
-    save_projects(projects)
     return jsonify({"status": "unarchived"})
 
 
@@ -577,7 +595,7 @@ def api_reset_project(pid):
         # Reset project state
         project["run_number"] = 0
         project["last_job_id"] = None
-        save_projects(projects)
+        save_project(project)
 
         # Also remove this project's entries from job_history
         global job_history
@@ -613,7 +631,7 @@ def api_run_project(pid):
     project["run_number"] = project.get("run_number", 0) + 1
     run_number = project["run_number"]
     project["last_job_id"] = None  # Will be set when run completes
-    save_projects(projects)
+    save_project(project)
 
     job_id = str(int(time.time() * 1000))
 
@@ -683,7 +701,7 @@ def api_add_to_queue():
     project["run_number"] = project.get("run_number", 0) + 1
     run_number = project["run_number"]
     project["last_job_id"] = None
-    save_projects(projects)
+    save_project(project)
 
     job_id = str(int(time.time() * 1000))
     with job_queue_lock:
@@ -749,9 +767,7 @@ def api_delete_project(pid):
             running_job = None
     start_worker()
 
-    projects = load_projects()
-    projects = [p for p in projects if p["id"] != pid]
-    save_projects(projects)
+    delete_project_file(pid)
     return jsonify({"status": "deleted"})
 
 # --- Routes: History ---
@@ -1084,7 +1100,7 @@ def api_agent_run():
             if p["id"] == project_id:
                 p.update(project)
                 break
-        save_projects(projects)
+        save_project(project)
         project_name = project.get("name", "Ad-hoc")
     else:
         output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
@@ -1260,9 +1276,16 @@ def api_agent_run():
                 # can show the pending-approval banner and let the user
                 # approve/reject before continuing.
                 if result.get("status") == "pending_approval":
+                    # Extract tool name from step_history (last step should be create_tool)
+                    step_history = result.get("step_history", [])
+                    tool_name = "unknown"
+                    for step in reversed(step_history):
+                        if step.get("tool") == "create_tool":
+                            tool_name = step.get("params", {}).get("name", "unknown")
+                            break
                     event_queue.put({
                         "type": "__pending_approval__",
-                        "tool_name": "unknown",
+                        "tool_name": tool_name,
                     })
 
                 # Handle pending_user_input: signal the SSE handler so the UI
@@ -1707,7 +1730,7 @@ def api_set_project_tools(pid):
     project["disabled_tools"] = disabled_tools
     # Clean up old enabled_tools field if present
     project.pop("enabled_tools", None)
-    save_projects(projects)
+    save_project(project)
     # Reload tools in running engines for this project
     with _sse_jobs_lock:
         for job_id, job_info in _sse_jobs.items():

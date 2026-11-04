@@ -54,16 +54,60 @@ class CreateToolTool(BaseTool):
 
         # Parse parameter schema (simple format: {"key": "string?"})
         try:
-            import json
-            param_schema = json.loads(tool_params_json) if tool_params_json else {}
-        except json.JSONDecodeError as e:
+            import json as _json
+            param_schema = _json.loads(tool_params_json) if tool_params_json else {}
+        except _json.JSONDecodeError as e:
             return ToolResult(False, "", error=f"Invalid JSON for parameters: {e}")
 
         # Determine the project's output directory
-        # The engine sets AIB_OUTPUT_DIR to the project's output directory
         output_dir = os.environ.get("AIB_OUTPUT_DIR", "")
         if not output_dir:
             return ToolResult(False, "", error="AIB_OUTPUT_DIR not set — cannot create tool")
+
+        # Build the tool file content
+        file_content = self._build_tool_file(tool_name, tool_desc, tool_params_json, tool_code)
+
+        # Validate the tool code by compiling it in a temporary module
+        try:
+            import tempfile as _tempfile
+            import importlib.util as _importlib_util
+            with _tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False, dir=output_dir) as tmp:
+                tmp.write(file_content)
+                tmp_path = tmp.name
+            spec = _importlib_util.spec_from_file_location(f"validate_{tool_name}", tmp_path)
+            if spec and spec.loader:
+                module = _importlib_util.module_from_spec(spec)
+                spec.loader.exec_module(module)
+                # Verify it has a class that inherits from BaseTool
+                found_class = False
+                for attr_name in dir(module):
+                    attr = getattr(module, attr_name)
+                    if isinstance(attr, type) and attr.__name__ != "BaseTool":
+                        # Check if it inherits from BaseTool
+                        try:
+                            is_subclass = issubclass(attr, BaseTool)
+                        except TypeError:
+                            is_subclass = False
+                        if is_subclass:
+                            if getattr(attr, "name", None) == tool_name:
+                                found_class = True
+                                break
+                if not found_class:
+                    return ToolResult(False, "", error=f"Tool code must define a class named '{tool_name}' that inherits from BaseTool")
+            else:
+                return ToolResult(False, "", error="Failed to compile tool code — invalid Python syntax")
+        except SyntaxError as e:
+            return ToolResult(False, "", error=f"Syntax error in tool code: {e}")
+        except ImportError as e:
+            return ToolResult(False, "", error=f"Import error in tool code: {e}")
+        except Exception as e:
+            return ToolResult(False, "", error=f"Tool code validation failed: {e}")
+        finally:
+            # Clean up temp file
+            try:
+                os.remove(tmp_path)
+            except Exception:
+                pass
 
         # Create the pending tools directory
         pending_dir = os.path.join(output_dir, "tools", "pending")
@@ -71,9 +115,6 @@ class CreateToolTool(BaseTool):
 
         # Write the tool .py file
         tool_file = os.path.join(pending_dir, f"{tool_name}.py")
-
-        # Build the tool file content
-        file_content = self._build_tool_file(tool_name, tool_desc, tool_params_json, tool_code)
 
         with open(tool_file, 'w', encoding='utf-8') as f:
             f.write(file_content)
@@ -94,7 +135,7 @@ class CreateToolTool(BaseTool):
         Otherwise, create a class wrapper around the provided code.
         """
         # Check if the code already has a class definition
-        if re.search(r'class\s+\w+\s*\(', code):
+        if re.search(r'class\s+\w+', code):
             # Code has a class — use it as-is
             return code
 

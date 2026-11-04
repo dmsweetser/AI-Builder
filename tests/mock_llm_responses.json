@@ -7,25 +7,13 @@
   },
   {
     "pattern": "",
-    "response": "[TOOL_START]\n[TOOL_NAME]\nread_file\n[PARAM_NAME]\npath\n[PARAM_VALUE]\nsrc/main.py\n[TOOL_END]",
+    "response": "[TOOL_START]\n[TOOL_NAME]\ncreate_tool\n[PARAM_NAME]\nname\n[PARAM_VALUE]\nfibonacci_tool\n[PARAM_NAME]\ndescription\n[PARAM_VALUE]\nA tool that calculates the Fibonacci sequence up to a given number\n[PARAM_NAME]\nparameters\n[PARAM_VALUE]\n{\"n\": \"integer\"}\n[PARAM_NAME]\ncode\n[PARAM_VALUE]\n\"\"\"Fibonacci tool.\"\"\"\nfrom agent_engine.tools.base import BaseTool, ToolResult\nfrom typing import Dict, Any\n\nclass FibonacciTool(BaseTool):\n    \"\"\"Calculates Fibonacci sequence.\"\"\"\n    name = \"fibonacci_tool\"\n    description = \"A tool that calculates the Fibonacci sequence up to a given number\"\n    parameters = {\"n\": \"integer\"}\n\n    def execute(self, params: Dict[str, Any]) -> ToolResult:\n        n = params.get('n', 10)\n        fib = [0, 1]\n        for i in range(2, n):\n            fib.append(fib[-1] + fib[-2])\n        return ToolResult(success=True, content=f\"Fibonacci({n}) = {fib}\")\n[TOOL_END]",
     "finish_reason": "stop",
     "sequential": true
   },
   {
     "pattern": "",
-    "response": "[TOOL_START]\n[TOOL_NAME]\nedit_file\n[PARAM_NAME]\npath\n[PARAM_VALUE]\nsrc/main.py\n[PARAM_NAME]\noriginal_text\n[PARAM_VALUE]\ndef add(a, b):\n    return a + b\n\ndef multiply(a, b):\n    return a * b\n\n[PARAM_NAME]\nnew_text\n[PARAM_VALUE]\ndef add(a, b):\n    return a + b\n\ndef multiply(a, b):\n    return a * b\n\ndef subtract(a, b):\n    return a - b\n[TOOL_END]",
-    "finish_reason": "stop",
-    "sequential": true
-  },
-  {
-    "pattern": "",
-    "response": "[TOOL_START]\n[TOOL_NAME]\ncheck_syntax\n[PARAM_NAME]\npath\n[PARAM_VALUE]\nsrc/main.py\n[TOOL_END]",
-    "finish_reason": "stop",
-    "sequential": true
-  },
-  {
-    "pattern": "",
-    "response": "[TOOL_START]\n[TOOL_NAME]\ntask_completed\n[PARAM_NAME]\nsummary\n[PARAM_VALUE]\nAdded subtract function to src/main.py.\n[TOOL_END]",
+    "response": "[TOOL_START]\n[TOOL_NAME]\ntask_completed\n[PARAM_NAME]\nsummary\n[PARAM_VALUE]\nProposed fibonacci_tool for approval.\n[TOOL_END]",
     "finish_reason": "stop",
     "sequential": true
   }

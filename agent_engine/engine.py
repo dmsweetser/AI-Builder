@@ -713,6 +713,172 @@ class AgentEngine:
         # Allow user to continue after max_steps
         self._continue_requested = False
 
+    def _deterministic_compress_context(self):
+        """Deterministically compress context by removing low-value items.
+
+        Instead of asking the LLM to summarize, we:
+        1. Identify low-value messages (old list_directory, old file reads)
+        2. Group consecutive low-value items
+        3. Replace each group with a compact summary
+        4. Keep high-value items (recent tool results, important context)
+
+        This preserves key information while freeing up context space.
+        """
+        # Find tool result messages (user messages with [TOOL_RESULT]...)
+        tool_results = []
+        for i, msg in enumerate(self.messages):
+            if msg.get("role") == "user":
+                content = msg.get("content", "")
+                if "[TOOL_RESULT]" in content:
+                    tool_results.append(i)
+
+        if len(tool_results) <= 3:
+            # Not enough tool results to compress
+            return
+
+        # Identify which tool results are "low value" for removal:
+        # - list_directory results (unless very recent)
+        # - read_file results for files that are no longer being edited
+        # - search_files/grep_code results (unless very recent)
+        # We keep the last 2-3 tool results regardless of type
+
+        low_value_indices = []
+        keep_count = 3  # Always keep the last 3 tool results
+
+        for idx in tool_results:
+            # Extract tool name from the result
+            content = self.messages[idx].get("content", "")
+            try:
+                import json as _json
+                result_data = _json.loads(content)
+                step_data = result_data.get("result", {})
+                if isinstance(step_data, str):
+                    step_data = _json.loads(step_data)
+                tool_name = step_data.get("tool", "")
+                was_truncated = step_data.get("truncated", False)
+            except (json.JSONDecodeError, KeyError, TypeError):
+                tool_name = ""
+                was_truncated = False
+
+            # Determine if this is a low-value tool result
+            is_low_value = False
+            if tool_name in ("list_directory", "list_directory_deep"):
+                is_low_value = True
+            elif tool_name in ("search_files", "search_files_dir", "grep_code", "grep_code_dir"):
+                is_low_value = True
+            elif tool_name == "read_file":
+                # Read results are somewhat valuable, but old ones can be compressed
+                is_low_value = True
+            elif tool_name == "check_syntax":
+                is_low_value = True
+            elif tool_name == "get_file_info":
+                is_low_value = True
+
+            # Never compress if the result was truncated (important context)
+            if was_truncated:
+                is_low_value = False
+
+            # Mark for removal if it's low-value and not in the last 3
+            if is_low_value and len(low_value_indices) < (len(tool_results) - keep_count):
+                low_value_indices.append(idx)
+
+        if not low_value_indices:
+            return
+
+        # Group consecutive low-value indices and replace each group
+        groups = []
+        current_group = [low_value_indices[0]]
+
+        for i in range(1, len(low_value_indices)):
+            if low_value_indices[i] == low_value_indices[i - 1] + 1:
+                current_group.append(low_value_indices[i])
+            else:
+                groups.append(current_group)
+                current_group = [low_value_indices[i]]
+        groups.append(current_group)
+
+        # Replace each group with a compact summary
+        for group in groups:
+            if not group:
+                continue
+
+            first_idx = group[0]
+            last_idx = group[-1]
+
+            # Count how many items were removed
+            removed_count = len(group)
+
+            # Build a summary of what was removed
+            removed_tools = []
+            for idx in group:
+                content = self.messages[idx].get("content", "")
+                try:
+                    import json as _json
+                    result_data = _json.loads(content)
+                    step_data = result_data.get("result", {})
+                    if isinstance(step_data, str):
+                        step_data = _json.loads(step_data)
+                    tool_name = step_data.get("tool", "unknown")
+                    removed_tools.append(tool_name)
+                except (json.JSONDecodeError, KeyError, TypeError):
+                    removed_tools.append("unknown")
+
+            # Count total tokens removed
+            tokens_removed = sum(
+                _estimate_tokens(self.messages[idx].get("content", ""))
+                for idx in group
+            )
+
+            # Create the replacement message
+            # Also remove the corresponding assistant messages (LLM responses)
+            # that precede these tool results
+            assistant_indices_to_remove = []
+            for idx in group:
+                # Look for the assistant message before this tool result
+                for j in range(idx - 1, max(0, idx - 5), -1):
+                    if self.messages[j].get("role") == "assistant":
+                        assistant_indices_to_remove.append(j)
+                        break
+
+            # Remove duplicates and sort
+            assistant_indices_to_remove = sorted(set(assistant_indices_to_remove), reverse=True)
+
+            # Build the summary message
+            tool_counts = {}
+            for t in removed_tools:
+                tool_counts[t] = tool_counts.get(t, 0) + 1
+
+            summary_parts = []
+            for tool_name, count in sorted(tool_counts.items()):
+                summary_parts.append(f"  - {tool_name}: {count} result(s)")
+
+            summary = (
+                f"[COMPRESSED] Removed {removed_count} low-value tool result(s) "
+                f"({tokens_removed} tokens) for brevity:\n"
+                + "\n".join(summary_parts) +
+                f"\n[Removed {removed_count} tool result(s), {tokens_removed} tokens]"
+            )
+
+            # Replace the first tool result with the summary
+            self.messages[first_idx] = {
+                "role": "user",
+                "content": summary,
+            }
+
+            # Remove the rest of the tool results in this group
+            for idx in reversed(group[1:]):
+                self.messages.pop(idx)
+
+            # Remove the corresponding assistant messages
+            for idx in assistant_indices_to_remove:
+                if idx < len(self.messages):
+                    self.messages.pop(idx)
+
+        self.logger.info(
+            f"Deterministic context compression: removed {len(low_value_indices)} "
+            f"low-value items ({tokens_removed} tokens)"
+        )
+
     def reload_approved_tools(self):
         """Reload project-local tools and rebuild system prompt.
 
@@ -856,7 +1022,7 @@ class AgentEngine:
                         )
                     })
 
-                # Check if context is getting large - prompt user to manually compress
+                # Check if context is getting large - apply deterministic compression
                 if (not self._context_warning_shown and
                     self.max_context_tokens > 0):
                     current_tokens = sum(_estimate_tokens(m.get("content", "")) for m in self.messages)
@@ -875,14 +1041,17 @@ class AgentEngine:
                             except Exception:
                                 pass
                         self._context_warning_shown = True
-                        # Add a user message prompting the agent to compress
+                        
+                        # Apply deterministic context compression
+                        self._deterministic_compress_context()
+                        
+                        # Add a user message explaining the compression
                         self.messages.append({
                             "role": "user",
                             "content": (
-                                f"[CONTEXT WARNING] Your conversation context is at {round(usage_pct * 100, 1)}% of the context window "
-                                f"({current_tokens}/{self.max_context_tokens} tokens). "
-                                f"Please use the compress_context tool to summarize prior steps and free up context space "
-                                f"before continuing with your task."
+                                f"[CONTEXT COMPRESSED] Your conversation context was at {round(usage_pct * 100, 1)}% of the context window. "
+                                f"Low-value items (old tool results, repetitive outputs) have been removed for brevity. "
+                                f"Key information has been preserved. Continue with your task."
                             ),
                         })
 

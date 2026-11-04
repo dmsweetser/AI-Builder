@@ -232,7 +232,7 @@ class TestContextWarningEvent(unittest.TestCase):
             shutil.rmtree(tmpdir, ignore_errors=True)
 
     def test_context_warning_message_added_to_history(self):
-        """context_warning should add a user message prompting compress_context."""
+        """context_warning should add a user message explaining deterministic compression."""
         tmpdir = tempfile.mkdtemp()
         try:
             mock_llm = MagicMock()
@@ -253,11 +253,11 @@ class TestContextWarningEvent(unittest.TestCase):
 
             warning_msg_found = False
             for m in engine.messages:
-                if m.get("role") == "user" and "[CONTEXT WARNING]" in m.get("content", ""):
+                if m.get("role") == "user" and "[CONTEXT COMPRESSED]" in m.get("content", ""):
                     warning_msg_found = True
-                    self.assertIn("compress_context", m["content"])
-                    self.assertIn("tokens", m["content"])
-            self.assertTrue(warning_msg_found, "[CONTEXT WARNING] message not found in messages")
+                    self.assertIn("Low-value items", m["content"])
+                    self.assertIn("context window", m["content"])
+            self.assertTrue(warning_msg_found, "[CONTEXT COMPRESSED] message not found in messages")
 
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)
