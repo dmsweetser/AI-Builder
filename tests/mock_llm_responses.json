@@ -13,7 +13,7 @@
   },
   {
     "pattern": "",
-    "response": "[TOOL_START]\n[TOOL_NAME]\nedit_file\n[PARAM_NAME]\npath\n[PARAM_VALUE]\nsrc/main.py\n[PARAM_NAME]\noriginal_text\n[PARAM_VALUE]\ndef add(a, b):\n    return a + b\n\ndef multiply(a, b):\n    return a * b\n\n[PARAM_NAME]\nnew_text\n[PARAM_VALUE]\ndef add(a, b):\n    return a + b\n\ndef multiply(a, b):\n    return a * b\n\ndef divide(a, b):\n    if b == 0:\n        raise ValueError(\"Cannot divide by zero\")\n    return a / b\n[TOOL_END]",
+    "response": "[TOOL_START]\n[TOOL_NAME]\nedit_file\n[PARAM_NAME]\npath\n[PARAM_VALUE]\nsrc/main.py\n[PARAM_NAME]\noriginal_text\n[PARAM_VALUE]\ndef add(a, b):\n    return a + b\n\ndef multiply(a, b):\n    return a * b\n\n[PARAM_NAME]\nnew_text\n[PARAM_VALUE]\ndef add(a, b):\n    return a + b\n\ndef multiply(a, b):\n    return a * b\n\ndef subtract(a, b):\n    return a - b\n[TOOL_END]",
     "finish_reason": "stop",
     "sequential": true
   },
@@ -25,7 +25,7 @@
   },
   {
     "pattern": "",
-    "response": "[TOOL_START]\n[TOOL_NAME]\ntask_completed\n[PARAM_NAME]\nsummary\n[PARAM_VALUE]\nAdded divide function to src/main.py with division-by-zero handling.\n[TOOL_END]",
+    "response": "[TOOL_START]\n[TOOL_NAME]\ntask_completed\n[PARAM_NAME]\nsummary\n[PARAM_VALUE]\nAdded subtract function to src/main.py.\n[TOOL_END]",
     "finish_reason": "stop",
     "sequential": true
   }

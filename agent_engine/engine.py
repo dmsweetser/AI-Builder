@@ -248,11 +248,22 @@ class LLMClient:
 
 
 
-def build_system_prompt(tools: List[Dict[str, Any]]) -> str:
-    """Build the system prompt that defines the agentic workflow."""
+def build_system_prompt(tools: List[Dict[str, Any]], instance_prefix: str = "") -> str:
+    """Build the system prompt that defines the agentic workflow.
+
+    Args:
+        tools: List of tool definitions from the registry.
+        instance_prefix: Optional prefix for tool names. When set, all tool names
+            in the prompt are prefixed (e.g., "a1b2c3d4_write_file"). This ensures
+            that when the agent reads its own source code, tool call blocks embedded
+            in the code use unprefixed names that the parser won't extract.
+    """
     tool_defs = ""
     for t in tools:
-        tool_defs += f"\n  - {t['name']}: {t['description']}"
+        tool_name = t['name']
+        if instance_prefix:
+            tool_name = f"{instance_prefix}_{tool_name}"
+        tool_defs += f"\n  - {tool_name}: {t['description']}"
         if t.get('parameters'):
             tool_defs += "\n    Required parameters:"
             for pk, pv in t['parameters'].items():
@@ -426,7 +437,7 @@ STEP 1: Use list_directory to explore the project structure. Do NOT use task_com
     return prompt
 
 
-def parse_tool_calls(response: str) -> List[Tuple[str, Dict[str, str], Optional[str]]]:
+def parse_tool_calls(response: str, prefix: str = "") -> List[Tuple[str, Dict[str, str], Optional[str]]]:
     """Parse tool calls from LLM response using the simplified tag-based format.
 
     Format:
@@ -446,6 +457,8 @@ def parse_tool_calls(response: str) -> List[Tuple[str, Dict[str, str], Optional[
     - [tool_name] directly after [TOOL_START] (without [TOOL_NAME] tag)
     - Natural language text before/after tool call blocks
     - [RATIONALE] block for explaining reasoning
+    - Instance prefix: if prefix is set, tool names are expected to be prefixed
+      (e.g., "a1b2c3d4_write_file") and the prefix is stripped before returning.
     """
     calls = []
     # Normalize LLM quirks: treat [PARAM_END] as [TOOL_END]
@@ -461,29 +474,27 @@ def parse_tool_calls(response: str) -> List[Tuple[str, Dict[str, str], Optional[
     tool_pattern = r'\[TOOL_START\]\s*\[TOOL_NAME\]\s*\n(.*?)\n(.*?)\[TOOL_END\]'
     tool_matches = list(re.finditer(tool_pattern, normalized, re.DOTALL))
 
+    def _process_match(tool_name: str, params_block: str):
+        rationale = _extract_rationale(params_block)
+        params_block = re.sub(r'\[RATIONALE\].*?$', '', params_block, flags=re.DOTALL)
+        params = _parse_params(params_block)
+        if tool_name and params is not None:
+            # Strip instance prefix if present
+            if prefix and tool_name.startswith(prefix + '_'):
+                tool_name = tool_name[len(prefix) + 1:]
+            calls.append((tool_name, params, rationale))
+
     # Prefer standard matches; fall back to alt matches if no standard matches found
     if tool_matches:
         for match in tool_matches:
             tool_name = match.group(1).strip()
             params_block = match.group(2)
-            rationale = _extract_rationale(params_block)
-            # Strip rationale block so the param parser doesn't see it.
-            # Use '$' anchor (end of string) instead of '[TOOL_END]' because
-            # the main regex already consumed [TOOL_END] as the delimiter,
-            # so it is NOT present in params_block.
-            params_block = re.sub(r'\[RATIONALE\].*?$', '', params_block, flags=re.DOTALL)
-            params = _parse_params(params_block)
-            if tool_name and params is not None:
-                calls.append((tool_name, params, rationale))
+            _process_match(tool_name, params_block)
     elif alt_matches:
         for match in alt_matches:
             tool_name = match.group(1).strip()
             params_block = match.group(2)
-            rationale = _extract_rationale(params_block)
-            params_block = re.sub(r'\[RATIONALE\].*?$', '', params_block, flags=re.DOTALL)
-            params = _parse_params(params_block)
-            if tool_name and params is not None:
-                calls.append((tool_name, params, rationale))
+            _process_match(tool_name, params_block)
 
     return calls
 
@@ -624,6 +635,12 @@ class AgentEngine:
         self.instructions = project_config.get("instructions", "")
         self.job_id = project_config.get("job_id", str(int(time.time() * 1000)))
 
+        # Generate a unique instance prefix for this agent run.
+        # This prefix is prepended to all tool names in the system prompt.
+        # When the agent reads its own source code, tool call blocks in the code
+        # use unprefixed names, so the parser won't extract them as tool calls.
+        self.instance_prefix = uuid.uuid4().hex[:8]
+
         # Use caller-provided output_dir (from UI) to ensure consistent
         # aib_instance/output/ path for both agent_engine and legacy modes.
         if output_dir:
@@ -669,7 +686,7 @@ class AgentEngine:
 
         # Conversation history
         self.messages: List[Dict[str, str]] = []
-        self.system_prompt = build_system_prompt(self.tools.list_tools())
+        self.system_prompt = build_system_prompt(self.tools.list_tools(), self.instance_prefix)
         self.messages.append({"role": "system", "content": self.system_prompt})
 
         # Results tracking
@@ -697,7 +714,7 @@ class AgentEngine:
         visible to the LLM without restarting the engine.
         """
         self.tools._load_approved_tools()
-        self.system_prompt = build_system_prompt(self.tools.list_tools())
+        self.system_prompt = build_system_prompt(self.tools.list_tools(), self.instance_prefix)
         # Replace the system prompt message in-place so the LLM sees the
         # updated tool list on the next call.
         if self.messages and self.messages[0].get("role") == "system":
@@ -912,7 +929,7 @@ class AgentEngine:
                 cleaned_response = "\n\n".join(cleaned_parts).strip()
 
                 # Parse tool calls FIRST — before checking for task_completed
-                tool_calls = parse_tool_calls(response)
+                tool_calls = parse_tool_calls(response, self.instance_prefix)
                 done, summary = is_done(response)
 
                 # If LLM produced tool calls (with or without task_completed):

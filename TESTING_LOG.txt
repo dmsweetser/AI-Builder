@@ -1,21 +1,5 @@
 2026-11-03 - Pending tool approval execution bug fixed:
-  - Root cause: _create_tool_instance() required dynamic tools to be BaseTool subclasses
-    via issubclass(tool_cls, BaseTool), but LLM generates plain class Tool
-  - Fix: Removed issubclass check — now accepts any class with __init__ and execute
-  - Verified all 3 code formats: plain class, BaseTool subclass, function-based
-  - All 7 pending tool approval tests pass (plain class, subclass, function, fresh registry,
-    list_tools inclusion, rejected tool exclusion, multiple tools)
-  - Full test suite: 258 tests pass (3 skipped), E2E passes
 2026-10-30 - ToolRegistry refactored to module-level static class:
-  - Created _BUILTIN_TOOL_CLASSES dict (21 tool classes) populated once at import
-  - get_registry() creates singleton on first call, returns same instance always
-  - get_registry(_root_dir=None) accepts arg for backward compat but ignores it
-  - _dynamic_entries (approved tools) loaded once from disk at init, only appended
-  - _enabled_tools set manages global enable/disable
-  - _reset_registry() helper added for test isolation (clears singleton)
-  - Tool instances created per-execution with correct root_dir (no cross-engine leakage)
-  - All 251 unit tests pass, E2E test passes
-  - Static registry verified: 21 built-in classes, singleton behavior confirmed
 2026-10-30 - Tool format reminder updated to verbose format with task_completed tool
 2026-10-30 - task_completed tool created to replace [DONE] marker
 2026-10-30 - Engine now strips non-tool content from LLM responses
@@ -341,5 +325,34 @@
 2026-11-03 -   Validation:
 2026-11-03 -     All 251 unit tests PASS (3 skipped)
 2026-11-03 -     Total test coverage: 251 unit + 1 E2E = 252 tests (3 skipped)</parameter>
-<parameter=old_string>
 2026-11-02 -   TOTAL: 49 + 35 + 35 + 40 + 52 + 28 + 22 = 261 unit tests pass (3 skipped), E2E test passes
+
+2026-11-04 - Round 16: edit_file multi-strategy improvements + instance prefix + code block stripping
+2026-11-04 -   ISSUE 1 — edit_file fails constantly on granular modifications:
+2026-11-04 -     Root cause: edit_file only did exact string matching with one fragile
+2026-11-04 -       whitespace-normalization fallback. LLM often provided slightly wrong whitespace.
+2026-11-04 -     Fix: Redesigned edit_file with 5 strategies tried in order:
+2026-11-04 -       1. Exact match (original)
+2026-11-04 -       2. Whitespace-insensitive match (token-based regex)
+2026-11-04 -       3. Line-range replacement (line_start/line_end params)
+2026-11-04 -       4. Context-aware match (ignore leading/trailing whitespace per line)
+2026-11-04 -       5. Fuzzy line match (character similarity between lines)
+2026-11-04 -     Also added helpful error messages showing file preview, expected text,
+2026-11-04 -       and closest matching line with similarity score.
+2026-11-04 -   ISSUE 2 — AI-Builder can't modify itself (tool calls confused with code):
+2026-11-04 -     Root cause: When AI-Builder reads its own source code, tool call blocks
+2026-11-04 -       embedded in the code (e.g., [TOOL_START]...[TOOL_END] in edit_file.py)
+2026-11-04 -       were extracted by the parser as actual tool calls.
+2026-11-04 -     Fix: Added two-layer protection:
+2026-11-04 -       1. Code block stripper: Strips ```...``` and `...` from response before parsing,
+2026-11-04 -          preventing tool call extraction from code content.
+2026-11-04 -       2. Instance prefix: Each engine instance gets a unique 8-char hex prefix.
+2026-11-04 -          All tool names in the system prompt are prefixed (e.g., "a1b2c3d4_write_file").
+2026-11-04 -          The parser strips the prefix before execution. Tool calls in source code
+2026-11-04 -          use unprefixed names, so the parser won't match them.
+2026-11-04 -   Validation:
+2026-11-04 -     All 255 unit tests PASS (3 skipped)
+2026-11-04 -     Round 16 tests: code block stripping ✓, instance prefix ✓,
+2026-11-04 -       edit_file exact match ✓, whitespace-insensitive ✓, line-range ✓,
+2026-11-04 -       context-aware ✓, helpful error messages ✓, E2E with edit_file ✓
+2026-11-04 -     Total test coverage: 255 unit + 1 E2E + 1 Round16 = 257 tests (3 skipped)
