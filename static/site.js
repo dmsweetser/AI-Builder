@@ -126,7 +126,7 @@ function showTab(tabName) {
     });
     if (tabName === 'jobs') loadJobs();
     if (tabName === 'settings') loadSettingsUI();
-    if (tabName === 'tools') loadPendingTools();
+    
 }
 
 // === Project Form Toggle ===
@@ -538,18 +538,68 @@ function handlePendingApproval(data, agentBox) {
     if (!agentBox) return;
     var entry = document.createElement('div');
     entry.className = 'step-entry pending-approval';
+
+    var outputDir = data.output_dir || '';
+    var jobId = data.job_id || '';
+    var toolName = data.tool_name || 'unknown';
+
     entry.innerHTML =
         '<div class="step-tool">⏸ AGENT WAITING — PENDING TOOL APPROVAL</div>' +
-        '<div class="step-result">Tool <strong>"' + escapeHtml(data.tool_name) + '"</strong> proposed. The agent cannot proceed until you approve or reject it.</div>' +
-        '<div class="step-result" style="color:var(--warning);margin-top:8px;">👉 Go to TOOLS tab → Review and click APPROVE or REJECT</div>';
+        '<div class="step-result">Tool <strong>"' + escapeHtml(toolName) + '"</strong> proposed. The agent cannot proceed until you approve or reject it.</div>' +
+        '<div id="pending-approval-actions" style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;"></div>';
+
     agentBox.insertBefore(entry, agentBox.firstChild);
     agentBox.scrollTop = 0;
+
     var statusText = document.getElementById('agent-status-text');
     if (statusText) { statusText.textContent = 'WAITING FOR TOOL APPROVAL'; statusText.style.color = 'var(--warning)'; statusText.style.fontWeight = 'bold'; }
+
     var injectInput = document.getElementById('live-inject-input');
     var injectBtn = document.getElementById('live-inject-btn');
     if (injectInput) { injectInput.disabled = true; injectInput.placeholder = 'Agent is waiting for tool approval...'; }
     if (injectBtn) { injectBtn.disabled = true; injectBtn.textContent = 'WAITING'; }
+
+    // Fetch pending tools for this project and show approve/reject
+    if (outputDir) {
+        fetch('/api/tools/pending', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({project_output_dir: outputDir})
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(pendingTools) {
+            var actions = document.getElementById('pending-approval-actions');
+            if (!actions || !pendingTools || pendingTools.length === 0) return;
+
+            pendingTools.forEach(function(tool) {
+                var toolEntry = document.createElement('div');
+                toolEntry.style.cssText = 'background:var(--muted);padding:12px;border-radius:6px;margin-top:8px;width:100%;';
+
+                var codePreview = '';
+                if (tool.code) {
+                    try {
+                        var codeText = JSON.parse('"' + tool.code.replace(/"/g, '\"') + '"');
+                        codePreview = '<pre style="background:var(--bg-primary);padding:8px;border-radius:4px;max-height:200px;overflow:auto;font-size:11px;margin:8px 0;white-space:pre-wrap;">' + escapeHtml(codeText) + '</pre>';
+                    } catch(e) {
+                        codePreview = '<pre style="background:var(--bg-primary);padding:8px;border-radius:4px;max-height:200px;overflow:auto;font-size:11px;margin:8px 0;">' + escapeHtml(tool.code) + '</pre>';
+                    }
+                }
+
+                toolEntry.innerHTML =
+                    '<div style="font-weight:bold;margin-bottom:4px;">📦 ' + escapeHtml(tool.name) + '</div>' +
+                    '<div style="font-size:12px;color:var(--text-muted);margin-bottom:4px;">' + escapeHtml(tool.description || '') + '</div>' +
+                    codePreview +
+                    '<div style="display:flex;gap:8px;margin-top:8px;">' +
+                    '<button class="btn btn-success btn-sm" onclick="approveToolFromLive('' + escapeHtml(tool.name) + '', '' + escapeHtml(outputDir) + '', '' + escapeHtml(jobId) + '')">✅ APPROVE</button>' +
+                    '<button class="btn btn-danger btn-sm" onclick="rejectToolFromLive('' + escapeHtml(tool.name) + '', '' + escapeHtml(outputDir) + '')">❌ REJECT</button>' +
+                    '</div>';
+                actions.appendChild(toolEntry);
+            });
+        })
+        .catch(function(err) {
+            console.error('Failed to load pending tools:', err);
+        });
+    }
 }
 
 function handlePendingUserInput(data, agentBox) {
@@ -575,6 +625,59 @@ function handlePendingUserInput(data, agentBox) {
     var runBtn = document.getElementById('details-run-btn');
     if (runBtn) { runBtn.disabled = true; runBtn.innerHTML = 'AWAITING INPUT...'; }
 }
+function approveToolFromLive(toolName, outputDir, jobId) {
+    fetch('/api/tools/pending/' + encodeURIComponent(toolName) + '/approve', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({project_output_dir: outputDir})
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (data.status === 'approved') {
+            alert('Tool "' + toolName + '" approved! The agent will continue shortly.');
+            // If we have a jobId, the engine will pick up the new tool automatically
+            // via the reload_approved_tools() call in the approval endpoint
+            if (jobId) {
+                // Clear the pending approval state so the UI updates
+                clearPendingApprovalState();
+            }
+        } else {
+            alert('Failed to approve tool: ' + (data.error || 'Unknown error'));
+        }
+    })
+    .catch(function(err) { console.error('Failed to approve tool:', err); alert('Failed to approve tool.'); });
+}
+
+function rejectToolFromLive(toolName, outputDir) {
+    fetch('/api/tools/pending/' + encodeURIComponent(toolName) + '/reject', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({project_output_dir: outputDir})
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (data.status === 'rejected') {
+            alert('Tool "' + toolName + '" rejected.');
+            clearPendingApprovalState();
+        } else {
+            alert('Failed to reject tool: ' + (data.error || 'Unknown error'));
+        }
+    })
+    .catch(function(err) { console.error('Failed to reject tool:', err); alert('Failed to reject tool.'); });
+}
+
+function clearPendingApprovalState() {
+    var actions = document.getElementById('pending-approval-actions');
+    if (actions) actions.innerHTML = '<div style="color:var(--success);font-size:12px;">✅ Tool action processed. The agent will resume automatically.</div>';
+    var statusText = document.getElementById('agent-status-text');
+    if (statusText) { statusText.textContent = 'AGENT RUNNING'; statusText.style.color = ''; statusText.style.fontWeight = ''; }
+    var injectInput = document.getElementById('live-inject-input');
+    var injectBtn = document.getElementById('live-inject-btn');
+    if (injectInput) { injectInput.disabled = false; injectInput.placeholder = 'Type instructions or questions...'; }
+    if (injectBtn) { injectBtn.disabled = false; injectBtn.textContent = 'INJECT'; }
+}
+
+
 
 function handleContextWarning(data, agentBox) {
     if (!agentBox) return;
@@ -970,7 +1073,16 @@ function selectProject(projectId) {
             safeSet('details-project-name-form', project.name || '');
             safeSet('details-root-dir', project.rootDirectory || '');
             safeSet('details-instructions', project.instructions || '');
-            buildToolSelector(project.enabled_tools || []);
+            // Fetch custom tools for this project
+            fetch('/api/projects/' + projectId + '/tools')
+                .then(function(r) { return r.json(); })
+                .then(function(toolData) {
+                    buildToolSelector(toolData.disabled_tools || [], toolData.custom_tools || []);
+                })
+                .catch(function(err) {
+                    console.error('Failed to load project tools:', err);
+                    buildToolSelector(project.disabled_tools || [], []);
+                });
             // Check if this project has a running job and show VIEW LIVE button
             fetch('/api/queue')
                 .then(function(r) { return r.json(); })
@@ -1066,7 +1178,22 @@ function saveProjectChanges() {
     var projectId = document.getElementById('run-project-id') ? document.getElementById('run-project-id').value : null;
     if (!projectId) return;
     var formData = new FormData(document.getElementById('project-details-form'));
-    // enabled_tools is no longer per-project — all tools are always available.
+    // Collect disabled_tools from checkboxes
+    var checkboxes = document.querySelectorAll('#details-tool-selector input[type="checkbox"]:checked');
+    var disabledTools = [];
+    checkboxes.forEach(function(cb) { disabledTools.push(cb.value); });
+    // Save disabled_tools via dedicated endpoint
+    fetch('/api/projects/' + projectId + '/tools', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({disabled_tools: disabledTools})
+    })
+    .then(function(res) { return res.json(); })
+    .then(function(data) {
+        if (data.status === 'updated') console.log('Project tools updated');
+    })
+    .catch(function(err) { console.error('Failed to save project tools:', err); });
+    // Also save other project fields
     fetch('/api/projects/' + projectId, { method: 'POST', body: formData })
         .then(function(res) { return res.json(); })
         .then(function(data) { if (data.status === 'saved') console.log('Project saved'); })
@@ -1078,15 +1205,50 @@ function buildToolSelector(enabledTools) {
     buildToolSelectorForElement('details-tool-selector', enabledTools);
 }
 // Generic tool selector builder for any element ID
-function buildToolSelectorForElement(elementId, enabledTools) {
+function buildToolSelectorForElement(elementId, disabledTools, customTools) {
     var container = document.getElementById(elementId);
     if (!container) return;
-    container.innerHTML = '<div style="color:var(--text-muted);font-size:11px;padding:8px;">All built-in tools are always available. New tools are approved in the TOOLS tab and become available immediately.</div>';
+    var html = '';
+
+    // Built-in tools section
+    html += '<div style="margin-bottom:12px;">';
+    html += '<div style="font-size:11px;font-weight:bold;color:var(--text-muted);margin-bottom:4px;">BUILT-IN TOOLS</div>';
+    html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:4px;">';
+    var tools = AVAILABLE_TOOLS.slice().sort();
+    tools.forEach(function(toolName) {
+        var isDisabled = disabledTools && disabledTools.indexOf(toolName) !== -1;
+        html += '<label style="display:flex;align-items:center;gap:6px;font-size:12px;padding:4px 8px;background:var(--muted);border-radius:4px;cursor:pointer;">' +
+            '<input type="checkbox" class="builtin-tool-cb" name="disabled_tools" value="' + toolName + '" ' + (isDisabled ? 'checked' : '') + '>' +
+            escapeHtml(toolName) + '</label>';
+    });
+    html += '</div></div>';
+
+    // Custom tools section
+    if (customTools && customTools.length > 0) {
+        html += '<div style="margin-bottom:12px;">';
+        html += '<div style="font-size:11px;font-weight:bold;color:var(--text-muted);margin-bottom:4px;">CUSTOM TOOLS (project-local)</div>';
+        html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:4px;">';
+        customTools.forEach(function(toolName) {
+            var isDisabled = disabledTools && disabledTools.indexOf(toolName) !== -1;
+            html += '<label style="display:flex;align-items:center;gap:6px;font-size:12px;padding:4px 8px;background:var(--muted);border-radius:4px;cursor:pointer;">' +
+                '<input type="checkbox" class="custom-tool-cb" name="disabled_tools" value="' + toolName + '" ' + (isDisabled ? 'checked' : '') + '>' +
+                escapeHtml(toolName) + ' <span style="font-size:10px;color:var(--text-muted);">(custom)</span></label>';
+        });
+        html += '</div></div>';
+    }
+
+    html += '<div style="color:var(--text-muted);font-size:11px;padding:4px 0;">Check tools to disable them for this project. Unchecked = enabled.</div>';
+    container.innerHTML = html;
+}
+
+function buildToolSelector(disabledTools, customTools) {
+    buildToolSelectorForElement('details-tool-selector', disabledTools, customTools);
 }
 
 
 function getEnabledTools() {
-    // All tools are always available — no per-project filtering.
+    // Per-project disabled_tools is now handled via the project form UI.
+    // This function is kept for backward compatibility but no longer used.
     return AVAILABLE_TOOLS.slice();
 }
 
@@ -1194,184 +1356,6 @@ function clearJobHistory() {
         .catch(function(err) { console.error('Failed to clear history:', err); alert('Failed to clear history.'); });
 }
 
-// === Tools ===
-function loadPendingTools() {
-    fetch('/api/tools/pending')
-        .then(function(r) { return r.json(); })
-        .then(function(tools) { renderPendingTools(tools); renderApprovedTools(); renderBuiltInTools(); })
-        .catch(function(err) { console.error('Failed to load pending tools:', err); var list = document.getElementById('pending-tools-list'); if (list) list.innerHTML = '<div class="note warning">Failed to load pending tools.</div>'; });
-}
-
-function renderApprovedTools() {
-    var list = document.getElementById('approved-tools-list');
-    if (!list) return;
-    fetch('/api/tools/approved')
-        .then(function(r) { return r.json(); })
-        .then(function(tools) {
-            if (!tools || tools.length === 0) { list.innerHTML = '<div class="note">NO APPROVED TOOLS YET.</div>'; return; }
-            list.innerHTML = tools.map(function(t) {
-                var desc = t.description ? escapeHtml(t.description).substring(0, 150) : '';
-                var params = t.parameters ? '<div style="margin-top:4px;font-size:11px;color:var(--text-muted);">Params: ' + escapeHtml(JSON.stringify(t.parameters)) + '</div>' : '';
-                return '<div style="padding:10px 14px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:8px;">' +
-                    '<div style="display:flex;justify-content:space-between;align-items:center;">' +
-                        '<div>' +
-                            '<strong style="color:var(--success);font-size:13px;">' + escapeHtml(t.name) + '</strong>' +
-                            (desc ? '<span style="color:var(--text-muted);font-size:11px;margin-left:8px;">' + desc + '</span>' : '') +
-                        '</div>' +
-                        '<button class="btn btn-xs btn-danger" onclick="deleteApprovedTool(\'' + escapeHtml(t.name) + '\', this)" style="padding:2px 8px;">DELETE</button>' +
-                    '</div>' +
-                    params +
-                '</div>';
-            }).join('');
-        })
-        .catch(function(err) { console.error('Failed to load approved tools:', err); list.innerHTML = '<div class="note warning">Failed to load approved tools.</div>'; });
-}
-
-function deleteApprovedTool(toolName, btnEl) {
-    if (!confirm('Delete approved tool "' + toolName + '"? This cannot be undone.')) return;
-    fetch('/api/tools/approved/' + encodeURIComponent(toolName), { method: 'DELETE' })
-        .then(function(r) { return r.json(); })
-        .then(function(data) {
-            if (data.status === 'deleted') {
-                alert('Tool "' + toolName + '" deleted.');
-                loadPendingTools();
-            } else {
-                alert('Failed to delete tool: ' + (data.error || 'Unknown error'));
-            }
-        })
-        .catch(function(err) { console.error('Failed to delete tool:', err); alert('Failed to delete tool.'); });
-}
-
-function renderPendingTools(pendingTools) {
-    var list = document.getElementById('pending-tools-list');
-    if (!list) return;
-    list.innerHTML = '';
-    if (!pendingTools || pendingTools.length === 0) {
-        list.innerHTML = '<div class="note">NO PENDING TOOLS. The agent has not proposed any new tools yet.</div>';
-    } else {
-        pendingTools.forEach(function(tool) {
-            var item = document.createElement('div');
-            item.className = 'pending-tool-item';
-            var paramsStr = tool.parameters ? JSON.stringify(tool.parameters, null, 2) : '(none)';
-            var codePreview = tool.code ? tool.code : '(no code)';
-            var codeId = 'code-block-' + tool.id;
-            item.innerHTML =
-                '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">' +
-                    '<span class="tool-name" style="font-size:14px;font-weight:bold;">' + escapeHtml(tool.name) + '</span>' +
-                    '<span style="font-size:11px;color:var(--text-muted);">' + (tool.code ? tool.code.length : 0) + ' chars</span>' +
-                '</div>' +
-                '<div class="tool-desc" style="margin-bottom:6px;">' + escapeHtml(tool.description || '') + '</div>' +
-                '<div class="tool-params" style="margin-bottom:8px;font-size:11px;color:var(--text-muted);">Params: ' + escapeHtml(paramsStr) + '</div>' +
-                '<details style="margin:8px 0;border:1px solid var(--border);border-radius:4px;overflow:hidden;">' +
-                    '<summary style="cursor:pointer;color:var(--info);padding:6px 10px;background:var(--bg-card);font-weight:bold;">📄 View Tool Source Code</summary>' +
-                    '<div id="' + codeId + '" style="margin:0;padding:10px;background:#0d0d0d;overflow:auto;max-height:600px;font-family:monospace;font-size:12px;line-height:1.5;white-space:pre-wrap;color:#e0e0e0;">' +
-                        codePreview +
-                    '</div>' +
-                '</details>' +
-                '<div class="tool-actions" style="margin-top:8px;display:flex;gap:6px;">' +
-                    '<button class="btn btn-sm btn-primary" onclick="approvePendingTool(\'' + tool.id + '\', \'' + escapeHtml(tool.name) + '\')">✓ APPROVE</button>' +
-                    '<button class="btn btn-sm btn-danger" onclick="rejectPendingTool(\'' + tool.id + '\', \'' + escapeHtml(tool.name) + '\')">✗ REJECT</button>'
-                '</div>';
-            list.appendChild(item);
-        });
-    }
-}
-
-function approvePendingTool(toolId, toolName) {
-    if (!confirm('Approve tool "' + toolName + '"?')) return;
-    fetch('/api/tools/pending/' + toolId + '/approve', { method: 'POST' })
-        .then(function(r) { return r.json(); })
-        .then(function(data) {
-            if (data.status === 'approved') { alert('Tool "' + toolName + '" approved!'); loadPendingTools(); clearPendingApprovalState(); }
-            else alert('Failed to approve tool: ' + (data.error || 'Unknown error'));
-        })
-        .catch(function(err) { console.error('Failed to approve tool:', err); alert('Failed to approve tool.'); });
-}
-
-function rejectPendingTool(toolId, toolName) {
-    if (!confirm('Reject tool "' + toolName + '"?')) return;
-    fetch('/api/tools/pending/' + toolId + '/reject', { method: 'POST' })
-        .then(function(r) { return r.json(); })
-        .then(function(data) {
-            if (data.status === 'rejected') { alert('Tool "' + toolName + '" rejected.'); loadPendingTools(); clearPendingApprovalState(); }
-            else alert('Failed to reject tool: ' + (data.error || 'Unknown error'));
-        })
-        .catch(function(err) { console.error('Failed to reject tool:', err); alert('Failed to reject tool.'); });
-}
-
-function clearPendingApprovalState() {
-    var agentBox = document.getElementById('agent-live-box');
-    if (agentBox) { var pendingEntries = agentBox.querySelectorAll('.step-entry.pending-approval'); pendingEntries.forEach(function(entry) { entry.remove(); }); }
-    var statusText = document.getElementById('agent-status-text');
-    if (statusText) { statusText.textContent = 'AGENT RUNNING'; statusText.style.color = 'var(--info)'; statusText.style.fontWeight = ''; }
-    var injectInput = document.getElementById('live-inject-input');
-    var injectBtn = document.getElementById('live-inject-btn');
-    if (injectInput) { injectInput.disabled = false; injectInput.placeholder = 'Type instructions or questions...'; }
-    if (injectBtn) { injectBtn.disabled = false; injectBtn.textContent = 'INJECT'; }
-}
-
-// === Built-in Tool Enable/Disable ===
-function renderBuiltInTools() {
-    var list = document.getElementById('built-in-tools-list');
-    if (!list) return;
-    fetch('/api/tools/status')
-        .then(function(r) { return r.json(); })
-        .then(function(toolStatus) {
-            if (!toolStatus || Object.keys(toolStatus).length === 0) {
-                list.innerHTML = '<div class="note">No built-in tools loaded.</div>';
-                return;
-            }
-            var tools = Object.keys(toolStatus).sort();
-            list.innerHTML = tools.map(function(name) {
-                var enabled = toolStatus[name];
-                var toggleLabel = enabled ? 'ENABLED' : 'DISABLED';
-                var btnClass = enabled ? 'btn-success' : 'btn-danger';
-                return '<div class="tool-status-item" data-tool-name="' + escapeHtml(name) + '">' +
-                    '<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;">' +
-                        '<span style="font-weight:bold;font-size:13px;color:var(--info);">' + escapeHtml(name) + '</span>' +
-                        '<button class="btn btn-xs ' + btnClass + '" ' +
-                            'onclick="toggleBuiltInTool(\'' + escapeHtml(name) + '\', this)" ' +
-                            'style="padding:3px 10px;font-size:10px;min-width:80px;">' +
-                            toggleLabel +
-                        '</button>' +
-                    '</div>' +
-                '</div>';
-            }).join('');
-        })
-        .catch(function(err) { console.error('Failed to load tool status:', err); list.innerHTML = '<div class="note warning">Failed to load tool status.</div>'; });
-}
-
-function toggleBuiltInTool(toolName, btnEl) {
-    var item = btnEl.closest('.tool-status-item');
-    if (!item) return;
-    var currentState = btnEl.textContent.trim() === 'ENABLED';
-    var newState = !currentState;
-    // Optimistic UI update
-    btnEl.textContent = newState ? 'ENABLING...' : 'DISABLING...';
-    btnEl.disabled = true;
-    fetch('/api/tools/enable/' + encodeURIComponent(toolName), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabled: newState })
-    })
-    .then(function(r) { return r.json(); })
-    .then(function(data) {
-        if (data.status === 'updated') {
-            var newLabel = newState ? 'ENABLED' : 'DISABLED';
-            var newClass = newState ? 'btn-success' : 'btn-danger';
-            btnEl.textContent = newLabel;
-            btnEl.className = 'btn btn-xs ' + newClass;
-            btnEl.disabled = false;
-            // Reload the full list to reflect state
-            renderBuiltInTools();
-        } else {
-            alert('Failed to update tool: ' + (data.error || 'Unknown error'));
-            btnEl.disabled = false;
-            renderBuiltInTools();
-        }
-    })
-    .catch(function(err) { console.error('Failed to toggle tool:', err); btnEl.disabled = false; renderBuiltInTools(); });
-}
 
 // === Chat ===
 function loadChats() {
@@ -1915,11 +1899,12 @@ document.addEventListener('DOMContentLoaded', function() {
         form.addEventListener('submit', function(e) {
             e.preventDefault();
             var formData = new FormData(this);
-            // Add enabled_tools from the tool selector
+            // Collect disabled_tools from the tool selector checkboxes
             var checkboxes = document.querySelectorAll('#add-tool-selector input[type="checkbox"]');
+            var disabledTools = [];
             checkboxes.forEach(function(cb) {
                 if (cb.checked) {
-                    formData.append('enabled_tools', cb.value);
+                    disabledTools.push(cb.value);
                 }
             });
             var formRef = this;
@@ -1927,7 +1912,18 @@ document.addEventListener('DOMContentLoaded', function() {
                 .then(function(res) { return res.json(); })
                 .then(function(data) {
                     if (data.error) { alert('Error: ' + data.error); }
-                    else { loadProjects(); formRef.reset(); toggleCreateForm(); }
+                    else {
+                        // Save disabled_tools via dedicated endpoint
+                        var pid = data.id;
+                        if (pid && disabledTools.length > 0) {
+                            fetch('/api/projects/' + pid + '/tools', {
+                                method: 'POST',
+                                headers: {'Content-Type': 'application/json'},
+                                body: JSON.stringify({disabled_tools: disabledTools})
+                            }).catch(function(err) { console.error('Failed to save disabled tools:', err); });
+                        }
+                        loadProjects(); formRef.reset(); toggleCreateForm();
+                    }
                 })
                 .catch(function(err) { console.error('Failed to create project:', err); });
         });

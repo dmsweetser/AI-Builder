@@ -368,15 +368,6 @@ Rules for the format:
 - You MUST include both [TOOL_START] and [TOOL_END]
 - Make exactly ONE tool call per response
 
-STRING LITERAL ESCAPING (CRITICAL):
-- When writing code that contains string literals with escape sequences (e.g., Python's "\n", "\t", "\r"),
-  you MUST double-escape them: use \\n instead of \n, \\t instead of \t, \\r instead of \r.
-- This is because the tool environment converts single-backslash escape sequences to their actual characters.
-- Example for Python: write 'hello\\nworld' in the PARAM_VALUE to produce the source code 'hello\nworld'.
-- Example for JavaScript: write 'line1\\nline2' to produce 'line1\\nline2' in the file.
-- Line breaks in the code itself should be actual newlines (press Enter), not \\n.
-- This rule applies to ALL string literals in ALL languages: Python, JavaScript, Java, C++, etc.
-
 Example:
 {example_block}
 
@@ -739,7 +730,7 @@ class AgentEngine:
     def _reload_project_tool_loader(self):
         """Reload the project-local tool loader for this project."""
         project_output_dir = self.output_dir
-        disabled_tools = set(self.project_config.get("enabled_tools", []))
+        disabled_tools = set(self.project_config.get("disabled_tools", []))
         self.tools.reload_project_tools(project_output_dir, disabled_tools)
 
     def _reload_project_settings(self):
@@ -995,7 +986,7 @@ class AgentEngine:
                                     })
                                 except Exception:
                                     pass
-                            result = self.tools.execute("task_completed", tool_calls[0][1], self.root_dir, self.output_dir, set(self.project_config.get("enabled_tools", [])))
+                            result = self.tools.execute("task_completed", tool_calls[0][1], self.root_dir, self.output_dir, set(self.project_config.get("disabled_tools", [])))
                             result_dict = result.to_dict()
                             step_entry["result"] = result_dict
                         except Exception as e:
@@ -1061,7 +1052,7 @@ class AgentEngine:
                                 })
                             except Exception:
                                 pass
-                        result = self.tools.execute(tool_name, params, self.root_dir, self.output_dir, set(self.project_config.get("enabled_tools", [])))
+                        result = self.tools.execute(tool_name, params, self.root_dir, self.output_dir, set(self.project_config.get("disabled_tools", [])))
                         result_dict = result.to_dict()
 
                         # Truncate tool result content to prevent context overflow.

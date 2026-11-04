@@ -1,5 +1,47 @@
 2026-11-03 - Pending tool approval execution bug fixed:
 2026-11-04 - Round 18: JSON Schema parameter validation + schema key stripping + pending tool notification
+2026-11-04 - Round 19: Per-project tool approval redesign + BaseTool class format + ProjectToolLoader
+2026-11-04 -   PROBLEM — Approved tools couldn't be used after approval:
+2026-11-04 -     Root cause: The old approval system stored tools in a shared pending_tools.json file.
+2026-11-04 -       The engine loaded them at startup but never reloaded them after approval mid-run.
+2026-11-04 -       The approval endpoint wrote a resume file that the engine checked, but the tool
+2026-11-04 -       was never actually added to the registry's tool list.
+2026-11-04 -   Fix: Complete architectural redesign:
+2026-11-04 -     1. Created ProjectToolLoader (agent_engine/tools/project_tool_loader.py):
+2026-11-04 -        - Loads tools from <project_output_dir>/tools/active/ directory
+2026-11-04 -        - Manages pending tools in <project_output_dir>/tools/pending/
+2026-11-04 -        - Tools are Python .py files that inherit from BaseTool
+2026-11-04 -        - approve_tool() moves file from pending/ to active/ and reloads
+2026-11-04 -     2. Rewrote create_tool.py to generate BaseTool subclasses:
+2026-11-04 -        - Creates .py files in the project's pending/ directory
+2026-11-04 -        - Code is passed as a param_value block (not JSON)
+2026-11-04 -        - Each tool defines: name, description, parameters, execute(params)
+2026-11-04 -     3. Rewrote tools/__init__.py to use ProjectToolLoader:
+2026-11-04 -        - _create_tool_instance() delegates to loader for project-local tools
+2026-11-04 -        - execute() accepts project_output_dir and disabled_tools params
+2026-11-04 -        - strip_json_schema_keys() applied before tool instantiation
+2026-11-04 -     4. Updated engine.py:
+2026-11-04 -        - _reload_project_tool_loader() replaces _load_approved_tools()
+2026-11-04 -        - System prompt updated to describe BaseTool class format
+2026-11-04 -        - execute() calls pass new params (project_output_dir, disabled_tools)
+2026-11-04 -     5. Updated app.py endpoints:
+2026-11-04 -        - /api/tools/pending returns per-project pending tools
+2026-11-04 -        - /api/tools/pending/<tool_name>/approve moves file and reloads engine
+2026-11-04 -     6. Updated security.py:
+2026-11-04 -        - _is_json_schema() and _convert_json_schema_to_simple() for schema detection
+2026-11-04 -        - strip_json_schema_keys() removes structural keys from LLM params
+2026-11-04 -   Key behaviors:
+2026-11-04 -     - Built-in tools can be disabled per-project via disabled_tools set
+2026-11-04 -     - Custom tools are project-local (only available to the creating project)
+2026-11-04 -     - Custom tools use the same BaseTool class format as built-in tools
+2026-11-04 -     - Approval moves file from pending/ to active/ directory
+2026-11-04 -     - Engine reloads project tools on approval
+2026-11-04 -   Validation:
+2026-11-04 -     All 274 unit tests PASS (3 skipped), 0 failed
+2026-11-04 -     Round 19 tests: project_tool_loader ✓, create_tool ✓, pending approval ✓,
+2026-11-04 -       create_tool_approval_flow ✓, engine loop compatibility ✓,
+2026-11-04 -       settings stashing ✓, backward compat ✓
+2026-11-04 -     Total test coverage: 274 unit + 3 skipped = 277 tests (0 failed)
 
   ISSUE 1 — Dynamic tools failed with 'dict' object has no attribute 'endswith':
     Root cause: validate_tool_params() in security.py expected simple format

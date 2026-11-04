@@ -1160,6 +1160,9 @@ def api_agent_run():
                     "instructions": instructions,
                     "job_id": job_id,
                 }
+                # Pass per-project disabled_tools to the engine
+                if project and "disabled_tools" in project:
+                    config["disabled_tools"] = project["disabled_tools"]
                 engine = AgentEngine(config, output_dir=output_dir, step_callback=on_event, stop_event=job_stop_event)
                 # Engine already uses the shared singleton ToolRegistry via get_registry().
                 # Reload approved tools so any tools approved since the previous run
@@ -1373,16 +1376,20 @@ def api_agent_run():
             elif ev["type"] == "pending_approval":
                 yield "event: pending_approval\ndata: " + json.dumps({
                     "tool_name": ev.get("tool_name", "unknown"),
+                    "output_dir": output_dir,
+                    "job_id": job_id,
                 }) + "\n"
             elif ev["type"] == "__pending_approval__":
                 # Engine returned pending_approval status — notify UI
                 yield "event: pending_approval\ndata: " + json.dumps({
                     "tool_name": ev.get("tool_name", "unknown"),
+                    "output_dir": output_dir,
+                    "job_id": job_id,
                 }) + "\n"
                 # Also emit a status event so the UI knows the agent is paused
                 yield "event: status\ndata: " + json.dumps({
                     "type": "pending_approval",
-                    "message": "Agent is waiting for tool approval. Go to TOOLS tab to approve or reject.",
+                    "message": "Agent is waiting for tool approval. Approve or reject below.",
                 }) + "\n\n"
             elif ev["type"] == "__pending_user_input__":
                 # Engine returned pending_user_input status — notify UI
@@ -1662,6 +1669,50 @@ def api_agent_resend():
     except Exception as e:
         logging.error(f"Failed to resend request: {e}")
         return jsonify({"error": str(e)}), 500
+
+
+# --- Routes: Per-Project Tool Enable/Disable ---
+@app.route("/api/projects/<pid>/tools", methods=["GET"])
+def api_get_project_tools(pid):
+    """Get per-project disabled tools list and available tools."""
+    project, projects = get_project(pid)
+    if not project:
+        return jsonify({"error": "Project not found"}), 404
+    disabled_tools = project.get("disabled_tools", [])
+    # Get custom (approved project-local) tools for this project
+    output_dir = project.get("output_dir", "")
+    custom_tools = []
+    if output_dir:
+        try:
+            loader = get_registry()._get_or_create_loader(output_dir)
+            custom_tools = sorted(loader.get_tool_names())
+        except Exception:
+            pass
+    return jsonify({
+        "disabled_tools": disabled_tools,
+        "custom_tools": custom_tools,
+    })
+
+@app.route("/api/projects/<pid>/tools", methods=["POST"])
+def api_set_project_tools(pid):
+    """Set per-project disabled tools list."""
+    project, projects = get_project(pid)
+    if not project:
+        return jsonify({"error": "Project not found"}), 404
+    data = request.get_json(silent=True) or {}
+    disabled_tools = data.get("disabled_tools", [])
+    project["disabled_tools"] = disabled_tools
+    save_projects(projects)
+    # Reload tools in running engines for this project
+    with _sse_jobs_lock:
+        for job_id, job_info in _sse_jobs.items():
+            if isinstance(job_info, dict) and "engine" in job_info:
+                engine = job_info["engine"]
+                try:
+                    engine.reload_approved_tools()
+                except Exception as e:
+                    logging.warning(f"Failed to reload tools for job {job_id}: {e}")
+    return jsonify({"status": "updated", "disabled_tools": disabled_tools})
 
 
 # --- Routes: Pending Tools ---

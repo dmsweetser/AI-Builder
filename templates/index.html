@@ -50,9 +50,6 @@
                 <button class="tab-btn" data-tab="jobs" aria-selected="false" tabindex="-1">
                     <span class="nav-icon">⚙️</span> Jobs
                 </button>
-                <button class="tab-btn" data-tab="tools" aria-selected="false" tabindex="-1">
-                    <span class="nav-icon">🔧</span> Tools
-                </button>
                 <button class="tab-btn" data-tab="chat" aria-selected="false" tabindex="-1">
                     <span class="nav-icon">💬</span> Chat
                 </button>
@@ -91,7 +88,7 @@
                             <textarea id="add-instructions" name="instructions" rows="4" placeholder="What should the agent do?"></textarea>
                         </div>
                         <div class="form-group">
-                            <label>Enabled Tools</label>
+                            <label>Disable These Tools</label>
                             <div id="add-tool-selector" class="tool-selector-grid"></div>
                         </div>
                         <div class="form-actions">
@@ -134,7 +131,7 @@
                         </div>
 
                         <div class="form-group">
-                            <label>Enabled Tools</label>
+                            <label>Disable These Tools</label>
                             <div id="details-tool-selector" class="tool-selector-grid"></div>
                         </div>
 
@@ -179,32 +176,6 @@
                 </div>
                 <div id="jobs-list" class="history-list" role="list">
                     <div class="loading">Loading jobs...</div>
-                </div>
-            </div>
-
-            <!-- Tools Panel -->
-            <div id="tools-panel" class="panel" role="tabpanel">
-                <div class="panel-header">
-                    <h2>Tools</h2>
-                    <button class="btn btn-secondary" onclick="loadPendingTools()">REFRESH</button>
-                </div>
-                <div class="tools-section">
-                    <h3>Pending Tools</h3>
-                    <div id="pending-tools-list" class="tools-list">
-                        <div class="loading">Loading...</div>
-                    </div>
-                </div>
-                <div class="tools-section">
-                    <h3>Approved Tools</h3>
-                    <div id="approved-tools-list" class="tools-list">
-                        <div class="loading">Loading...</div>
-                    </div>
-                </div>
-                <div class="tools-section">
-                    <h3>Built-in Tools (Enable / Disable)</h3>
-                    <div id="built-in-tools-list" class="tools-list">
-                        <div class="loading">Loading...</div>
-                    </div>
                 </div>
             </div>
 
