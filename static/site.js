@@ -590,8 +590,8 @@ function handlePendingApproval(data, agentBox) {
                     '<div style="font-size:12px;color:var(--text-muted);margin-bottom:4px;">' + escapeHtml(tool.description || '') + '</div>' +
                     codePreview +
                     '<div style="display:flex;gap:8px;margin-top:8px;">' +
-                    '<button class="btn btn-success btn-sm" onclick="approveToolFromLive('' + escapeHtml(tool.name) + '', '' + escapeHtml(outputDir) + '', '' + escapeHtml(jobId) + '')">✅ APPROVE</button>' +
-                    '<button class="btn btn-danger btn-sm" onclick="rejectToolFromLive('' + escapeHtml(tool.name) + '', '' + escapeHtml(outputDir) + '')">❌ REJECT</button>' +
+                    '<button class="btn btn-success btn-sm" onclick="approveToolFromLive(\'\' + escapeHtml(tool.name) + \'\', \'\' + escapeHtml(outputDir) + \'\', \'\' + escapeHtml(jobId) + \'\')">✅ APPROVE</button>' +
+                    '<button class="btn btn-danger btn-sm" onclick="rejectToolFromLive(\'\' + escapeHtml(tool.name) + \'\', \'\' + escapeHtml(outputDir) + \'\')">❌ REJECT</button>' +
                     '</div>';
                 actions.appendChild(toolEntry);
             });
