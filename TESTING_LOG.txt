@@ -1,4 +1,41 @@
 2026-11-03 - Pending tool approval execution bug fixed:
+2026-11-04 - Round 18: JSON Schema parameter validation + schema key stripping + pending tool notification
+
+  ISSUE 1 — Dynamic tools failed with 'dict' object has no attribute 'endswith':
+    Root cause: validate_tool_params() in security.py expected simple format
+    {key: "string?"} but dynamic tools use JSON Schema format:
+    {"type": "object", "properties": {}, "required": []}.
+    When iterating the schema, it hit key "properties" with value {} (dict)
+    and called {}.endswith("?") → AttributeError.
+
+    Fix: Added _is_json_schema() and _convert_json_schema_to_simple() helpers.
+    validate_tool_params() now auto-detects JSON Schema format and converts it
+    to simple format before validation. Also added isinstance(expected_type, str)
+    guard to skip non-string schema entries.
+
+  ISSUE 2 — LLM passed JSON Schema keys as tool parameters:
+    The LLM called run_build({"parameters": "{}"}) instead of run_build({}).
+    The "parameters" key from the tool schema leaked into the params dict.
+    This caused validation to fail with "Missing required parameter: type"
+    (because "type" was a schema key, not a parameter).
+
+    Fix: Added strip_json_schema_keys() to remove structural schema keys
+    (type, properties, required, parameters, additionalProperties, etc.)
+    from the params dict before validation. Applied in ToolRegistry.execute().
+
+  ISSUE 3 — Pending tool approvals not detected by running LLM:
+    When the engine started, it didn't check for pending tools. The LLM had
+    no way to know about tools awaiting approval.
+
+    Fix: Added pending tool check at the start of Engine.run(). If pending
+    tools exist, a [PENDING TOOLS] message is inserted into the conversation
+    informing the LLM about them.
+
+  Validation:
+    All 259 unit tests PASS (3 skipped)
+    - JSON Schema conversion handles both formats correctly
+    - strip_json_schema_keys removes schema keys without affecting real params
+    - Pending tool notification works on engine start
 2026-11-04 - Round 17: Dynamic tool `self` namespace fix + config defaults consistency + code block stripping + dead code removal
 
   ISSUE 1 — Approved dynamic tools couldn't be used after approval:

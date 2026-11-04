@@ -66,14 +66,50 @@ def ensure_under_root(filepath: str, root_dir: str) -> str:
     raise SecurityError(f"Path escapes project root: {filepath} -> {full}")
 
 
+def _is_json_schema(schema: dict) -> bool:
+    """Check if a schema is in JSON Schema format (has 'type'/'properties' keys)."""
+    return "type" in schema or "properties" in schema
+
+
+def _convert_json_schema_to_simple(schema: dict) -> dict:
+    """Convert JSON Schema format to simple {key: type} format.
+
+    JSON Schema: {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}
+    Simple: {"path": "string"}
+    """
+    result = {}
+    properties = schema.get("properties", {})
+    required = schema.get("required", [])
+    for key, prop in properties.items():
+        if isinstance(prop, dict):
+            prop_type = prop.get("type", "string")
+        else:
+            prop_type = str(prop)
+        # Mark as optional if not in required list
+        if key not in required:
+            prop_type += "?"
+        result[key] = prop_type
+    return result
+
+
 def validate_tool_params(params: dict, schema: dict) -> dict:
     """Validate that all required string params are present and are strings.
+
+    Handles both simple format {key: "string?"} and JSON Schema format
+    {"type": "object", "properties": {...}, "required": [...]}.
 
     Parameters with a 'string?' type are optional — they will be included
     in the result only if the caller provided them.
     """
+    # Convert JSON Schema format to simple format if needed
+    if _is_json_schema(schema):
+        schema = _convert_json_schema_to_simple(schema)
+
     result = {}
     for key, expected_type in schema.items():
+        if not isinstance(expected_type, str):
+            # Skip non-string schema entries (e.g. nested objects in JSON Schema)
+            continue
         optional = expected_type.endswith("?")
         if optional:
             expected_type = expected_type[:-1]
@@ -86,6 +122,18 @@ def validate_tool_params(params: dict, schema: dict) -> dict:
             raise ToolError(f"Parameter '{key}' must be a string, got {type(val).__name__}")
         result[key] = val
     return result
+
+
+def strip_json_schema_keys(params: dict) -> dict:
+    """Remove JSON Schema structural keys that the LLM might accidentally include.
+
+    The LLM sometimes passes the entire tool schema (type, properties, required,
+    parameters) as part of the params dict. Strip those out.
+    """
+    schema_keys = {"type", "properties", "required", "parameters", "additionalProperties",
+                   "description", "title", "default", "enum", "const", "anyOf", "allOf",
+                   "oneOf", "$ref", "$schema"}
+    return {k: v for k, v in params.items() if k not in schema_keys}
 
 
 def _normalize_path(path: str) -> str:

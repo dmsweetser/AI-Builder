@@ -18,7 +18,7 @@ import importlib.util
 import uuid
 from typing import Any, Dict, List, Optional, Set, Type
 from agent_engine.tools.base import BaseTool, ToolResult
-from agent_engine.security import ensure_under_root, validate_tool_params, SecurityError, ToolError
+from agent_engine.security import ensure_under_root, validate_tool_params, SecurityError, ToolError, strip_json_schema_keys
 from agent_engine.tools.list_directory import ListDirectoryTool
 from agent_engine.tools.list_directory_deep import ListDirectoryDeepTool
 from agent_engine.tools.search_files import SearchFilesTool, SearchFilesDirTool
@@ -411,7 +411,12 @@ class ToolRegistry:
         """Execute a tool by name with validated parameters.
 
         Creates a tool instance with the given root_dir for this execution.
+        Strips JSON Schema structural keys (type, properties, required, parameters)
+        that the LLM might accidentally include in the params dict.
         """
+        # Strip JSON Schema structural keys the LLM might leak into params
+        params = strip_json_schema_keys(params)
+
         tool = self._create_tool_instance(tool_name, root_dir)
         if not tool:
             available = [t for t in _BUILTIN_TOOL_CLASSES.keys() if t not in self._enabled_tools]

@@ -790,6 +790,23 @@ class AgentEngine:
         # Reload approved tools so any tools approved since the last run
         # are visible to the LLM immediately.
         self.reload_approved_tools()
+
+        # Check for pending tool approvals and notify the LLM if found
+        pending = self.tools.get_pending_tools()
+        if pending:
+            pending_names = ", ".join(t["name"] for t in pending)
+            self.logger.info(f"Found {len(pending)} pending tool(s): {pending_names}")
+            # Add a system message to inform the LLM about pending tools
+            pending_msg = (
+                f"[PENDING TOOLS] There are {len(pending)} tool(s) awaiting approval:\n"
+            )
+            for t in pending:
+                pending_msg += f"  - {t['name']}: {t.get('description', 'No description')}\n"
+            pending_msg += "You cannot use these tools until they are approved. "
+            pending_msg += "Wait for the user to approve them, or suggest using an existing tool."
+            # Insert after system message (index 0)
+            self.messages.insert(1, {"role": "user", "content": pending_msg})
+
         self.logger.info(f"Starting agentic engine for: {self.root_dir}")
         self.logger.info(f"Instructions: {self.instructions[:200]}...")
 
