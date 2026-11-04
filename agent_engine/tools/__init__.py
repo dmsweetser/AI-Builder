@@ -9,6 +9,7 @@ Global enable/disable is managed via the ``_enabled_tools`` set — when
 non-empty, only those tools are available; when empty, all are available.
 """
 
+import inspect
 import json
 import logging
 import os
@@ -297,6 +298,14 @@ class ToolRegistry:
                 'threading': __import__('threading'),
                 'datetime': __import__('datetime'),
             }
+            # Provide `self` so LLM-generated code can reference
+            # self.root_dir / self.params / self.tool_name etc.
+            _ns_self = type('_DynamicToolNS', (), {
+                'root_dir': root_dir,
+                'params': {},
+                'tool_name': tool_name,
+            })()
+            ns['self'] = _ns_self
             try:
                 exec(tool_code, ns)
             except Exception as e:
@@ -311,40 +320,61 @@ class ToolRegistry:
                     logging.warning(f"Failed to instantiate dynamic tool class: {e}")
                     return None
 
-            execute_fn = ns.get('execute')
-            if callable(execute_fn):
-                class _DynamicFunctionTool(BaseTool):
-                    """Wrapper for function-based dynamic tools."""
-                    name = tool_name
-                    description = entry.get("description", "")
-                    parameters = entry.get("parameters", {})
+            # Support both 'execute' and 'run' as the entry-point function name
+            # (the LLM often generates 'run' instead of 'execute')
+            for fn_name in ('execute', 'run'):
+                fn = ns.get(fn_name)
+                if callable(fn):
+                    # Check if the function accepts a 'params' argument
+                    # so we can call it correctly regardless of signature.
+                    # Also propagate runtime params into _ns_self.params
+                    # so self.params works in the tool body.
+                    _fn = fn
+                    _ns_self_ref = _ns_self  # capture in closure
+                    def _make_wrapper(func, ns_self):
+                        _sig = inspect.signature(func)
+                        accepts_params = 'params' in _sig.parameters
+                        def wrapper(self, params: Dict[str, Any]) -> ToolResult:
+                            # Make runtime params visible as self.params
+                            ns_self.params = params
+                            try:
+                                if accepts_params:
+                                    result = func(params=params)
+                                else:
+                                    result = func()
+                                if isinstance(result, ToolResult):
+                                    return result
+                                return ToolResult(
+                                    success=True,
+                                    content=str(result),
+                                    summary=f"Executed {self.name}",
+                                )
+                            except Exception as e:
+                                return ToolResult(
+                                    success=False,
+                                    content="",
+                                    error=str(e),
+                                    summary=f"Failed to execute {self.name}",
+                                )
+                        return wrapper
+                    execute_method = _make_wrapper(_fn, _ns_self)
+                    class _DynamicFunctionTool(BaseTool):
+                        """Wrapper for function-based dynamic tools."""
+                        name = tool_name
+                        description = entry.get("description", "")
+                        parameters = entry.get("parameters", {})
 
-                    def __init__(self, root_dir: str):
-                        super().__init__(root_dir)
-                        self._execute_fn = execute_fn
+                        def __init__(self, root_dir: str):
+                            super().__init__(root_dir)
+                            self._execute_fn = fn
 
-                    def execute(self, params: Dict[str, Any]) -> ToolResult:
-                        try:
-                            result = self._execute_fn(params=params)
-                            if isinstance(result, ToolResult):
-                                return result
-                            return ToolResult(
-                                success=True,
-                                content=str(result),
-                                summary=f"Executed {self.name}",
-                            )
-                        except Exception as e:
-                            return ToolResult(
-                                success=False,
-                                content="",
-                                error=str(e),
-                                summary=f"Failed to execute {self.name}",
-                            )
-                try:
-                    return _DynamicFunctionTool(root_dir)
-                except Exception as e:
-                    logging.warning(f"Failed to instantiate function-based dynamic tool: {e}")
-                    return None
+                        def execute(self, params: Dict[str, Any]) -> ToolResult:
+                            return execute_method(self, params)
+                    try:
+                        return _DynamicFunctionTool(root_dir)
+                    except Exception as e:
+                        logging.warning(f"Failed to instantiate function-based dynamic tool: {e}")
+                        return None
 
         return None
 

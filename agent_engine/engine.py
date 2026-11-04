@@ -55,7 +55,7 @@ class LLMClient:
 
     MAX_RETRIES = 3
     BASE_DELAY = 2.0  # seconds
-    MAX_CALL_TIME = 7200  # seconds — hard timeout per LLM call
+    MAX_CALL_TIME = 7200  # seconds - hard timeout per LLM call
 
     def __init__(self, max_context_tokens: int = 0, max_output_tokens: int = 0,
                  audit_dir: Optional[str] = None):
@@ -304,10 +304,10 @@ WORKFLOW:
 6. ITERATE: If syntax errors or issues are found, fix them. Repeat until done.
 7. COMPLETE: When all work is done, use the task_completed tool to signal completion.
 
-COMPLETION (CRITICAL — READ CAREFULLY):
+COMPLETION (CRITICAL - READ CAREFULLY):
 - The ONLY way to conclude a run is to use the task_completed tool.
 - When you have finished all the work described in the task instructions, call task_completed with a summary of all changes made.
-- The run will IMMEDIATELY stop after task_completed is executed — no further tool calls will be made.
+- The run will IMMEDIATELY stop after task_completed is executed - no further tool calls will be made.
 - Do NOT use task_completed until you have actually used tools and made changes. You must take at least one tool action before completing.
 - If you are unsure whether the task is complete, review the task instructions and verify all requirements are met.
 - Once you call task_completed, the run is OVER. Do not make any additional tool calls after it.
@@ -325,7 +325,7 @@ RULES:
 - You have a maximum of {EngineConfig.get_max_steps()} steps total. Use them wisely.
 - After making changes, verify them. If check_syntax fails, fix the errors.
 - When done, use the task_completed tool with a summary of all changes made.
-- To create a new tool, use create_tool. It proposes the tool for user approval - it does NOT execute arbitrary code. Wait for user approval in the live feed before expecting the tool to be available.
+- To create a new tool, use create_tool. It proposes the tool for user approval - it does NOT execute arbitrary code. Wait for user approval in the live feed before expecting the tool to be available. The tool code must define a top-level function named ``execute(params)`` that returns a ``ToolResult``.
 - Use respond_to_user to communicate findings, status updates, or questions to the user.
 - Use request_user_input when you need clarification or a decision before proceeding.
 
@@ -340,7 +340,7 @@ PARAMETER FORMAT (tag-based, NO EXCEPTIONS):
 - You are FORBIDDEN from writing any other text outside of tool call blocks.
 - Do NOT write any reasoning, thinking, or explanation text.
 - Do NOT write "I will..." or "Let me..." or any natural language.
-- Do NOT explain what you are about to do — just DO it with a tool call.
+- Do NOT explain what you are about to do - just DO it with a tool call.
 
 The EXACT format for a tool call is:
 
@@ -356,7 +356,7 @@ the second parameter key
 [PARAM_VALUE]
 the second parameter value
 [RATIONALE]
-(optional) Explain why you are making this tool call — your reasoning, strategy, or what you expect to happen. This helps the user understand your thought process.
+(optional) Explain why you are making this tool call - your reasoning, strategy, or what you expect to happen. This helps the user understand your thought process.
 [TOOL_END]
 
 Rules for the format:
@@ -382,7 +382,7 @@ Example:
 
 RESPONSE FORMAT:
 After each tool result, your ENTIRE response must be exactly one of:
-1. A tool call block (see PARAMETER FORMAT above) — nothing else
+1. A tool call block (see PARAMETER FORMAT above) - nothing else
 2. A task_completed tool call with a summary of all changes made
 
 You are NOT allowed to write any text outside of tool call blocks.
@@ -390,7 +390,7 @@ Any text outside these formats will be ignored.
 
 CRITICAL: task_completed is the FINAL tool call. Once you call task_completed, the run ends immediately. Do not make any additional tool calls after task_completed.
 
-CRITICAL: Make EXACTLY ONE tool call per response. Do not include multiple tool call blocks. If you include more than one [TOOL_START]...[TOOL_END] block, only the FIRST one will be executed — the rest will be ignored as invalid output.
+CRITICAL: Make EXACTLY ONE tool call per response. Do not include multiple tool call blocks. If you include more than one [TOOL_START]...[TOOL_END] block, only the FIRST one will be executed - the rest will be ignored as invalid output.
 
 IMPORTANT: You are bounded to the project root directory by default. All file paths are relative to it.
 You CANNOT read or write files outside the project root unless the task instructions explicitly specify an absolute path (e.g., /tmp/something.py).
@@ -437,6 +437,19 @@ STEP 1: Use list_directory to explore the project structure. Do NOT use task_com
     return prompt
 
 
+def _strip_code_blocks(response: str) -> str:
+    """Strip fenced code blocks (```...```) and inline code (`...`) from response.
+
+    Prevents the parser from extracting tool call blocks that appear inside
+    code examples in the LLM's response.
+    """
+    # Strip fenced code blocks: ```...```
+    result = re.sub(r'```[\s\S]*?```', '', response)
+    # Strip inline code: `...`
+    result = re.sub(r'`[^`]*`', '', result)
+    return result
+
+
 def parse_tool_calls(response: str, prefix: str = "") -> List[Tuple[str, Dict[str, str], Optional[str]]]:
     """Parse tool calls from LLM response using the simplified tag-based format.
 
@@ -447,10 +460,9 @@ def parse_tool_calls(response: str, prefix: str = "") -> List[Tuple[str, Dict[st
         [PARAM_NAME]
         path
         [PARAM_VALUE]
-        src/hello.py
-        [RATIONALE]
-        Writing the entry point file.
-        [TOOL_END]
+
+    Code blocks (```...``` and `...`) are stripped before parsing to prevent
+    extracting tool calls from code examples embedded in the response.
 
     Also handles LLM quirks:
     - [PARAM_END] is treated as [TOOL_END]
@@ -460,6 +472,9 @@ def parse_tool_calls(response: str, prefix: str = "") -> List[Tuple[str, Dict[st
     - Instance prefix: if prefix is set, tool names are expected to be prefixed
       (e.g., "a1b2c3d4_write_file") and the prefix is stripped before returning.
     """
+    # Strip code blocks before parsing to prevent extracting tool calls
+    # from code examples embedded in the response
+    response = _strip_code_blocks(response)
     calls = []
     # Normalize LLM quirks: treat [PARAM_END] as [TOOL_END]
     normalized = response.replace('[PARAM_END]', '[TOOL_END]')
@@ -670,7 +685,7 @@ class AgentEngine:
         sh.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
         self.logger.addHandler(sh)
 
-        # Use the shared singleton ToolRegistry — all engines share the same
+        # Use the shared singleton ToolRegistry - all engines share the same
         # tool list, so newly-approved tools are instantly available.
         self.tools = get_registry(self.root_dir)
         self.max_context_tokens = EngineConfig.get_max_context_tokens()
@@ -725,7 +740,7 @@ class AgentEngine:
 
         Checks if the project file has been modified since last load.
         If so, reloads rootDirectory and instructions.
-        (enabled_tools filtering has been removed — all tools are always available.)
+        (enabled_tools filtering has been removed - all tools are always available.)
         """
         try:
             import json as _json
@@ -817,7 +832,7 @@ class AgentEngine:
                     try:
                         approved_tool = open(tool_approved_file, 'r').read().strip()
                         os.remove(tool_approved_file)
-                        self.logger.info(f"Tool approval resume detected — approved tool: {approved_tool}")
+                        self.logger.info(f"Tool approval resume detected - approved tool: {approved_tool}")
                         # Reload approved tools to ensure the new tool is in the registry
                         self.reload_approved_tools()
                     except Exception:
@@ -842,7 +857,7 @@ class AgentEngine:
                         )
                     })
 
-                # Check if context is getting large — prompt user to manually compress
+                # Check if context is getting large - prompt user to manually compress
                 if (not self._context_warning_shown and
                     self.max_context_tokens > 0):
                     current_tokens = sum(_estimate_tokens(m.get("content", "")) for m in self.messages)
@@ -915,22 +930,25 @@ class AgentEngine:
                 with open(self.response_file, 'w', encoding='utf-8') as f:
                     f.write(response)
 
-                # Strip anything outside valid tool call blocks — only keep
+                # Strip code blocks first to prevent extracting tool calls from
+                # code examples embedded in the response.
+                cleaned = _strip_code_blocks(response)
+                # Strip anything outside valid tool call blocks - only keep
                 # [TOOL_START]...[TOOL_END] blocks.
                 # This keeps conversation history clean and prevents the LLM from
                 # seeing its own stray text on subsequent turns.
                 tool_blocks = re.findall(
                     r'\[TOOL_START\].*?\[TOOL_END\]',
-                    response,
+                    cleaned,
                     flags=re.DOTALL,
                 )
                 # Keep only tool blocks (task_completed will be extracted via is_done)
                 cleaned_parts = list(tool_blocks)
                 cleaned_response = "\n\n".join(cleaned_parts).strip()
 
-                # Parse tool calls FIRST — before checking for task_completed
-                tool_calls = parse_tool_calls(response, self.instance_prefix)
-                done, summary = is_done(response)
+                # Parse tool calls FIRST - before checking for task_completed
+                tool_calls = parse_tool_calls(cleaned, self.instance_prefix)
+                done, summary = is_done(cleaned)
 
                 # If LLM produced tool calls (with or without task_completed):
                 #   - Take ONLY the first tool call
@@ -939,7 +957,7 @@ class AgentEngine:
                 if tool_calls:
                     tool_calls = [tool_calls[0]]  # Only first tool call
 
-                    # Check if the first tool call is task_completed — this CONCLUDES the run
+                    # Check if the first tool call is task_completed - this CONCLUDES the run
                     if tool_calls[0][0] == "task_completed":
                         # Extract summary from params
                         task_summary = tool_calls[0][1].get("summary", "Task completed.")
@@ -994,7 +1012,7 @@ class AgentEngine:
                             except Exception:
                                 pass
 
-                        # CONCLUDE THE RUN — task_completed is the final action
+                        # CONCLUDE THE RUN - task_completed is the final action
                         final_summary = task_summary
                         self.messages.append({
                             "role": "user",
@@ -1003,7 +1021,7 @@ class AgentEngine:
                         self.logger.info(f"Agent completed via task_completed: {final_summary[:200]}")
                         break
 
-                    # Not task_completed — process as regular tool call
+                    # Not task_completed - process as regular tool call
                     # Append cleaned response (may be empty or just text)
                     if cleaned_response:
                         self.messages.append({
@@ -1043,7 +1061,7 @@ class AgentEngine:
                         # result is longer, it gets a notice and guidance on
                         # how to request a narrower query.
                         # NOTE: respond_to_user and request_user_input are NOT
-                        # truncated — the user must see the full message.
+                        # truncated - the user must see the full message.
                         raw_content = result_dict.get("content", "")
                         if (raw_content
                                 and self.max_tool_result_length > 0
@@ -1161,7 +1179,7 @@ class AgentEngine:
                     self.step_count += 1
                     continue
 
-                # No tool calls — check for completion
+                # No tool calls - check for completion
                 if done:
                     final_summary = summary
                     # Add the DONE summary as a user-visible message so it shows up nicely in the UI
@@ -1172,7 +1190,7 @@ class AgentEngine:
                     self.logger.info(f"Agent completed: {summary[:200]}")
                     break
 
-                # No tool calls — LLM didn't produce a valid tool call.
+                # No tool calls - LLM didn't produce a valid tool call.
                 # Inject "Please continue" to nudge it back on track.
                 self.logger.warning(
                     f"No tool calls in response (step {self.step_count}). "
@@ -1201,7 +1219,7 @@ class AgentEngine:
                             "step": self.step_count,
                             "tool": "llm_response",
                             "params": {},
-                            "result": {"success": False, "content": "No tool call — LLM continued"},
+                            "result": {"success": False, "content": "No tool call - LLM continued"},
                         })
                     except Exception:
                         pass

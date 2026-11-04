@@ -50,7 +50,7 @@ class EngineConfig:
 
     @staticmethod
     def get_max_steps() -> int:
-        return int(os.getenv("AIB_MAX_STEPS", "50"))
+        return int(os.getenv("AIB_MAX_STEPS", "500"))
 
     @staticmethod
     def get_jd_cli_path() -> Optional[str]:

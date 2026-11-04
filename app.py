@@ -130,10 +130,10 @@ def save_settings(settings):
 def apply_settings_to_env():
     """Apply settings to environment variables for engine config."""
     s = load_settings()
-    os.environ["AIB_MAX_STEPS"] = str(s.get('max_steps', 50))
-    os.environ["CUSTOM_TIMEOUT"] = str(s.get('timeout', 3600))
-    os.environ["AIB_MAX_CONTEXT_TOKENS"] = str(s.get('max_context_tokens', 0))
-    os.environ["AIB_MAX_OUTPUT_TOKENS"] = str(s.get('max_output_tokens', 0))
+    os.environ["AIB_MAX_STEPS"] = str(s.get('max_steps', 500))
+    os.environ["CUSTOM_TIMEOUT"] = str(s.get('timeout', 7200))
+    os.environ["AIB_MAX_CONTEXT_TOKENS"] = str(s.get('max_context_tokens', 262144))
+    os.environ["AIB_MAX_OUTPUT_TOKENS"] = str(s.get('max_output_tokens', 131072))
     os.environ["AIB_MAX_TOOL_RESULT_LENGTH"] = str(s.get('max_tool_result_length', 10000))
     if s.get('root_directory'):
         os.environ["ROOT_DIRECTORY"] = s['root_directory']
@@ -1122,11 +1122,14 @@ def api_agent_run():
         f.write(instructions)
     os.environ["AIB_INSTRUCTIONS_FILE"] = instructions_file
     os.environ["AIB_JOB_ID"] = job_id
+    # Engine config — apply current settings so the engine doesn't fall back to stale defaults
+    apply_settings_to_env()
+    # Also set endpoint-specific vars (may differ from saved settings if user hasn't saved yet)
     os.environ["CUSTOM_ENDPOINT_URL"] = os.getenv("CUSTOM_ENDPOINT_URL", "")
     os.environ["CUSTOM_API_KEY"] = os.getenv("CUSTOM_API_KEY", "")
     os.environ["CUSTOM_MODEL_NAME"] = os.getenv("CUSTOM_MODEL_NAME", "")
     os.environ["CUSTOM_VERIFY_SSL"] = os.getenv("CUSTOM_VERIFY_SSL", "false")
-    os.environ["CUSTOM_TIMEOUT"] = os.getenv("CUSTOM_TIMEOUT", "3600")
+    os.environ["CUSTOM_TIMEOUT"] = os.getenv("CUSTOM_TIMEOUT", "7200")
 
     _log_app_event(f"Agent run started — project={project_id}, job_id={job_id}")
 
@@ -1534,26 +1537,11 @@ def api_agent_inject():
 
 @app.route("/api/agent/permission", methods=["POST"])
 def api_agent_permission():
-    """Handle permission requests (e.g., execute_python)."""
-    data = request.get_json(silent=True) or {}
-    job_id = data.get("job_id")
-    # Accept either "decision" string or "approved" boolean
-    decision = data.get("decision", "")
-    if not decision and "approved" in data:
-        decision = "approved" if data["approved"] else "rejected"
-
-    if not job_id or not decision:
-        return jsonify({"error": "job_id and decision required"}), 400
-
-    perm_file = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                             "aib_instance", "output", job_id, "execute_python_permission.txt")
-    os.makedirs(os.path.dirname(perm_file), exist_ok=True)
-    try:
-        with open(perm_file, 'w') as f:
-            f.write(decision)
-        return jsonify({"status": "decision_recorded"})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    """Deprecated: execute_python tool was removed. Use create_tool instead."""
+    return jsonify({
+        "error": "The execute_python tool has been removed. Use create_tool to propose new tools for approval.",
+        "suggestion": "Use the create_tool tool to propose a new tool, then approve it in the TOOLS tab.",
+    }), 410
 
 
 @app.route("/api/agent/resume", methods=["POST"])

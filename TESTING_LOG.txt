@@ -1,4 +1,47 @@
 2026-11-03 - Pending tool approval execution bug fixed:
+2026-11-04 - Round 17: Dynamic tool `self` namespace fix + config defaults consistency + code block stripping + dead code removal
+
+  ISSUE 1 — Approved dynamic tools couldn't be used after approval:
+    Root cause: Two bugs in `_create_tool_instance()` in agent_engine/tools/__init__.py:
+    a) `self` was missing from the exec namespace — LLM-generated tool code
+       referencing `self.root_dir` failed with NameError.
+       Fix: Added `_ns_self` object with `root_dir`, `params`, `tool_name` attributes
+       to the exec namespace before `exec(tool_code, ns)`.
+    b) Only `execute()` function was recognized as entry point — the LLM generates
+       `run()` functions.
+       Fix: Extended function recognition to check both 'execute' and 'run'.
+    c) `self.params` was empty at runtime — the `_ns_self.params` was set to `{}`
+       at exec time but never updated with actual runtime params.
+       Fix: Updated the wrapper to set `ns_self.params = params` before calling
+       the tool function.
+
+  ISSUE 2 — Config default inconsistency (50 vs 500 max_steps):
+    Root cause: config.py `get_max_steps()` defaulted to 50, but app.py
+    `load_settings()` defaulted to 500, and `apply_settings_to_env()` defaulted
+    to 50. SSE endpoint didn't set AIB_MAX_STEPS env var at all.
+    Fix:
+    - config.py: Changed default from 50 to 500
+    - app.py apply_settings_to_env(): Fixed defaults to match load_settings()
+      (max_steps=500, timeout=7200, max_context_tokens=262144, max_output_tokens=131072)
+    - app.py SSE /api/agent/run: Added apply_settings_to_env() call and
+      CUSTOM_TIMEOUT default of 7200
+
+  ISSUE 3 — Code block stripping never implemented:
+    Root cause: Round 16 log mentioned code block stripping but the function
+    `_strip_code_blocks()` was never added to engine.py.
+    Fix: Added `_strip_code_blocks()` function that strips fenced code blocks
+    (```...```) and inline code (`...`). Integrated into parse_tool_calls()
+    so tool calls inside code examples are not extracted.
+
+  ISSUE 4 — api_agent_permission endpoint references removed execute_python tool:
+    Root cause: execute_python was removed but the endpoint still existed.
+    Fix: Changed to return 410 Gone with guidance to use create_tool instead.
+
+  Validation:
+    All 259 unit tests PASS (3 skipped)
+    Round 17 tests: dynamic tool `self` namespace ✓, `run()` function recognition ✓,
+    config defaults consistency ✓, code block stripping ✓, 410 Gone for permission ✓
+    Total test coverage: 259 unit + 1 E2E = 260 tests (3 skipped)
 2026-10-30 - ToolRegistry refactored to module-level static class:
 2026-10-30 - Tool format reminder updated to verbose format with task_completed tool
 2026-10-30 - task_completed tool created to replace [DONE] marker

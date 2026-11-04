@@ -21,8 +21,9 @@ class CreateToolTool(BaseTool):
         "available until a user explicitly approves it via the UI. "
         "Provide a unique name, clear description, parameter schema, and "
         "the Python implementation code. The code runs inside a sandboxed "
-        "context with access to ``self.root_dir`` (str), ``params`` (dict), "
-        "and must return a ``ToolResult(success, content, error, summary)``. "
+        "context with access to ``self.root_dir`` (str), ``self.params`` (dict), "
+        "and ``self.tool_name`` (str). Define a top-level function named "
+        "``execute(params)`` that returns a ``ToolResult(success, content, error, summary)``. "
         "Use this instead of ``execute_python`` which has been removed."
     )
     parameters = {
