@@ -30,7 +30,10 @@ class CreateToolTool(BaseTool):
         "and the Python implementation code. The code must define a class that "
         "inherits from BaseTool with name, description, parameters, and an "
         "execute(params) method. Use self.root_dir for the project path. "
-        "Your code MUST import the following: 'from agent_engine.tools.base import BaseTool'."
+        "Your code MUST import the following: 'from agent_engine.tools.base import BaseTool, ToolResult'. "
+        "IMPORTANT: Your execute() method MUST return a ToolResult object (not a plain dict). "
+        "Return e.g. ToolResult(True, 'output content') on success or "
+        "ToolResult(False, '', error='error message') on failure."
     )
     parameters = {
         "name": "string",
@@ -124,6 +127,18 @@ class CreateToolTool(BaseTool):
                                 break
                 if not found_class:
                     return ToolResult(False, "", error=f"Tool code must define a class named '{tool_name}' that inherits from BaseTool")
+
+                # Validate that the tool code returns a ToolResult object
+                if "ToolResult" not in tool_code or "return ToolResult" not in tool_code:
+                    return ToolResult(
+                        False, "",
+                        error=(
+                            "Tool validation failed: execute() must return a ToolResult object. "
+                            "Your code must import ToolResult and return it, e.g. "
+                            "ToolResult(True, 'success message') or "
+                            "ToolResult(False, '', error='error message')."
+                        )
+                    )
             else:
                 return ToolResult(False, "", error="Failed to compile tool code — invalid Python syntax")
         except SyntaxError as e:
