@@ -129,11 +129,19 @@ def strip_json_schema_keys(params: dict) -> dict:
 
     The LLM sometimes passes the entire tool schema (type, properties, required,
     parameters) as part of the params dict. Strip those out.
+
+    However, 'description' and 'parameters' are preserved because they are
+    legitimate parameter names used by the create_tool tool (which has
+    parameters named 'name', 'description', 'parameters', 'code').
     """
-    schema_keys = {"type", "properties", "required", "parameters", "additionalProperties",
-                   "description", "title", "default", "enum", "const", "anyOf", "allOf",
+    # These are JSON Schema structural keys that should be stripped
+    schema_keys = {"type", "properties", "required", "additionalProperties",
+                   "title", "default", "enum", "const", "anyOf", "allOf",
                    "oneOf", "$ref", "$schema"}
-    return {k: v for k, v in params.items() if k not in schema_keys}
+    # These look like schema keys but are also legitimate parameter names
+    # (specifically for create_tool) — preserve them
+    preserved = {"description", "parameters"}
+    return {k: v for k, v in params.items() if k not in schema_keys and k not in preserved}
 
 
 def _normalize_path(path: str) -> str:

@@ -200,7 +200,26 @@ function runProject(projectId) {
 }
 
 function _doRunProject(projectId, overrideInstruction) {
+    // Try to get rootDir from the details form (if open), fall back to project data
     var rootDir = document.getElementById('details-root-dir') ? document.getElementById('details-root-dir').value : '';
+    if (!rootDir) {
+        // Details panel not open — look up the project's stored rootDirectory
+        var project = getProjectById(projectId);
+        if (!project) {
+            // Not in cache — fetch it
+            fetch('/api/projects/' + projectId)
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.error) { alert('Project not found'); return; }
+                    _loadedProjects = _loadedProjects || [];
+                    if (!_loadedProjects.find(function(p) { return p.id === projectId; })) _loadedProjects.push(data);
+                    _doRunProject(projectId, overrideInstruction);
+                })
+                .catch(function(err) { console.error('Failed to fetch project:', err); alert('Failed to load project details'); });
+            return;
+        }
+        rootDir = project.rootDirectory || '';
+    }
     if (!rootDir) { alert('Please set a root directory first.'); return; }
     var instructions = overrideInstruction || (document.getElementById('details-instructions') ? document.getElementById('details-instructions').value : '');
     // All tools are always available — getEnabledTools() returns the full list.
