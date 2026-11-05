@@ -497,7 +497,7 @@ def _strip_code_blocks(response: str) -> str:
 def parse_tool_calls(response: str, prefix: str = "") -> List[Tuple[str, Dict[str, str], Optional[str]]]:
     """Parse tool calls from LLM response using the simplified tag-based format.
 
-    Format (standard):
+    Format (standard, when no prefix):
         [TOOL_START]
         [TOOL_NAME]
         write_file
@@ -531,7 +531,7 @@ def parse_tool_calls(response: str, prefix: str = "") -> List[Tuple[str, Dict[st
     # Strip code blocks before parsing
     response = _strip_code_blocks(response)
 
-    # Get the prefixed markers for this instance
+    # Get the markers for this instance
     markers = _prefixed_markers(prefix)
     m_start = markers["TOOL_START"]
     m_end = markers["TOOL_END"]
@@ -541,20 +541,8 @@ def parse_tool_calls(response: str, prefix: str = "") -> List[Tuple[str, Dict[st
     m_pend = markers["PARAM_END"]
     m_rat = markers["RATIONALE"]
 
-    # Also keep unprefixed markers for fallback matching
-    unprefixed = _prefixed_markers("")
-    m_start_up = unprefixed["TOOL_START"]
-    m_end_up = unprefixed["TOOL_END"]
-    m_name_up = unprefixed["TOOL_NAME"]
-    m_pname_up = unprefixed["PARAM_NAME"]
-    m_pval_up = unprefixed["PARAM_VALUE"]
-    m_pend_up = unprefixed["PARAM_END"]
-    m_rat_up = unprefixed["RATIONALE"]
-
     # Normalize LLM quirks: treat [PARAM_END] (or prefixed) as [TOOL_END]
-    normalized = response
-    normalized = normalized.replace(m_pend, m_end)
-    normalized = normalized.replace(m_pend_up, m_end_up)
+    normalized = response.replace(m_pend, m_end)
 
     # Build regex patterns using the actual marker strings
     # Standard pattern: [TOOL_START]...[TOOL_NAME]\nname\n...[TOOL_END]
@@ -566,26 +554,12 @@ def parse_tool_calls(response: str, prefix: str = "") -> List[Tuple[str, Dict[st
     tool_matches = list(re.finditer(tool_pattern, normalized, re.DOTALL))
     alt_matches = list(re.finditer(alt_pattern, normalized, re.DOTALL))
 
-    # If no matches with prefixed markers, try unprefixed markers
-    if prefix and not tool_matches and not alt_matches:
-        normalized_up = response
-        normalized_up = normalized_up.replace(m_pend_up, m_end_up)
-        tool_pattern_up = re.escape(m_start_up) + r'\s*' + re.escape(m_name_up) + r'\s*\n(.*?)\n(.*?)' + re.escape(m_end_up)
-        alt_pattern_up = re.escape(m_start_up) + r'\s*\[([^\]]+)\]\s*(.*?)' + re.escape(m_end_up)
-        tool_matches = list(re.finditer(tool_pattern_up, normalized_up, re.DOTALL))
-        alt_matches = list(re.finditer(alt_pattern_up, normalized_up, re.DOTALL))
-
     calls = []
 
     def _process_match(tool_name: str, params_block: str):
         rationale = _extract_rationale(params_block, m_rat, m_end)
-        if not rationale:
-            rationale = _extract_rationale(params_block, m_rat_up, m_end_up)
         params_block = re.sub(re.escape(m_rat) + r'.*?$', '', params_block, flags=re.DOTALL)
-        params_block = re.sub(re.escape(m_rat_up) + r'.*?$', '', params_block, flags=re.DOTALL)
         params = _parse_params(params_block, m_pname, m_pval, m_end)
-        if not params:
-            params = _parse_params(params_block, m_pname_up, m_pval_up, m_end_up)
         if tool_name and params is not None:
             # Strip instance prefix if present
             if prefix and tool_name.startswith(prefix + '_'):
@@ -693,40 +667,26 @@ def is_done(response: str, prefix: str = "") -> Tuple[bool, str]:
     m_name = markers["TOOL_NAME"]
     m_pval = markers["PARAM_VALUE"]
 
-    # Also keep unprefixed markers for fallback matching
-    unprefixed = _prefixed_markers("")
-    m_start_unprefixed = unprefixed["TOOL_START"]
-    m_end_unprefixed = unprefixed["TOOL_END"]
-    m_name_unprefixed = unprefixed["TOOL_NAME"]
-    m_pval_unprefixed = unprefixed["PARAM_VALUE"]
-
     # Build the task_completed name(s) to look for
     task_names = ["task_completed"]
     if prefix:
         task_names.append(f"{prefix}_task_completed")
 
-    # Try both prefixed and unprefixed marker formats
-    marker_sets = [(m_start, m_end, m_name, m_pval)]
-    if prefix:
-        # When prefix is set, also try unprefixed markers (for backward compat)
-        marker_sets.append((m_start_unprefixed, m_end_unprefixed, m_name_unprefixed, m_pval_unprefixed))
-
-    for m_s, m_e, m_n, m_pv in marker_sets:
-        for task_name in task_names:
-            task_match = re.search(
-                re.escape(m_s) + r'.*?' + re.escape(m_n) + r'\s*' + re.escape(task_name) + r'\s.*?' + re.escape(m_e),
-                response,
-                flags=re.DOTALL,
+    for task_name in task_names:
+        task_match = re.search(
+            re.escape(m_start) + r'.*?' + re.escape(m_name) + r'\s*' + re.escape(task_name) + r'\s.*?' + re.escape(m_end),
+            response,
+            flags=re.DOTALL,
+        )
+        if task_match:
+            # Extract the summary from the task_completed tool call
+            summary_match = re.search(
+                re.escape(m_pval) + r'\s*(.*?)\s*' + re.escape(m_end),
+                task_match.group(0),
+                re.DOTALL,
             )
-            if task_match:
-                # Extract the summary from the task_completed tool call
-                summary_match = re.search(
-                    re.escape(m_pv) + r'\s*(.*?)\s*' + re.escape(m_e),
-                    task_match.group(0),
-                    re.DOTALL,
-                )
-                if summary_match:
-                    return True, summary_match.group(1).strip()
+            if summary_match:
+                return True, summary_match.group(1).strip()
     return False, ""
 
 
@@ -1287,23 +1247,13 @@ class AgentEngine:
                 # [TOOL_START]...[TOOL_END] blocks (or prefixed variants).
                 # This keeps conversation history clean and prevents the LLM from
                 # seeing its own stray text on subsequent turns.
-                # Handle both prefixed and unprefixed markers.
-                m_start_prefixed = _marker(self.instance_prefix, "TOOL_START")
-                m_end_prefixed = _marker(self.instance_prefix, "TOOL_END")
-                m_start_unprefixed = _marker("", "TOOL_START")
-                m_end_unprefixed = _marker("", "TOOL_END")
-                # Try prefixed markers first, then fall back to unprefixed
+                m_start = _marker(self.instance_prefix, "TOOL_START")
+                m_end = _marker(self.instance_prefix, "TOOL_END")
                 tool_blocks = re.findall(
-                    re.escape(m_start_prefixed) + r'.*?' + re.escape(m_end_prefixed),
+                    re.escape(m_start) + r'.*?' + re.escape(m_end),
                     cleaned,
                     flags=re.DOTALL,
                 )
-                if not tool_blocks:
-                    tool_blocks = re.findall(
-                        re.escape(m_start_unprefixed) + r'.*?' + re.escape(m_end_unprefixed),
-                        cleaned,
-                        flags=re.DOTALL,
-                    )
                 # Keep only tool blocks (task_completed will be extracted via is_done)
                 cleaned_parts = list(tool_blocks)
                 cleaned_response = "\n\n".join(cleaned_parts).strip()

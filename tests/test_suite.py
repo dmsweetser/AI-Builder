@@ -361,16 +361,6 @@ class TestIsDoneTaskCompleted(unittest.TestCase):
         self.assertTrue(done)
         self.assertEqual(summary, "Done with prefix")
 
-    def test_prefixed_task_completed_fallback_to_plain(self):
-        """Without matching prefix, plain task_completed should still work."""
-        done, summary = is_done(
-            "[TOOL_START]\n[TOOL_NAME]\ntask_completed\n"
-            "[PARAM_NAME]\nsummary\n[PARAM_VALUE]\nPlain done\n[TOOL_END]",
-            "someprefix"
-        )
-        self.assertTrue(done)
-        self.assertEqual(summary, "Plain done")
-
 
 class TestNonToolContentStripping(unittest.TestCase):
     """Tests for stripping non-tool content from LLM responses."""
@@ -469,17 +459,6 @@ class TestParseToolCallsEdgeCases(unittest.TestCase):
         calls = parse_tool_calls(response, prefix)
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0][0], "write_file")
-
-    def test_unprefixed_tool_works_without_matching_prefix(self):
-        """Without a matching prefix, unprefixed tool names should still work."""
-        prefix = "abc12345"
-        response = (
-            "[TOOL_START]\n[TOOL_NAME]\nread_file\n"
-            "[PARAM_NAME]\npath\n[PARAM_VALUE]\ntest.txt\n[TOOL_END]"
-        )
-        calls = parse_tool_calls(response, prefix)
-        self.assertEqual(len(calls), 1)
-        self.assertEqual(calls[0][0], "read_file")
 
 
 class TestExtractRationale(unittest.TestCase):
@@ -1430,6 +1409,40 @@ def _make_engine(tmpdir, enabled_tools, max_steps=10, max_context_tokens=0,
     }, output_dir=tmpdir)
 
 
+def _prefixed_response(tool_name, params, prefix="", rationale=None):
+    """Build a mock LLM response with the correct instance prefix.
+
+    Args:
+        tool_name: The tool name (will be prefixed if prefix is set).
+        params: Dict of parameter key-value pairs.
+        prefix: The instance prefix (e.g., from engine.instance_prefix).
+        rationale: Optional rationale text.
+
+    Returns:
+        A string containing the full tool call block with prefixed markers.
+    """
+    if prefix:
+        tool_name = f"{prefix}_{tool_name}"
+        ts, te, tn, pn, pv, rat = (
+            f"[{prefix}_TOOL_START]", f"[{prefix}_TOOL_END]",
+            f"[{prefix}_TOOL_NAME]", f"[{prefix}_PARAM_NAME]",
+            f"[{prefix}_PARAM_VALUE]", f"[{prefix}_RATIONALE]",
+        )
+    else:
+        ts, te, tn, pn, pv, rat = (
+            "[TOOL_START]", "[TOOL_END]", "[TOOL_NAME]",
+            "[PARAM_NAME]", "[PARAM_VALUE]", "[RATIONALE]",
+        )
+
+    parts = [f"{ts}\n{tn}\n{tool_name}"]
+    for k, v in params.items():
+        parts.append(f"{pn}\n{k}\n{pv}\n{v}")
+    if rationale:
+        parts.append(f"{rat}\n{rationale}")
+    parts.append(te)
+    return "\n".join(parts)
+
+
 def _mock_tool_execute(engine, tool_name, result_fn):
     """Patch engine.tools.execute to return a custom result for a tool."""
     original = engine.tools.execute
@@ -1444,12 +1457,13 @@ class TestTaskCompletedConclusion(unittest.TestCase):
     def test_task_completed_breaks_loop_not_continues(self):
         tmpdir = tempfile.mkdtemp()
         try:
+            engine = _make_engine(tmpdir, ["task_completed"])
+            prefix = engine.instance_prefix
             mock_llm = MagicMock()
             mock_llm.call.return_value = {
-                "content": "[TOOL_START]\n[TOOL_NAME]\ntask_completed\n[PARAM_NAME]\nsummary\n[PARAM_VALUE]\nDone\n[TOOL_END]",
+                "content": _prefixed_response("task_completed", {"summary": "Done"}, prefix),
                 "raw_request": "", "raw_response": "",
             }
-            engine = _make_engine(tmpdir, ["task_completed"])
             engine.llm = mock_llm
             _mock_tool_execute(engine, "task_completed",
                 lambda p: TaskCompletedTool(tmpdir).execute(p))
@@ -1466,12 +1480,13 @@ class TestTaskCompletedConclusion(unittest.TestCase):
     def test_task_completed_includes_rationale_in_step_history(self):
         tmpdir = tempfile.mkdtemp()
         try:
+            engine = _make_engine(tmpdir, ["task_completed"])
+            prefix = engine.instance_prefix
             mock_llm = MagicMock()
             mock_llm.call.return_value = {
-                "content": "[TOOL_START]\n[TOOL_NAME]\ntask_completed\n[PARAM_NAME]\nsummary\n[PARAM_VALUE]\nDone\n[RATIONALE]\nI verified all changes\n[TOOL_END]",
+                "content": _prefixed_response("task_completed", {"summary": "Done"}, prefix, rationale="I verified all changes"),
                 "raw_request": "", "raw_response": "",
             }
-            engine = _make_engine(tmpdir, ["task_completed"])
             engine.llm = mock_llm
             _mock_tool_execute(engine, "task_completed",
                 lambda p: TaskCompletedTool(tmpdir).execute(p))
@@ -1487,12 +1502,13 @@ class TestTaskCompletedConclusion(unittest.TestCase):
     def test_task_completed_appends_completion_message(self):
         tmpdir = tempfile.mkdtemp()
         try:
+            engine = _make_engine(tmpdir, ["task_completed"])
+            prefix = engine.instance_prefix
             mock_llm = MagicMock()
             mock_llm.call.return_value = {
-                "content": "[TOOL_START]\n[TOOL_NAME]\ntask_completed\n[PARAM_NAME]\nsummary\n[PARAM_VALUE]\nAll changes done\n[TOOL_END]",
+                "content": _prefixed_response("task_completed", {"summary": "All changes done"}, prefix),
                 "raw_request": "", "raw_response": "",
             }
-            engine = _make_engine(tmpdir, ["task_completed"])
             engine.llm = mock_llm
             _mock_tool_execute(engine, "task_completed",
                 lambda p: TaskCompletedTool(tmpdir).execute(p))
@@ -1512,12 +1528,13 @@ class TestContextWarningEvent(unittest.TestCase):
     def test_context_warning_emitted_at_80_percent(self):
         tmpdir = tempfile.mkdtemp()
         try:
+            engine = _make_engine(tmpdir, ["list_directory"], max_context_tokens=100)
+            prefix = engine.instance_prefix
             mock_llm = MagicMock()
             mock_llm.call.return_value = {
-                "content": "[TOOL_START]\n[TOOL_NAME]\nlist_directory\n[PARAM_NAME]\npath\n[PARAM_VALUE]\n.\n[TOOL_END]",
+                "content": _prefixed_response("list_directory", {"path": "."}, prefix),
                 "raw_request": "", "raw_response": "",
             }
-            engine = _make_engine(tmpdir, ["list_directory"], max_context_tokens=100)
             engine.llm = mock_llm
             events = []
             def track_callback(event):
@@ -1542,12 +1559,13 @@ class TestContextWarningEvent(unittest.TestCase):
     def test_context_warning_only_emitted_once(self):
         tmpdir = tempfile.mkdtemp()
         try:
+            engine = _make_engine(tmpdir, ["list_directory"], max_context_tokens=100)
+            prefix = engine.instance_prefix
             mock_llm = MagicMock()
             mock_llm.call.return_value = {
-                "content": "[TOOL_START]\n[TOOL_NAME]\nlist_directory\n[PARAM_NAME]\npath\n[PARAM_VALUE]\n.\n[TOOL_END]",
+                "content": _prefixed_response("list_directory", {"path": "."}, prefix),
                 "raw_request": "", "raw_response": "",
             }
-            engine = _make_engine(tmpdir, ["list_directory"], max_context_tokens=100)
             engine.llm = mock_llm
             events = []
             def track_callback(event):
@@ -1565,12 +1583,13 @@ class TestContextWarningEvent(unittest.TestCase):
     def test_context_warning_message_added_to_history(self):
         tmpdir = tempfile.mkdtemp()
         try:
+            engine = _make_engine(tmpdir, ["list_directory"], max_context_tokens=100)
+            prefix = engine.instance_prefix
             mock_llm = MagicMock()
             mock_llm.call.return_value = {
-                "content": "[TOOL_START]\n[TOOL_NAME]\nlist_directory\n[PARAM_NAME]\npath\n[PARAM_VALUE]\n.\n[TOOL_END]",
+                "content": _prefixed_response("list_directory", {"path": "."}, prefix),
                 "raw_request": "", "raw_response": "",
             }
-            engine = _make_engine(tmpdir, ["list_directory"], max_context_tokens=100)
             engine.llm = mock_llm
             def mock_estimate(text):
                 return 90
@@ -2395,16 +2414,6 @@ class TestInstancePrefix(unittest.TestCase):
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0][0], "write_file")
 
-    def test_parse_tool_calls_ignores_non_matching_prefix(self):
-        """If prefix doesn't match, tool name is used as-is."""
-        calls = parse_tool_calls(
-            "[TOOL_START]\n[TOOL_NAME]\nread_file\n"
-            "[PARAM_NAME]\npath\n[PARAM_VALUE]\ntest.txt\n[TOOL_END]",
-            "different_prefix"
-        )
-        self.assertEqual(len(calls), 1)
-        self.assertEqual(calls[0][0], "read_file")
-
     def test_is_done_with_prefixed_task_completed(self):
         """is_done should detect <prefix>_task_completed when prefix is provided."""
         prefix = "12345678"
@@ -2415,16 +2424,6 @@ class TestInstancePrefix(unittest.TestCase):
         done, summary = is_done(response, prefix)
         self.assertTrue(done)
         self.assertEqual(summary, "Done")
-
-    def test_is_done_fallback_to_plain_task_completed(self):
-        """is_done should still detect plain task_completed even with prefix."""
-        done, summary = is_done(
-            "[TOOL_START]\n[TOOL_NAME]\ntask_completed\n"
-            "[PARAM_NAME]\nsummary\n[PARAM_VALUE]\nPlain done\n[TOOL_END]",
-            "someprefix"
-        )
-        self.assertTrue(done)
-        self.assertEqual(summary, "Plain done")
 
 
 # ====================================================================
