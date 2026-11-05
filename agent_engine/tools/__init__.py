@@ -14,7 +14,7 @@ import logging
 import os
 from typing import Any, Dict, List, Optional, Set, Type
 from agent_engine.tools.base import BaseTool, ToolResult
-from agent_engine.security import ensure_under_root, validate_tool_params, SecurityError, ToolError, strip_json_schema_keys
+from agent_engine.security import ensure_under_root, validate_tool_params, SecurityError, ToolError
 from agent_engine.tools.list_directory import ListDirectoryTool
 from agent_engine.tools.list_directory_deep import ListDirectoryDeepTool
 from agent_engine.tools.search_files import SearchFilesTool, SearchFilesDirTool
@@ -264,9 +264,6 @@ class ToolRegistry:
             disabled_tools = set()
         if not project_output_dir:
             project_output_dir = os.path.join(root_dir, "output")
-
-        # Strip JSON Schema structural keys the LLM might leak into params
-        params = strip_json_schema_keys(params)
 
         tool = self._create_tool_instance(tool_name, root_dir, project_output_dir, disabled_tools)
         if not tool:
