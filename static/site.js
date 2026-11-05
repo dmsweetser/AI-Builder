@@ -710,23 +710,8 @@ document.addEventListener('click', function(e) {
     .then(function(r) { return r.json(); })
     .then(function(data) {
         if (isApprove && data.status === 'approved') {
-            alert('Tool approved! The agent will continue shortly.');
+            alert('Tool approved! Send a new message to continue processing.');
             clearPendingApprovalState();
-            // Restart the agent run so it picks up the newly approved tool.
-            // The engine will reload approved tools and continue from the
-            // previous step history.
-            if (outputDir && jobId) {
-                // Determine the project ID from history
-                fetch('/api/history')
-                    .then(function(r) { return r.json(); })
-                    .then(function(history) {
-                        var jobRecord = history.find(function(h) { return h.job_id === jobId; });
-                        if (jobRecord && jobRecord.project_id) {
-                            continueAgentRunWithInstruction(jobRecord.project_id, jobId, '');
-                        }
-                    })
-                    .catch(function(err) { console.error('Failed to find project for resume:', err); });
-            }
         } else if (!isApprove && data.status === 'rejected') {
             alert('Tool rejected.');
             clearPendingApprovalState();
