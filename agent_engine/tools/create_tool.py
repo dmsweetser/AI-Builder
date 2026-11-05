@@ -71,6 +71,23 @@ class CreateToolTool(BaseTool):
         try:
             import tempfile as _tempfile
             import importlib.util as _importlib_util
+            import types as _types
+            import sys as _sys
+            # Import shim: map common LLM-generated import paths to the correct
+            # AI-Builder paths. LLMs frequently write "from tools.base import
+            # BaseTool" (LangChain-ism / generic pattern) instead of the actual
+            # "from agent_engine.tools.base import BaseTool".  We intercept the
+            # failed import at validation time so the generated code still runs
+            # correctly at execution time (where the real path is used).
+            if "tools.base" not in _sys.modules:
+                try:
+                    from agent_engine.tools.base import BaseTool, ToolResult as _TB
+                    _shim = _types.ModuleType("tools.base")
+                    _shim.BaseTool = BaseTool
+                    _shim.ToolResult = _TB
+                    _sys.modules["tools.base"] = _shim
+                except ImportError:
+                    pass  # No shim possible — let the real import fail below
             with _tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False, dir=output_dir) as tmp:
                 tmp.write(file_content)
                 tmp_path = tmp.name

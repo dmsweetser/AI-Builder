@@ -1258,14 +1258,14 @@ function buildToolSelectorForElement(elementId, disabledTools, customTools) {
     // Built-in tools section
     html += '<div style="margin-bottom:12px;">';
     html += '<div style="font-size:11px;font-weight:bold;color:var(--text-muted);margin-bottom:4px;">BUILT-IN TOOLS</div>';
-    html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:4px;">';
+    html += '<div class="tool-selector-grid">';
     var tools = AVAILABLE_TOOLS.slice().sort();
     tools.forEach(function(toolName) {
         // All tools checked by default; unchecked = disabled
         var isChecked = disabledTools && disabledTools.indexOf(toolName) === -1;
-        html += '<label style="display:flex;align-items:center;gap:6px;font-size:12px;padding:4px 8px;background:var(--muted);border-radius:4px;cursor:pointer;">' +
+        html += '<label class="tool-checkbox" style="display:flex;align-items:center;gap:6px;font-size:12px;padding:4px 8px;background:var(--muted);border-radius:4px;cursor:pointer;min-width:0;">' +
             '<input type="checkbox" class="tool-cb" data-toolname="' + escapeHtml(toolName) + '" value="' + toolName + '" ' + (isChecked ? 'checked' : '') + '>' +
-            escapeHtml(toolName) + '</label>';
+            '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;">' + escapeHtml(toolName) + '</span></label>';
     });
     html += '</div></div>';
 
@@ -1273,12 +1273,12 @@ function buildToolSelectorForElement(elementId, disabledTools, customTools) {
     if (customTools && customTools.length > 0) {
         html += '<div style="margin-bottom:12px;">';
         html += '<div style="font-size:11px;font-weight:bold;color:var(--text-muted);margin-bottom:4px;">CUSTOM TOOLS (project-local)</div>';
-        html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:4px;">';
+        html += '<div class="tool-selector-grid">';
         customTools.forEach(function(toolName) {
             var isChecked = disabledTools && disabledTools.indexOf(toolName) === -1;
-            html += '<label style="display:flex;align-items:center;gap:6px;font-size:12px;padding:4px 8px;background:var(--muted);border-radius:4px;cursor:pointer;">' +
+            html += '<label class="tool-checkbox" style="display:flex;align-items:center;gap:6px;font-size:12px;padding:4px 8px;background:var(--muted);border-radius:4px;cursor:pointer;min-width:0;">' +
                 '<input type="checkbox" class="tool-cb" data-toolname="' + escapeHtml(toolName) + '" value="' + toolName + '" ' + (isChecked ? 'checked' : '') + '>' +
-                escapeHtml(toolName) + ' <span style="font-size:10px;color:var(--text-muted);">(custom)</span></label>';
+                '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;">' + escapeHtml(toolName) + '</span> <span style="font-size:10px;color:var(--text-muted);white-space:nowrap;">(custom)</span></label>';
         });
         html += '</div></div>';
     }

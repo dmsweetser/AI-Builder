@@ -23,8 +23,10 @@
     --mc-bg-card: #2A2A45;
     --mc-text: #E0E0E0;
     --mc-text-dim: #A0A0A0;
+    --text-muted: #A0A0A0;
     --mc-border: #3A3A55;
     --mc-border-light: #4A4A65;
+    --muted: #2A2A45;
 }
 
 * {
@@ -1261,7 +1263,7 @@ textarea {
 /* === Tool Selector Grid === */
 .tool-selector-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    grid-template-columns: repeat(3, 1fr);
     gap: 6px;
 }
 
@@ -1270,13 +1272,14 @@ textarea {
     align-items: center;
     gap: 8px;
     padding: 6px 10px;
-    background: var(--mc-bg-card);
+    background: var(--muted);
     border: 2px solid var(--mc-border);
     border-radius: 0;
     cursor: pointer;
     font-size: 9px;
     font-family: 'Press Start 2P', monospace;
     transition: all 0.1s;
+    min-width: 0;
 }
 
 .tool-checkbox:hover {
@@ -1288,6 +1291,12 @@ textarea {
     height: 14px;
     accent-color: var(--mc-diamond);
     flex-shrink: 0;
+}
+
+@media (max-width: 600px) {
+    .tool-selector-grid {
+        grid-template-columns: 1fr;
+    }
 }
 
 /* === Loading / Notes === */
