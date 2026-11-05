@@ -1779,6 +1779,17 @@ def api_approve_tool(tool_name):
                         logging.info(f"Rebuilt tool loader for SSE job {job_id} after tool approval")
                     except Exception as e:
                         logging.warning(f"Failed to reload tools for job {job_id}: {e}")
+
+        # Write a resume signal file so the engine loop picks it up
+        # and continues to the next LLM call with the new tool available.
+        # The engine checks for this file at self.output_dir/_tool_approved_resume.txt
+        resume_file = os.path.join(project_output_dir, "_tool_approved_resume.txt")
+        try:
+            with open(resume_file, 'w') as f:
+                f.write(tool_name)
+        except Exception as e:
+            logging.warning(f"Failed to write resume signal for tool {tool_name}: {e}")
+
         return jsonify(result)
     return jsonify(result), 404
 

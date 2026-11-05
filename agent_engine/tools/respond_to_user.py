@@ -27,6 +27,6 @@ class RespondToUserTool(BaseTool):
                 pass
         return ToolResult(
             True,
-            f"Response sent to user: {message[:200]}",
+            message,
             summary=f"Responded to user ({len(message)} chars)",
         )

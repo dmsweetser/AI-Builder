@@ -242,8 +242,8 @@ class LLMClient:
         # Return raw request and response for SSE streaming
         return {
             "content": content,
-            "raw_request": full_request_json[:3000],
-            "raw_response": content[:2000],
+            "raw_request": full_request_json,
+            "raw_response": content,
         }
 
 
