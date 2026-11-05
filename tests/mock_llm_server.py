@@ -298,6 +298,7 @@ class MockLLMServer:
         self.port = port
         self.server = None
         self.thread = None
+        self.instance_prefix = ""  # Optional prefix for tool names
     
     def start(self):
         """Start the mock LLM server."""
@@ -351,6 +352,18 @@ class MockLLMServer:
             MockLLMResponse(pattern, response_text, [], delay, finish_reason="stop")
         )
         logger.info(f"[MOCK] Added tool call response for pattern: {pattern} -> {tool_name}")
+    
+    def add_prefixed_tool_call_response(self, pattern: str, tool_name: str, 
+                                         arguments: Dict[str, str], delay: float = 0.0):
+        """Add a response with a prefixed tool name (e.g. <epoch>list_directory).
+        
+        This matches the engine's instance_prefix mechanism so the agent can't
+        accidentally execute tool call blocks found in its own source code.
+        """
+        prefix = self.instance_prefix
+        prefixed_name = f"{prefix}_{tool_name}" if prefix else tool_name
+        self.add_tool_call_response(pattern, prefixed_name, arguments, delay)
+        logger.info(f"[MOCK] Added prefixed tool call response: {prefixed_name}")
     
     def add_sequential_response(self, response: str, 
                                  tool_calls: Optional[List[Any]] = None,

@@ -572,23 +572,34 @@ def _parse_params(params_block: str) -> Optional[Dict[str, str]]:
     return params if params else None
 
 
-def is_done(response: str) -> Tuple[bool, str]:
-    """Check if the LLM has indicated completion via task_completed tool call."""
-    # Check for task_completed tool call
-    task_match = re.search(
-        r'\[TOOL_START\].*?\[TOOL_NAME\]\s*task_completed\s.*?\[TOOL_END\]',
-        response,
-        flags=re.DOTALL,
-    )
-    if task_match:
-        # Extract the summary from the task_completed tool call
-        summary_match = re.search(
-            r'\[PARAM_VALUE\]\s*(.*?)\s*\[TOOL_END\]',
-            task_match.group(0),
-            re.DOTALL,
+def is_done(response: str, prefix: str = "") -> Tuple[bool, str]:
+    """Check if the LLM has indicated completion via task_completed tool call.
+
+    Args:
+        response: The LLM response text (raw, with tool blocks).
+        prefix: Optional instance prefix. If set, also checks for
+                <prefix>_task_completed as the completion signal.
+    """
+    # Build the task_completed name(s) to look for
+    task_names = ["task_completed"]
+    if prefix:
+        task_names.append(f"{prefix}_task_completed")
+
+    for task_name in task_names:
+        task_match = re.search(
+            rf'\[TOOL_START\].*?\[TOOL_NAME\]\s*{re.escape(task_name)}\s.*?\[TOOL_END\]',
+            response,
+            flags=re.DOTALL,
         )
-        if summary_match:
-            return True, summary_match.group(1).strip()
+        if task_match:
+            # Extract the summary from the task_completed tool call
+            summary_match = re.search(
+                r'\[PARAM_VALUE\]\s*(.*?)\s*\[TOOL_END\]',
+                task_match.group(0),
+                re.DOTALL,
+            )
+            if summary_match:
+                return True, summary_match.group(1).strip()
     return False, ""
 
 
@@ -641,11 +652,14 @@ class AgentEngine:
         self.instructions = project_config.get("instructions", "")
         self.job_id = project_config.get("job_id", str(int(time.time() * 1000)))
 
-        # Generate a unique instance prefix for this agent run.
+        # Generate a unique instance prefix for this agent run using epoch ticks.
         # This prefix is prepended to all tool names in the system prompt.
         # When the agent reads its own source code, tool call blocks in the code
-        # use unprefixed names, so the parser won't extract them as tool calls.
-        self.instance_prefix = uuid.uuid4().hex[:8]
+        # use unprefixed names (e.g. [TOOL_NAME]\nlist_directory), so the parser
+        # won't extract them as tool calls because it expects the prefixed form
+        # (e.g. [TOOL_NAME]\n<epoch>list_directory). This prevents the agent from
+        # executing its own tool call syntax when reviewing/creating code.
+        self.instance_prefix = f"{int(time.time() * 1000000) % 100000000:08d}"
 
         # Use caller-provided output_dir (from UI) to ensure consistent
         # aib_instance/output/ path for both agent_engine and legacy modes.
@@ -1116,7 +1130,7 @@ class AgentEngine:
 
                 # Parse tool calls FIRST - before checking for task_completed
                 tool_calls = parse_tool_calls(cleaned, self.instance_prefix)
-                done, summary = is_done(cleaned)
+                done, summary = is_done(cleaned, self.instance_prefix)
 
                 # If LLM produced tool calls (with or without task_completed):
                 #   - Take ONLY the first tool call
