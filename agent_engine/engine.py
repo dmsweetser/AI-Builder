@@ -8,6 +8,8 @@ import time
 import uuid
 import subprocess
 import platform
+import threading as _threading
+import fcntl as _fcntl
 from typing import Any, Dict, List, Tuple, Optional
 from agent_engine.config import EngineConfig
 from agent_engine.security import SecurityError, ToolError, EngineError
@@ -16,7 +18,6 @@ from agent_engine.tools.base import ToolResult
 
 
 import random as _random
-import threading
 import time as _time
 import urllib.error as _urllib_error
 
@@ -247,17 +248,59 @@ class LLMClient:
         }
 
 
+# ====================================================================
+# Prefixed marker system
+# ====================================================================
+
+def _prefixed_markers(prefix: str = "") -> Dict[str, str]:
+    """Return a dict of marker_name → prefixed_marker for the given prefix.
+
+    When prefix is set, ALL tool format markers are prefixed so that the agent
+    cannot match unprefixed markers in source code it reads during review.
+    """
+    if prefix:
+        return {
+            "TOOL_START": f"[{prefix}_TOOL_START]",
+            "TOOL_END": f"[{prefix}_TOOL_END]",
+            "TOOL_NAME": f"[{prefix}_TOOL_NAME]",
+            "PARAM_NAME": f"[{prefix}_PARAM_NAME]",
+            "PARAM_VALUE": f"[{prefix}_PARAM_VALUE]",
+            "PARAM_END": f"[{prefix}_PARAM_END]",
+            "RATIONALE": f"[{prefix}_RATIONALE]",
+        }
+    return {
+        "TOOL_START": "[TOOL_START]",
+        "TOOL_END": "[TOOL_END]",
+        "TOOL_NAME": "[TOOL_NAME]",
+        "PARAM_NAME": "[PARAM_NAME]",
+        "PARAM_VALUE": "[PARAM_VALUE]",
+        "PARAM_END": "[PARAM_END]",
+        "RATIONALE": "[RATIONALE]",
+    }
+
+
+def _marker(prefix: str, key: str) -> str:
+    """Get a single prefixed marker string."""
+    return _prefixed_markers(prefix).get(key, key)
+
 
 def build_system_prompt(tools: List[Dict[str, Any]], instance_prefix: str = "") -> str:
     """Build the system prompt that defines the agentic workflow.
 
     Args:
         tools: List of tool definitions from the registry.
-        instance_prefix: Optional prefix for tool names. When set, all tool names
-            in the prompt are prefixed (e.g., "a1b2c3d4_write_file"). This ensures
-            that when the agent reads its own source code, tool call blocks embedded
-            in the code use unprefixed names that the parser won't extract.
+        instance_prefix: Optional prefix. When set, ALL tool format markers
+            ([TOOL_START], [TOOL_NAME], [PARAM_NAME], [PARAM_VALUE], etc.)
+            and tool names are prefixed so the agent cannot match unprefixed
+            markers in source code it reads during review.
     """
+    m = _marker(instance_prefix, "TOOL_START")
+    m_end = _marker(instance_prefix, "TOOL_END")
+    m_name = _marker(instance_prefix, "TOOL_NAME")
+    m_pname = _marker(instance_prefix, "PARAM_NAME")
+    m_pval = _marker(instance_prefix, "PARAM_VALUE")
+    m_rat = _marker(instance_prefix, "RATIONALE")
+
     tool_defs = ""
     for t in tools:
         tool_name = t['name']
@@ -270,24 +313,24 @@ def build_system_prompt(tools: List[Dict[str, Any]], instance_prefix: str = "") 
                 tool_defs += f"\n      - {pk}: {pv}"
 
     example_block = (
-        "[TOOL_START]\n"
-        "[TOOL_NAME]\n"
+        f"{m}\n"
+        f"{m_name}\n"
         "write_file\n"
-        "[PARAM_NAME]\n"
+        f"{m_pname}\n"
         "path\n"
-        "[PARAM_VALUE]\n"
+        f"{m_pval}\n"
         "src/hello.py\n"
-        "[PARAM_NAME]\n"
+        f"{m_pname}\n"
         "content\n"
-        "[PARAM_VALUE]\n"
+        f"{m_pval}\n"
         "\"\"\"Hello module.\"\"\"\n"
         "from src.main import greet\n"
         "\n"
         'if __name__ == "__main__":\n'
         '    print(greet("World"))\n'
-        "[RATIONALE]\n"
+        f"{m_rat}\n"
         "Writing the entry point file with the greet function import.\n"
-        "[TOOL_END]"
+        f"{m_end}"
     )
 
     return f'''You are an expert code engineer working inside a bounded tool environment.
@@ -335,8 +378,14 @@ TRUNCATION HANDLING:
 
 PARAMETER FORMAT (tag-based, NO EXCEPTIONS):
 - Your ENTIRE response MUST be exactly ONE of the following:
-  1. A single tool call block using [TOOL_START]...[TOOL_END]
-  2. A final completion: task_completed tool with a summary
+  1. A single tool call block using {m}...{m_end}
+  2. A final completion: {m_name}
+     task_completed
+     {m_pname}
+     summary
+     {m_pval}
+     <your summary here>
+     {m_end}
 - You are FORBIDDEN from writing any other text outside of tool call blocks.
 - Do NOT write any reasoning, thinking, or explanation text.
 - Do NOT write "I will..." or "Let me..." or any natural language.
@@ -344,28 +393,28 @@ PARAMETER FORMAT (tag-based, NO EXCEPTIONS):
 
 The EXACT format for a tool call is:
 
-[TOOL_START]
-[TOOL_NAME]
+{m}
+{m_name}
 the tool name here
-[PARAM_NAME]
+{m_pname}
 the first parameter key
-[PARAM_VALUE]
+{m_pval}
 the first parameter value
-[PARAM_NAME]
+{m_pname}
 the second parameter key
-[PARAM_VALUE]
+{m_pval}
 the second parameter value
-[RATIONALE]
+{m_rat}
 (optional) Explain why you are making this tool call - your reasoning, strategy, or what you expect to happen. This helps the user understand your thought process.
-[TOOL_END]
+{m_end}
 
 Rules for the format:
-- [TOOL_START] and [TOOL_END] wrap the entire tool call
-- [TOOL_NAME] appears once, right after [TOOL_START], followed by the tool name on the next line
-- Each parameter uses exactly two tags: [PARAM_NAME] followed by the key, then [PARAM_VALUE] followed by the value
-- [RATIONALE] is optional and can appear after all parameters, before [TOOL_END]. It contains your reasoning for the tool call.
-- Values may span multiple lines between [PARAM_VALUE] and the next [PARAM_NAME] or [TOOL_END]
-- You MUST include both [TOOL_START] and [TOOL_END]
+- {m} and {m_end} wrap the entire tool call
+- {m_name} appears once, right after {m}, followed by the tool name on the next line
+- Each parameter uses exactly two tags: {m_pname} followed by the key, then {m_pval} followed by the value
+- {m_rat} is optional and can appear after all parameters, before {m_end}. It contains your reasoning for the tool call.
+- Values may span multiple lines between {m_pval} and the next {m_pname} or {m_end}
+- You MUST include both {m} and {m_end}
 - Make exactly ONE tool call per response
 
 Example:
@@ -381,7 +430,7 @@ Any text outside these formats will be ignored.
 
 CRITICAL: task_completed is the FINAL tool call. Once you call task_completed, the run ends immediately. Do not make any additional tool calls after task_completed.
 
-CRITICAL: Make EXACTLY ONE tool call per response. Do not include multiple tool call blocks. If you include more than one [TOOL_START]...[TOOL_END] block, only the FIRST one will be executed - the rest will be ignored as invalid output.
+CRITICAL: Make EXACTLY ONE tool call per response. Do not include multiple tool call blocks. If you include more than one {m}...{m_end} block, only the FIRST one will be executed - the rest will be ignored as invalid output.
 
 IMPORTANT: You are bounded to the project root directory by default. All file paths are relative to it.
 You CANNOT read or write files outside the project root unless the task instructions explicitly specify an absolute path (e.g., /tmp/something.py).
@@ -397,12 +446,16 @@ You will see a "PENDING TOOL APPROVAL" message in the live feed while waiting fo
 CONTEXT MANAGEMENT:
 - If you have accumulated many tool results and the conversation is getting long, use the compress_context tool to summarize prior steps into a compact summary.
 - This helps free up context space for new work. Provide a summary that captures what was learned, what files were modified, and the current state of the project.
-- After compressing, continue with your next action using the compressed context.
 '''
 
 
-def build_user_prompt(instructions: str, context: str = "") -> str:
+def build_user_prompt(instructions: str, context: str = "", instance_prefix: str = "") -> str:
     """Build the initial user prompt with the task instructions."""
+    m = _marker(instance_prefix, "TOOL_START")
+    m_end = _marker(instance_prefix, "TOOL_END")
+    m_name = _marker(instance_prefix, "TOOL_NAME")
+    m_pname = _marker(instance_prefix, "PARAM_NAME")
+    m_pval = _marker(instance_prefix, "PARAM_VALUE")
     prompt = f"""TASK INSTRUCTIONS:
 {instructions}
 
@@ -413,14 +466,14 @@ CRITICAL INSTRUCTIONS:
 4. Your ENTIRE response must be ONLY a tool call block or a task_completed tool call. No other text.
 5. Format your tool call EXACTLY like this example:
 
-[TOOL_START]
-[TOOL_NAME]
+{m}
+{m_name}
 list_directory
-[PARAM_NAME]
+{m_pname}
 path
-[PARAM_VALUE]
+{m_pval}
 .
-[TOOL_END]
+{m_end}
 
 STEP 1: Use list_directory to explore the project structure. Do NOT use task_completed yet - you must take action first."""
     if context:
@@ -444,46 +497,95 @@ def _strip_code_blocks(response: str) -> str:
 def parse_tool_calls(response: str, prefix: str = "") -> List[Tuple[str, Dict[str, str], Optional[str]]]:
     """Parse tool calls from LLM response using the simplified tag-based format.
 
-    Format:
+    Format (standard):
         [TOOL_START]
         [TOOL_NAME]
         write_file
         [PARAM_NAME]
         path
         [PARAM_VALUE]
+        .
+        [TOOL_END]
+
+    Format (prefixed, when instance_prefix is set):
+        [<prefix>_TOOL_START]
+        [<prefix>_TOOL_NAME]
+        write_file
+        [<prefix>_PARAM_NAME]
+        path
+        [<prefix>_PARAM_VALUE]
+        .
+        [<prefix>_TOOL_END]
 
     Code blocks (```...``` and `...`) are stripped before parsing to prevent
     extracting tool calls from code examples embedded in the response.
 
     Also handles LLM quirks:
-    - [PARAM_END] is treated as [TOOL_END]
-    - [tool_name] directly after [TOOL_START] (without [TOOL_NAME] tag)
+    - [PARAM_END] (or [<prefix>_PARAM_END]) is treated as [TOOL_END]
+    - [<prefix>_tool_name] directly after [<prefix>_TOOL_START]
     - Natural language text before/after tool call blocks
-    - [RATIONALE] block for explaining reasoning
+    - [<prefix>_RATIONALE] block for explaining reasoning
     - Instance prefix: if prefix is set, tool names are expected to be prefixed
       (e.g., "a1b2c3d4_write_file") and the prefix is stripped before returning.
     """
-    # Strip code blocks before parsing to prevent extracting tool calls
-    # from code examples embedded in the response
+    # Strip code blocks before parsing
     response = _strip_code_blocks(response)
-    calls = []
-    # Normalize LLM quirks: treat [PARAM_END] as [TOOL_END]
-    normalized = response.replace('[PARAM_END]', '[TOOL_END]')
 
-    # Also handle the case where LLM uses [tool_name] directly instead of
-    # [TOOL_NAME] tag (e.g., "[list_directory]" instead of "[TOOL_NAME]\nlist_directory")
-    # Pattern: [TOOL_START][tool_name]...[TOOL_END]
-    alt_pattern = r'\[TOOL_START\]\s*\[([^\]]+)\]\s*(.*?)\[TOOL_END\]'
+    # Get the prefixed markers for this instance
+    markers = _prefixed_markers(prefix)
+    m_start = markers["TOOL_START"]
+    m_end = markers["TOOL_END"]
+    m_name = markers["TOOL_NAME"]
+    m_pname = markers["PARAM_NAME"]
+    m_pval = markers["PARAM_VALUE"]
+    m_pend = markers["PARAM_END"]
+    m_rat = markers["RATIONALE"]
+
+    # Also keep unprefixed markers for fallback matching
+    unprefixed = _prefixed_markers("")
+    m_start_up = unprefixed["TOOL_START"]
+    m_end_up = unprefixed["TOOL_END"]
+    m_name_up = unprefixed["TOOL_NAME"]
+    m_pname_up = unprefixed["PARAM_NAME"]
+    m_pval_up = unprefixed["PARAM_VALUE"]
+    m_pend_up = unprefixed["PARAM_END"]
+    m_rat_up = unprefixed["RATIONALE"]
+
+    # Normalize LLM quirks: treat [PARAM_END] (or prefixed) as [TOOL_END]
+    normalized = response
+    normalized = normalized.replace(m_pend, m_end)
+    normalized = normalized.replace(m_pend_up, m_end_up)
+
+    # Build regex patterns using the actual marker strings
+    # Standard pattern: [TOOL_START]...[TOOL_NAME]\nname\n...[TOOL_END]
+    tool_pattern = re.escape(m_start) + r'\s*' + re.escape(m_name) + r'\s*\n(.*?)\n(.*?)' + re.escape(m_end)
+
+    # Alt pattern: [TOOL_START][tool_name]...[TOOL_END]
+    alt_pattern = re.escape(m_start) + r'\s*\[([^\]]+)\]\s*(.*?)' + re.escape(m_end)
+
+    tool_matches = list(re.finditer(tool_pattern, normalized, re.DOTALL))
     alt_matches = list(re.finditer(alt_pattern, normalized, re.DOTALL))
 
-    # Also try the standard pattern: [TOOL_START][TOOL_NAME]\nname\n...[TOOL_END]
-    tool_pattern = r'\[TOOL_START\]\s*\[TOOL_NAME\]\s*\n(.*?)\n(.*?)\[TOOL_END\]'
-    tool_matches = list(re.finditer(tool_pattern, normalized, re.DOTALL))
+    # If no matches with prefixed markers, try unprefixed markers
+    if prefix and not tool_matches and not alt_matches:
+        normalized_up = response
+        normalized_up = normalized_up.replace(m_pend_up, m_end_up)
+        tool_pattern_up = re.escape(m_start_up) + r'\s*' + re.escape(m_name_up) + r'\s*\n(.*?)\n(.*?)' + re.escape(m_end_up)
+        alt_pattern_up = re.escape(m_start_up) + r'\s*\[([^\]]+)\]\s*(.*?)' + re.escape(m_end_up)
+        tool_matches = list(re.finditer(tool_pattern_up, normalized_up, re.DOTALL))
+        alt_matches = list(re.finditer(alt_pattern_up, normalized_up, re.DOTALL))
+
+    calls = []
 
     def _process_match(tool_name: str, params_block: str):
-        rationale = _extract_rationale(params_block)
-        params_block = re.sub(r'\[RATIONALE\].*?$', '', params_block, flags=re.DOTALL)
-        params = _parse_params(params_block)
+        rationale = _extract_rationale(params_block, m_rat, m_end)
+        if not rationale:
+            rationale = _extract_rationale(params_block, m_rat_up, m_end_up)
+        params_block = re.sub(re.escape(m_rat) + r'.*?$', '', params_block, flags=re.DOTALL)
+        params_block = re.sub(re.escape(m_rat_up) + r'.*?$', '', params_block, flags=re.DOTALL)
+        params = _parse_params(params_block, m_pname, m_pval, m_end)
+        if not params:
+            params = _parse_params(params_block, m_pname_up, m_pval_up, m_end_up)
         if tool_name and params is not None:
             # Strip instance prefix if present
             if prefix and tool_name.startswith(prefix + '_'):
@@ -505,9 +607,13 @@ def parse_tool_calls(response: str, prefix: str = "") -> List[Tuple[str, Dict[st
     return calls
 
 
-def _extract_rationale(params_block: str) -> Optional[str]:
+def _extract_rationale(params_block: str, rationale_marker: str = "[RATIONALE]", end_marker: str = "[TOOL_END]") -> Optional[str]:
     """Extract [RATIONALE] block from params if present."""
-    rationale_match = re.search(r'\[RATIONALE\]\s*\n(.*?)(?=\[TOOL_END\]|\[TOOL_NAME\]|\Z)', params_block, re.DOTALL)
+    rationale_match = re.search(
+        re.escape(rationale_marker) + r'\s*\n(.*?)(?=' + re.escape(end_marker) + r'|\[TOOL_NAME\]|\Z)',
+        params_block,
+        re.DOTALL
+    )
     if rationale_match:
         rationale = rationale_match.group(1).strip()
         if rationale:
@@ -515,7 +621,8 @@ def _extract_rationale(params_block: str) -> Optional[str]:
     return None
 
 
-def _parse_params(params_block: str) -> Optional[Dict[str, str]]:
+def _parse_params(params_block: str, pname_marker: str = "[PARAM_NAME]",
+                  pval_marker: str = "[PARAM_VALUE]", end_marker: str = "[TOOL_END]") -> Optional[Dict[str, str]]:
     """Parse parameters from the simplified tag-based format.
 
     Format:
@@ -534,8 +641,8 @@ def _parse_params(params_block: str) -> Optional[Dict[str, str]]:
 
     # Split into tokens by tag
     # Strategy: find all [PARAM_NAME] and [PARAM_VALUE] tags and their content
-    name_pattern = r'\[PARAM_NAME\]\s*\n(.*?)(?=\[PARAM_VALUE\]|\[TOOL_END\]|\[TOOL_NAME\]|\Z)'
-    value_pattern = r'\[PARAM_VALUE\]\s*\n(.*?)(?=\[PARAM_NAME\]|\[TOOL_END\]|\[TOOL_NAME\]|\Z)'
+    name_pattern = re.escape(pname_marker) + r'\s*\n(.*?)(?=' + re.escape(pval_marker) + r'|' + re.escape(end_marker) + r'|\[TOOL_NAME\]|\Z)'
+    value_pattern = re.escape(pval_marker) + r'\s*\n(.*?)(?=' + re.escape(pname_marker) + r'|' + re.escape(end_marker) + r'|\[TOOL_NAME\]|\Z)'
 
     name_matches = list(re.finditer(name_pattern, params_block, re.DOTALL))
     value_matches = list(re.finditer(value_pattern, params_block, re.DOTALL))
@@ -543,13 +650,13 @@ def _parse_params(params_block: str) -> Optional[Dict[str, str]]:
     if len(name_matches) != len(value_matches):
         # Fallback: try a simpler approach - just grab everything between tags
         # Split by [PARAM_NAME] and [PARAM_VALUE] tags
-        parts = re.split(r'(\[PARAM_NAME\]|\[PARAM_VALUE\])', params_block)
+        parts = re.split(r'(' + re.escape(pname_marker) + r'|' + re.escape(pval_marker) + r')', params_block)
         if len(parts) >= 4:
             i = 0
             while i < len(parts) - 2:
-                if parts[i].strip() == '[PARAM_NAME]':
+                if parts[i].strip() == pname_marker:
                     key = parts[i+1].strip() if i+1 < len(parts) else ''
-                    if i+2 < len(parts) and parts[i+2].strip() == '[PARAM_VALUE]':
+                    if i+2 < len(parts) and parts[i+2].strip() == pval_marker:
                         val = parts[i+3].strip() if i+3 < len(parts) else ''
                         if key and val:
                             params[key] = val
@@ -580,27 +687,86 @@ def is_done(response: str, prefix: str = "") -> Tuple[bool, str]:
         prefix: Optional instance prefix. If set, also checks for
                 <prefix>_task_completed as the completion signal.
     """
+    markers = _prefixed_markers(prefix)
+    m_start = markers["TOOL_START"]
+    m_end = markers["TOOL_END"]
+    m_name = markers["TOOL_NAME"]
+    m_pval = markers["PARAM_VALUE"]
+
+    # Also keep unprefixed markers for fallback matching
+    unprefixed = _prefixed_markers("")
+    m_start_unprefixed = unprefixed["TOOL_START"]
+    m_end_unprefixed = unprefixed["TOOL_END"]
+    m_name_unprefixed = unprefixed["TOOL_NAME"]
+    m_pval_unprefixed = unprefixed["PARAM_VALUE"]
+
     # Build the task_completed name(s) to look for
     task_names = ["task_completed"]
     if prefix:
         task_names.append(f"{prefix}_task_completed")
 
-    for task_name in task_names:
-        task_match = re.search(
-            rf'\[TOOL_START\].*?\[TOOL_NAME\]\s*{re.escape(task_name)}\s.*?\[TOOL_END\]',
-            response,
-            flags=re.DOTALL,
-        )
-        if task_match:
-            # Extract the summary from the task_completed tool call
-            summary_match = re.search(
-                r'\[PARAM_VALUE\]\s*(.*?)\s*\[TOOL_END\]',
-                task_match.group(0),
-                re.DOTALL,
+    # Try both prefixed and unprefixed marker formats
+    marker_sets = [(m_start, m_end, m_name, m_pval)]
+    if prefix:
+        # When prefix is set, also try unprefixed markers (for backward compat)
+        marker_sets.append((m_start_unprefixed, m_end_unprefixed, m_name_unprefixed, m_pval_unprefixed))
+
+    for m_s, m_e, m_n, m_pv in marker_sets:
+        for task_name in task_names:
+            task_match = re.search(
+                re.escape(m_s) + r'.*?' + re.escape(m_n) + r'\s*' + re.escape(task_name) + r'\s.*?' + re.escape(m_e),
+                response,
+                flags=re.DOTALL,
             )
-            if summary_match:
-                return True, summary_match.group(1).strip()
+            if task_match:
+                # Extract the summary from the task_completed tool call
+                summary_match = re.search(
+                    re.escape(m_pv) + r'\s*(.*?)\s*' + re.escape(m_e),
+                    task_match.group(0),
+                    re.DOTALL,
+                )
+                if summary_match:
+                    return True, summary_match.group(1).strip()
     return False, ""
+
+
+# ====================================================================
+# File locking utility
+# ====================================================================
+
+class FileLock:
+    """Simple file-based lock for preventing concurrent writes."""
+
+    def __init__(self, lock_path: str):
+        self.lock_path = lock_path + ".lock"
+        self._lock_file = None
+
+    def __enter__(self):
+        self.acquire()
+        return self
+
+    def __exit__(self, *args):
+        self.release()
+
+    def acquire(self):
+        """Acquire the lock (blocking)."""
+        self._lock_file = open(self.lock_path, 'w')
+        try:
+            _fcntl.flock(self._lock_file.fileno(), _fcntl.LOCK_EX)
+        except OSError:
+            self._lock_file.close()
+            self._lock_file = None
+            raise
+
+    def release(self):
+        """Release the lock."""
+        if self._lock_file:
+            try:
+                _fcntl.flock(self._lock_file.fileno(), _fcntl.LOCK_UN)
+                self._lock_file.close()
+            except OSError:
+                pass
+            self._lock_file = None
 
 
 # Tools that support filtering (for when results are truncated)
@@ -646,18 +812,19 @@ class AgentEngine:
     """
 
     def __init__(self, project_config: Dict[str, Any], output_dir: Optional[str] = None,
-                 step_callback=None, stop_event: Optional[threading.Event] = None):
+                 step_callback=None, stop_event: Optional[_threading.Event] = None):
         self.project_config = project_config
         self.root_dir = project_config.get("rootDirectory", EngineConfig.get_root_directory())
         self.instructions = project_config.get("instructions", "")
         self.job_id = project_config.get("job_id", str(int(time.time() * 1000)))
 
         # Generate a unique instance prefix for this agent run using epoch ticks.
-        # This prefix is prepended to all tool names in the system prompt.
+        # This prefix is prepended to ALL tool format markers ([TOOL_START],
+        # [TOOL_NAME], [PARAM_NAME], [PARAM_VALUE], etc.) and tool names.
         # When the agent reads its own source code, tool call blocks in the code
-        # use unprefixed names (e.g. [TOOL_NAME]\nlist_directory), so the parser
+        # use unprefixed markers (e.g. [TOOL_NAME]\nlist_directory), so the parser
         # won't extract them as tool calls because it expects the prefixed form
-        # (e.g. [TOOL_NAME]\n<epoch>list_directory). This prevents the agent from
+        # (e.g. [<prefix>_TOOL_NAME]\nlist_directory). This prevents the agent from
         # executing its own tool call syntax when reviewing/creating code.
         self.instance_prefix = f"{int(time.time() * 1000000) % 100000000:08d}"
 
@@ -974,7 +1141,7 @@ class AgentEngine:
 
         try:
             # Build initial prompt
-            user_prompt = build_user_prompt(self.instructions)
+            user_prompt = build_user_prompt(self.instructions, instance_prefix=self.instance_prefix)
             self.messages.append({"role": "user", "content": user_prompt})
 
             # Main loop
@@ -1055,10 +1222,10 @@ class AgentEngine:
                             except Exception:
                                 pass
                         self._context_warning_shown = True
-                        
+
                         # Apply deterministic context compression
                         self._deterministic_compress_context()
-                        
+
                         # Add a user message explaining the compression
                         self.messages.append({
                             "role": "user",
@@ -1115,15 +1282,28 @@ class AgentEngine:
                 # Strip code blocks first to prevent extracting tool calls from
                 # code examples embedded in the response.
                 cleaned = _strip_code_blocks(response)
+
                 # Strip anything outside valid tool call blocks - only keep
-                # [TOOL_START]...[TOOL_END] blocks.
+                # [TOOL_START]...[TOOL_END] blocks (or prefixed variants).
                 # This keeps conversation history clean and prevents the LLM from
                 # seeing its own stray text on subsequent turns.
+                # Handle both prefixed and unprefixed markers.
+                m_start_prefixed = _marker(self.instance_prefix, "TOOL_START")
+                m_end_prefixed = _marker(self.instance_prefix, "TOOL_END")
+                m_start_unprefixed = _marker("", "TOOL_START")
+                m_end_unprefixed = _marker("", "TOOL_END")
+                # Try prefixed markers first, then fall back to unprefixed
                 tool_blocks = re.findall(
-                    r'\[TOOL_START\].*?\[TOOL_END\]',
+                    re.escape(m_start_prefixed) + r'.*?' + re.escape(m_end_prefixed),
                     cleaned,
                     flags=re.DOTALL,
                 )
+                if not tool_blocks:
+                    tool_blocks = re.findall(
+                        re.escape(m_start_unprefixed) + r'.*?' + re.escape(m_end_unprefixed),
+                        cleaned,
+                        flags=re.DOTALL,
+                    )
                 # Keep only tool blocks (task_completed will be extracted via is_done)
                 cleaned_parts = list(tool_blocks)
                 cleaned_response = "\n\n".join(cleaned_parts).strip()

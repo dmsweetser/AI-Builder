@@ -182,11 +182,19 @@ def load_job_history():
         job_history = []
 
 def save_job_history():
+    tmp_path = HISTORY_FILE + ".tmp"
     try:
-        with open(HISTORY_FILE, 'w') as f:
-            json.dump(job_history, f, indent=2)
+        with open(tmp_path, 'w', encoding='utf-8') as f:
+            json.dump(job_history, f, indent=2, ensure_ascii=False)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, HISTORY_FILE)
     except Exception:
-        pass
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+        raise
 
 def load_projects():
     """Load all projects from individual JSON files in PROJECTS_DIR."""
@@ -211,13 +219,27 @@ def load_projects():
 
 
 def save_project(project):
-    """Save a single project to its own JSON file."""
+    """Save a single project to its own JSON file (atomic write to prevent corruption)."""
     pid = project.get("id", "")
     if not pid:
         raise ValueError("Project must have an id")
     fpath = os.path.join(PROJECTS_DIR, f"{pid}.json")
-    with open(fpath, "w", encoding="utf-8") as f:
-        json.dump(project, f, indent=2)
+    # Atomic write: write to temp file first, then rename
+    # This prevents JSON corruption if the write is interrupted
+    tmp_path = fpath + ".tmp"
+    try:
+        with open(tmp_path, 'w', encoding='utf-8') as f:
+            json.dump(project, f, indent=2, ensure_ascii=False)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, fpath)
+    except Exception:
+        # Clean up temp file on failure
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+        raise
 
 
 def delete_project_file(pid):
@@ -1042,6 +1064,90 @@ def api_reload_settings():
     return jsonify({"status": "reloaded", "settings": settings})
 
 # --- Agent Routes ---
+
+def _run_engine_in_background(project_config, output_dir, step_callback=None, stop_event=None,
+                               prev_step_history=None, continue_from_job=None):
+    """Run the engine in a background thread.
+
+    This is a reusable function that creates and runs the engine.
+    Used by both the SSE handler and the approval endpoint (for re-invoke).
+    Returns a dict with 'result' (engine result) and 'engine' (engine instance).
+    """
+    from agent_engine import AgentEngine
+    engine = AgentEngine(project_config, output_dir=output_dir,
+                         step_callback=step_callback, stop_event=stop_event)
+    engine.reload_approved_tools()
+
+    # If continuing from a previous job, restore conversation history
+    if prev_step_history:
+        engine.step_history = prev_step_history
+        engine.step_count = len(prev_step_history)
+        messages_file = os.path.join(output_dir, "conversation_history.json")
+        if os.path.exists(messages_file):
+            try:
+                with open(messages_file, 'r', encoding='utf-8') as f:
+                    prev_messages = json.load(f)
+                if prev_messages and prev_messages[-1].get("role") == "user":
+                    prev_messages.pop()
+                    prev_messages.append({
+                        "role": "user",
+                        "content": (
+                            f"[CONTINUATION] Your previous run completed. "
+                            f"The user has new instructions for you. "
+                            f"Please continue working on the project with these new instructions:\n\n"
+                            f"{project_config.get('instructions', '')}\n\n"
+                            f"Review what was already done, then take the next appropriate action.\n\n"
+                            f"TOOL FORMAT REMINDER\n"
+                            f"=====================\n\n"
+                            f"Your ENTIRE response must be EXACTLY ONE of the following:\n\n"
+                            f"  OPTION 1 — A tool call:\n"
+                            f"    [TOOL_START]\n"
+                            f"    [TOOL_NAME]\n"
+                            f"    <tool_name>\n"
+                            f"    [PARAM_NAME]\n"
+                            f"    <param_key_1>\n"
+                            f"    [PARAM_VALUE]\n"
+                            f"    <param_value_1>\n"
+                            f"    [PARAM_NAME]\n"
+                            f"    <param_key_2>\n"
+                            f"    [PARAM_VALUE]\n"
+                            f"    <param_value_2>\n"
+                            f"    [TOOL_END]\n\n"
+                            f"  OPTION 2 — Signal completion:\n"
+                            f"    Use the task_completed tool with a summary:\n"
+                            f"    [TOOL_START]\n"
+                            f"    [TOOL_NAME]\n"
+                            f"    task_completed\n"
+                            f"    [PARAM_NAME]\n"
+                            f"    summary\n"
+                            f"    [PARAM_VALUE]\n"
+                            f"    <your summary here>\n"
+                            f"    [TOOL_END]\n\n"
+                            f"IMPORTANT RULES:\n"
+                            f"  • Do NOT write any other text.\n"
+                            f"  • Do NOT explain what you will do — just act.\n"
+                            f"  • Make EXACTLY ONE tool call per response.\n"
+                            f"  • If you include more than one [TOOL_START]...[TOOL_END] block,\n"
+                            f"    only the FIRST one will be executed."
+                        )
+                    })
+                engine.messages = prev_messages
+            except Exception as e:
+                logging.warning(f"Failed to load conversation history: {e}")
+
+    result = engine.run()
+
+    # Persist conversation history
+    messages_file = os.path.join(output_dir, "conversation_history.json")
+    try:
+        with open(messages_file, 'w', encoding='utf-8') as f:
+            json.dump(engine.messages, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        logging.warning(f"Failed to save conversation history: {e}")
+
+    return {"result": result, "engine": engine}
+
+
 @app.route("/api/agent/run", methods=["POST"])
 def api_agent_run():
     """Start the agentic engine and stream step results via SSE."""
@@ -1182,99 +1288,28 @@ def api_agent_run():
                 # Pass per-project disabled_tools to the engine
                 if project and "disabled_tools" in project:
                     config["disabled_tools"] = project["disabled_tools"]
-                engine = AgentEngine(config, output_dir=output_dir, step_callback=on_event, stop_event=job_stop_event)
-                # Engine already uses the shared singleton ToolRegistry via get_registry().
-                # Reload approved tools so any tools approved since the previous run
-                # are visible to the LLM immediately.
-                engine.reload_approved_tools()
-                
+
+                # Use the shared helper to create and run the engine
+                run_result = _run_engine_in_background(
+                    project_config=config,
+                    output_dir=output_dir,
+                    step_callback=on_event,
+                    stop_event=job_stop_event,
+                    prev_step_history=prev_step_history,
+                    continue_from_job=continue_from_job,
+                )
+                engine = run_result["engine"]
+                engine_result[0] = run_result["result"]
+                engine_step_history[0] = engine.step_history
+
                 # Store engine reference so approval endpoint can reload tools
                 with _sse_jobs_lock:
                     _sse_jobs[job_id]["engine"] = engine
 
-                # If continuing, load previous step history and reconstruct conversation
-                if prev_step_history:
-                    engine.step_history = prev_step_history
-                    engine.step_count = len(prev_step_history)
-                    
-                    # Try to load the full conversation history from the previous run
-                    messages_file = os.path.join(output_dir, "conversation_history.json")
-                    if os.path.exists(messages_file):
-                        try:
-                            with open(messages_file, 'r', encoding='utf-8') as f:
-                                prev_messages = json.load(f)
-                            # The last message in prev_messages is the continuation message from the previous run
-                            # We need to replace it with a new continuation message
-                            if prev_messages and prev_messages[-1].get("role") == "user":
-                                # Remove the old continuation message
-                                prev_messages.pop()
-                                # Add the new continuation message — don't tell it to re-explore
-                                prev_messages.append({
-                                    "role": "user",
-                                    "content": (
-                                        f"[CONTINUATION] Your previous run completed. "
-                                        f"The user has new instructions for you. "
-                                        f"Please continue working on the project with these new instructions:\n\n"
-                                        f"{instructions}\n\n"
-                                        f"Review what was already done, then take the next appropriate action.\n\n"
-                                        f"TOOL FORMAT REMINDER\n"
-                                        f"=====================\n\n"
-                                        f"Your ENTIRE response must be EXACTLY ONE of the following:\n\n"
-                                        f"  OPTION 1 — A tool call:\n"
-                                        f"    [TOOL_START]\n"
-                                        f"    [TOOL_NAME]\n"
-                                        f"    <tool_name>\n"
-                                        f"    [PARAM_NAME]\n"
-                                        f"    <param_key_1>\n"
-                                        f"    [PARAM_VALUE]\n"
-                                        f"    <param_value_1>\n"
-                                        f"    [PARAM_NAME]\n"
-                                        f"    <param_key_2>\n"
-                                        f"    [PARAM_VALUE]\n"
-                                        f"    <param_value_2>\n"
-                                        f"    [TOOL_END]\n\n"
-                                        f"  OPTION 2 — Signal completion:\n"
-                                        f"    Use the task_completed tool with a summary:\n"
-                                        f"    [TOOL_START]\n"
-                                        f"    [TOOL_NAME]\n"
-                                        f"    task_completed\n"
-                                        f"    [PARAM_NAME]\n"
-                                        f"    summary\n"
-                                        f"    [PARAM_VALUE]\n"
-                                        f"    <your summary here>\n"
-                                        f"    [TOOL_END]\n\n"
-                                        f"IMPORTANT RULES:\n"
-                                        f"  • Do NOT write any other text.\n"
-                                        f"  • Do NOT explain what you will do — just act.\n"
-                                        f"  • Make EXACTLY ONE tool call per response.\n"
-                                        f"  • If you include more than one [TOOL_START]...[TOOL_END] block,\n"
-                                        f"    only the FIRST one will be executed."
-                                    )
-                                })
-                            engine.messages = prev_messages
-                        except Exception as e:
-                            logging.warning(f"Failed to load conversation history: {e}")
-                            # Fall back to reconstructing from step_history
-                            _reconstruct_from_step_history(engine, prev_step_history, instructions, is_continuation=True)
-                    else:
-                        # Fall back to reconstructing from step_history
-                        _reconstruct_from_step_history(engine, prev_step_history, instructions, is_continuation=True)
-
-                result = engine.run()
-                engine_result[0] = result
-                engine_step_history[0] = engine.step_history
-
-                # Persist the full conversation history for future continuations
-                messages_file = os.path.join(output_dir, "conversation_history.json")
-                try:
-                    with open(messages_file, 'w', encoding='utf-8') as f:
-                        json.dump(engine.messages, f, indent=2, ensure_ascii=False)
-                except Exception as e:
-                    logging.warning(f"Failed to save conversation history: {e}")
-
                 # Handle pending_approval: signal the SSE handler so the UI
                 # can show the pending-approval banner and let the user
                 # approve/reject before continuing.
+                result = engine_result[0]
                 if result.get("status") == "pending_approval":
                     # Extract tool name from step_history (last step should be create_tool)
                     step_history = result.get("step_history", [])
@@ -1790,8 +1825,63 @@ def api_approve_tool(tool_name):
         except Exception as e:
             logging.warning(f"Failed to write resume signal for tool {tool_name}: {e}")
 
+        # Re-invoke the engine in a background thread so it picks up the
+        # resume file and continues with the newly approved tool available.
+        # The original engine thread has already returned from run() by the
+        # time approval happens, so we need a fresh engine instance.
+        _find_project_and_resume_engine(project_output_dir, tool_name)
+
         return jsonify(result)
     return jsonify(result), 404
+
+
+def _find_project_and_resume_engine(project_output_dir, tool_name):
+    """Find the project config for an output directory and re-invoke the engine.
+
+    When a tool is approved, the original engine thread has already returned
+    from run(). This function finds the project config and creates a new
+    engine instance that will pick up the resume file and continue.
+    """
+    projects = load_projects()
+    project_config = None
+    for p in projects:
+        if p.get("output_dir") == project_output_dir:
+            project_config = {
+                "rootDirectory": p.get("rootDirectory", ""),
+                "instructions": p.get("instructions", ""),
+                "job_id": p.get("last_job_id", str(int(time.time() * 1000))),
+                "disabled_tools": p.get("disabled_tools", []),
+            }
+            break
+
+    if not project_config:
+        logging.warning(f"No project found for output_dir {project_output_dir}")
+        return
+
+    # Apply current settings to env
+    apply_settings_to_env()
+    os.environ["CUSTOM_ENDPOINT_URL"] = os.getenv("CUSTOM_ENDPOINT_URL", "")
+    os.environ["CUSTOM_API_KEY"] = os.getenv("CUSTOM_API_KEY", "")
+    os.environ["CUSTOM_MODEL_NAME"] = os.getenv("CUSTOM_MODEL_NAME", "")
+    os.environ["CUSTOM_VERIFY_SSL"] = os.getenv("CUSTOM_VERIFY_SSL", "false")
+    os.environ["CUSTOM_TIMEOUT"] = os.getenv("CUSTOM_TIMEOUT", "7200")
+
+    # Run the engine in a background thread (no SSE streaming)
+    def resume_engine():
+        try:
+            logging.info(f"Re-invoking engine for tool approval: {tool_name} in {project_output_dir}")
+            _run_engine_in_background(
+                project_config=project_config,
+                output_dir=project_output_dir,
+                step_callback=None,  # No SSE streaming for resume
+                stop_event=None,
+            )
+            logging.info(f"Engine resumed successfully after tool approval: {tool_name}")
+        except Exception as e:
+            logging.error(f"Failed to resume engine after tool approval: {e}", exc_info=True)
+
+    resume_thread = threading.Thread(target=resume_engine, daemon=True)
+    resume_thread.start()
 
 
 @app.route("/api/tools/pending/<tool_name>/reject", methods=["POST"])

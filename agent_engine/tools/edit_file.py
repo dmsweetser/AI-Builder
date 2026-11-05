@@ -9,9 +9,52 @@ Strategies (tried in order):
 """
 import os
 import re
+import fcntl
+import time
 from typing import Any, Dict, Optional
 from agent_engine.tools.base import BaseTool, ToolResult
 from agent_engine.security import ensure_under_root
+
+
+class FileLock:
+    """Simple file-based lock for preventing concurrent writes."""
+
+    def __init__(self, lock_path: str, timeout: float = 30.0):
+        self.lock_path = lock_path + ".lock"
+        self.timeout = timeout
+        self._lock_file = None
+
+    def __enter__(self):
+        self.acquire()
+        return self
+
+    def __exit__(self, *args):
+        self.release()
+
+    def acquire(self):
+        """Acquire the lock (blocking with timeout)."""
+        self._lock_file = open(self.lock_path, 'w')
+        deadline = time.time() + self.timeout
+        while True:
+            try:
+                fcntl.flock(self._lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                return
+            except (IOError, OSError):
+                if time.time() >= deadline:
+                    self._lock_file.close()
+                    self._lock_file = None
+                    raise TimeoutError(f"Could not acquire lock on {self.lock_path} within {self.timeout}s")
+                time.sleep(0.05)
+
+    def release(self):
+        """Release the lock."""
+        if self._lock_file:
+            try:
+                fcntl.flock(self._lock_file.fileno(), fcntl.LOCK_UN)
+                self._lock_file.close()
+            except OSError:
+                pass
+            self._lock_file = None
 
 
 class EditFileTool(BaseTool):
@@ -92,6 +135,13 @@ class EditFileTool(BaseTool):
 
     def _write_and_verify(self, path: str, new_content: str, original_path: str) -> ToolResult:
         """Write content and verify it actually changed."""
+        # Use file locking to prevent concurrent writes from corrupting files
+        lock = FileLock(path)
+        try:
+            lock.acquire()
+        except TimeoutError:
+            return ToolResult(False, "", error=f"Could not acquire write lock for {original_path}")
+
         try:
             with open(path, 'w', encoding='utf-8') as f:
                 f.write(new_content)
@@ -105,6 +155,8 @@ class EditFileTool(BaseTool):
                               summary=f"Replaced section in: {original_path}")
         except OSError as e:
             return ToolResult(False, "", error=f"Cannot write file: {e}")
+        finally:
+            lock.release()
 
     def _whitespace_insensitive_match(self, content: str, original: str,
                                        new_text: str, path: str) -> Optional[ToolResult]:
