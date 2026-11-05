@@ -567,8 +567,8 @@ function handlePendingApproval(data, agentBox) {
         '<div class="step-result">Tool <strong>"' + escapeHtml(toolName) + '"</strong> proposed. The agent cannot proceed until you approve or reject it.</div>' +
         '<div id="pending-approval-actions" style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;"></div>';
 
-    agentBox.insertBefore(entry, agentBox.firstChild);
-    agentBox.scrollTop = 0;
+    agentBox.appendChild(entry);
+    agentBox.scrollTop = agentBox.scrollHeight;
 
     var statusText = document.getElementById('agent-status-text');
     if (statusText) { statusText.textContent = 'WAITING FOR TOOL APPROVAL'; statusText.style.color = 'var(--warning)'; statusText.style.fontWeight = 'bold'; }
@@ -712,6 +712,21 @@ document.addEventListener('click', function(e) {
         if (isApprove && data.status === 'approved') {
             alert('Tool approved! The agent will continue shortly.');
             clearPendingApprovalState();
+            // Restart the agent run so it picks up the newly approved tool.
+            // The engine will reload approved tools and continue from the
+            // previous step history.
+            if (outputDir && jobId) {
+                // Determine the project ID from history
+                fetch('/api/history')
+                    .then(function(r) { return r.json(); })
+                    .then(function(history) {
+                        var jobRecord = history.find(function(h) { return h.job_id === jobId; });
+                        if (jobRecord && jobRecord.project_id) {
+                            continueAgentRunWithInstruction(jobRecord.project_id, jobId, '');
+                        }
+                    })
+                    .catch(function(err) { console.error('Failed to find project for resume:', err); });
+            }
         } else if (!isApprove && data.status === 'rejected') {
             alert('Tool rejected.');
             clearPendingApprovalState();

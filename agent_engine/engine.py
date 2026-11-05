@@ -732,7 +732,7 @@ class AgentEngine:
                 if "[TOOL_RESULT]" in content:
                     tool_results.append(i)
 
-        if len(tool_results) <= 3:
+        if len(tool_results) <= 10:
             # Not enough tool results to compress
             return
 
@@ -740,10 +740,10 @@ class AgentEngine:
         # - list_directory results (unless very recent)
         # - read_file results for files that are no longer being edited
         # - search_files/grep_code results (unless very recent)
-        # We keep the last 2-3 tool results regardless of type
+        # We keep the last 10 tool results regardless of type
 
         low_value_indices = []
-        keep_count = 3  # Always keep the last 3 tool results
+        keep_count = 10  # Always keep the last 10 tool results
 
         for idx in tool_results:
             # Extract tool name from the result
