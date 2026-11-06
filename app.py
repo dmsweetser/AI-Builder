@@ -554,16 +554,19 @@ def api_update_project(pid):
     if not project:
         return jsonify({"error": "Project not found"}), 404
 
-    root_directory = request.form.get("rootDirectory", project.get("rootDirectory", ""))
+    # Accept both JSON and form-encoded data (like api_create_project)
+    data = request.get_json(silent=True) or request.form.to_dict()
+
+    root_directory = data.get("rootDirectory", project.get("rootDirectory", ""))
     if not root_directory:
         return jsonify({"error": "Root directory is required"}), 400
 
     project.update({
-        "name": request.form.get("name", project["name"]),
+        "name": data.get("name", project["name"]),
         "rootDirectory": root_directory,
-        "instructions": request.form.get("instructions", project.get("instructions", "")),
-        "preScript": request.form.get("preScript", project.get("preScript", "")),
-        "postScript": request.form.get("postScript", project.get("postScript", "")),
+        "instructions": data.get("instructions", project.get("instructions", "")),
+        "preScript": data.get("preScript", project.get("preScript", "")),
+        "postScript": data.get("postScript", project.get("postScript", "")),
     })
 
     # Update output_dir path if rootDirectory changed
@@ -1381,12 +1384,20 @@ def api_agent_run():
                     _sse_jobs.pop(job_id, None)
                 # Final result
                 _log_app_event(f"Agent run completed — job_id={job_id}, status={result.get('status')}, steps={result.get('steps')}")
+                # Emit an explicit error event when the engine returns an error
+                # so the UI can display the error message prominently
+                if result.get("status") == "error":
+                    yield "event: status\ndata: " + json.dumps({
+                        "type": "error",
+                        "error": result.get("error", "Unknown error"),
+                    }) + "\n\n"
                 yield "event: status\ndata: " + json.dumps({
                     "type": "complete",
                     "status": result.get("status", "completed"),
                     "summary": result.get("summary", ""),
                     "steps": result.get("steps", 0),
                     "max_steps": result.get("max_steps", 50),
+                    "error": result.get("error", ""),
                 }) + "\n\n"
 
                 # Update history with step results

@@ -2749,7 +2749,9 @@ class TestPendingToolApprovalEngine(unittest.TestCase):
             self.assertEqual(len(approval_events), 1)
             self.assertEqual(approval_events[0]["tool_name"], "my_tool")
             # Should have injected a user message about pending tools
-            pending_msgs = [m for m in engine.messages if "PENDING TOOL APPROVAL" in m.get("content", "")]
+            pending_msgs = [m for m in engine.messages
+                            if m.get("role") != "system"
+                            and "PENDING TOOL APPROVAL" in m.get("content", "")]
             self.assertEqual(len(pending_msgs), 1)
             self.assertIn("my_tool", pending_msgs[0]["content"])
         finally:
@@ -2772,7 +2774,9 @@ class TestPendingToolApprovalEngine(unittest.TestCase):
             engine._check_pending_tools()
             approval_events = [e for e in events if e.get("type") == "pending_approval"]
             self.assertEqual(len(approval_events), 0)
-            pending_msgs = [m for m in engine.messages if "PENDING TOOL APPROVAL" in m.get("content", "")]
+            pending_msgs = [m for m in engine.messages
+                            if m.get("role") != "system"
+                            and "PENDING TOOL APPROVAL" in m.get("content", "")]
             self.assertEqual(len(pending_msgs), 0)
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)

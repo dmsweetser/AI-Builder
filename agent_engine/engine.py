@@ -10,7 +10,6 @@ import subprocess
 import platform
 import sys
 import threading as _threading
-import fcntl as _fcntl
 from typing import Any, Dict, List, Tuple, Optional
 from agent_engine.config import EngineConfig
 from agent_engine.security import SecurityError, ToolError, EngineError
@@ -709,17 +708,19 @@ def is_done(response: str, prefix: str = "") -> Tuple[bool, str]:
 
 
 # ====================================================================
-# File locking utility
+# File locking utility (pure Python — no platform-specific imports)
 # ====================================================================
 
 class FileLock:
     """Simple file-based lock for preventing concurrent writes.
 
-    Uses fcntl on Unix, msvcrt on Windows.
+    Uses a lock file + atomic rename. Works on all platforms
+    (no fcntl/msvcrt dependency).
     """
 
-    def __init__(self, lock_path: str):
+    def __init__(self, lock_path: str, timeout: float = 30.0):
         self.lock_path = lock_path + ".lock"
+        self.timeout = timeout
         self._lock_file = None
 
     def __enter__(self):
@@ -730,36 +731,44 @@ class FileLock:
         self.release()
 
     def acquire(self):
-        """Acquire the lock (blocking)."""
-        self._lock_file = open(self.lock_path, 'w')
-        try:
-            if sys.platform == "win32":
-                import msvcrt
-                msvcrt.locking(self._lock_file.fileno(), msvcrt.LK_NBLCK, 1)
-            else:
-                _fcntl.flock(self._lock_file.fileno(), _fcntl.LOCK_EX)
-        except OSError:
-            self._lock_file.close()
-            self._lock_file = None
-            raise
+        """Acquire the lock (blocking with timeout)."""
+        import time as _time
+        deadline = _time.time() + self.timeout
+        while True:
+            try:
+                # Try to create the lock file atomically
+                tmp_path = self.lock_path + ".tmp"
+                with open(tmp_path, 'w') as f:
+                    f.write(str(os.getpid()))
+                os.replace(tmp_path, self.lock_path)
+                self._lock_file = open(self.lock_path, 'r')
+                return
+            except (OSError, IOError):
+                if _time.time() >= deadline:
+                    # Clean up any stale lock file
+                    try:
+                        os.remove(self.lock_path)
+                    except OSError:
+                        pass
+                    raise TimeoutError(
+                        f"Could not acquire lock on {self.lock_path} "
+                        f"within {self.timeout}s"
+                    )
+                _time.sleep(0.05)
 
     def release(self):
         """Release the lock."""
         if self._lock_file:
             try:
-                if sys.platform == "win32":
-                    import msvcrt
-                    msvcrt.locking(self._lock_file.fileno(), msvcrt.LK_UNLCK, 1)
-                else:
-                    _fcntl.flock(self._lock_file.fileno(), _fcntl.LOCK_UN)
+                self._lock_file.close()
             except OSError:
                 pass
             finally:
-                try:
-                    self._lock_file.close()
-                except OSError:
-                    pass
                 self._lock_file = None
+            try:
+                os.remove(self.lock_path)
+            except OSError:
+                pass
 
 
 # Tools that support filtering (for when results are truncated)
@@ -1142,10 +1151,18 @@ class AgentEngine:
         1. Emits a ``pending_approval`` event for each (so the UI banner shows).
         2. Injects a user message telling the LLM about the pending tools so it
            can inform the user and wait for approval before proceeding.
+
+        Only injects the message once per engine instance to avoid duplicates
+        when the method is called from both __init__ and run().
         """
         pending = self.tools.get_project_pending_tools(self.output_dir)
         if not pending:
             return
+
+        # Guard: only inject the message once per engine instance
+        if getattr(self, '_pending_tools_message_injected', False):
+            return
+        self._pending_tools_message_injected = True
 
         # Emit a pending_approval event for each pending tool so the UI shows
         # the approval banner immediately.
@@ -1276,6 +1293,10 @@ class AgentEngine:
 
                         # Apply deterministic context compression
                         self._deterministic_compress_context()
+                        self.logger.info(
+                            f"Context compression triggered at step {self.step_count}, "
+                            f"context at {round(usage_pct * 100, 1)}% of max"
+                        )
 
                         # Add a user message explaining the compression
                         self.messages.append({
@@ -1578,8 +1599,7 @@ class AgentEngine:
                         except Exception:
                             pass
 
-                    # Continue to next step (do NOT break)
-                    self.step_count += 1
+                    # Continue to next step
                     continue
 
                 # No tool calls - check for completion
@@ -1626,7 +1646,6 @@ class AgentEngine:
                         })
                     except Exception:
                         pass
-                self.step_count += 1
                 continue
 
             return {

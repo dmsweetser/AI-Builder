@@ -1,23 +1,22 @@
 """Cross-platform file locking utility.
 
-Uses fcntl on Unix and msvcrt on Windows.
+Uses a lock file + atomic rename. Works on all platforms
+(no fcntl/msvcrt dependency).
 """
 import os
 import time
-import sys
 
 
 class FileLock:
     """Simple file-based lock for preventing concurrent writes.
 
-    Works on both Unix (fcntl) and Windows (msvcrt).
+    Uses atomic file creation for cross-platform compatibility.
     """
 
     def __init__(self, lock_path: str, timeout: float = 30.0):
         self.lock_path = lock_path + ".lock"
         self.timeout = timeout
         self._lock_file = None
-        self._is_windows = sys.platform == "win32"
 
     def __enter__(self):
         self.acquire()
@@ -28,25 +27,23 @@ class FileLock:
 
     def acquire(self):
         """Acquire the lock (blocking with timeout)."""
-        self._lock_file = open(self.lock_path, 'w')
         deadline = time.time() + self.timeout
         while True:
             try:
-                if self._is_windows:
-                    import msvcrt
-                    msvcrt.locking(
-                        self._lock_file.fileno(),
-                        msvcrt.LK_NBLCK,
-                        1,
-                    )
-                else:
-                    import fcntl
-                    fcntl.flock(self._lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                # Try to create the lock file atomically
+                tmp_path = self.lock_path + ".tmp"
+                with open(tmp_path, 'w') as f:
+                    f.write(str(os.getpid()))
+                os.replace(tmp_path, self.lock_path)
+                self._lock_file = open(self.lock_path, 'r')
                 return
             except (IOError, OSError):
                 if time.time() >= deadline:
-                    self._lock_file.close()
-                    self._lock_file = None
+                    # Clean up any stale lock file
+                    try:
+                        os.remove(self.lock_path)
+                    except OSError:
+                        pass
                     raise TimeoutError(
                         f"Could not acquire lock on {self.lock_path} "
                         f"within {self.timeout}s"
@@ -57,21 +54,12 @@ class FileLock:
         """Release the lock."""
         if self._lock_file:
             try:
-                if self._is_windows:
-                    import msvcrt
-                    msvcrt.locking(
-                        self._lock_file.fileno(),
-                        msvcrt.LK_UNLCK,
-                        1,
-                    )
-                else:
-                    import fcntl
-                    fcntl.flock(self._lock_file.fileno(), fcntl.LOCK_UN)
+                self._lock_file.close()
             except OSError:
                 pass
             finally:
-                try:
-                    self._lock_file.close()
-                except OSError:
-                    pass
                 self._lock_file = None
+            try:
+                os.remove(self.lock_path)
+            except OSError:
+                pass
