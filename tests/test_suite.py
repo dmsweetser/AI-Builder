@@ -354,8 +354,11 @@ class TestIsDoneTaskCompleted(unittest.TestCase):
         """With a prefix, <prefix>_task_completed should also be detected."""
         prefix = "abc12345"
         response = (
-            f"[TOOL_START]\n[TOOL_NAME]\n{prefix}_task_completed\n"
-            "[PARAM_NAME]\nsummary\n[PARAM_VALUE]\nDone with prefix\n[TOOL_END]"
+            f"[{prefix}_TOOL_START]\n[{prefix}_TOOL_NAME]\n"
+            f"{prefix}_task_completed\n"
+            f"[{prefix}_PARAM_NAME]\nsummary\n"
+            f"[{prefix}_PARAM_VALUE]\nDone with prefix\n"
+            f"[{prefix}_TOOL_END]"
         )
         done, summary = is_done(response, prefix)
         self.assertTrue(done)
@@ -453,8 +456,11 @@ class TestParseToolCallsEdgeCases(unittest.TestCase):
         """parse_tool_calls should strip the instance prefix from tool names."""
         prefix = "abc12345"
         response = (
-            f"[TOOL_START]\n[TOOL_NAME]\n{prefix}_write_file\n"
-            "[PARAM_NAME]\npath\n[PARAM_VALUE]\ntest.txt\n[TOOL_END]"
+            f"[{prefix}_TOOL_START]\n[{prefix}_TOOL_NAME]\n"
+            f"{prefix}_write_file\n"
+            f"[{prefix}_PARAM_NAME]\npath\n"
+            f"[{prefix}_PARAM_VALUE]\ntest.txt\n"
+            f"[{prefix}_TOOL_END]"
         )
         calls = parse_tool_calls(response, prefix)
         self.assertEqual(len(calls), 1)

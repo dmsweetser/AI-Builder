@@ -8,6 +8,7 @@ import time
 import uuid
 import subprocess
 import platform
+import sys
 import threading as _threading
 import fcntl as _fcntl
 from typing import Any, Dict, List, Tuple, Optional
@@ -695,7 +696,10 @@ def is_done(response: str, prefix: str = "") -> Tuple[bool, str]:
 # ====================================================================
 
 class FileLock:
-    """Simple file-based lock for preventing concurrent writes."""
+    """Simple file-based lock for preventing concurrent writes.
+
+    Uses fcntl on Unix, msvcrt on Windows.
+    """
 
     def __init__(self, lock_path: str):
         self.lock_path = lock_path + ".lock"
@@ -712,7 +716,11 @@ class FileLock:
         """Acquire the lock (blocking)."""
         self._lock_file = open(self.lock_path, 'w')
         try:
-            _fcntl.flock(self._lock_file.fileno(), _fcntl.LOCK_EX)
+            if sys.platform == "win32":
+                import msvcrt
+                msvcrt.locking(self._lock_file.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                _fcntl.flock(self._lock_file.fileno(), _fcntl.LOCK_EX)
         except OSError:
             self._lock_file.close()
             self._lock_file = None
@@ -722,11 +730,19 @@ class FileLock:
         """Release the lock."""
         if self._lock_file:
             try:
-                _fcntl.flock(self._lock_file.fileno(), _fcntl.LOCK_UN)
-                self._lock_file.close()
+                if sys.platform == "win32":
+                    import msvcrt
+                    msvcrt.locking(self._lock_file.fileno(), msvcrt.LK_UNLCK, 1)
+                else:
+                    _fcntl.flock(self._lock_file.fileno(), _fcntl.LOCK_UN)
             except OSError:
                 pass
-            self._lock_file = None
+            finally:
+                try:
+                    self._lock_file.close()
+                except OSError:
+                    pass
+                self._lock_file = None
 
 
 # Tools that support filtering (for when results are truncated)
@@ -833,7 +849,13 @@ class AgentEngine:
 
         # Conversation history
         self.messages: List[Dict[str, str]] = []
-        self.system_prompt = build_system_prompt(self.tools.list_tools(), self.instance_prefix)
+        self.system_prompt = build_system_prompt(
+            self.tools.list_tools(
+                project_output_dir=self.output_dir,
+                disabled_tools=set(self.project_config.get("disabled_tools", [])),
+            ),
+            self.instance_prefix,
+        )
         self.messages.append({"role": "system", "content": self.system_prompt})
 
         # Results tracking
@@ -1028,7 +1050,13 @@ class AgentEngine:
         """
         # Reload project-local tools
         self._reload_project_tool_loader()
-        self.system_prompt = build_system_prompt(self.tools.list_tools(), self.instance_prefix)
+        self.system_prompt = build_system_prompt(
+            self.tools.list_tools(
+                project_output_dir=self.output_dir,
+                disabled_tools=set(self.project_config.get("disabled_tools", [])),
+            ),
+            self.instance_prefix,
+        )
         # Replace the system prompt message in-place so the LLM sees the
         # updated tool list on the next call.
         if self.messages and self.messages[0].get("role") == "system":

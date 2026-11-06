@@ -231,8 +231,12 @@ class ToolRegistry:
     # Public API
     # ------------------------------------------------------------------
 
-    def list_tools(self) -> List[Dict[str, Any]]:
-        """Return tool definitions for the LLM prompt."""
+    def list_tools(self, project_output_dir: str = "",
+                   disabled_tools: Optional[Set[str]] = None) -> List[Dict[str, Any]]:
+        """Return tool definitions for the LLM prompt.
+
+        Includes both built-in tools and project-local (approved) tools.
+        """
         defs = []
         for name, cls in _BUILTIN_TOOL_CLASSES.items():
             if name not in self._enabled_tools:
@@ -240,6 +244,10 @@ class ToolRegistry:
                     defs.append(cls("/tmp").get_definition())
                 except Exception:
                     pass
+        # Append project-local approved tools
+        if project_output_dir:
+            loader = self._get_or_create_loader(project_output_dir, disabled_tools)
+            defs.extend(loader.list_tools())
         return defs
 
     def tool_names(self) -> set:
