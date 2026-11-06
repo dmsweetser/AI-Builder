@@ -67,6 +67,11 @@ _worker_wake = threading.Event()  # Signals the worker to check the queue
 _job_stop_events: Dict[str, threading.Event] = {}
 _job_stop_events_lock = threading.Lock()
 
+# Track the active SSE event queue per output_dir so the resume engine
+# can emit events to the UI (e.g., pending_approval for subsequent tools).
+_sse_event_queues: Dict[str, queue.Queue] = {}
+_sse_event_queues_lock = threading.Lock()
+
 # SSE job tracking: maps SSE job_id -> output_dir (for inject endpoint)
 _sse_jobs = {}
 _sse_jobs_lock = threading.Lock()
@@ -1277,6 +1282,10 @@ def api_agent_run():
         engine_step_history: list = [None]
         engine_ref: list = [None]  # Store engine reference for tool reload
 
+        # Store event queue keyed by output_dir so the resume engine can emit events
+        with _sse_event_queues_lock:
+            _sse_event_queues[output_dir] = event_queue
+
         def on_event(event):
             event_queue.put(event)
 
@@ -1382,6 +1391,9 @@ def api_agent_run():
                     _job_stop_events.pop(job_id, None)
                 with _sse_jobs_lock:
                     _sse_jobs.pop(job_id, None)
+                # Clean up the event queue for this output_dir
+                with _sse_event_queues_lock:
+                    _sse_event_queues.pop(output_dir, None)
                 # Final result
                 _log_app_event(f"Agent run completed — job_id={job_id}, status={result.get('status')}, steps={result.get('steps')}")
                 # Emit an explicit error event when the engine returns an error
@@ -1890,14 +1902,29 @@ def _find_project_and_resume_engine(project_output_dir, tool_name):
     os.environ["CUSTOM_VERIFY_SSL"] = os.getenv("CUSTOM_VERIFY_SSL", "false")
     os.environ["CUSTOM_TIMEOUT"] = os.getenv("CUSTOM_TIMEOUT", "7200")
 
-    # Run the engine in a background thread (no SSE streaming)
+    # Run the engine in a background thread with SSE event support
+    # so that subsequent create_tool calls (e.g., for a second tool)
+    # still prompt the user for approval in the UI.
     def resume_engine():
         try:
+            # Find the SSE event queue for this output_dir (if the UI is still connected)
+            resume_callback = None
+            with _sse_event_queues_lock:
+                q = _sse_event_queues.get(project_output_dir)
+                if q is not None:
+                    def _callback(event):
+                        try:
+                            q.put(event)
+                        except Exception:
+                            pass
+                    resume_callback = _callback
+                    logging.info(f"Resume engine using SSE event queue for output_dir {project_output_dir}")
+
             logging.info(f"Re-invoking engine for tool approval: {tool_name} in {project_output_dir}")
             _run_engine_in_background(
                 project_config=project_config,
                 output_dir=project_output_dir,
-                step_callback=None,  # No SSE streaming for resume
+                step_callback=resume_callback,  # Now emits events to UI
                 stop_event=None,
                 prev_step_history=prev_step_history,
             )

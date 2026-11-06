@@ -1142,7 +1142,7 @@ class AgentEngine:
         except Exception as e:
             logging.debug(f"Project settings reload check failed (non-critical): {e}")
 
-    def _check_pending_tools(self):
+    def _check_pending_tools(self, emit_once=True):
         """Check for pending tools and emit events / inject reminder for the LLM.
 
         When there are tools awaiting approval, this:
@@ -1150,8 +1150,10 @@ class AgentEngine:
         2. Injects a user message telling the LLM about the pending tools so it
            can inform the user and wait for approval before proceeding.
 
-        Only injects the message once per engine instance to avoid duplicates
-        when the method is called from both __init__ and run().
+        Args:
+            emit_once: When True (default), only inject the reminder message
+                once per engine instance. When False, always emit events but
+                still guard against duplicate reminder messages.
         """
         pending = self.tools.get_project_pending_tools(self.output_dir)
         if not pending:
@@ -1159,7 +1161,22 @@ class AgentEngine:
 
         # Guard: only inject the message once per engine instance
         if getattr(self, '_pending_tools_message_injected', False):
+            # Still emit events even if reminder was already injected
+            # (e.g., on resume after tool approval, new tools may have been added)
+            for tool in pending:
+                tool_name = tool.get("name", "unknown")
+                self.logger.info(f"Pending tool detected (re-check): {tool_name}")
+                if self._step_callback:
+                    try:
+                        self._step_callback({
+                            "type": "pending_approval",
+                            "tool_name": tool_name,
+                            "output_dir": self.output_dir,
+                        })
+                    except Exception:
+                        pass
             return
+
         self._pending_tools_message_injected = True
 
         # Emit a pending_approval event for each pending tool so the UI shows
@@ -1249,6 +1266,12 @@ class AgentEngine:
                         self.reload_approved_tools()
                     except Exception:
                         pass
+
+                # State-based pending tool check: at the top of each loop iteration,
+                # check if there are any tools in the pending folder. This replaces
+                # the signal-file approach and is more reliable/idempotent — it checks
+                # the actual filesystem state rather than relying on a transient file.
+                self._check_pending_tools()
 
                 # Check for live instructions injected mid-run
                 live_instruction = EngineConfig.get_live_instruction(
@@ -1512,12 +1535,29 @@ class AgentEngine:
 
                     # If create_tool was used, emit a pending approval event
                     if tool_name == "create_tool":
+                        # Append the create_tool step to history BEFORE returning
+                        # (the normal path appends at line 1610, but create_tool
+                        # returns early, so we must do it here to avoid losing it)
+                        self.step_history.append(step_entry)
+                        if self._step_callback:
+                            try:
+                                self._step_callback({
+                                    "type": "step",
+                                    "step": self.step_count,
+                                    "tool": tool_name,
+                                    "params": params,
+                                    "result": step_entry.get("result", {}),
+                                })
+                            except Exception:
+                                pass
+                        # Emit pending_approval event for UI
                         if self._step_callback:
                             try:
                                 tool_name_val = params.get("name", "unknown")
                                 self._step_callback({
                                     "type": "pending_approval",
                                     "tool_name": tool_name_val,
+                                    "output_dir": self.output_dir,
                                 })
                             except Exception:
                                 pass
