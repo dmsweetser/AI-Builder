@@ -83,49 +83,57 @@ class TestParserEdgeCases(unittest.TestCase):
 
     def test_param_with_colon_in_value(self):
         response = (
-            "[TOOL_START]\n[TOOL_NAME]\nwrite_file\n"
-            "[PARAM_NAME]\npath\n[PARAM_VALUE]\nconfig.yaml\n"
-            "[PARAM_NAME]\ncontent\n[PARAM_VALUE]\n--value with colons: in middle\n"
-            "[TOOL_END]"
+            "[test1234_TOOL_START]\n[test1234_TOOL_NAME]\n"
+            "test1234_write_file\n"
+            "[test1234_PARAM_NAME]\npath\n[test1234_PARAM_VALUE]\nconfig.yaml\n"
+            "[test1234_PARAM_NAME]\ncontent\n[test1234_PARAM_VALUE]\n--value with colons: in middle\n"
+            "[test1234_TOOL_END]"
         )
-        calls = parse_tool_calls(response)
+        calls = parse_tool_calls(response, "test1234")
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0][1]['content'], '--value with colons: in middle')
 
     def test_empty_tool_block(self):
         response = (
-            "[TOOL_START]\n[TOOL_NAME]\nlist_directory\n"
-            "[PARAM_NAME]\npath\n[PARAM_VALUE]\n.\n[TOOL_END]"
+            "[test1234_TOOL_START]\n[test1234_TOOL_NAME]\n"
+            "test1234_list_directory\n"
+            "[test1234_PARAM_NAME]\npath\n[test1234_PARAM_VALUE]\n.\n"
+            "[test1234_TOOL_END]"
         )
-        calls = parse_tool_calls(response)
+        calls = parse_tool_calls(response, "test1234")
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0][0], 'list_directory')
         self.assertEqual(calls[0][1]['path'], '.')
 
     def test_tool_name_with_hyphen(self):
         response = (
-            "[TOOL_START]\n[TOOL_NAME]\nmy-tool\n"
-            "[PARAM_NAME]\nparam\n[PARAM_VALUE]\nvalue\n[TOOL_END]"
+            "[test1234_TOOL_START]\n[test1234_TOOL_NAME]\n"
+            "test1234_my-tool\n"
+            "[test1234_PARAM_NAME]\nparam\n[test1234_PARAM_VALUE]\nvalue\n"
+            "[test1234_TOOL_END]"
         )
-        calls = parse_tool_calls(response)
+        calls = parse_tool_calls(response, "test1234")
         self.assertEqual(calls[0][0], 'my-tool')
 
     def test_tool_name_with_underscore(self):
         response = (
-            "[TOOL_START]\n[TOOL_NAME]\nmy_tool\n"
-            "[PARAM_NAME]\nparam\n[PARAM_VALUE]\nvalue\n[TOOL_END]"
+            "[test1234_TOOL_START]\n[test1234_TOOL_NAME]\n"
+            "test1234_my_tool\n"
+            "[test1234_PARAM_NAME]\nparam\n[test1234_PARAM_VALUE]\nvalue\n"
+            "[test1234_TOOL_END]"
         )
-        calls = parse_tool_calls(response)
+        calls = parse_tool_calls(response, "test1234")
         self.assertEqual(calls[0][0], 'my_tool')
 
     def test_mixed_single_and_multiline_params(self):
         response = (
-            "[TOOL_START]\n[TOOL_NAME]\nwrite_file\n"
-            "[PARAM_NAME]\npath\n[PARAM_VALUE]\nsrc/app.py\n"
-            "[PARAM_NAME]\ncontent\n[PARAM_VALUE]\ndef hello():\n    print(\"hello\")\n\n"
-            "if __name__ == \"__main__\":\n    hello()\n[TOOL_END]"
+            "[test1234_TOOL_START]\n[test1234_TOOL_NAME]\n"
+            "test1234_write_file\n"
+            "[test1234_PARAM_NAME]\npath\n[test1234_PARAM_VALUE]\nsrc/app.py\n"
+            "[test1234_PARAM_NAME]\ncontent\n[test1234_PARAM_VALUE]\ndef hello():\n    print(\"hello\")\n\n"
+            "if __name__ == \"__main__\":\n    hello()\n[test1234_TOOL_END]"
         )
-        calls = parse_tool_calls(response)
+        calls = parse_tool_calls(response, "test1234")
         params = calls[0][1]
         self.assertEqual(params['path'], 'src/app.py')
         self.assertIn('def hello():', params['content'])
@@ -133,17 +141,20 @@ class TestParserEdgeCases(unittest.TestCase):
 
     def test_multiple_tools_with_different_params(self):
         response = (
-            "[TOOL_START]\n[TOOL_NAME]\nlist_directory\n"
-            "[PARAM_NAME]\npath\n[PARAM_VALUE]\nsrc\n"
-            "[PARAM_NAME]\nmax_depth\n[PARAM_VALUE]\n2\n[TOOL_END]"
-            "[TOOL_START]\n[TOOL_NAME]\nread_file\n"
-            "[PARAM_NAME]\npath\n[PARAM_VALUE]\nsrc/main.py\n"
-            "[PARAM_NAME]\nstart_line\n[PARAM_VALUE]\n1\n"
-            "[PARAM_NAME]\nend_line\n[PARAM_VALUE]\n10\n[TOOL_END]"
-            "[TOOL_START]\n[TOOL_NAME]\ncheck_syntax\n"
-            "[PARAM_NAME]\npath\n[PARAM_VALUE]\nsrc/main.py\n[TOOL_END]"
+            "[test1234_TOOL_START]\n[test1234_TOOL_NAME]\n"
+            "test1234_list_directory\n"
+            "[test1234_PARAM_NAME]\npath\n[test1234_PARAM_VALUE]\nsrc\n"
+            "[test1234_PARAM_NAME]\nmax_depth\n[test1234_PARAM_VALUE]\n2\n[test1234_TOOL_END]"
+            "[test1234_TOOL_START]\n[test1234_TOOL_NAME]\n"
+            "test1234_read_file\n"
+            "[test1234_PARAM_NAME]\npath\n[test1234_PARAM_VALUE]\nsrc/main.py\n"
+            "[test1234_PARAM_NAME]\nstart_line\n[test1234_PARAM_VALUE]\n1\n"
+            "[test1234_PARAM_NAME]\nend_line\n[test1234_PARAM_VALUE]\n10\n[test1234_TOOL_END]"
+            "[test1234_TOOL_START]\n[test1234_TOOL_NAME]\n"
+            "test1234_check_syntax\n"
+            "[test1234_PARAM_NAME]\npath\n[test1234_PARAM_VALUE]\nsrc/main.py\n[test1234_TOOL_END]"
         )
-        calls = parse_tool_calls(response)
+        calls = parse_tool_calls(response, "test1234")
         self.assertEqual(len(calls), 3)
         self.assertEqual(calls[0][0], 'list_directory')
         self.assertEqual(calls[0][1]['max_depth'], '2')
@@ -152,88 +163,93 @@ class TestParserEdgeCases(unittest.TestCase):
         self.assertEqual(calls[2][0], 'check_syntax')
 
     def test_no_tool_calls_in_response(self):
-        calls = parse_tool_calls("Just thinking out loud...")
+        calls = parse_tool_calls("Just thinking out loud...", "test1234")
         self.assertEqual(calls, [])
 
     def test_tool_call_with_no_params(self):
-        response = "[TOOL_START]\n[TOOL_NAME]\nlist_directory\n[TOOL_END]"
-        calls = parse_tool_calls(response)
-        self.assertEqual(calls, [])
+        response = "[test1234_TOOL_START]\n[test1234_TOOL_NAME]\ntest1234_list_directory\n[test1234_TOOL_END]"
+        calls = parse_tool_calls(response, "test1234")
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0][0], 'list_directory')
+        self.assertEqual(calls[0][1], {})
 
     def test_tool_call_with_missing_param_name(self):
-        response = "[TOOL_START]\n[PARAM_NAME]\npath\n[PARAM_VALUE]\n.\n[TOOL_END]"
-        calls = parse_tool_calls(response)
+        response = "[test1234_TOOL_START]\n[test1234_PARAM_NAME]\npath\n[test1234_PARAM_VALUE]\n.\n[test1234_TOOL_END]"
+        calls = parse_tool_calls(response, "test1234")
         self.assertEqual(calls, [])
 
     def test_tool_call_with_unicode_in_params(self):
         response = (
-            "[TOOL_START]\n[TOOL_NAME]\nwrite_file\n"
-            "[PARAM_NAME]\ncontent\n[PARAM_VALUE]\nHello 世界 🌍\n[TOOL_END]"
+            "[test1234_TOOL_START]\n[test1234_TOOL_NAME]\n"
+            "test1234_write_file\n"
+            "[test1234_PARAM_NAME]\ncontent\n[test1234_PARAM_VALUE]\nHello 世界 🌍\n[test1234_TOOL_END]"
         )
-        calls = parse_tool_calls(response)
+        calls = parse_tool_calls(response, "test1234")
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0][1]["content"], "Hello 世界 🌍")
 
     def test_param_end_normalization(self):
         response = (
-            "[TOOL_START]\n[TOOL_NAME]\nlist_directory\n"
-            "[PARAM_NAME]\npath\n[PARAM_VALUE]\n.\n[PARAM_END]"
+            "[test1234_TOOL_START]\n[test1234_TOOL_NAME]\n"
+            "test1234_list_directory\n"
+            "[test1234_PARAM_NAME]\npath\n[test1234_PARAM_VALUE]\n.\n[test1234_PARAM_END]"
         )
-        calls = parse_tool_calls(response)
+        calls = parse_tool_calls(response, "test1234")
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0][0], "list_directory")
 
     def test_alt_pattern_bracket_tool_name(self):
         response = (
-            "[TOOL_START][list_directory]\n"
-            "[PARAM_NAME]\npath\n[PARAM_VALUE]\n.\n[TOOL_END]"
+            "[test1234_TOOL_START][test1234_list_directory]\n"
+            "[test1234_PARAM_NAME]\npath\n[test1234_PARAM_VALUE]\n.\n[test1234_TOOL_END]"
         )
-        calls = parse_tool_calls(response)
+        calls = parse_tool_calls(response, "test1234")
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0][0], "list_directory")
 
     def test_rationale_in_tool_call(self):
         response = (
-            "[TOOL_START]\n[TOOL_NAME]\nwrite_file\n"
-            "[PARAM_NAME]\npath\n[PARAM_VALUE]\nmain.py\n"
-            "[PARAM_NAME]\ncontent\n[PARAM_VALUE]\nhello\n"
-            "[RATIONALE]\nWriting the main file.\n[TOOL_END]"
+            "[test1234_TOOL_START]\n[test1234_TOOL_NAME]\n"
+            "test1234_write_file\n"
+            "[test1234_PARAM_NAME]\npath\n[test1234_PARAM_VALUE]\nmain.py\n"
+            "[test1234_PARAM_NAME]\ncontent\n[test1234_PARAM_VALUE]\nhello\n"
+            "[test1234_RATIONALE]\nWriting the main file.\n[test1234_TOOL_END]"
         )
-        calls = parse_tool_calls(response)
+        calls = parse_tool_calls(response, "test1234")
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0][0], "write_file")
         self.assertEqual(calls[0][2], "Writing the main file.")
 
     def test_code_block_stripping(self):
-        response = """Some text
+        response = f"""Some text
 ```python
-[TOOL_START]
-[TOOL_NAME]
-write_file
-[PARAM_NAME]
+[test1234_TOOL_START]
+[test1234_TOOL_NAME]
+test1234_write_file
+[test1234_PARAM_NAME]
 path
-[PARAM_VALUE]
+[test1234_PARAM_VALUE]
 src/main.py
-[TOOL_END]
+[test1234_TOOL_END]
 ```
-[TOOL_START]
-[TOOL_NAME]
-list_directory
-[PARAM_NAME]
+[test1234_TOOL_START]
+[test1234_TOOL_NAME]
+test1234_list_directory
+[test1234_PARAM_NAME]
 path
-[PARAM_VALUE]
+[test1234_PARAM_VALUE]
 .
-[TOOL_END]
+[test1234_TOOL_END]
 """
         stripped = _strip_code_blocks(response)
         self.assertNotIn('write_file', stripped)
         self.assertIn('list_directory', stripped)
-        calls = parse_tool_calls(response)
+        calls = parse_tool_calls(response, "test1234")
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0][0], 'list_directory')
 
     def test_inline_code_stripping(self):
-        response2 = "Use `write_file` for writing, then [TOOL_START][TOOL_NAME]list_directory..."
+        response2 = "Use `write_file` for writing, then [test1234_TOOL_START][test1234_TOOL_NAME]test1234_list_directory..."
         stripped2 = _strip_code_blocks(response2)
         self.assertNotIn('write_file', stripped2)
 
@@ -242,112 +258,121 @@ class TestIsDoneTaskCompleted(unittest.TestCase):
     """Tests for is_done() detecting task_completed tool calls."""
 
     def test_legacy_done_marker_not_detected(self):
-        done, summary = is_done("[DONE] Added feature X")
+        done, summary = is_done("[DONE] Added feature X", "test1234")
         self.assertFalse(done)
         self.assertEqual(summary, "")
 
     def test_task_completed_tool_call(self):
         response = (
-            "[TOOL_START]\n[TOOL_NAME]\ntask_completed\n"
-            "[PARAM_NAME]\nsummary\n[PARAM_VALUE]\nAdded divide function with error handling\n[TOOL_END]"
+            "[test1234_TOOL_START]\n[test1234_TOOL_NAME]\n"
+            "test1234_task_completed\n"
+            "[test1234_PARAM_NAME]\nsummary\n[test1234_PARAM_VALUE]\nAdded divide function with error handling\n[test1234_TOOL_END]"
         )
-        done, summary = is_done(response)
+        done, summary = is_done(response, "test1234")
         self.assertTrue(done)
         self.assertEqual(summary, "Added divide function with error handling")
 
     def test_task_completed_multiline_summary(self):
         response = (
-            "[TOOL_START]\n[TOOL_NAME]\ntask_completed\n"
-            "[PARAM_NAME]\nsummary\n[PARAM_VALUE]\nStep 1: Added divide function\n"
-            "Step 2: Added error handling\nStep 3: Verified with check_syntax\n[TOOL_END]"
+            "[test1234_TOOL_START]\n[test1234_TOOL_NAME]\n"
+            "test1234_task_completed\n"
+            "[test1234_PARAM_NAME]\nsummary\n[test1234_PARAM_VALUE]\nStep 1: Added divide function\n"
+            "Step 2: Added error handling\nStep 3: Verified with check_syntax\n[test1234_TOOL_END]"
         )
-        done, summary = is_done(response)
+        done, summary = is_done(response, "test1234")
         self.assertTrue(done)
         self.assertIn("Step 1", summary)
         self.assertIn("Step 3", summary)
 
     def test_no_completion(self):
         response = (
-            "[TOOL_START]\n[TOOL_NAME]\nread_file\n"
-            "[PARAM_NAME]\npath\n[PARAM_VALUE]\nsrc/main.py\n[TOOL_END]"
+            "[test1234_TOOL_START]\n[test1234_TOOL_NAME]\n"
+            "test1234_read_file\n"
+            "[test1234_PARAM_NAME]\npath\n[test1234_PARAM_VALUE]\nsrc/main.py\n[test1234_TOOL_END]"
         )
-        done, summary = is_done(response)
+        done, summary = is_done(response, "test1234")
         self.assertFalse(done)
         self.assertEqual(summary, "")
 
     def test_empty_response(self):
-        done, summary = is_done("")
+        done, summary = is_done("", "test1234")
         self.assertFalse(done)
         self.assertEqual(summary, "")
 
     def test_random_text(self):
-        done, summary = is_done("Hello world, this is not a completion")
+        done, summary = is_done("Hello world, this is not a completion", "test1234")
         self.assertFalse(done)
         self.assertEqual(summary, "")
 
     def test_task_completed_with_whitespace_in_name(self):
         response = (
-            "[TOOL_START]\n[TOOL_NAME]\n  task_completed  \n"
-            "[PARAM_NAME]\nsummary\n[PARAM_VALUE]\nDone\n[TOOL_END]"
+            "[test1234_TOOL_START]\n[test1234_TOOL_NAME]\n"
+            "  test1234_task_completed  \n"
+            "[test1234_PARAM_NAME]\nsummary\n[test1234_PARAM_VALUE]\nDone\n[test1234_TOOL_END]"
         )
-        done, summary = is_done(response)
+        done, summary = is_done(response, "test1234")
         self.assertTrue(done)
         self.assertEqual(summary, "Done")
 
     def test_task_completed_nested_tool_block(self):
         response = (
             "Let me do something first.\n\n"
-            "[TOOL_START]\n[TOOL_NAME]\ntask_completed\n"
-            "[PARAM_NAME]\nsummary\n[PARAM_VALUE]\nSummary\n[TOOL_END]"
+            "[test1234_TOOL_START]\n[test1234_TOOL_NAME]\n"
+            "test1234_task_completed\n"
+            "[test1234_PARAM_NAME]\nsummary\n[test1234_PARAM_VALUE]\nSummary\n[test1234_TOOL_END]"
         )
-        done, summary = is_done(response)
+        done, summary = is_done(response, "test1234")
         self.assertTrue(done)
         self.assertEqual(summary, "Summary")
 
     def test_task_completed_no_summary_param(self):
-        response = "[TOOL_START]\n[TOOL_NAME]\ntask_completed\n[TOOL_END]"
-        done, summary = is_done(response)
+        response = "[test1234_TOOL_START]\n[test1234_TOOL_NAME]\ntest1234_task_completed\n[test1234_TOOL_END]"
+        done, summary = is_done(response, "test1234")
         self.assertFalse(done)
         self.assertEqual(summary, "")
 
     def test_task_completed_empty_summary(self):
         response = (
-            "[TOOL_START]\n[TOOL_NAME]\ntask_completed\n"
-            "[PARAM_NAME]\nsummary\n[PARAM_VALUE]\n\n[TOOL_END]"
+            "[test1234_TOOL_START]\n[test1234_TOOL_NAME]\n"
+            "test1234_task_completed\n"
+            "[test1234_PARAM_NAME]\nsummary\n[test1234_PARAM_VALUE]\n\n[test1234_TOOL_END]"
         )
-        done, summary = is_done(response)
+        done, summary = is_done(response, "test1234")
         self.assertTrue(done)
         self.assertEqual(summary, "")
 
     def test_done_in_param_value_not_detected(self):
         response = (
-            "[TOOL_START]\n[TOOL_NAME]\nwrite_file\n"
-            "[PARAM_NAME]\ncontent\n[PARAM_VALUE]\nSome text [DONE] more text\n[TOOL_END]"
+            "[test1234_TOOL_START]\n[test1234_TOOL_NAME]\n"
+            "test1234_write_file\n"
+            "[test1234_PARAM_NAME]\ncontent\n[test1234_PARAM_VALUE]\nSome text [DONE] more text\n[test1234_TOOL_END]"
         )
-        done, summary = is_done(response)
+        done, summary = is_done(response, "test1234")
         self.assertFalse(done)
 
     def test_task_completed_with_special_chars_in_summary(self):
         response = (
-            "[TOOL_START]\n[TOOL_NAME]\ntask_completed\n"
-            "[PARAM_NAME]\nsummary\n[PARAM_VALUE]\nAdded: divide(a, b) — handles zero, returns float\n[TOOL_END]"
+            "[test1234_TOOL_START]\n[test1234_TOOL_NAME]\n"
+            "test1234_task_completed\n"
+            "[test1234_PARAM_NAME]\nsummary\n[test1234_PARAM_VALUE]\nAdded: divide(a, b) — handles zero, returns float\n[test1234_TOOL_END]"
         )
-        done, summary = is_done(response)
+        done, summary = is_done(response, "test1234")
         self.assertTrue(done)
         self.assertIn("divide", summary)
 
     def test_sse_done_in_stream_not_detected_as_completion(self):
         sse_content = "data: [DONE]\n\n"
-        done, summary = is_done(sse_content)
+        done, summary = is_done(sse_content, "test1234")
         self.assertFalse(done)
         self.assertEqual(summary, "")
 
     def test_sse_done_with_tool_call_before(self):
         response = (
-            "[TOOL_START]\n[TOOL_NAME]\nlist_directory\n"
-            "[PARAM_NAME]\npath\n[PARAM_VALUE]\n.\n[TOOL_END]\ndata: [DONE]\n\n"
+            "[test1234_TOOL_START]\n[test1234_TOOL_NAME]\n"
+            "test1234_list_directory\n"
+            "[test1234_PARAM_NAME]\npath\n[test1234_PARAM_VALUE]\n.\n[test1234_TOOL_END]\ndata: [DONE]\n\n"
         )
-        done, summary = is_done(response)
+        done, summary = is_done(response, "test1234")
         self.assertFalse(done)
 
     def test_prefixed_task_completed_detected(self):
@@ -370,7 +395,7 @@ class TestNonToolContentStripping(unittest.TestCase):
 
     def _strip_non_tool(self, response):
         tool_blocks = re.findall(
-            r'\[TOOL_START\].*?\[TOOL_END\]',
+            r'\[test1234_TOOL_START\].*?\[test1234_TOOL_END\]',
             response,
             flags=re.DOTALL,
         )
@@ -379,7 +404,7 @@ class TestNonToolContentStripping(unittest.TestCase):
     def test_text_before_and_after_tool(self):
         response = (
             "I'm going to list the directory.\n\n"
-            "[TOOL_START]\n[TOOL_NAME]\nlist_directory\n[PARAM_NAME]\npath\n[PARAM_VALUE]\n.\n[TOOL_END]\n\n"
+            "[test1234_TOOL_START]\n[test1234_TOOL_NAME]\ntest1234_list_directory\n[test1234_PARAM_NAME]\npath\n[test1234_PARAM_VALUE]\n.\n[test1234_TOOL_END]\n\n"
             "Then I'll read the files."
         )
         result = self._strip_non_tool(response)
@@ -390,9 +415,9 @@ class TestNonToolContentStripping(unittest.TestCase):
     def test_multiple_tool_blocks_with_text_between(self):
         response = (
             "First: list\n"
-            "[TOOL_START]\n[TOOL_NAME]\nlist_directory\n[PARAM_NAME]\npath\n[PARAM_VALUE]\n.\n[TOOL_END]\n"
+            "[test1234_TOOL_START]\n[test1234_TOOL_NAME]\ntest1234_list_directory\n[test1234_PARAM_NAME]\npath\n[test1234_PARAM_VALUE]\n.\n[test1234_TOOL_END]\n"
             "Then: read\n"
-            "[TOOL_START]\n[TOOL_NAME]\nread_file\n[PARAM_NAME]\npath\n[PARAM_VALUE]\nmain.py\n[TOOL_END]\n"
+            "[test1234_TOOL_START]\n[test1234_TOOL_NAME]\ntest1234_read_file\n[test1234_PARAM_NAME]\npath\n[test1234_PARAM_VALUE]\nmain.py\n[test1234_TOOL_END]\n"
             "Finally: done"
         )
         result = self._strip_non_tool(response)
@@ -411,14 +436,14 @@ class TestNonToolContentStripping(unittest.TestCase):
         self.assertEqual(result, "")
 
     def test_unclosed_tool_block_stripped(self):
-        response = "[TOOL_START]\n[TOOL_NAME]\nlist_directory\n[PARAM_NAME]\npath\n[PARAM_VALUE]\n."
+        response = "[test1234_TOOL_START]\n[test1234_TOOL_NAME]\ntest1234_list_directory\n[test1234_PARAM_NAME]\npath\n[test1234_PARAM_VALUE]\n."
         result = self._strip_non_tool(response)
         self.assertEqual(result, "")
 
     def test_task_completed_with_surrounding_text(self):
         response = (
             "I think we're done here.\n\n"
-            "[TOOL_START]\n[TOOL_NAME]\ntask_completed\n[PARAM_NAME]\nsummary\n[PARAM_VALUE]\nAll done\n[TOOL_END]\n\n"
+            "[test1234_TOOL_START]\n[test1234_TOOL_NAME]\ntest1234_task_completed\n[test1234_PARAM_NAME]\nsummary\n[test1234_PARAM_VALUE]\nAll done\n[test1234_TOOL_END]\n\n"
             "Goodbye!"
         )
         result = self._strip_non_tool(response)
@@ -429,11 +454,11 @@ class TestNonToolContentStripping(unittest.TestCase):
 
     def test_tool_block_with_newlines_in_params(self):
         response = (
-            "[TOOL_START]\n[TOOL_NAME]\nedit_file\n"
-            "[PARAM_NAME]\npath\n[PARAM_VALUE]\nsrc/main.py\n"
-            "[PARAM_NAME]\noriginal_text\n[PARAM_VALUE]\ndef add(a, b):\n    return a + b\n"
-            "[PARAM_NAME]\nnew_text\n[PARAM_VALUE]\ndef add(a, b):\n    return a + b\n\n"
-            "def subtract(a, b):\n    return a - b\n[TOOL_END]"
+            "[test1234_TOOL_START]\n[test1234_TOOL_NAME]\ntest1234_edit_file\n"
+            "[test1234_PARAM_NAME]\npath\n[test1234_PARAM_VALUE]\nsrc/main.py\n"
+            "[test1234_PARAM_NAME]\noriginal_text\n[test1234_PARAM_VALUE]\ndef add(a, b):\n    return a + b\n"
+            "[test1234_PARAM_NAME]\nnew_text\n[test1234_PARAM_VALUE]\ndef add(a, b):\n    return a + b\n\n"
+            "def subtract(a, b):\n    return a - b\n[test1234_TOOL_END]"
         )
         result = self._strip_non_tool(response)
         self.assertIn("edit_file", result)
@@ -445,10 +470,11 @@ class TestParseToolCallsEdgeCases(unittest.TestCase):
 
     def test_tool_call_with_empty_value(self):
         response = (
-            "[TOOL_START]\n[TOOL_NAME]\nwrite_file\n"
-            "[PARAM_NAME]\npath\n[PARAM_VALUE]\n\n[TOOL_END]"
+            "[test1234_TOOL_START]\n[test1234_TOOL_NAME]\n"
+            "test1234_write_file\n"
+            "[test1234_PARAM_NAME]\npath\n[test1234_PARAM_VALUE]\n\n[test1234_TOOL_END]"
         )
-        calls = parse_tool_calls(response)
+        calls = parse_tool_calls(response, "test1234")
         if calls:
             self.assertEqual(calls[0][0], "write_file")
 
@@ -1616,12 +1642,13 @@ class TestRequestUserInputPause(unittest.TestCase):
     def test_request_user_input_returns_pending_status(self):
         tmpdir = tempfile.mkdtemp()
         try:
+            engine = _make_engine(tmpdir, ["request_user_input"])
+            prefix = engine.instance_prefix
             mock_llm = MagicMock()
             mock_llm.call.return_value = {
-                "content": "[TOOL_START]\n[TOOL_NAME]\nrequest_user_input\n[PARAM_NAME]\nquestion\n[PARAM_VALUE]\nWhat is your name?\n[TOOL_END]",
+                "content": _prefixed_response("request_user_input", {"question": "What is your name?"}, prefix),
                 "raw_request": "", "raw_response": "",
             }
-            engine = _make_engine(tmpdir, ["request_user_input"])
             engine.llm = mock_llm
             result = engine.run()
             self.assertEqual(result["status"], "pending_user_input")
@@ -1637,12 +1664,13 @@ class TestRequestUserInputPause(unittest.TestCase):
     def test_request_user_input_emits_pending_user_input_event(self):
         tmpdir = tempfile.mkdtemp()
         try:
+            engine = _make_engine(tmpdir, ["request_user_input"])
+            prefix = engine.instance_prefix
             mock_llm = MagicMock()
             mock_llm.call.return_value = {
-                "content": "[TOOL_START]\n[TOOL_NAME]\nrequest_user_input\n[PARAM_NAME]\nquestion\n[PARAM_VALUE]\nPlease confirm\n[TOOL_END]",
+                "content": _prefixed_response("request_user_input", {"question": "Please confirm"}, prefix),
                 "raw_request": "", "raw_response": "",
             }
-            engine = _make_engine(tmpdir, ["request_user_input"])
             engine.llm = mock_llm
             events = []
             def track_callback(event):
@@ -1664,12 +1692,13 @@ class TestToolResultTruncation(unittest.TestCase):
             large_file = os.path.join(tmpdir, "large.txt")
             with open(large_file, 'w') as f:
                 f.write("x" * 200)
+            engine = _make_engine(tmpdir, ["list_directory"], max_tool_result_length=50)
+            prefix = engine.instance_prefix
             mock_llm = MagicMock()
             mock_llm.call.return_value = {
-                "content": "[TOOL_START]\n[TOOL_NAME]\nlist_directory\n[PARAM_NAME]\npath\n[PARAM_VALUE]\n.\n[TOOL_END]",
+                "content": _prefixed_response("list_directory", {"path": "."}, prefix),
                 "raw_request": "", "raw_response": "",
             }
-            engine = _make_engine(tmpdir, ["list_directory"], max_tool_result_length=50)
             engine.llm = mock_llm
             result = engine.run()
             list_steps = [s for s in engine.step_history if s["tool"] == "list_directory"]
@@ -1683,12 +1712,13 @@ class TestToolResultTruncation(unittest.TestCase):
     def test_tool_result_not_truncated_when_under_limit(self):
         tmpdir = tempfile.mkdtemp()
         try:
+            engine = _make_engine(tmpdir, ["list_directory"], max_tool_result_length=10000)
+            prefix = engine.instance_prefix
             mock_llm = MagicMock()
             mock_llm.call.return_value = {
-                "content": "[TOOL_START]\n[TOOL_NAME]\nlist_directory\n[PARAM_NAME]\npath\n[PARAM_VALUE]\n.\n[TOOL_END]",
+                "content": _prefixed_response("list_directory", {"path": "."}, prefix),
                 "raw_request": "", "raw_response": "",
             }
-            engine = _make_engine(tmpdir, ["list_directory"], max_tool_result_length=10000)
             engine.llm = mock_llm
             result = engine.run()
             list_steps = [s for s in engine.step_history if s["tool"] == "list_directory"]
@@ -1702,17 +1732,18 @@ class TestCleanedResponse(unittest.TestCase):
     def test_cleaned_response_appended_to_messages(self):
         tmpdir = tempfile.mkdtemp()
         try:
+            engine = _make_engine(tmpdir, ["list_directory"])
+            prefix = engine.instance_prefix
             mock_llm = MagicMock()
             mock_llm.call.return_value = {
-                "content": "Let me think...\n\n[TOOL_START]\n[TOOL_NAME]\nlist_directory\n[PARAM_NAME]\npath\n[PARAM_VALUE]\n.\n[TOOL_END]\n\nDone thinking.",
+                "content": f"Let me think...\n\n{_prefixed_response('list_directory', {'path': '.'}, prefix)}\n\nDone thinking.",
                 "raw_request": "", "raw_response": "",
             }
-            engine = _make_engine(tmpdir, ["list_directory"])
             engine.llm = mock_llm
             result = engine.run()
             assistant_msgs = [m for m in engine.messages if m.get("role") == "assistant"]
             self.assertTrue(len(assistant_msgs) > 0, "No assistant messages found")
-            self.assertIn("[TOOL_START]", assistant_msgs[0]["content"])
+            self.assertIn(f"[{prefix}_TOOL_START]", assistant_msgs[0]["content"])
             self.assertNotIn("Let me think", assistant_msgs[0]["content"])
             self.assertNotIn("Done thinking", assistant_msgs[0]["content"])
         finally:
@@ -1723,18 +1754,19 @@ class TestStepHistory(unittest.TestCase):
     def test_step_history_appended_for_each_step(self):
         tmpdir = tempfile.mkdtemp()
         try:
+            engine = _make_engine(tmpdir, ["list_directory", "task_completed"])
+            prefix = engine.instance_prefix
             mock_llm = MagicMock()
             mock_llm.call.side_effect = [
                 {
-                    "content": "[TOOL_START]\n[TOOL_NAME]\nlist_directory\n[PARAM_NAME]\npath\n[PARAM_VALUE]\n.\n[TOOL_END]",
+                    "content": _prefixed_response("list_directory", {"path": "."}, prefix),
                     "raw_request": "", "raw_response": "",
                 },
                 {
-                    "content": "[TOOL_START]\n[TOOL_NAME]\ntask_completed\n[PARAM_NAME]\nsummary\n[PARAM_VALUE]\nDone\n[TOOL_END]",
+                    "content": _prefixed_response("task_completed", {"summary": "Done"}, prefix),
                     "raw_request": "", "raw_response": "",
                 },
             ]
-            engine = _make_engine(tmpdir, ["list_directory", "task_completed"])
             engine.llm = mock_llm
             _mock_tool_execute(engine, "task_completed",
                 lambda p: TaskCompletedTool(tmpdir).execute(p))
@@ -1751,12 +1783,13 @@ class TestStepCallback(unittest.TestCase):
     def test_step_callback_invoked_for_each_step(self):
         tmpdir = tempfile.mkdtemp()
         try:
+            engine = _make_engine(tmpdir, ["list_directory"])
+            prefix = engine.instance_prefix
             mock_llm = MagicMock()
             mock_llm.call.return_value = {
-                "content": "[TOOL_START]\n[TOOL_NAME]\nlist_directory\n[PARAM_NAME]\npath\n[PARAM_VALUE]\n.\n[TOOL_END]",
+                "content": _prefixed_response("list_directory", {"path": "."}, prefix),
                 "raw_request": "", "raw_response": "",
             }
-            engine = _make_engine(tmpdir, ["list_directory"])
             engine.llm = mock_llm
             events = []
             def track_callback(event):
@@ -1774,12 +1807,13 @@ class TestEngineLoopEdgeCases(unittest.TestCase):
     def test_tool_error_does_not_crash_engine(self):
         tmpdir = tempfile.mkdtemp()
         try:
+            engine = _make_engine(tmpdir, ["unknown_tool_xyz"])
+            prefix = engine.instance_prefix
             mock_llm = MagicMock()
             mock_llm.call.return_value = {
-                "content": "[TOOL_START]\n[TOOL_NAME]\nunknown_tool_xyz\n[PARAM_NAME]\npath\n[PARAM_VALUE]\n.\n[TOOL_END]",
+                "content": _prefixed_response("unknown_tool_xyz", {"path": "."}, prefix),
                 "raw_request": "", "raw_response": "",
             }
-            engine = _make_engine(tmpdir, ["unknown_tool_xyz"])
             engine.llm = mock_llm
             result = engine.run()
             self.assertIn(result["status"], ["completed", "error", "max_steps_reached"])
@@ -1789,12 +1823,13 @@ class TestEngineLoopEdgeCases(unittest.TestCase):
     def test_max_steps_reached_returns_correct_status(self):
         tmpdir = tempfile.mkdtemp()
         try:
+            engine = _make_engine(tmpdir, ["list_directory"], max_steps=2)
+            prefix = engine.instance_prefix
             mock_llm = MagicMock()
             mock_llm.call.return_value = {
-                "content": "[TOOL_START]\n[TOOL_NAME]\nlist_directory\n[PARAM_NAME]\npath\n[PARAM_VALUE]\n.\n[TOOL_END]",
+                "content": _prefixed_response("list_directory", {"path": "."}, prefix),
                 "raw_request": "", "raw_response": "",
             }
-            engine = _make_engine(tmpdir, ["list_directory"], max_steps=2)
             engine.llm = mock_llm
             result = engine.run()
             self.assertEqual(result["status"], "max_steps_reached")
@@ -1824,12 +1859,13 @@ class TestEngineLoopEdgeCases(unittest.TestCase):
     def test_context_warning_not_emitted_when_max_context_zero(self):
         tmpdir = tempfile.mkdtemp()
         try:
+            engine = _make_engine(tmpdir, ["list_directory"], max_context_tokens=0)
+            prefix = engine.instance_prefix
             mock_llm = MagicMock()
             mock_llm.call.return_value = {
-                "content": "[TOOL_START]\n[TOOL_NAME]\nlist_directory\n[PARAM_NAME]\npath\n[PARAM_VALUE]\n.\n[TOOL_END]",
+                "content": _prefixed_response("list_directory", {"path": "."}, prefix),
                 "raw_request": "", "raw_response": "",
             }
-            engine = _make_engine(tmpdir, ["list_directory"], max_context_tokens=0)
             engine.llm = mock_llm
             events = []
             def track_callback(event):
@@ -2333,6 +2369,7 @@ class TestMockLLMServer(unittest.TestCase):
         self.assertEqual(len(result["choices"][0]["message"]["tool_calls"]), 2)
 
     def test_tag_based_tool_call_response(self):
+        self.server.instance_prefix = "test1234"
         self.server.add_tool_call_response(r"read_file", "read_file", {"path": "main.py"})
         payload = {"model": "test-model", "messages": [{"role": "user", "content": "read_file main.py"}], "stream": False}
         data = json.dumps(payload).encode('utf-8')
@@ -2340,13 +2377,13 @@ class TestMockLLMServer(unittest.TestCase):
         with urllib.request.urlopen(req, timeout=5) as response:
             result = json.loads(response.read().decode('utf-8'))
         content = result["choices"][0]["message"]["content"]
-        self.assertIn("[TOOL_START]", content)
-        self.assertIn("[TOOL_NAME]", content)
-        self.assertIn("read_file", content)
-        self.assertIn("[PARAM_NAME]", content)
-        self.assertIn("[PARAM_VALUE]", content)
+        self.assertIn("[test1234_TOOL_START]", content)
+        self.assertIn("[test1234_TOOL_NAME]", content)
+        self.assertIn("test1234_read_file", content)
+        self.assertIn("[test1234_PARAM_NAME]", content)
+        self.assertIn("[test1234_PARAM_VALUE]", content)
         self.assertIn("main.py", content)
-        self.assertIn("[TOOL_END]", content)
+        self.assertIn("[test1234_TOOL_END]", content)
 
 
 # ====================================================================
@@ -2413,8 +2450,11 @@ class TestInstancePrefix(unittest.TestCase):
         """parse_tool_calls should strip the instance prefix from tool names."""
         prefix = "12345678"
         response = (
-            f"[TOOL_START]\n[TOOL_NAME]\n{prefix}_write_file\n"
-            "[PARAM_NAME]\npath\n[PARAM_VALUE]\ntest.txt\n[TOOL_END]"
+            f"[{prefix}_TOOL_START]\n[{prefix}_TOOL_NAME]\n"
+            f"{prefix}_write_file\n"
+            f"[{prefix}_PARAM_NAME]\npath\n"
+            f"[{prefix}_PARAM_VALUE]\ntest.txt\n"
+            f"[{prefix}_TOOL_END]"
         )
         calls = parse_tool_calls(response, prefix)
         self.assertEqual(len(calls), 1)
@@ -2424,8 +2464,11 @@ class TestInstancePrefix(unittest.TestCase):
         """is_done should detect <prefix>_task_completed when prefix is provided."""
         prefix = "12345678"
         response = (
-            f"[TOOL_START]\n[TOOL_NAME]\n{prefix}_task_completed\n"
-            "[PARAM_NAME]\nsummary\n[PARAM_VALUE]\nDone\n[TOOL_END]"
+            f"[{prefix}_TOOL_START]\n[{prefix}_TOOL_NAME]\n"
+            f"{prefix}_task_completed\n"
+            f"[{prefix}_PARAM_NAME]\nsummary\n"
+            f"[{prefix}_PARAM_VALUE]\nDone\n"
+            f"[{prefix}_TOOL_END]"
         )
         done, summary = is_done(response, prefix)
         self.assertTrue(done)
@@ -2667,9 +2710,12 @@ class TestPendingToolApprovalEngine(unittest.TestCase):
                 "enabled_tools": ["list_directory", "create_tool"],
             }
             engine = AgentEngine(project_config)
+            prefix = engine.instance_prefix
             mock_response = (
-                "[TOOL_START]\n[TOOL_NAME]\ncreate_tool\n"
-                "[PARAM_NAME]\nname\n[PARAM_VALUE]\nmy_tool\n[TOOL_END]"
+                f"[{prefix}_TOOL_START]\n[{prefix}_TOOL_NAME]\n"
+                f"{prefix}_create_tool\n"
+                f"[{prefix}_PARAM_NAME]\nname\n[{prefix}_PARAM_VALUE]\nmy_tool\n"
+                f"[{prefix}_TOOL_END]"
             )
             with patch.object(engine.llm, 'call', return_value={
                 "content": mock_response, "raw_request": "", "raw_response": ""

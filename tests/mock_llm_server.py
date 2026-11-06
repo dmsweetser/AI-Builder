@@ -339,13 +339,21 @@ class MockLLMServer:
         """Add a response that returns a tool call in tag-based format.
         
         The engine's LLMClient parses the content string with parse_tool_calls(),
-        so we return the tool call as a formatted string.
+        so we return the tool call as a formatted string with the server's
+        instance prefix (if set) so the engine can parse it.
         """
-        # Build the tag-based tool call string
-        lines = ["[TOOL_START]", "[TOOL_NAME]", tool_name]
-        for key, value in arguments.items():
-            lines.extend(["[PARAM_NAME]", key, "[PARAM_VALUE]", value])
-        lines.append("[TOOL_END]")
+        prefix = self.instance_prefix
+        if prefix:
+            # Use prefixed markers and prefixed tool name
+            lines = [f"[{prefix}_TOOL_START]", f"[{prefix}_TOOL_NAME]", f"{prefix}_{tool_name}"]
+            for key, value in arguments.items():
+                lines.extend([f"[{prefix}_PARAM_NAME]", key, f"[{prefix}_PARAM_VALUE]", value])
+            lines.append(f"[{prefix}_TOOL_END]")
+        else:
+            lines = ["[TOOL_START]", "[TOOL_NAME]", tool_name]
+            for key, value in arguments.items():
+                lines.extend(["[PARAM_NAME]", key, "[PARAM_VALUE]", value])
+            lines.append("[TOOL_END]")
         response_text = "\n".join(lines)
         
         MockLLMHandler.responses.append(

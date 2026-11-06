@@ -558,6 +558,15 @@ def parse_tool_calls(response: str, prefix: str = "") -> List[Tuple[str, Dict[st
     calls = []
 
     def _process_match(tool_name: str, params_block: str):
+        tool_name = tool_name.strip()
+        # Reject tool names that look like parameter/rationale markers
+        # (e.g. from alt pattern matching [PARAM_NAME] after TOOL_START)
+        # Check both bracketed and unbracketed forms
+        marker_names = (m_pname, m_pval, m_rat, m_end, m_name,
+                        m_pname.strip('[]'), m_pval.strip('[]'),
+                        m_rat.strip('[]'), m_end.strip('[]'), m_name.strip('[]'))
+        if tool_name in marker_names:
+            return
         rationale = _extract_rationale(params_block, m_rat, m_end)
         params_block = re.sub(re.escape(m_rat) + r'.*?$', '', params_block, flags=re.DOTALL)
         params = _parse_params(params_block, m_pname, m_pval, m_end)
@@ -566,6 +575,14 @@ def parse_tool_calls(response: str, prefix: str = "") -> List[Tuple[str, Dict[st
             if prefix and tool_name.startswith(prefix + '_'):
                 tool_name = tool_name[len(prefix) + 1:]
             calls.append((tool_name, params, rationale))
+        elif tool_name and params is None and not rationale:
+            # Tool with no parameters and no rationale — still valid.
+            # _parse_params returns None for an empty params_block; treat it
+            # as an empty dict so tools like list_directory with no required
+            # params are not silently dropped.
+            if prefix and tool_name.startswith(prefix + '_'):
+                tool_name = tool_name[len(prefix) + 1:]
+            calls.append((tool_name, {}, rationale))
 
     # Prefer standard matches; fall back to alt matches if no standard matches found
     if tool_matches:
