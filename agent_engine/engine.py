@@ -572,8 +572,8 @@ def parse_tool_calls(response: str, prefix: str = "") -> List[Tuple[str, Dict[st
             if prefix and tool_name.startswith(prefix + '_'):
                 tool_name = tool_name[len(prefix) + 1:]
             calls.append((tool_name, params, rationale))
-        elif tool_name and params is None and not rationale:
-            # Tool with no parameters and no rationale — still valid.
+        elif tool_name and params is None:
+            # Tool with no parameters (with or without rationale) — still valid.
             # _parse_params returns None for an empty params_block; treat it
             # as an empty dict so tools like list_directory with no required
             # params are not silently dropped.

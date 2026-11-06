@@ -1852,6 +1852,10 @@ def _find_project_and_resume_engine(project_output_dir, tool_name):
     When a tool is approved, the original engine thread has already returned
     from run(). This function finds the project config and creates a new
     engine instance that will pick up the resume file and continue.
+
+    The resumed engine receives the previous step history so it can
+    reconstruct the conversation context (what was already done) and
+    properly continue instead of re-doing work or completing prematurely.
     """
     projects = load_projects()
     project_config = None
@@ -1868,6 +1872,15 @@ def _find_project_and_resume_engine(project_output_dir, tool_name):
     if not project_config:
         logging.warning(f"No project found for output_dir {project_output_dir}")
         return
+
+    # Load the previous step history from job_history so the resumed engine
+    # can reconstruct the conversation and understand what was already done.
+    prev_step_history = None
+    for h in job_history:
+        if h.get("status") in ("pending_approval", "pending_user_input", "running") and h.get("step_history"):
+            # Use the most recent running/pending job's step history
+            prev_step_history = h["step_history"]
+            break
 
     # Apply current settings to env
     apply_settings_to_env()
@@ -1886,6 +1899,7 @@ def _find_project_and_resume_engine(project_output_dir, tool_name):
                 output_dir=project_output_dir,
                 step_callback=None,  # No SSE streaming for resume
                 stop_event=None,
+                prev_step_history=prev_step_history,
             )
             logging.info(f"Engine resumed successfully after tool approval: {tool_name}")
         except Exception as e:
