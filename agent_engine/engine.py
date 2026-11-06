@@ -1135,11 +1135,57 @@ class AgentEngine:
         except Exception as e:
             logging.debug(f"Project settings reload check failed (non-critical): {e}")
 
+    def _check_pending_tools(self):
+        """Check for pending tools and emit events / inject reminder for the LLM.
+
+        When there are tools awaiting approval, this:
+        1. Emits a ``pending_approval`` event for each (so the UI banner shows).
+        2. Injects a user message telling the LLM about the pending tools so it
+           can inform the user and wait for approval before proceeding.
+        """
+        pending = self.tools.get_project_pending_tools(self.output_dir)
+        if not pending:
+            return
+
+        # Emit a pending_approval event for each pending tool so the UI shows
+        # the approval banner immediately.
+        for tool in pending:
+            tool_name = tool.get("name", "unknown")
+            self.logger.info(f"Pending tool detected: {tool_name}")
+            if self._step_callback:
+                try:
+                    self._step_callback({
+                        "type": "pending_approval",
+                        "tool_name": tool_name,
+                        "output_dir": self.output_dir,
+                    })
+                except Exception:
+                    pass
+
+        # Inject a user message so the LLM knows about pending tools and can
+        # inform the user via respond_to_user.  The LLM will wait for approval
+        # before trying to use any of these tools.
+        tool_names = ", ".join(t.get("name", "?") for t in pending)
+        reminder = (
+            f"[PENDING TOOL APPROVAL] There are {len(pending)} tool proposal(s) "
+            f"awaiting your review: {tool_names}.\n\n"
+            f"Please review and approve or reject them in the TOOLS tab.\n"
+            f"Do NOT attempt to use any of these tools until they are approved.\n"
+            f"Use respond_to_user to inform the user about these pending tools.\n"
+        )
+        self.messages.append({
+            "role": "user",
+            "content": reminder,
+        })
+
     def run(self) -> Dict[str, Any]:
         """Execute the agentic revision loop."""
         # Reload approved tools so any tools approved since the last run
         # are visible to the LLM immediately.
         self.reload_approved_tools()
+
+        # Check for pending tools and notify the UI / LLM
+        self._check_pending_tools()
 
         self.logger.info(f"Starting agentic engine for: {self.root_dir}")
         self.logger.info(f"Instructions: {self.instructions[:200]}...")

@@ -2725,6 +2725,58 @@ class TestPendingToolApprovalEngine(unittest.TestCase):
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)
 
+    def test_check_pending_tools_emits_events(self):
+        """_check_pending_tools should emit pending_approval events for each pending tool."""
+        tmpdir = tempfile.mkdtemp()
+        try:
+            os.makedirs(os.path.join(tmpdir, "src"), exist_ok=True)
+            with open(os.path.join(tmpdir, "README.md"), "w") as f:
+                f.write("# Test")
+            # Create a pending tool file
+            pending_dir = os.path.join(tmpdir, "tools", "pending")
+            os.makedirs(pending_dir, exist_ok=True)
+            with open(os.path.join(pending_dir, "my_tool.py"), "w") as f:
+                f.write('from agent_engine.tools.base import BaseTool, ToolResult\n\nclass my_tool(BaseTool):\n    name = "my_tool"\n    description = "A test tool"\n    parameters = {}\n    def execute(self, params):\n        return ToolResult(True, "ok")\n')
+            project_config = {
+                "rootDirectory": tmpdir,
+                "instructions": "Test",
+            }
+            engine = AgentEngine(project_config)
+            events = []
+            engine._step_callback = lambda e: events.append(e)
+            engine._check_pending_tools()
+            approval_events = [e for e in events if e.get("type") == "pending_approval"]
+            self.assertEqual(len(approval_events), 1)
+            self.assertEqual(approval_events[0]["tool_name"], "my_tool")
+            # Should have injected a user message about pending tools
+            pending_msgs = [m for m in engine.messages if "PENDING TOOL APPROVAL" in m.get("content", "")]
+            self.assertEqual(len(pending_msgs), 1)
+            self.assertIn("my_tool", pending_msgs[0]["content"])
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+    def test_check_pending_tools_noop_when_none(self):
+        """_check_pending_tools should do nothing when there are no pending tools."""
+        tmpdir = tempfile.mkdtemp()
+        try:
+            os.makedirs(os.path.join(tmpdir, "src"), exist_ok=True)
+            with open(os.path.join(tmpdir, "README.md"), "w") as f:
+                f.write("# Test")
+            project_config = {
+                "rootDirectory": tmpdir,
+                "instructions": "Test",
+            }
+            engine = AgentEngine(project_config)
+            events = []
+            engine._step_callback = lambda e: events.append(e)
+            engine._check_pending_tools()
+            approval_events = [e for e in events if e.get("type") == "pending_approval"]
+            self.assertEqual(len(approval_events), 0)
+            pending_msgs = [m for m in engine.messages if "PENDING TOOL APPROVAL" in m.get("content", "")]
+            self.assertEqual(len(pending_msgs), 0)
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
 
 # ====================================================================
 # 24. Context Warning Flag Test
