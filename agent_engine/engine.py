@@ -444,8 +444,6 @@ If the tool is rejected, do not use it. Choose a different approach or use exist
 You will see a "PENDING TOOL APPROVAL" message in the live feed while waiting for user review.
 
 CONTEXT MANAGEMENT:
-- If you have accumulated many tool results and the conversation is getting long, use the compress_context tool to summarize prior steps into a compact summary.
-- This helps free up context space for new work. Provide a summary that captures what was learned, what files were modified, and the current state of the project.
 '''
 
 

@@ -49,7 +49,6 @@ from agent_engine.tools.list_dependencies import ListDependenciesTool
 from agent_engine.tools.find_symbol import FindSymbolTool
 from agent_engine.tools.decompile_jar import DecompileJarTool
 from agent_engine.tools.respond_to_user import RespondToUserTool
-from agent_engine.tools.compress_context import CompressContextTool
 from agent_engine.tools.task_completed import TaskCompletedTool
 from agent_engine.config import EngineConfig
 from agent_engine.tools import get_registry, _reset_registry, ToolRegistry
@@ -1177,7 +1176,6 @@ class TestToolRegistry(unittest.TestCase):
             'find_symbol', 'decompile_jar', 'list_dependencies',
             'check_syntax', 'get_file_info', 'create_tool',
             'respond_to_user', 'request_user_input', 'task_completed',
-            'compress_context',
         ]
         for name in expected:
             self.assertIn(name, tool_names, f"Tool '{name}' not registered")
@@ -1289,7 +1287,7 @@ class TestSingletonRegistry(unittest.TestCase):
             'grep_code', 'grep_code_dir', 'read_file', 'read_file_range',
             'write_file', 'edit_file', 'delete_file', 'find_symbol',
             'decompile_jar', 'list_dependencies', 'check_syntax', 'get_file_info',
-            'create_tool', 'compress_context',
+            'create_tool',
             'respond_to_user', 'request_user_input', 'task_completed',
         ]
         for name in expected_tools:
@@ -1393,28 +1391,6 @@ class TestRespondToUserTool(unittest.TestCase):
             tools = registry.list_tools()
             tool_names = [t['name'] for t in tools]
             self.assertIn('respond_to_user', tool_names)
-        finally:
-            shutil.rmtree(tmpdir, ignore_errors=True)
-
-
-class TestCompressContextTool(unittest.TestCase):
-    def test_execute_returns_compression_message(self):
-        tmpdir = tempfile.mkdtemp()
-        try:
-            tool = CompressContextTool(tmpdir)
-            r = tool.execute({"summary": "Prior steps summarized"})
-            self.assertTrue(r.success)
-            self.assertIn("compressed", r.content.lower())
-        finally:
-            shutil.rmtree(tmpdir, ignore_errors=True)
-
-    def test_tool_is_registered(self):
-        tmpdir = tempfile.mkdtemp()
-        try:
-            registry = get_registry(tmpdir)
-            tools = registry.list_tools()
-            tool_names = [t['name'] for t in tools]
-            self.assertIn('compress_context', tool_names)
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)
 

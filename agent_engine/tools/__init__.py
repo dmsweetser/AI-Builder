@@ -29,7 +29,6 @@ from agent_engine.tools.check_syntax import CheckSyntaxTool
 from agent_engine.tools.list_dependencies import ListDependenciesTool
 from agent_engine.tools.get_file_info import GetFileInfoTool
 from agent_engine.tools.create_tool import CreateToolTool
-from agent_engine.tools.compress_context import CompressContextTool
 from agent_engine.tools.respond_to_user import RespondToUserTool
 from agent_engine.tools.request_user_input import RequestUserInputTool
 from agent_engine.tools.task_completed import TaskCompletedTool
@@ -58,7 +57,7 @@ def _init_builtin_classes():
         WriteFileTool, EditFileTool, DeleteFileTool,
         FindSymbolTool, DecompileJarTool,
         ListDependenciesTool, CheckSyntaxTool, GetFileInfoTool,
-        CreateToolTool, CompressContextTool,
+        CreateToolTool,
         RespondToUserTool, RequestUserInputTool, TaskCompletedTool,
     ]:
         _instance = _cls("/tmp")
