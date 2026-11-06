@@ -2732,16 +2732,16 @@ class TestPendingToolApprovalEngine(unittest.TestCase):
             os.makedirs(os.path.join(tmpdir, "src"), exist_ok=True)
             with open(os.path.join(tmpdir, "README.md"), "w") as f:
                 f.write("# Test")
-            # Create a pending tool file
-            pending_dir = os.path.join(tmpdir, "tools", "pending")
-            os.makedirs(pending_dir, exist_ok=True)
-            with open(os.path.join(pending_dir, "my_tool.py"), "w") as f:
-                f.write('from agent_engine.tools.base import BaseTool, ToolResult\n\nclass my_tool(BaseTool):\n    name = "my_tool"\n    description = "A test tool"\n    parameters = {}\n    def execute(self, params):\n        return ToolResult(True, "ok")\n')
             project_config = {
                 "rootDirectory": tmpdir,
                 "instructions": "Test",
             }
             engine = AgentEngine(project_config)
+            # Create a pending tool file in the engine's output_dir
+            pending_dir = os.path.join(engine.output_dir, "tools", "pending")
+            os.makedirs(pending_dir, exist_ok=True)
+            with open(os.path.join(pending_dir, "my_tool.py"), "w") as f:
+                f.write('from agent_engine.tools.base import BaseTool, ToolResult\n\nclass my_tool(BaseTool):\n    name = "my_tool"\n    description = "A test tool"\n    parameters = {}\n    def execute(self, params):\n        return ToolResult(True, "ok")\n')
             events = []
             engine._step_callback = lambda e: events.append(e)
             engine._check_pending_tools()
