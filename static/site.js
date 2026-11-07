@@ -597,11 +597,6 @@ function handlePendingApproval(data, agentBox) {
     var statusText = document.getElementById('agent-status-text');
     if (statusText) { statusText.textContent = 'WAITING FOR TOOL APPROVAL'; statusText.style.color = 'var(--warning)'; statusText.style.fontWeight = 'bold'; }
 
-    var injectInput = document.getElementById('live-inject-input');
-    var injectBtn = document.getElementById('live-inject-btn');
-    if (injectInput) { injectInput.disabled = true; injectInput.placeholder = 'Agent is waiting for tool approval...'; }
-    if (injectBtn) { injectBtn.disabled = true; injectBtn.textContent = 'WAITING'; }
-
     // Fetch pending tools for this project and show approve/reject
     if (outputDir) {
         fetch('/api/tools/pending', {

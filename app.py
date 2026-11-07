@@ -1362,7 +1362,10 @@ def api_agent_run():
         for ev in iter(event_queue.get, None):
             if ev.get("type") == "__done__":
                 result = engine_result[0] or {}
-                # Yield any remaining events from the queue
+                # Yield any remaining events from the queue, including
+                # pending_approval/pending_user_input that may not have been
+                # processed yet (e.g. if the background thread queued them
+                # after __done__ due to threading timing).
                 while not event_queue.empty():
                     try:
                         ev = event_queue.get_nowait()
@@ -1384,6 +1387,33 @@ def api_agent_run():
                                 "raw_request": ev.get("raw_request", ""),
                                 "raw_response": ev.get("raw_response", ""),
                             }) + "\n"
+                        elif ev["type"] == "pending_approval":
+                            yield "event: pending_approval\n" + json.dumps({
+                                "tool_name": ev.get("tool_name", "unknown"),
+                                "output_dir": output_dir,
+                                "job_id": job_id,
+                            }) + "\n"
+                        elif ev["type"] == "__pending_approval__":
+                            yield "event: pending_approval\n" + json.dumps({
+                                "tool_name": ev.get("tool_name", "unknown"),
+                                "output_dir": output_dir,
+                                "job_id": job_id,
+                            }) + "\n"
+                            # Also emit a status event so the UI knows the agent is paused
+                            yield "event: status\n" + json.dumps({
+                                "type": "pending_approval",
+                                "message": "Agent is waiting for tool approval. Approve or reject below.",
+                            }) + "\n\n"
+                        elif ev["type"] == "__pending_user_input__":
+                            yield "event: pending_user_input\n" + json.dumps({
+                                "step": ev.get("step", 0),
+                                "response": ev.get("response", ""),
+                                "question": ev.get("question", ""),
+                            }) + "\n"
+                            yield "event: status\n" + json.dumps({
+                                "type": "pending_user_input",
+                                "message": "Agent is waiting for user input. Inject instructions or restart the run to continue.",
+                            }) + "\n\n"
                     except queue.Empty:
                         break
 
@@ -1406,8 +1436,40 @@ def api_agent_run():
                         _sse_jobs.pop(job_id, None)
                     with _sse_event_queues_lock:
                         _sse_event_queues.pop(output_dir, None)
-                    # Signal completion so the frontend knows the SSE stream
-                    # has ended (the approval prompt was already emitted above).
+                    # Extract pending tool name from step_history if available
+                    pending_tool_name = ""
+                    pending_output_dir = output_dir
+                    step_history = result.get("step_history", [])
+                    for step in reversed(step_history):
+                        if step.get("tool") == "create_tool":
+                            pending_tool_name = step.get("params", {}).get("name", "")
+                            break
+                    if not pending_tool_name:
+                        pending_tool_name = "unknown"
+
+                    # Emit the pending_approval event so the UI can show
+                    # the approval prompt even if the earlier event was dropped
+                    if result.get("status") == "pending_approval":
+                        yield "event: pending_approval\ndata: " + json.dumps({
+                            "tool_name": pending_tool_name,
+                            "output_dir": pending_output_dir,
+                            "job_id": job_id,
+                        }) + "\n"
+                        yield "event: status\ndata: " + json.dumps({
+                            "type": "pending_approval",
+                            "message": "Agent is waiting for tool approval. Approve or reject below.",
+                        }) + "\n\n"
+                    elif result.get("status") == "pending_user_input":
+                        yield "event: pending_user_input\ndata: " + json.dumps({
+                            "step": result.get("steps", 0),
+                            "response": result.get("summary", ""),
+                            "question": "",
+                        }) + "\n"
+                        yield "event: status\ndata: " + json.dumps({
+                            "type": "pending_user_input",
+                            "message": "Agent is waiting for user input. Inject instructions or restart the run to continue.",
+                        }) + "\n\n"
+
                     # Use 'paused' type instead of 'complete' so the frontend
                     # doesn't overwrite the pending status with "COMPLETED".
                     yield "event: status\ndata: " + json.dumps({
