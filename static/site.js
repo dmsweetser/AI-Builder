@@ -461,6 +461,30 @@ function handleAgentStatus(data) {
         if (ib4) { ib4.disabled = false; ib4.textContent = 'INJECT'; }
         var rb4 = document.getElementById('details-run-btn');
         if (rb4) { rb4.disabled = false; rb4.innerHTML = 'RUN AI BUILDER'; }
+    } else if (data.type === 'paused') {
+        // Engine returned with pending_approval or pending_user_input status.
+        // The pending_approval/pending_user_input event was already emitted
+        // above this event, so the UI should already be showing the prompt.
+        // This event just signals that the SSE stream has ended.
+        agentRunning = false;
+        liveInjectActive = true;
+        var st_pause = document.getElementById('agent-status-text');
+        if (st_pause) {
+            // Preserve the existing pending status — don't overwrite it
+            if (st_pause.textContent !== 'WAITING FOR TOOL APPROVAL' &&
+                st_pause.textContent !== 'PENDING TOOL APPROVAL' &&
+                st_pause.textContent !== 'AWAITING INPUT') {
+                st_pause.textContent = 'PAUSED';
+                st_pause.style.color = 'var(--warning)';
+                st_pause.style.fontWeight = 'bold';
+            }
+        }
+        var ii_pause = document.getElementById('live-inject-input');
+        var ib_pause = document.getElementById('live-inject-btn');
+        if (ii_pause) { ii_pause.disabled = false; ii_pause.placeholder = 'Continue with new instructions...'; }
+        if (ib_pause) { ib_pause.disabled = false; ib_pause.textContent = 'INJECT'; }
+        var rb_pause = document.getElementById('details-run-btn');
+        if (rb_pause) { rb_pause.disabled = false; rb_pause.innerHTML = 'RUN AI BUILDER'; }
     } else if (data.type === 'pending_user_input') {
         agentRunning = false;
         liveInjectActive = true;

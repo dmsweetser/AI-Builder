@@ -1386,6 +1386,49 @@ def api_agent_run():
                             }) + "\n"
                     except queue.Empty:
                         break
+
+                # When the engine returns pending_approval or pending_user_input,
+                # DO NOT yield the __done__/complete event here — the UI has
+                # already received the pending_approval/pending_user_input event
+                # and needs time to render the prompt before the connection closes.
+                # The frontend will close the SSE connection after the user
+                # approves/rejects (via the approval API) or continues (via inject).
+                if result.get("status") in ("pending_approval", "pending_user_input"):
+                    _log_app_event(
+                        f"Agent paused — job_id={job_id}, "
+                        f"status={result.get('status')}, "
+                        f"steps={result.get('steps')}"
+                    )
+                    # Clean up stop event for this job
+                    with _job_stop_events_lock:
+                        _job_stop_events.pop(job_id, None)
+                    with _sse_jobs_lock:
+                        _sse_jobs.pop(job_id, None)
+                    with _sse_event_queues_lock:
+                        _sse_event_queues.pop(output_dir, None)
+                    # Signal completion so the frontend knows the SSE stream
+                    # has ended (the approval prompt was already emitted above).
+                    # Use 'paused' type instead of 'complete' so the frontend
+                    # doesn't overwrite the pending status with "COMPLETED".
+                    yield "event: status\ndata: " + json.dumps({
+                        "type": "paused",
+                        "status": result.get("status", "completed"),
+                        "summary": result.get("summary", ""),
+                        "steps": result.get("steps", 0),
+                        "max_steps": result.get("max_steps", 50),
+                        "error": result.get("error", ""),
+                    }) + "\n\n"
+                    # Update history with step results
+                    job_history[-1]["status"] = result.get("status", "completed")
+                    job_history[-1]["summary"] = result.get("summary", "")
+                    job_history[-1]["steps"] = result.get("steps", 0)
+                    job_history[-1]["step_count"] = result.get("steps", 0)
+                    job_history[-1]["step_history"] = engine_step_history[0] or []
+                    if result.get("status") == "error":
+                        job_history[-1]["error"] = result.get("error", "Unknown error")
+                    save_job_history()
+                    break
+
                 # Clean up stop event for this job
                 with _job_stop_events_lock:
                     _job_stop_events.pop(job_id, None)

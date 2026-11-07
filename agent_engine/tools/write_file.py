@@ -21,6 +21,12 @@ class WriteFileTool(BaseTool):
         path = ensure_under_root(params["path"], self.root_dir)
         content = params["content"]
 
+        # Create parent directories BEFORE acquiring the lock,
+        # so the lock file can be created at the target path.
+        dir_path = os.path.dirname(path)
+        if dir_path:
+            os.makedirs(dir_path, exist_ok=True)
+
         # Use file locking to prevent concurrent writes from corrupting files
         # (especially JSON files like projects.json)
         lock = FileLock(path)
@@ -30,9 +36,6 @@ class WriteFileTool(BaseTool):
             return ToolResult(False, "", error=f"Could not acquire write lock for {params['path']}")
 
         try:
-            dir_path = os.path.dirname(path)
-            if dir_path:
-                os.makedirs(dir_path, exist_ok=True)
             with open(path, 'w', encoding='utf-8') as f:
                 f.write(content)
             # Verify the file was actually written by reading it back
