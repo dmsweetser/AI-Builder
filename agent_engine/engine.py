@@ -51,6 +51,50 @@ def _trim_messages_to_context(messages: List[Dict[str, str]], system_prompt: str
     return trimmed
 
 
+def _write_step_file(output_dir: str, step_num: int, step_data: Dict[str, Any]) -> None:
+    """Atomically write a step record to steps/NNN.json.
+
+    Creates the steps/ subdirectory if needed. Uses a temp file + atomic
+    rename so readers never see a half-written file.
+    """
+    steps_dir = os.path.join(output_dir, "steps")
+    os.makedirs(steps_dir, exist_ok=True)
+    # Zero-padded step number for natural sort order
+    step_file = os.path.join(steps_dir, f"{step_num:04d}.json")
+    tmp_file = step_file + ".tmp"
+    try:
+        with open(tmp_file, 'w', encoding='utf-8') as f:
+            json.dump(step_data, f, indent=2, ensure_ascii=False)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_file, step_file)
+    except Exception as e:
+        logging.warning(f"Failed to write step file {step_file}: {e}")
+
+
+def _write_status_file(output_dir: str, status_data: Dict[str, Any]) -> None:
+    """Atomically write status.json in the output directory."""
+    status_file = os.path.join(output_dir, "status.json")
+    tmp_file = status_file + ".tmp"
+    try:
+        with open(tmp_file, 'w', encoding='utf-8') as f:
+            json.dump(status_data, f, indent=2, ensure_ascii=False)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_file, status_file)
+    except Exception as e:
+        logging.warning(f"Failed to write status file {status_file}: {e}")
+
+
+def _init_status_file(output_dir: str) -> None:
+    """Create an initial status.json for a new run."""
+    _write_status_file(output_dir, {
+        "status": "running",
+        "step": 0,
+        "timestamp": time.time(),
+    })
+
+
 class LLMClient:
     """Interface for calling the LLM (OpenAI-compatible endpoint)."""
 
@@ -323,7 +367,7 @@ def build_system_prompt(tools: List[Dict[str, Any]], instance_prefix: str = "") 
         f"{m_pname}\n"
         "content\n"
         f"{m_pval}\n"
-        "\"\"\"Hello module.\"\"\"\n"
+        '\"\"\"Hello module.\"\"\"\n'
         "from src.main import greet\n"
         "\n"
         'if __name__ == "__main__":\n'
@@ -524,7 +568,7 @@ def parse_tool_calls(response: str, prefix: str = "") -> List[Tuple[str, Dict[st
     - Natural language text before/after tool call blocks
     - [<prefix>_RATIONALE] block for explaining reasoning
     - Instance prefix: if prefix is set, tool names are expected to be prefixed
-      (e.g., "a1b2c3d4_write_file") and the prefix is stripped before returning.
+      (e.g. "a1b2c3d4_write_file") and the prefix is stripped before returning.
     """
     # Strip code blocks before parsing
     response = _strip_code_blocks(response)
@@ -842,6 +886,9 @@ class AgentEngine:
         self.step_log_file = os.path.join(self.output_dir, "steps.jsonl")
 
         os.makedirs(self.output_dir, exist_ok=True)
+
+        # --- Initialize persistent step files ---
+        _init_status_file(self.output_dir)
 
         # Set up logging
         self.logger = logging.getLogger(f"agent_engine.{self.job_id}")
@@ -1210,6 +1257,27 @@ class AgentEngine:
             "content": reminder,
         })
 
+    def _persist_step(self, step_num: int, step_data: Dict[str, Any]) -> None:
+        """Write a step record to disk (file-based persistence) AND emit via callback."""
+        # Write to persistent file
+        _write_step_file(self.output_dir, step_num, step_data)
+        # Also update the legacy steps.jsonl for backward compat
+        try:
+            with open(self.step_log_file, 'a', encoding='utf-8') as f:
+                f.write(json.dumps(step_data, ensure_ascii=False) + '\n')
+        except Exception:
+            pass
+
+    def _update_status(self, status: str, **extra) -> None:
+        """Update status.json with the current status."""
+        status_data = {
+            "status": status,
+            "step": self.step_count,
+            "timestamp": time.time(),
+        }
+        status_data.update(extra)
+        _write_status_file(self.output_dir, status_data)
+
     def run(self) -> Dict[str, Any]:
         """Execute the agentic revision loop."""
         # Reload approved tools so any tools approved since the last run
@@ -1233,6 +1301,7 @@ class AgentEngine:
                 # Check if the user requested a stop
                 if self._stop_event and self._stop_event.is_set():
                     self.logger.info("Engine stop requested by user.")
+                    self._update_status("stopped")
                     return {
                         "status": "stopped",
                         "steps": self.step_count,
@@ -1242,6 +1311,7 @@ class AgentEngine:
                     }
                 if self.step_count >= self.max_steps and not self._continue_requested:
                     self.logger.info("Max steps reached. Waiting for user continuation.")
+                    self._update_status("max_steps_reached")
                     return {
                         "status": "max_steps_reached",
                         "steps": self.step_count,
@@ -1344,6 +1414,8 @@ class AgentEngine:
                         "result": {"content": "", "success": True},
                     }
                     self.step_history.append(llm_entry)
+                    # Persist the LLM call step to disk
+                    self._persist_step(self.step_count, llm_entry)
                     if self._step_callback:
                         try:
                             self._step_callback({"type": "llm_call", "step": self.step_count,
@@ -1366,6 +1438,7 @@ class AgentEngine:
                             pass
                 except Exception as e:
                     self.logger.error(f"LLM call failed: {e}")
+                    self._update_status("error", error=str(e))
                     return {"status": "error", "error": str(e), "steps": self.step_count}
 
                 # Log response
@@ -1445,6 +1518,8 @@ class AgentEngine:
                             "content": f"[TOOL_RESULT]\n{json.dumps(step_entry['result'], indent=2)}\n[TOOL_RESULT]",
                         })
                         self.step_history.append(step_entry)
+                        # Persist the step to disk
+                        self._persist_step(self.step_count, step_entry)
                         if self._step_callback:
                             try:
                                 self._step_callback({
@@ -1464,6 +1539,7 @@ class AgentEngine:
                             "content": f"[COMPLETION]\n{final_summary}",
                         })
                         self.logger.info(f"Agent completed via task_completed: {final_summary[:200]}")
+                        self._update_status("completed", summary=final_summary)
                         break
 
                     # Not task_completed - process as regular tool call
@@ -1539,6 +1615,8 @@ class AgentEngine:
                         # (the normal path appends at line 1610, but create_tool
                         # returns early, so we must do it here to avoid losing it)
                         self.step_history.append(step_entry)
+                        # Persist the step to disk
+                        self._persist_step(self.step_count, step_entry)
                         if self._step_callback:
                             try:
                                 self._step_callback({
@@ -1561,6 +1639,7 @@ class AgentEngine:
                                 })
                             except Exception:
                                 pass
+                        self._update_status("pending_approval")
                         return {
                             "status": "pending_approval",
                             "steps": self.step_count,
@@ -1586,6 +1665,7 @@ class AgentEngine:
                                 })
                             except Exception:
                                 pass
+                        self._update_status("pending_user_input", question=question)
                         return {
                             "status": "pending_user_input",
                             "steps": self.step_count,
@@ -1625,6 +1705,8 @@ class AgentEngine:
 
                     # Log the step
                     self.step_history.append(step_entry)
+                    # Persist the step to disk
+                    self._persist_step(self.step_count, step_entry)
                     if self._step_callback:
                         try:
                             self._step_callback({
@@ -1649,6 +1731,7 @@ class AgentEngine:
                         "content": f"[COMPLETION]\n{summary}",
                     })
                     self.logger.info(f"Agent completed: {summary[:200]}")
+                    self._update_status("completed", summary=final_summary)
                     break
 
                 # No tool calls - LLM didn't produce a valid tool call.
@@ -1673,6 +1756,8 @@ class AgentEngine:
                     "params": {},
                     "result": {"content": response, "success": False, "error": "no_tool_call"},
                 })
+                # Persist the failed step to disk
+                self._persist_step(self.step_count, self.step_history[-1])
                 if self._step_callback:
                     try:
                         self._step_callback({
@@ -1696,6 +1781,7 @@ class AgentEngine:
 
         except Exception as e:
             self.logger.error(f"Engine fatal error: {e}", exc_info=True)
+            self._update_status("error", error=str(e))
             return {"status": "error", "error": str(e), "steps": self.step_count}
 
     def _run_script(self, script_type: str, script_content: str):

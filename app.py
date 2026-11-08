@@ -1860,6 +1860,147 @@ def api_agent_resend():
         return jsonify({"error": str(e)}), 500
 
 
+# --- Routes: File-Based Step Polling ---
+
+@app.route("/api/job/<job_id>/status", methods=["GET"])
+def api_job_status_by_id(job_id):
+    """Get the current status of a job from status.json."""
+    # Resolve the output directory for this job
+    output_dir = None
+    # Check history first
+    for h in job_history:
+        if h.get("job_id") == job_id:
+            pid = h.get("project_id")
+            if pid:
+                projects = load_projects()
+                for p in projects:
+                    if p["id"] == pid:
+                        output_dir = p.get("output_dir")
+                        break
+            break
+
+    # Fallback: try job_id as output directory name
+    if not output_dir:
+        output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                  "aib_instance", "output", job_id)
+
+    status_file = os.path.join(output_dir, "status.json")
+    if os.path.exists(status_file):
+        try:
+            with open(status_file, 'r', encoding='utf-8') as f:
+                status_data = json.load(f)
+            # Add job_id for convenience
+            status_data["job_id"] = job_id
+            return jsonify(status_data)
+        except Exception as e:
+            return jsonify({"error": str(e), "job_id": job_id}), 500
+
+    # If no status.json, check job_history as fallback
+    for h in job_history:
+        if h.get("job_id") == job_id:
+            return jsonify({
+                "job_id": job_id,
+                "status": h.get("status", "unknown"),
+                "steps": h.get("steps", 0),
+                "summary": h.get("summary", ""),
+            })
+
+    return jsonify({"error": "Job not found", "job_id": job_id}), 404
+
+
+@app.route("/api/job/<job_id>/steps", methods=["GET"])
+def api_job_steps(job_id):
+    """Get all persisted step files for a job, ordered by step number."""
+    # Resolve the output directory for this job
+    output_dir = None
+    # Check history first
+    for h in job_history:
+        if h.get("job_id") == job_id:
+            pid = h.get("project_id")
+            if pid:
+                projects = load_projects()
+                for p in projects:
+                    if p["id"] == pid:
+                        output_dir = p.get("output_dir")
+                        break
+            break
+
+    # Fallback: try job_id as output directory name
+    if not output_dir:
+        output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                  "aib_instance", "output", job_id)
+
+    steps_dir = os.path.join(output_dir, "steps")
+    if os.path.isdir(steps_dir):
+        steps = []
+        for fname in sorted(os.listdir(steps_dir)):
+            if fname.endswith(".json"):
+                fpath = os.path.join(steps_dir, fname)
+                try:
+                    with open(fpath, 'r', encoding='utf-8') as f:
+                        step_data = json.load(f)
+                    steps.append(step_data)
+                except Exception:
+                    pass
+        return jsonify({"job_id": job_id, "steps": steps, "count": len(steps)})
+
+    # Fallback: try steps.jsonl
+    step_log = os.path.join(output_dir, "steps.jsonl")
+    if os.path.exists(step_log):
+        steps = []
+        with open(step_log, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    try:
+                        step_data = json.loads(line)
+                        steps.append(step_data)
+                    except json.JSONDecodeError:
+                        pass
+        return jsonify({"job_id": job_id, "steps": steps, "count": len(steps)})
+
+    # Fallback: try step_history in job_history
+    for h in job_history:
+        if h.get("job_id") == job_id and h.get("step_history"):
+            return jsonify({"job_id": job_id, "steps": h["step_history"], "count": len(h["step_history"])})
+
+    return jsonify({"job_id": job_id, "steps": [], "count": 0})
+
+
+@app.route("/api/job/<job_id>/steps/last", methods=["GET"])
+def api_job_last_step(job_id):
+    """Get the last persisted step for a job (for quick status checks)."""
+    # Resolve the output directory for this job
+    output_dir = None
+    for h in job_history:
+        if h.get("job_id") == job_id:
+            pid = h.get("project_id")
+            if pid:
+                projects = load_projects()
+                for p in projects:
+                    if p["id"] == pid:
+                        output_dir = p.get("output_dir")
+                        break
+            break
+
+    if not output_dir:
+        output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                  "aib_instance", "output", job_id)
+
+    steps_dir = os.path.join(output_dir, "steps")
+    if os.path.isdir(steps_dir):
+        files = sorted(f for f in os.listdir(steps_dir) if f.endswith(".json"))
+        if files:
+            fpath = os.path.join(steps_dir, files[-1])
+            try:
+                with open(fpath, 'r', encoding='utf-8') as f:
+                    return jsonify({"job_id": job_id, "step": json.load(f)})
+            except Exception:
+                pass
+
+    return jsonify({"job_id": job_id, "step": None})
+
+
 # --- Routes: Per-Project Tool Enable/Disable ---
 @app.route("/api/projects/<pid>/tools", methods=["GET"])
 def api_get_project_tools(pid):
