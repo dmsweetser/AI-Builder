@@ -1709,18 +1709,18 @@ function injectLiveInstruction() {
             if (statusText) { statusText.textContent = 'CONTINUING...'; statusText.style.color = 'var(--info)'; }
 
             // Start polling for the continuation results
+            // Get outputDir from the container or project
             var container = document.getElementById('agent-live-container');
             var outputDir = container ? container.dataset.outputDir : null;
             if (!outputDir && currentRunningProjectId) {
-                // Try to get output_dir from project
                 fetch('/api/projects/' + currentRunningProjectId)
                     .then(function(r) { return r.json(); })
                     .then(function(proj) {
                         outputDir = proj.output_dir;
-                        _startPolling(jobId, outputDir, agentBox);
+                        _startPolling(jobId, outputDir, null);
                     });
             } else {
-                _startPolling(jobId, outputDir, agentBox);
+                _startPolling(jobId, outputDir, null);
             }
 
             showNotification('Continuation started — engine running', 'success');
