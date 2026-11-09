@@ -33,6 +33,6 @@ class RequestUserInputTool(BaseTool):
                 pass
         return ToolResult(
             True,
-            f"User input requested: {question[:200]}",
+            question,
             summary=f"Requested user input ({len(question)} chars)",
         )

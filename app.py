@@ -229,6 +229,14 @@ def save_project(project):
     if not pid:
         raise ValueError("Project must have an id")
     fpath = os.path.join(PROJECTS_DIR, f"{pid}.json")
+    # Validate project structure before writing
+    required_fields = ["id", "name", "rootDirectory"]
+    for field in required_fields:
+        if field not in project:
+            raise ValueError(f"Project missing required field: {field}")
+    # Truncate instructions if too long to prevent massive JSON files
+    if "instructions" in project and len(str(project["instructions"])) > 10000:
+        project["instructions"] = str(project["instructions"])[:10000] + "\n... (truncated)"
     # Atomic write: write to temp file first, then rename
     # This prevents JSON corruption if the write is interrupted
     tmp_path = fpath + ".tmp"
@@ -566,16 +574,34 @@ def api_update_project(pid):
     if not root_directory:
         return jsonify({"error": "Root directory is required"}), 400
 
+    # Sanitize instructions to prevent JSON injection (prevent corruption)
+    instructions = data.get("instructions", project.get("instructions", ""))
+    # If instructions looks like it contains a full JSON object, strip it down
+    # to prevent the LLM from writing corrupted project data
+    if isinstance(instructions, str) and instructions.strip().startswith("{"):
+        try:
+            parsed = json.loads(instructions)
+            if isinstance(parsed, dict) and "instructions" in parsed:
+                # This is likely a nested JSON from the LLM — extract just the instructions
+                instructions = parsed.get("instructions", instructions[:1000])
+        except (json.JSONDecodeError, TypeError):
+            # Not valid JSON, keep as-is but truncate if too long
+            instructions = instructions[:5000]
+
     project.update({
         "name": data.get("name", project["name"]),
         "rootDirectory": root_directory,
-        "instructions": data.get("instructions", project.get("instructions", "")),
+        "instructions": instructions,
         "preScript": data.get("preScript", project.get("preScript", "")),
         "postScript": data.get("postScript", project.get("postScript", "")),
     })
 
-    # Update output_dir path if rootDirectory changed
-    project["output_dir"] = os.path.join(_AIB_INSTANCE, "output", sanitize_output_dir_name(project["name"]))
+    # Only update output_dir if the name actually changed
+    old_safe_name = sanitize_output_dir_name(project.get("name", ""))
+    new_safe_name = sanitize_output_dir_name(project["name"])
+    if old_safe_name != new_safe_name:
+        project["output_dir"] = os.path.join(_AIB_INSTANCE, "output", new_safe_name)
+        os.makedirs(project["output_dir"], exist_ok=True)
 
     # Clean up old enabled_tools field if present
     project.pop("enabled_tools", None)

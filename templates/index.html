@@ -152,7 +152,8 @@
                             <span id="agent-status-text">AGENT RUNNING</span>
                             <span id="agent-step-count" class="status-text"></span>
                         </h3>
-                        <div style="display:flex;gap:6px;">
+                        <div style="display:flex;gap:6px;align-items:center;">
+                            <button type="button" class="btn btn-secondary btn-sm" id="live-refresh-btn" onclick="refreshLiveView()" style="display:none;">🔄 REFRESH</button>
                             <button type="button" class="btn btn-danger btn-sm" id="live-stop-btn" onclick="stopCurrentJob()" style="display:none;">⏹ STOP</button>
                         </div>
                     </div>

@@ -558,17 +558,6 @@ def parse_tool_calls(response: str, prefix: str = "") -> List[Tuple[str, Dict[st
         [<prefix>_PARAM_VALUE]
         .
         [<prefix>_TOOL_END]
-
-    Code blocks (```...``` and `...`) are stripped before parsing to prevent
-    extracting tool calls from code examples embedded in the response.
-
-    Also handles LLM quirks:
-    - [PARAM_END] (or [<prefix>_PARAM_END]) is treated as [TOOL_END]
-    - [<prefix>_tool_name] directly after [<prefix>_TOOL_START]
-    - Natural language text before/after tool call blocks
-    - [<prefix>_RATIONALE] block for explaining reasoning
-    - Instance prefix: if prefix is set, tool names are expected to be prefixed
-      (e.g. "a1b2c3d4_write_file") and the prefix is stripped before returning.
     """
     # Strip code blocks before parsing
     response = _strip_code_blocks(response)
@@ -590,18 +579,13 @@ def parse_tool_calls(response: str, prefix: str = "") -> List[Tuple[str, Dict[st
     # Standard pattern: [TOOL_START]...[TOOL_NAME]\nname\n...[TOOL_END]
     tool_pattern = re.escape(m_start) + r'\s*' + re.escape(m_name) + r'\s*\n(.*?)\n(.*?)' + re.escape(m_end)
 
-    # Alt pattern: [TOOL_START][tool_name]...[TOOL_END]
-    alt_pattern = re.escape(m_start) + r'\s*\[([^\]]+)\]\s*(.*?)' + re.escape(m_end)
-
     tool_matches = list(re.finditer(tool_pattern, normalized, re.DOTALL))
-    alt_matches = list(re.finditer(alt_pattern, normalized, re.DOTALL))
 
     calls = []
 
     def _process_match(tool_name: str, params_block: str):
         tool_name = tool_name.strip()
         # Reject tool names that look like parameter/rationale markers
-        # (e.g. from alt pattern matching [PARAM_NAME] after TOOL_START)
         # Check both bracketed and unbracketed forms
         marker_names = (m_pname, m_pval, m_rat, m_end, m_name,
                         m_pname.strip('[]'), m_pval.strip('[]'),
@@ -628,11 +612,6 @@ def parse_tool_calls(response: str, prefix: str = "") -> List[Tuple[str, Dict[st
     # Prefer standard matches; fall back to alt matches if no standard matches found
     if tool_matches:
         for match in tool_matches:
-            tool_name = match.group(1).strip()
-            params_block = match.group(2)
-            _process_match(tool_name, params_block)
-    elif alt_matches:
-        for match in alt_matches:
             tool_name = match.group(1).strip()
             params_block = match.group(2)
             _process_match(tool_name, params_block)
@@ -1651,6 +1630,21 @@ class AgentEngine:
                     # If request_user_input was used, PAUSE the agent for user response
                     if tool_name == "request_user_input":
                         question = params.get("question", "Please provide input:")
+                        # Append the step entry to history BEFORE returning
+                        self.step_history.append(step_entry)
+                        # Persist the step to disk
+                        self._persist_step(self.step_count, step_entry)
+                        if self._step_callback:
+                            try:
+                                self._step_callback({
+                                    "type": "step",
+                                    "step": self.step_count,
+                                    "tool": tool_name,
+                                    "params": params,
+                                    "result": step_entry.get("result", {}),
+                                })
+                            except Exception:
+                                pass
                         # Write the question to a file so the UI can read it
                         os.makedirs(self.output_dir, exist_ok=True)
                         question_file = os.path.join(self.output_dir, "user_input_request.txt")
@@ -1783,30 +1777,6 @@ class AgentEngine:
             self.logger.error(f"Engine fatal error: {e}", exc_info=True)
             self._update_status("error", error=str(e))
             return {"status": "error", "error": str(e), "steps": self.step_count}
-
-    def _run_script(self, script_type: str, script_content: str):
-        """Run a pre/post script safely."""
-        if not script_content.strip():
-            return
-        script_name = f"{script_type}.ps1"
-        temp_path = os.path.join(self.output_dir, f"{script_name}_{uuid.uuid4().hex}")
-        with open(temp_path, 'w', encoding='utf-8') as f:
-            f.write(script_content)
-        try:
-            ps = "powershell" if platform.system() == "Windows" else "pwsh"
-            subprocess.run(
-                [ps, "-File", temp_path, "-WorkingDirectory", self.root_dir],
-                check=True, capture_output=True, text=True, timeout=300
-            )
-            self.logger.info(f"Executed {script_name}")
-        except Exception as e:
-            self.logger.error(f"Script execution failed: {e}")
-        finally:
-            try:
-                os.remove(temp_path)
-            except OSError:
-                pass
-
 
 def run(project_config: Dict[str, Any], output_dir: Optional[str] = None,
         step_callback=None) -> Dict[str, Any]:
