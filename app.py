@@ -1325,7 +1325,7 @@ def api_agent_output(job_id):
 
 @app.route("/api/agent/inject", methods=["POST"])
 def api_agent_inject():
-    """Inject live instructions into a running agent run."""
+    """Inject live instructions into a running agent run, or start a continuation for completed jobs."""
     data = request.json
     job_id = data.get("job_id")
     instruction = data.get("instruction", "")
@@ -1335,14 +1335,26 @@ def api_agent_inject():
 
     # Look up the job's output directory from history or projects
     output_dir = None
+    project_config = None
+    project_id = None
     for h in job_history:
         if h.get("job_id") == job_id:
             pid = h.get("project_id")
+            project_id = pid
             if pid:
                 projects = load_projects()
                 for p in projects:
                     if p["id"] == pid:
                         output_dir = p.get("output_dir")
+                        # Build project config for continuation
+                        project_config = {
+                            "id": p["id"],
+                            "name": p.get("name", ""),
+                            "rootDirectory": p.get("rootDirectory", ""),
+                            "instructions": p.get("instructions", ""),
+                            "job_id": p.get("last_job_id", job_id),
+                            "disabled_tools": p.get("disabled_tools", []),
+                        }
                         break
             if not output_dir:
                 # Fallback: try job_id as output directory name
@@ -1353,6 +1365,130 @@ def api_agent_inject():
     if not output_dir:
         return jsonify({"error": "Job not found"}), 404
 
+    # Check if the job is completed (terminal state) — if so, start a continuation run
+    job_record = next((h for h in job_history if h.get("job_id") == job_id), None)
+    is_completed = job_record and job_record.get("status") in ("completed", "stopped", "error", "max_steps_reached")
+
+    if is_completed and project_config:
+        # Start a new engine run in the background with the injected instruction
+        # as a continuation, using the previous step history for context
+        prev_step_history = job_record.get("step_history", [])
+
+        def _continue_engine():
+            try:
+                os.makedirs(output_dir, exist_ok=True)
+
+                # Write the live instruction so the engine picks it up
+                instruction_file = os.path.join(output_dir, "live_instruction.txt")
+                with open(instruction_file, 'w', encoding='utf-8') as f:
+                    f.write(instruction)
+
+                # Build a project config that includes the continuation instruction
+                cont_config = dict(project_config)
+                cont_config["instructions"] = instruction
+
+                # Reconstruct conversation from step history so the LLM knows
+                # what was already done, then append the new instruction.
+                from agent_engine import AgentEngine
+                engine = AgentEngine(cont_config, output_dir=output_dir)
+                engine.step_history = prev_step_history
+                engine.step_count = len(prev_step_history)
+
+                # Reconstruct conversation history from step history
+                reconstructed_messages = [engine.messages[0]]  # system prompt
+
+                # Add tool results from step_history
+                all_tool_names = engine.tools.tool_names()
+                for h in prev_step_history:
+                    if h.get("tool") in all_tool_names:
+                        res = h.get("result", {})
+                        content = res.get("content", "")
+                        error = res.get("error", "")
+                        summary = res.get("summary", "")
+                        if error:
+                            result_display = f"Error: {error}"
+                        elif summary:
+                            result_display = summary
+                            if content:
+                                result_display += f"\n\nOutput:\n{content}\n"
+                        elif content:
+                            result_display = content
+                        else:
+                            result_display = "(no output)"
+                        tool_name = h.get("tool", "unknown")
+                        reconstructed_messages.append({
+                            "role": "user",
+                            "content": f"[TOOL RESULT for {tool_name}]\n{result_display}\n[END TOOL RESULT]\n\nNow continue with your next action."
+                        })
+
+                # Add the continuation message with the new instruction
+                continuation_msg = (
+                    f"[CONTINUATION] Your previous run completed. "
+                    f"The user has new instructions for you. "
+                    f"Please continue working on the project with these new instructions:\n\n"
+                    f"{instruction}\n\n"
+                    f"Review what was already done, then take the next appropriate action.\n\n"
+                    f"TOOL FORMAT REMINDER\n"
+                    f"=====================\n\n"
+                    f"Your ENTIRE response must be EXACTLY ONE of the following:\n\n"
+                    f"  OPTION 1 — A tool call:\n"
+                    f"    [TOOL_START]\n"
+                    f"    [TOOL_NAME]\n"
+                    f"    <tool_name>\n"
+                    f"    [PARAM_NAME]\n"
+                    f"    <param_key_1>\n"
+                    f"    [PARAM_VALUE]\n"
+                    f"    <param_value_1>\n"
+                    f"    [PARAM_NAME]\n"
+                    f"    <param_key_2>\n"
+                    f"    [PARAM_VALUE]\n"
+                    f"    <param_value_2>\n"
+                    f"    [TOOL_END]\n\n"
+                    f"  OPTION 2 — Signal completion:\n"
+                    f"    Use the task_completed tool with a summary:\n"
+                    f"    [TOOL_START]\n"
+                    f"    [TOOL_NAME]\n"
+                    f"    task_completed\n"
+                    f"    [PARAM_NAME]\n"
+                    f"    summary\n"
+                    f"    [PARAM_VALUE]\n"
+                    f"    <your summary here>\n"
+                    f"    [TOOL_END]\n\n"
+                    f"IMPORTANT RULES:\n"
+                    f"  • Do NOT write any other text.\n"
+                    f"  • Do NOT explain what you will do — just act.\n"
+                    f"  • Make EXACTLY ONE tool call per response.\n"
+                    f"  • If you include more than one [TOOL_START]...[TOOL_END] block,\n"
+                    f"    only the FIRST one will be executed."
+                )
+                reconstructed_messages.append({
+                    "role": "user",
+                    "content": continuation_msg
+                })
+                engine.messages = reconstructed_messages
+
+                # Run the engine
+                result = engine.run()
+
+                # Persist conversation history
+                messages_file = os.path.join(output_dir, "conversation_history.json")
+                try:
+                    with open(messages_file, 'w', encoding='utf-8') as f:
+                        json.dump(engine.messages, f, indent=2, ensure_ascii=False)
+                except Exception:
+                    pass
+
+                logging.info(f"Engine continuation completed: {result.get('status', 'unknown')}")
+            except Exception as e:
+                logging.error(f"Engine continuation failed: {e}", exc_info=True)
+
+        continue_thread = threading.Thread(target=_continue_engine, daemon=True)
+        continue_thread.start()
+
+        _log_app_event(f"Continuation started for completed job {job_id}")
+        return jsonify({"status": "injected", "continuation": True})
+
+    # Job is still running — inject into the live instruction file
     instruction_file = os.path.join(output_dir, "live_instruction.txt")
     os.makedirs(output_dir, exist_ok=True)
     _log_app_event(f"Live instruction injected — job_id={job_id}")

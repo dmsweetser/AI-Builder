@@ -1703,7 +1703,45 @@ function injectLiveInstruction() {
     .then(function(data) {
         if (data.error) throw new Error(data.error);
         input.value = '';
-        showNotification('Instruction injected successfully', 'success');
+
+        if (data.continuation) {
+            // A new engine run was started for this completed job.
+            // Show a continuation message in the live feed.
+            var agentBox = document.getElementById('agent-live-box');
+            if (agentBox) {
+                var contEntry = document.createElement('div');
+                contEntry.className = 'step-entry';
+                contEntry.style.borderLeftColor = 'var(--info)';
+                contEntry.style.background = 'rgba(74, 237, 223, 0.1)';
+                contEntry.innerHTML = '<div class="step-tool" style="color:var(--info);">🔄 CONTINUING WITH NEW INSTRUCTIONS...</div>';
+                agentBox.appendChild(contEntry);
+                agentBox.scrollTop = agentBox.scrollHeight;
+            }
+
+            // Update status text
+            var statusText = document.getElementById('agent-status-text');
+            if (statusText) { statusText.textContent = 'CONTINUING...'; statusText.style.color = 'var(--info)'; }
+
+            // Start polling for the continuation results
+            var container = document.getElementById('agent-live-container');
+            var outputDir = container ? container.dataset.outputDir : null;
+            if (!outputDir && currentRunningProjectId) {
+                // Try to get output_dir from project
+                fetch('/api/projects/' + currentRunningProjectId)
+                    .then(function(r) { return r.json(); })
+                    .then(function(proj) {
+                        outputDir = proj.output_dir;
+                        _startPolling(jobId, outputDir, agentBox);
+                    });
+            } else {
+                _startPolling(jobId, outputDir, agentBox);
+            }
+
+            showNotification('Continuation started — engine running', 'success');
+        } else {
+            showNotification('Instruction injected successfully', 'success');
+        }
+
         // Re-enable after a short delay
         setTimeout(function() {
             btn.disabled = false;
