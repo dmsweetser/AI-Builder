@@ -120,13 +120,11 @@ class FindSymbolTool(BaseTool):
                                         })
                                         if len(results) >= max_results:
                                             return ToolResult(True, json.dumps(results, indent=2),
-                                                              summary=f"{len(results)} matches (truncated)",
-                                                              file_paths=list({r["file"] for r in results}))
+                                                              summary=f"{len(results)} matches (truncated)")
                     except (OSError, PermissionError):
                         continue
         except OSError as e:
             return ToolResult(False, "", error=str(e))
 
         return ToolResult(True, json.dumps(results, indent=2),
-                          summary=f"{len(results)} matches",
-                          file_paths=list({r["file"] for r in results}))
+                          summary=f"{len(results)} matches")

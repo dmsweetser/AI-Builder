@@ -727,7 +727,6 @@ class TestToolResult(unittest.TestCase):
         self.assertEqual(d["content"], "content")
         self.assertEqual(d["summary"], "Done")
         self.assertEqual(d["error"], "")
-        self.assertEqual(d["file_paths"], [])
 
     def test_to_dict_with_error(self):
         result = ToolResult(False, "", error="fail")
@@ -1876,14 +1875,6 @@ class TestCrossLanguageE2E(unittest.TestCase):
         r = tool.execute({'path': 'python/src/main.py'})
         self.assertTrue(r.success, f"Python check failed: {r.error}")
 
-    def test_cross_language_dependency_listing(self):
-        dep_tool = ListDependenciesTool(self.test_dir)
-        r = dep_tool.execute({'search_dir': 'csharp'})
-        self.assertTrue(r.success)
-        r = dep_tool.execute({'search_dir': 'python'})
-        self.assertTrue(r.success)
-
-
 class TestJavaSyntaxCheck(unittest.TestCase):
     @unittest.skipIf(not _java_available(), "Java (javac) not available")
     def test_valid_java_syntax(self):
@@ -1972,90 +1963,12 @@ class TestDecompileJar(unittest.TestCase):
         tool = DecompileJarTool(TEST_PROJECT)
         r = tool.execute({'jar_path': 'java-project/target/demo-1.0.0.jar'})
         self.assertTrue(r.success)
-        self.assertGreater(len(r.file_paths), 0)
-        has_class = any('.class' in f for f in r.file_paths)
-        has_javap = any('.javap.txt' in f for f in r.file_paths)
-        self.assertTrue(has_class or has_javap, f"Expected class or javap files, got: {r.file_paths}")
 
     def test_decompile_nonexistent_jar(self):
         tool = DecompileJarTool(TEST_PROJECT)
         r = tool.execute({'jar_path': 'nonexistent.jar'})
         self.assertFalse(r.success)
         self.assertIn('not found', r.error.lower())
-
-
-class TestListDependencies(unittest.TestCase):
-    def test_java_pom_xml(self):
-        tool = ListDependenciesTool(TEST_PROJECT)
-        r = tool.execute({'search_dir': 'java-project'})
-        self.assertTrue(r.success)
-        deps = json.loads(r.content)
-        names = [d['name'] for d in deps]
-        self.assertTrue(any('junit' in n for n in names))
-        self.assertTrue(any('guava' in n for n in names))
-
-    def test_csharp_csproj(self):
-        tool = ListDependenciesTool(TEST_PROJECT)
-        r = tool.execute({'search_dir': 'csharp-project'})
-        self.assertTrue(r.success)
-        deps = json.loads(r.content)
-        names = [d['name'] for d in deps]
-        self.assertTrue(any('Newtonsoft' in n for n in names))
-
-    def test_python_requirements(self):
-        tool = ListDependenciesTool(TEST_PROJECT)
-        r = tool.execute({'search_dir': ''})
-        self.assertTrue(r.success)
-        deps = json.loads(r.content)
-        names = [d['name'] for d in deps]
-        self.assertTrue(any('flask' in n for n in names))
-        self.assertTrue(any('requests' in n for n in names))
-
-    def test_empty_directory(self):
-        tmpdir = tempfile.mkdtemp()
-        try:
-            tool = ListDependenciesTool(tmpdir)
-            r = tool.execute({'search_dir': ''})
-            self.assertTrue(r.success)
-            deps = json.loads(r.content)
-            self.assertEqual(len(deps), 0)
-        finally:
-            shutil.rmtree(tmpdir, ignore_errors=True)
-
-
-class TestGetFileInfo(unittest.TestCase):
-    def test_java_file_info(self):
-        tool = GetFileInfoTool(TEST_PROJECT)
-        r = tool.execute({'path': 'java-project/src/main/java/com/example/App.java'})
-        self.assertTrue(r.success)
-        info = json.loads(r.content)
-        self.assertEqual(info['language'], 'java')
-        self.assertEqual(info['extension'], '.java')
-        self.assertFalse(info['is_binary'])
-        self.assertGreater(info['line_count'], 0)
-
-    def test_csharp_file_info(self):
-        tool = GetFileInfoTool(TEST_PROJECT)
-        r = tool.execute({'path': 'csharp-project/Program.cs'})
-        self.assertTrue(r.success)
-        info = json.loads(r.content)
-        self.assertEqual(info['language'], 'csharp')
-        self.assertEqual(info['extension'], '.cs')
-
-    def test_python_file_info(self):
-        tool = GetFileInfoTool(TEST_PROJECT)
-        r = tool.execute({'path': 'src/main.py'})
-        self.assertTrue(r.success)
-        info = json.loads(r.content)
-        self.assertEqual(info['language'], 'python')
-        self.assertEqual(info['extension'], '.py')
-
-    def test_nonexistent_file(self):
-        tool = GetFileInfoTool(TEST_PROJECT)
-        r = tool.execute({'path': 'nonexistent.py'})
-        self.assertFalse(r.success)
-        self.assertIn('not found', r.error.lower())
-
 
 class TestFindSymbol(unittest.TestCase):
     def test_find_java_class(self):

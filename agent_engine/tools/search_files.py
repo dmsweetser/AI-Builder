@@ -33,7 +33,7 @@ class SearchFilesTool(BaseTool):
             return ToolResult(False, "", error=str(e))
 
         matches.sort()
-        return ToolResult(True, "\n".join(matches), summary=f"{len(matches)} files", file_paths=matches)
+        return ToolResult(True, "\n".join(matches), summary=f"{len(matches)} files")
 
 
 class SearchFilesDirTool(BaseTool):
@@ -63,4 +63,4 @@ class SearchFilesDirTool(BaseTool):
             return ToolResult(False, "", error=str(e))
 
         matches.sort()
-        return ToolResult(True, "\n".join(matches), summary=f"{len(matches)} files", file_paths=matches)
+        return ToolResult(True, "\n".join(matches), summary=f"{len(matches)} files")

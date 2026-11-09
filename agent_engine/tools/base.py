@@ -6,12 +6,10 @@ from typing import Any, Dict, List, Optional
 
 class ToolResult:
     """Wrapper for tool execution results."""
-    def __init__(self, success: bool, content: str, error: str = "",
-                 file_paths: List[str] = None, summary: str = ""):
+    def __init__(self, success: bool, content: str, error: str = "", summary: str = ""):
         self.success = success
         self.content = content
         self.error = error
-        self.file_paths = file_paths if file_paths is not None else []
         self.summary = summary
 
     def to_dict(self) -> Dict[str, Any]:
@@ -19,7 +17,6 @@ class ToolResult:
             "success": self.success,
             "content": self.content,
             "error": self.error,
-            "file_paths": self.file_paths,
             "summary": self.summary,
         }
 
