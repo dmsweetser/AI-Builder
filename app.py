@@ -62,19 +62,10 @@ stop_event = threading.Event()
 worker_thread = None
 _worker_wake = threading.Event()  # Signals the worker to check the queue
 
-# Track per-job stop events for the SSE agent runs
-# Maps job_id -> threading.Event (set by stop endpoint to halt engine)
-_job_stop_events: Dict[str, threading.Event] = {}
-_job_stop_events_lock = threading.Lock()
-
 # Track the active SSE event queue per output_dir so the resume engine
 # can emit events to the UI (e.g., pending_approval for subsequent tools).
 _sse_event_queues: Dict[str, queue.Queue] = {}
 _sse_event_queues_lock = threading.Lock()
-
-# SSE job tracking: maps SSE job_id -> output_dir (for inject endpoint)
-_sse_jobs = {}
-_sse_jobs_lock = threading.Lock()
 
 # --- Settings State ---
 settings_lock = threading.RLock()  # RLock allows re-entrant locking
@@ -346,9 +337,6 @@ def run_with_agent_engine(project_config: Dict[str, Any], output_dir: str = None
     with open(instructions_file, 'w', encoding='utf-8') as f:
         f.write(project_config.get("instructions", ""))
     os.environ["AIB_INSTRUCTIONS_FILE"] = instructions_file
-    os.environ["AIB_PRE_SCRIPT"] = project_config.get("preScript", "")
-    os.environ["AIB_POST_SCRIPT"] = project_config.get("postScript", "")
-
     os.environ["AIB_OUTPUT_DIR"] = output_dir
 
     return agent_run(project_config, output_dir=output_dir)
@@ -548,8 +536,6 @@ def api_create_project():
         "name": name,
         "rootDirectory": root_directory,
         "instructions": data.get("instructions", ""),
-        "preScript": data.get("preScript", ""),
-        "postScript": data.get("postScript", ""),
         "isArchived": False,
         "disabled_tools": [],
         "output_dir": output_dir,
@@ -592,8 +578,6 @@ def api_update_project(pid):
         "name": data.get("name", project["name"]),
         "rootDirectory": root_directory,
         "instructions": instructions,
-        "preScript": data.get("preScript", project.get("preScript", "")),
-        "postScript": data.get("postScript", project.get("postScript", "")),
     })
 
     # Only update output_dir if the name actually changed
@@ -708,20 +692,9 @@ def api_get_queue():
         for j in job_queue:
             queue_with_names.append({**j, "project_name": project_map.get(j["project_id"], "Unknown"), "status": "queued"})
 
-    # Include SSE jobs
-    with _sse_jobs_lock:
-        sse_running = []
-        for job_id, job_info in _sse_jobs.items():
-            sse_running.append({
-                "job_id": job_id,
-                "status": "running",
-                "project_name": "SSE Job"
-            })
-
     return jsonify({
         "queue": queue_with_names,
-        "running": {**running_job, "project_name": running_name} if running_job else None,
-        "sse_jobs": sse_running
+        "running": {**running_job, "project_name": running_name} if running_job else None
     })
 
 @app.route("/api/job/<job_id>/actions", methods=["GET"])
@@ -781,35 +754,20 @@ def api_stop_running():
     with job_queue_lock:
         job_to_stop = running_job
         running_job = None
-    # Signal the SSE engine stop event if this is an SSE job
-    if job_to_stop:
-        job_id = job_to_stop["job_id"]
-        with _job_stop_events_lock:
-            stop_ev = _job_stop_events.pop(job_id, None)
-        if stop_ev:
-            stop_ev.set()
-            _log_app_event(f"Stop event set for SSE job {job_id}")
+
     start_worker()
     return jsonify({"status": "stopped"})
 
 
 @app.route("/api/agent/stop/<job_id>", methods=["POST"])
 def api_stop_agent(job_id):
-    """Stop a running SSE agent job by job_id."""
-    # Try to signal the stop event
-    with _job_stop_events_lock:
-        stop_ev = _job_stop_events.pop(job_id, None)
-    if stop_ev:
-        stop_ev.set()
-        _log_app_event(f"Stop event set for SSE job {job_id}")
-        return jsonify({"status": "stopped"})
-
+    """Stop a running agent job."""
     # Job may have already completed (e.g., pending_user_input).
     # Mark it as stopped in history if found.
     for job in job_history:
         if job.get("job_id") == job_id and job.get("status") in ("pending_user_input", "pending_approval", "running"):
             job["status"] = "stopped"
-            _log_app_event(f"SSE job {job_id} marked as stopped in history")
+            _log_app_event(f"Job {job_id} marked as stopped in history")
             return jsonify({"status": "stopped", "reason": "job_was_pending"})
 
     return jsonify({"status": "not_found", "error": "Job not found or already stopped"}), 404
@@ -1104,7 +1062,7 @@ def _run_engine_in_background(project_config, output_dir, step_callback=None, st
     """Run the engine in a background thread.
 
     This is a reusable function that creates and runs the engine.
-    Used by both the SSE handler and the approval endpoint (for re-invoke).
+    Used by the tool approval endpoint (for re-invoke).
     Returns a dict with 'result' (engine result) and 'engine' (engine instance).
     """
     from agent_engine import AgentEngine
@@ -1182,458 +1140,7 @@ def _run_engine_in_background(project_config, output_dir, step_callback=None, st
     return {"result": result, "engine": engine}
 
 
-@app.route("/api/agent/run", methods=["POST"])
-def api_agent_run():
-    """Start the agentic engine and stream step results via SSE."""
-    data = request.get_json(silent=True) or {}
-    project_id = data.get("project_id")
-    instructions = data.get("instructions", "")
-    root_dir = data.get("rootDirectory", "")
-    continue_from_job = data.get("continue_from_job")  # job_id to continue from
 
-    if not project_id and not instructions:
-        return jsonify({"error": "project_id or instructions required"}), 400
-
-    # Get project if project_id provided
-    project = None
-    if project_id:
-        project, _ = get_project(project_id)
-        if not project:
-            return jsonify({"error": "Project not found"}), 404
-        # Use project's root dir, but prefer user-provided instructions for continuation
-        root_dir = project.get("rootDirectory", "")
-        if not instructions:
-            instructions = project.get("instructions", "")
-
-    if not root_dir:
-        return jsonify({"error": "rootDirectory required"}), 400
-
-    # Guard: reject if project is already running or queued
-    if project_id:
-        is_running, is_queued, existing_job_id = get_concurrent_job_info(project_id)
-        if is_running:
-            return jsonify({"error": "Project is already running", "job_id": existing_job_id}), 409
-        if is_queued:
-            return jsonify({"error": "Project is already queued", "job_id": existing_job_id}), 409
-
-    # --- Handle continuation from a previous completed job ---
-    prev_step_history = None
-    if continue_from_job:
-        # Load previous step history from job history
-        for h in job_history:
-            if h.get("job_id") == continue_from_job and h.get("step_history"):
-                prev_step_history = h["step_history"]
-                break
-
-    job_id = str(int(time.time() * 1000))
-
-    # Determine output directory
-    if project_id and project:
-        # Use project's persistent output directory
-        output_dir = project.get("output_dir", os.path.join(_AIB_INSTANCE, "output", project_id))
-        os.makedirs(output_dir, exist_ok=True)
-        # Increment run number and update project
-        project["run_number"] = project.get("run_number", 0) + 1
-        project["last_job_id"] = job_id
-        projects = load_projects()
-        for p in projects:
-            if p["id"] == project_id:
-                p.update(project)
-                break
-        save_project(project)
-        project_name = project.get("name", "Ad-hoc")
-    else:
-        output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                  "aib_instance", "output", job_id)
-        try:
-            if os.path.exists(output_dir):
-                shutil.rmtree(output_dir)
-            os.makedirs(output_dir, exist_ok=True)
-        except Exception as e:
-            return jsonify({"error": f"Failed to create output directory: {str(e)}"}), 500
-        project_name = "Ad-hoc"
-
-    # If continuing from a previous job, use that job's output dir for step history
-    if continue_from_job and prev_step_history:
-        prev_output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                       "aib_instance", "output", continue_from_job)
-        if os.path.exists(prev_output_dir):
-            output_dir = prev_output_dir
-
-    # Add to history
-    job_history.append({
-        "job_id": job_id,
-        "project_id": project_id,
-        "project_name": project.get("name", "Ad-hoc") if project else "Ad-hoc",
-        "status": "running",
-        "instructions": instructions,
-        "timestamp": datetime.now().isoformat()
-    })
-    save_job_history()
-
-    # Set environment variables for the engine
-    os.environ["AIB_ROOT"] = root_dir
-    # Write instructions to a file to avoid env var length limits
-    instructions_file = os.path.join(output_dir, "instructions.txt")
-    os.makedirs(output_dir, exist_ok=True)
-    with open(instructions_file, 'w', encoding='utf-8') as f:
-        f.write(instructions)
-    os.environ["AIB_INSTRUCTIONS_FILE"] = instructions_file
-    os.environ["AIB_JOB_ID"] = job_id
-    os.environ["AIB_OUTPUT_DIR"] = output_dir
-    # Engine config — apply current settings so the engine doesn't fall back to stale defaults
-    apply_settings_to_env()
-    # Also set endpoint-specific vars (may differ from saved settings if user hasn't saved yet)
-    os.environ["CUSTOM_ENDPOINT_URL"] = os.getenv("CUSTOM_ENDPOINT_URL", "")
-    os.environ["CUSTOM_API_KEY"] = os.getenv("CUSTOM_API_KEY", "")
-    os.environ["CUSTOM_MODEL_NAME"] = os.getenv("CUSTOM_MODEL_NAME", "")
-    os.environ["CUSTOM_VERIFY_SSL"] = os.getenv("CUSTOM_VERIFY_SSL", "false")
-    os.environ["CUSTOM_TIMEOUT"] = os.getenv("CUSTOM_TIMEOUT", "7200")
-
-    _log_app_event(f"Agent run started — project={project_id}, job_id={job_id}")
-
-    # Register SSE job so inject endpoint knows where to write
-    # Also track the stop_event for this job so the stop endpoint can signal it
-    job_stop_event = threading.Event()
-    with _sse_jobs_lock:
-        _sse_jobs[job_id] = {"output_dir": output_dir, "stop_event": job_stop_event}
-    with _job_stop_events_lock:
-        _job_stop_events[job_id] = job_stop_event
-
-    def generate():
-        # Queue for events from background thread
-        event_queue: queue.Queue = queue.Queue()
-        engine_result: list = [None]
-        engine_error: list = [None]
-        engine_step_history: list = [None]
-        engine_ref: list = [None]  # Store engine reference for tool reload
-
-        # Store event queue keyed by output_dir so the resume engine can emit events
-        with _sse_event_queues_lock:
-            _sse_event_queues[output_dir] = event_queue
-
-        def on_event(event):
-            event_queue.put(event)
-
-        def run_engine():
-            """Run the engine in a background thread."""
-            try:
-                config = {
-                    "rootDirectory": root_dir,
-                    "instructions": instructions,
-                    "job_id": job_id,
-                }
-                # Pass per-project disabled_tools to the engine
-                if project and "disabled_tools" in project:
-                    config["disabled_tools"] = project["disabled_tools"]
-
-                # Use the shared helper to create and run the engine
-                run_result = _run_engine_in_background(
-                    project_config=config,
-                    output_dir=output_dir,
-                    step_callback=on_event,
-                    stop_event=job_stop_event,
-                    prev_step_history=prev_step_history,
-                    continue_from_job=continue_from_job,
-                )
-                engine = run_result["engine"]
-                engine_result[0] = run_result["result"]
-                engine_step_history[0] = engine.step_history
-
-                # Store engine reference so approval endpoint can reload tools
-                with _sse_jobs_lock:
-                    _sse_jobs[job_id]["engine"] = engine
-
-                # Handle pending_approval: signal the SSE handler so the UI
-                # can show the pending-approval banner and let the user
-                # approve/reject before continuing.
-                result = engine_result[0]
-                if result.get("status") == "pending_approval":
-                    # Extract tool name from step_history (last step should be create_tool)
-                    step_history = result.get("step_history", [])
-                    tool_name = "unknown"
-                    for step in reversed(step_history):
-                        if step.get("tool") == "create_tool":
-                            tool_name = step.get("params", {}).get("name", "unknown")
-                            break
-                    event_queue.put({
-                        "type": "__pending_approval__",
-                        "tool_name": tool_name,
-                    })
-
-                # Handle pending_user_input: signal the SSE handler so the UI
-                # can show the pending-input banner. The engine has already
-                # returned — the user can inject instructions or restart
-                # the run to continue from where it left off.
-                elif result.get("status") == "pending_user_input":
-                    event_queue.put({
-                        "type": "__pending_user_input__",
-                        "step": result.get("steps", 0),
-                        "response": result.get("summary", ""),
-                    })
-
-                # Push a sentinel to signal completion
-                event_queue.put({"type": "__done__"})
-            except Exception as e:
-                engine_error[0] = e
-                event_queue.put({"type": "__error__", "error": str(e)})
-
-        # Start engine in background thread
-        bg_thread = threading.Thread(target=run_engine, daemon=True)
-        bg_thread.start()
-
-        yield "event: status\ndata: " + json.dumps({"type": "start", "job_id": job_id}) + "\n\n"
-
-        # Process events as they arrive
-        for ev in iter(event_queue.get, None):
-            if ev.get("type") == "__done__":
-                result = engine_result[0] or {}
-                # Yield any remaining events from the queue, including
-                # pending_approval/pending_user_input that may not have been
-                # processed yet (e.g. if the background thread queued them
-                # after __done__ due to threading timing).
-                while not event_queue.empty():
-                    try:
-                        ev = event_queue.get_nowait()
-                        if ev["type"] == "step":
-                            yield "event: step\ndata: " + json.dumps({
-                                "type": "step",
-                                "step": ev["step"],
-                                "tool": ev["tool"],
-                                "params": ev.get("params", {}),
-                                "result": ev.get("result", {}),
-                            }) + "\n"
-                        elif ev["type"] == "llm_call":
-                            yield "event: step\ndata: " + json.dumps({
-                                "type": "llm_call",
-                                "step": ev["step"],
-                                "tool": "llm_call",
-                                "params": ev.get("params", {}),
-                                "result": {"content": "", "success": True},
-                                "raw_request": ev.get("raw_request", ""),
-                                "raw_response": ev.get("raw_response", ""),
-                            }) + "\n"
-                        elif ev["type"] == "pending_approval":
-                            yield "event: pending_approval\n" + json.dumps({
-                                "tool_name": ev.get("tool_name", "unknown"),
-                                "output_dir": output_dir,
-                                "job_id": job_id,
-                            }) + "\n"
-                        elif ev["type"] == "__pending_approval__":
-                            yield "event: pending_approval\n" + json.dumps({
-                                "tool_name": ev.get("tool_name", "unknown"),
-                                "output_dir": output_dir,
-                                "job_id": job_id,
-                            }) + "\n"
-                            # Also emit a status event so the UI knows the agent is paused
-                            yield "event: status\n" + json.dumps({
-                                "type": "pending_approval",
-                                "message": "Agent is waiting for tool approval. Approve or reject below.",
-                            }) + "\n\n"
-                        elif ev["type"] == "__pending_user_input__":
-                            yield "event: pending_user_input\n" + json.dumps({
-                                "step": ev.get("step", 0),
-                                "response": ev.get("response", ""),
-                                "question": ev.get("question", ""),
-                            }) + "\n"
-                            yield "event: status\n" + json.dumps({
-                                "type": "pending_user_input",
-                                "message": "Agent is waiting for user input. Inject instructions or restart the run to continue.",
-                            }) + "\n\n"
-                    except queue.Empty:
-                        break
-
-                # When the engine returns pending_approval or pending_user_input,
-                # DO NOT yield the __done__/complete event here — the UI has
-                # already received the pending_approval/pending_user_input event
-                # and needs time to render the prompt before the connection closes.
-                # The frontend will close the SSE connection after the user
-                # approves/rejects (via the approval API) or continues (via inject).
-                if result.get("status") in ("pending_approval", "pending_user_input"):
-                    _log_app_event(
-                        f"Agent paused — job_id={job_id}, "
-                        f"status={result.get('status')}, "
-                        f"steps={result.get('steps')}"
-                    )
-                    # Clean up stop event for this job
-                    with _job_stop_events_lock:
-                        _job_stop_events.pop(job_id, None)
-                    with _sse_jobs_lock:
-                        _sse_jobs.pop(job_id, None)
-                    with _sse_event_queues_lock:
-                        _sse_event_queues.pop(output_dir, None)
-                    # Extract pending tool name from step_history if available
-                    pending_tool_name = ""
-                    pending_output_dir = output_dir
-                    step_history = result.get("step_history", [])
-                    for step in reversed(step_history):
-                        if step.get("tool") == "create_tool":
-                            pending_tool_name = step.get("params", {}).get("name", "")
-                            break
-                    if not pending_tool_name:
-                        pending_tool_name = "unknown"
-
-                    # Emit the pending_approval event so the UI can show
-                    # the approval prompt even if the earlier event was dropped
-                    if result.get("status") == "pending_approval":
-                        yield "event: pending_approval\ndata: " + json.dumps({
-                            "tool_name": pending_tool_name,
-                            "output_dir": pending_output_dir,
-                            "job_id": job_id,
-                        }) + "\n"
-                        yield "event: status\ndata: " + json.dumps({
-                            "type": "pending_approval",
-                            "message": "Agent is waiting for tool approval. Approve or reject below.",
-                        }) + "\n\n"
-                    elif result.get("status") == "pending_user_input":
-                        yield "event: pending_user_input\ndata: " + json.dumps({
-                            "step": result.get("steps", 0),
-                            "response": result.get("summary", ""),
-                            "question": "",
-                        }) + "\n"
-                        yield "event: status\ndata: " + json.dumps({
-                            "type": "pending_user_input",
-                            "message": "Agent is waiting for user input. Inject instructions or restart the run to continue.",
-                        }) + "\n\n"
-
-                    # Use 'paused' type instead of 'complete' so the frontend
-                    # doesn't overwrite the pending status with "COMPLETED".
-                    yield "event: status\ndata: " + json.dumps({
-                        "type": "paused",
-                        "status": result.get("status", "completed"),
-                        "summary": result.get("summary", ""),
-                        "steps": result.get("steps", 0),
-                        "max_steps": result.get("max_steps", 50),
-                        "error": result.get("error", ""),
-                    }) + "\n\n"
-                    # Update history with step results
-                    job_history[-1]["status"] = result.get("status", "completed")
-                    job_history[-1]["summary"] = result.get("summary", "")
-                    job_history[-1]["steps"] = result.get("steps", 0)
-                    job_history[-1]["step_count"] = result.get("steps", 0)
-                    job_history[-1]["step_history"] = engine_step_history[0] or []
-                    if result.get("status") == "error":
-                        job_history[-1]["error"] = result.get("error", "Unknown error")
-                    save_job_history()
-                    break
-
-                # Clean up stop event for this job
-                with _job_stop_events_lock:
-                    _job_stop_events.pop(job_id, None)
-                with _sse_jobs_lock:
-                    _sse_jobs.pop(job_id, None)
-                # Clean up the event queue for this output_dir
-                with _sse_event_queues_lock:
-                    _sse_event_queues.pop(output_dir, None)
-                # Final result
-                _log_app_event(f"Agent run completed — job_id={job_id}, status={result.get('status')}, steps={result.get('steps')}")
-                # Emit an explicit error event when the engine returns an error
-                # so the UI can display the error message prominently
-                if result.get("status") == "error":
-                    yield "event: status\ndata: " + json.dumps({
-                        "type": "error",
-                        "error": result.get("error", "Unknown error"),
-                    }) + "\n\n"
-                yield "event: status\ndata: " + json.dumps({
-                    "type": "complete",
-                    "status": result.get("status", "completed"),
-                    "summary": result.get("summary", ""),
-                    "steps": result.get("steps", 0),
-                    "max_steps": result.get("max_steps", 50),
-                    "error": result.get("error", ""),
-                }) + "\n\n"
-
-                # Update history with step results
-                job_history[-1]["status"] = result.get("status", "completed")
-                job_history[-1]["summary"] = result.get("summary", "")
-                job_history[-1]["steps"] = result.get("steps", 0)
-                job_history[-1]["step_count"] = result.get("steps", 0)
-                job_history[-1]["step_history"] = engine_step_history[0] or []
-                if result.get("status") == "error":
-                    job_history[-1]["error"] = result.get("error", "Unknown error")
-                save_job_history()
-                break
-
-            elif ev.get("type") == "__error__":
-                yield "event: status\ndata: " + json.dumps({
-                    "type": "error",
-                    "error": ev.get("error", str(engine_error[0] or "Unknown error")),
-                }) + "\n\n"
-                job_history[-1]["status"] = "error"
-                job_history[-1]["error"] = ev.get("error", str(engine_error[0] or "Unknown error"))
-                save_job_history()
-                break
-
-            elif ev["type"] == "step":
-                yield "event: step\ndata: " + json.dumps({
-                    "type": "step",
-                    "step": ev["step"],
-                    "tool": ev["tool"],
-                    "params": ev.get("params", {}),
-                    "result": ev.get("result", {}),
-                }) + "\n"
-            elif ev["type"] == "tool_start":
-                yield "event: tool_start\ndata: " + json.dumps({
-                    "step": ev.get("step", 0),
-                    "tool": ev.get("tool", "unknown"),
-                    "rationale": ev.get("rationale", ""),
-                }) + "\n"
-            elif ev["type"] == "llm_call":
-                yield "event: step\ndata: " + json.dumps({
-                    "type": "llm_call",
-                    "step": ev["step"],
-                    "tool": "llm_call",
-                    "params": ev.get("params", {}),
-                    "result": {"content": "", "success": True},
-                    "raw_request": ev.get("raw_request", ""),
-                    "raw_response": ev.get("raw_response", ""),
-                }) + "\n"
-            elif ev["type"] == "pending_approval":
-                yield "event: pending_approval\ndata: " + json.dumps({
-                    "tool_name": ev.get("tool_name", "unknown"),
-                    "output_dir": output_dir,
-                    "job_id": job_id,
-                }) + "\n"
-            elif ev["type"] == "__pending_approval__":
-                # Engine returned pending_approval status — notify UI
-                yield "event: pending_approval\ndata: " + json.dumps({
-                    "tool_name": ev.get("tool_name", "unknown"),
-                    "output_dir": output_dir,
-                    "job_id": job_id,
-                }) + "\n"
-                # Also emit a status event so the UI knows the agent is paused
-                yield "event: status\ndata: " + json.dumps({
-                    "type": "pending_approval",
-                    "message": "Agent is waiting for tool approval. Approve or reject below.",
-                }) + "\n\n"
-            elif ev["type"] == "__pending_user_input__":
-                # Engine returned pending_user_input status — notify UI
-                yield "event: pending_user_input\ndata: " + json.dumps({
-                    "step": ev.get("step", 0),
-                    "response": ev.get("response", ""),
-                    "question": ev.get("question", ""),
-                }) + "\n"
-                # Also emit a status event so the UI knows the agent is paused
-                yield "event: status\ndata: " + json.dumps({
-                    "type": "pending_user_input",
-                    "message": "Agent is waiting for user input. Inject instructions or restart the run to continue.",
-                }) + "\n\n"
-            elif ev["type"] == "pending_user_input":
-                _log_app_event(f"Agent pending_user_input — job_id={job_id}, step={ev.get('step')}")
-                yield "event: pending_user_input\ndata: " + json.dumps({
-                    "step": ev.get("step", 0),
-                    "response": ev.get("response", ""),
-                    "question": ev.get("question", ""),
-                }) + "\n"
-            elif ev["type"] == "context_warning":
-                yield "event: context_warning\ndata: " + json.dumps({
-                    "step": ev.get("step", 0),
-                    "current_tokens": ev.get("current_tokens", 0),
-                    "max_tokens": ev.get("max_tokens", 0),
-                    "usage_pct": ev.get("usage_pct", 0),
-                }) + "\n"
-
-    return Response(generate(), mimetype='text/event-stream')
 
 @app.route("/api/agent/history/<job_id>", methods=["GET"])
 def api_agent_history(job_id):
@@ -1720,15 +1227,13 @@ def api_agent_inject():
     if not job_id or not instruction:
         return jsonify({"error": "job_id and instruction required"}), 400
 
-    # Look up the SSE job's output directory
-    job_info = None
-    with _sse_jobs_lock:
-        job_info = _sse_jobs.get(job_id)
-
-    if job_info:
-        output_dir = job_info.get("output_dir") if isinstance(job_info, dict) else job_info
-    else:
-        output_dir = None
+    # Look up the job's output directory from history
+    output_dir = None
+    for h in job_history:
+        if h.get("job_id") == job_id:
+            output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                      "aib_instance", "output", job_id)
+            break
 
     if not output_dir:
         # Fallback: try to find in job_history
@@ -2061,15 +1566,8 @@ def api_set_project_tools(pid):
     # Clean up old enabled_tools field if present
     project.pop("enabled_tools", None)
     save_project(project)
-    # Reload tools in running engines for this project
-    with _sse_jobs_lock:
-        for job_id, job_info in _sse_jobs.items():
-            if isinstance(job_info, dict) and "engine" in job_info:
-                engine = job_info["engine"]
-                try:
-                    engine.reload_approved_tools()
-                except Exception as e:
-                    logging.warning(f"Failed to reload tools for job {job_id}: {e}")
+    # Note: tool reload for running engines was removed with SSE migration.
+    # Tool changes will apply on next engine restart.
     return jsonify({"status": "updated", "disabled_tools": disabled_tools})
 
 
@@ -2098,21 +1596,8 @@ def api_approve_tool(tool_name):
     registry = get_registry()
     result = registry.approve_project_tool(project_output_dir, tool_name)
     if result["status"] == "approved":
-        # Reload the tool loader in the running engine so the new tool
-        # is visible to the LLM immediately.
-        with _sse_jobs_lock:
-            for job_id, job_info in _sse_jobs.items():
-                if isinstance(job_info, dict) and "engine" in job_info:
-                    engine = job_info["engine"]
-                    try:
-                        engine.reload_approved_tools()
-                        logging.info(f"Rebuilt tool loader for SSE job {job_id} after tool approval")
-                    except Exception as e:
-                        logging.warning(f"Failed to reload tools for job {job_id}: {e}")
-
         # Write a resume signal file so the engine loop picks it up
         # and continues to the next LLM call with the new tool available.
-        # The engine checks for this file at self.output_dir/_tool_approved_resume.txt
         resume_file = os.path.join(project_output_dir, "_tool_approved_resume.txt")
         try:
             with open(resume_file, 'w') as f:
@@ -2122,8 +1607,6 @@ def api_approve_tool(tool_name):
 
         # Re-invoke the engine in a background thread so it picks up the
         # resume file and continues with the newly approved tool available.
-        # The original engine thread has already returned from run() by the
-        # time approval happens, so we need a fresh engine instance.
         _find_project_and_resume_engine(project_output_dir, tool_name)
 
         return jsonify(result)
@@ -2174,23 +1657,10 @@ def _find_project_and_resume_engine(project_output_dir, tool_name):
     os.environ["CUSTOM_VERIFY_SSL"] = os.getenv("CUSTOM_VERIFY_SSL", "false")
     os.environ["CUSTOM_TIMEOUT"] = os.getenv("CUSTOM_TIMEOUT", "7200")
 
-    # Run the engine in a background thread with SSE event support
-    # so that subsequent create_tool calls (e.g., for a second tool)
-    # still prompt the user for approval in the UI.
+    # Run the engine in a background thread so that subsequent create_tool
+    # calls (e.g., for a second tool) still prompt the user for approval in the UI.
     def resume_engine():
         try:
-            # Find the SSE event queue for this output_dir (if the UI is still connected)
-            resume_callback = None
-            with _sse_event_queues_lock:
-                q = _sse_event_queues.get(project_output_dir)
-                if q is not None:
-                    def _callback(event):
-                        try:
-                            q.put(event)
-                        except Exception:
-                            pass
-                    resume_callback = _callback
-                    logging.info(f"Resume engine using SSE event queue for output_dir {project_output_dir}")
 
             logging.info(f"Re-invoking engine for tool approval: {tool_name} in {project_output_dir}")
             _run_engine_in_background(
@@ -2259,15 +1729,8 @@ def api_set_tool_enabled(tool_name):
     registry = get_registry()
     result = registry.set_tool_enabled(tool_name, enabled)
     if result["status"] == "updated":
-        # Reload approved tools so running engines pick up the change
-        with _sse_jobs_lock:
-            for job_id, job_info in _sse_jobs.items():
-                if isinstance(job_info, dict) and "engine" in job_info:
-                    engine = job_info["engine"]
-                    try:
-                        engine.reload_approved_tools()
-                    except Exception as e:
-                        logging.warning(f"Failed to reload tools for job {job_id}: {e}")
+        pass  # Tool status updated
+
     return jsonify(result)
 
 
@@ -2317,12 +1780,25 @@ def _find_available_port(start_port=5056, max_attempts=50):
                 continue
     return start_port
 
+import webbrowser
+import threading
+
 # --- Start Worker on App Start ---
 init_directories()
 load_job_history()
 apply_settings_to_env()
 start_worker()
 _log_app_event("App started — worker thread launched")
+
+# Auto-open browser after a short delay so the server is ready
+def _open_browser():
+    port = _find_available_port()
+    try:
+        webbrowser.open(f"http://127.0.0.1:{port}/")
+    except Exception:
+        pass
+
+threading.Timer(2.0, _open_browser).start()
 
 @app.route("/api/app-log", methods=["GET"])
 def api_app_log():

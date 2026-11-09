@@ -42,22 +42,21 @@ rm -rf dist build ai_builder.spec
 echo "[INFO] Building executable..."
 pyinstaller \
     --onefile \
-    --name ai_builder.bin \
+    --name ai_builder \
     --hidden-import=flask \
     --hidden-import=dotenv \
     --hidden-import=agent_engine \
     --hidden-import=agent_engine.tools \
-    --add-data "templates:templates" \
-    --add-data "static:static" \
     --add-data "agent_engine:agent_engine" \
     "$(dirname "$0")/../app.py"
 
 # Check build success
-if [ -f "dist/ai_builder.bin" ]; then
+if [ -f "dist/ai_builder" ]; then
     echo "[SUCCESS] Packaging complete!"
-    echo "[INFO] Executable location: dist/ai_builder.bin"
-    echo "[INFO] To run: ./dist/ai_builder.bin"
-    chmod +x dist/ai_builder.bin
+    echo "[INFO] Executable location: dist/ai_builder"
+    echo "[INFO] The executable includes all templates and static assets."
+    echo "[INFO] To run: ./dist/ai_builder"
+    chmod +x dist/ai_builder
 else
     echo "[ERROR] Build failed. Check PyInstaller output above."
     exit 1

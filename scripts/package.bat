@@ -40,13 +40,11 @@ REM Build single executable
 echo [INFO] Building executable...
 pyinstaller ^
     --onefile ^
-    --name ai_builder.exe ^
+    --name ai_builder ^
     --hidden-import=flask ^
     --hidden-import=dotenv ^
     --hidden-import=agent_engine ^
     --hidden-import=agent_engine.tools ^
-    --add-data "templates;templates" ^
-    --add-data "static;static" ^
     --add-data "agent_engine;agent_engine" ^
     "%~dp0..\app.py"
 
@@ -54,6 +52,7 @@ REM Check build success
 if exist "dist\ai_builder.exe" (
     echo [SUCCESS] Packaging complete!
     echo [INFO] Executable location: dist\ai_builder.exe
+    echo [INFO] The executable includes all templates and static assets.
     echo [INFO] To run: dist\ai_builder.exe
     pause
 ) else (

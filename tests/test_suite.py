@@ -197,15 +197,6 @@ class TestParserEdgeCases(unittest.TestCase):
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0][0], "list_directory")
 
-    def test_alt_pattern_bracket_tool_name(self):
-        response = (
-            "[test1234_TOOL_START][test1234_list_directory]\n"
-            "[test1234_PARAM_NAME]\npath\n[test1234_PARAM_VALUE]\n.\n[test1234_TOOL_END]"
-        )
-        calls = parse_tool_calls(response, "test1234")
-        self.assertEqual(len(calls), 1)
-        self.assertEqual(calls[0][0], "list_directory")
-
     def test_rationale_in_tool_call(self):
         response = (
             "[test1234_TOOL_START]\n[test1234_TOOL_NAME]\n"
@@ -2588,33 +2579,6 @@ class TestReloadApprovedTools(unittest.TestCase):
             shutil.rmtree(tmpdir, ignore_errors=True)
 
 
-class TestRunScript(unittest.TestCase):
-    def test_empty_script_does_nothing(self):
-        tmpdir = tempfile.mkdtemp()
-        try:
-            project_config = {
-                "rootDirectory": tmpdir,
-                "instructions": "Test",
-                "enabled_tools": ["list_directory"],
-            }
-            engine = AgentEngine(project_config)
-            engine._run_script("pre", "")
-        finally:
-            shutil.rmtree(tmpdir, ignore_errors=True)
-
-    def test_whitespace_only_script_does_nothing(self):
-        tmpdir = tempfile.mkdtemp()
-        try:
-            project_config = {
-                "rootDirectory": tmpdir,
-                "instructions": "Test",
-                "enabled_tools": ["list_directory"],
-            }
-            engine = AgentEngine(project_config)
-            engine._run_script("pre", "   \n  ")
-        finally:
-            shutil.rmtree(tmpdir, ignore_errors=True)
-
 
 # ====================================================================
 # 22. Stop Event & Max Steps Tests
@@ -2892,13 +2856,13 @@ class TestEditFileStrategies(unittest.TestCase):
 # ====================================================================
 
 class TestToolApprovalEndpoint(unittest.TestCase):
-    def test_approval_endpoint_writes_resume_file(self):
+    def test_approval_endpoint_calls_resume_engine(self):
         with open(os.path.join(os.path.dirname(__file__), '..', 'app.py')) as f:
             content = f.read()
         approve_idx = content.find('def api_approve_tool')
         self.assertGreater(approve_idx, 0)
         approve_section = content[approve_idx:approve_idx+2000]
-        self.assertIn('engine.reload_approved_tools()', approve_section)
+        self.assertIn('_find_project_and_resume_engine', approve_section)
 
 
 class TestToolStartShowsDetails(unittest.TestCase):
@@ -2912,11 +2876,11 @@ class TestToolStartShowsDetails(unittest.TestCase):
             content = f.read()
         self.assertIn('data.params && Object.keys(data.params).length', content)
 
-    def test_handle_tool_start_no_longer_thinking(self):
+    def test_polling_replaces_sse(self):
         with open(os.path.join(os.path.dirname(__file__), '..', 'static', 'site.js')) as f:
             content = f.read()
-        self.assertIn('🔧 ', content)
-        self.assertNotIn('⏳ Running:', content)
+        self.assertIn('_startPolling', content)
+        self.assertIn('pollInterval', content)
 
 
 if __name__ == '__main__':
