@@ -225,9 +225,6 @@ def save_project(project):
     for field in required_fields:
         if field not in project:
             raise ValueError(f"Project missing required field: {field}")
-    # Truncate instructions if too long to prevent massive JSON files
-    if "instructions" in project and len(str(project["instructions"])) > 10000:
-        project["instructions"] = str(project["instructions"])[:10000] + "\n... (truncated)"
     # Atomic write: write to temp file first, then rename
     # This prevents JSON corruption if the write is interrupted
     tmp_path = fpath + ".tmp"
@@ -338,6 +335,39 @@ def run_with_agent_engine(project_config: Dict[str, Any], output_dir: str = None
         f.write(project_config.get("instructions", ""))
     os.environ["AIB_INSTRUCTIONS_FILE"] = instructions_file
     os.environ["AIB_OUTPUT_DIR"] = output_dir
+
+    # Clean old step files from previous runs in this project's output dir
+    # so a fresh run doesn't pick up stale steps
+    steps_dir = os.path.join(output_dir, "steps")
+    if os.path.isdir(steps_dir):
+        for fname in os.listdir(steps_dir):
+            if fname.endswith(".json"):
+                try:
+                    os.remove(os.path.join(steps_dir, fname))
+                except OSError:
+                    pass
+    # Also clean legacy steps.jsonl
+    step_log = os.path.join(output_dir, "steps.jsonl")
+    if os.path.exists(step_log):
+        try:
+            os.remove(step_log)
+        except OSError:
+            pass
+    # Clean conversation_history.json so the engine starts fresh
+    conv_hist = os.path.join(output_dir, "conversation_history.json")
+    if os.path.exists(conv_hist):
+        try:
+            os.remove(conv_hist)
+        except OSError:
+            pass
+    # Clean resume/instruction files from previous runs
+    for fname in ["live_instruction.txt", "resume_input.txt", "_tool_approved_resume.txt", "user_input_request.txt"]:
+        fpath = os.path.join(output_dir, fname)
+        if os.path.exists(fpath):
+            try:
+                os.remove(fpath)
+            except OSError:
+                pass
 
     return agent_run(project_config, output_dir=output_dir)
 
@@ -562,17 +592,6 @@ def api_update_project(pid):
 
     # Sanitize instructions to prevent JSON injection (prevent corruption)
     instructions = data.get("instructions", project.get("instructions", ""))
-    # If instructions looks like it contains a full JSON object, strip it down
-    # to prevent the LLM from writing corrupted project data
-    if isinstance(instructions, str) and instructions.strip().startswith("{"):
-        try:
-            parsed = json.loads(instructions)
-            if isinstance(parsed, dict) and "instructions" in parsed:
-                # This is likely a nested JSON from the LLM — extract just the instructions
-                instructions = parsed.get("instructions", instructions[:1000])
-        except (json.JSONDecodeError, TypeError):
-            # Not valid JSON, keep as-is but truncate if too long
-            instructions = instructions[:5000]
 
     project.update({
         "name": data.get("name", project["name"]),
@@ -1132,62 +1151,82 @@ def _run_engine_in_background(project_config, output_dir, step_callback=None, st
     engine.reload_approved_tools()
 
     # If continuing from a previous job, restore conversation history
+    # from step_history so the LLM knows what was already done.
+    # For fresh runs (no prev_step_history), the engine starts clean.
     if prev_step_history:
         engine.step_history = prev_step_history
         engine.step_count = len(prev_step_history)
-        messages_file = os.path.join(output_dir, "conversation_history.json")
-        if os.path.exists(messages_file):
-            try:
-                with open(messages_file, 'r', encoding='utf-8') as f:
-                    prev_messages = json.load(f)
-                if prev_messages and prev_messages[-1].get("role") == "user":
-                    prev_messages.pop()
-                    prev_messages.append({
-                        "role": "user",
-                        "content": (
-                            f"[CONTINUATION] Your previous run completed. "
-                            f"The user has new instructions for you. "
-                            f"Please continue working on the project with these new instructions:\n\n"
-                            f"{project_config.get('instructions', '')}\n\n"
-                            f"Review what was already done, then take the next appropriate action.\n\n"
-                            f"TOOL FORMAT REMINDER\n"
-                            f"=====================\n\n"
-                            f"Your ENTIRE response must be EXACTLY ONE of the following:\n\n"
-                            f"  OPTION 1 — A tool call:\n"
-                            f"    [TOOL_START]\n"
-                            f"    [TOOL_NAME]\n"
-                            f"    <tool_name>\n"
-                            f"    [PARAM_NAME]\n"
-                            f"    <param_key_1>\n"
-                            f"    [PARAM_VALUE]\n"
-                            f"    <param_value_1>\n"
-                            f"    [PARAM_NAME]\n"
-                            f"    <param_key_2>\n"
-                            f"    [PARAM_VALUE]\n"
-                            f"    <param_value_2>\n"
-                            f"    [TOOL_END]\n\n"
-                            f"  OPTION 2 — Signal completion:\n"
-                            f"    Use the task_completed tool with a summary:\n"
-                            f"    [TOOL_START]\n"
-                            f"    [TOOL_NAME]\n"
-                            f"    task_completed\n"
-                            f"    [PARAM_NAME]\n"
-                            f"    summary\n"
-                            f"    [PARAM_VALUE]\n"
-                            f"    <your summary here>\n"
-                            f"    [TOOL_END]\n\n"
-                            f"IMPORTANT RULES:\n"
-                            f"  • Do NOT write any other text.\n"
-                            f"  • Do NOT explain what you will do — just act.\n"
-                            f"  • Make EXACTLY ONE tool call per response.\n"
-                            f"  • If you include more than one [TOOL_START]...[TOOL_END] block,\n"
-                            f"    only the FIRST one will be executed."
-                        )
-                    })
-                engine.messages = prev_messages
-            except Exception as e:
-                logging.warning(f"Failed to load conversation history: {e}")
+        # Reconstruct conversation from step history
+        reconstructed_messages = [engine.messages[0]]  # system prompt
+        # Add tool results from step_history
+        all_tool_names = engine.tools.tool_names()
+        for h in prev_step_history:
+            if h.get("tool") in all_tool_names:
+                res = h.get("result", {})
+                content = res.get("content", "")
+                error = res.get("error", "")
+                summary = res.get("summary", "")
+                if error:
+                    result_display = f"Error: {error}"
+                elif summary:
+                    result_display = summary
+                    if content:
+                        result_display += f"\n\nOutput:\n{content}\n"
+                elif content:
+                    result_display = content
+                else:
+                    result_display = "(no output)"
+                tool_name = h.get("tool", "unknown")
+                reconstructed_messages.append({
+                    "role": "user",
+                    "content": f"[TOOL RESULT for {tool_name}]\n{result_display}\n[END TOOL RESULT]\n\nNow continue with your next action."
+                })
+        # Add the continuation message
+        reconstructed_messages.append({
+            "role": "user",
+            "content": (
+                f"[CONTINUATION] Your previous run completed. "
+                f"The user has new instructions for you. "
+                f"Please continue working on the project with these new instructions:\n\n"
+                f"{project_config.get('instructions', '')}\n\n"
+                f"Review what was already done, then take the next appropriate action.\n\n"
+                f"TOOL FORMAT REMINDER\n"
+                f"=====================\n\n"
+                f"Your ENTIRE response must be EXACTLY ONE of the following:\n\n"
+                f"  OPTION 1 — A tool call:\n"
+                f"    [TOOL_START]\n"
+                f"    [TOOL_NAME]\n"
+                f"    <tool_name>\n"
+                f"    [PARAM_NAME]\n"
+                f"    <param_key_1>\n"
+                f"    [PARAM_VALUE]\n"
+                f"    <param_value_1>\n"
+                f"    [PARAM_NAME]\n"
+                f"    <param_key_2>\n"
+                f"    [PARAM_VALUE]\n"
+                f"    <param_value_2>\n"
+                f"    [TOOL_END]\n\n"
+                f"  OPTION 2 — Signal completion:\n"
+                f"    Use the task_completed tool with a summary:\n"
+                f"    [TOOL_START]\n"
+                f"    [TOOL_NAME]\n"
+                f"    task_completed\n"
+                f"    [PARAM_NAME]\n"
+                f"    summary\n"
+                f"    [PARAM_VALUE]\n"
+                f"    <your summary here>\n"
+                f"    [TOOL_END]\n\n"
+                f"IMPORTANT RULES:\n"
+                f"  • Do NOT write any other text.\n"
+                f"  • Do NOT explain what you will do — just act.\n"
+                f"  • Make EXACTLY ONE tool call per response.\n"
+                f"  • If you include more than one [TOOL_START]...[TOOL_END] block,\n"
+                f"    only the FIRST one will be executed."
+            )
+        })
+        engine.messages = reconstructed_messages
 
+    # Run the engine
     result = engine.run()
 
     # Persist conversation history
@@ -1288,27 +1327,28 @@ def api_agent_inject():
     if not job_id or not instruction:
         return jsonify({"error": "job_id and instruction required"}), 400
 
-    # Look up the job's output directory from history
+    # Look up the job's output directory from history or projects
     output_dir = None
     for h in job_history:
         if h.get("job_id") == job_id:
-            output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                      "aib_instance", "output", job_id)
-            break
-
-    if not output_dir:
-        # Fallback: try to find in job_history
-        for h in job_history:
-            if h.get("job_id") == job_id:
+            pid = h.get("project_id")
+            if pid:
+                projects = load_projects()
+                for p in projects:
+                    if p["id"] == pid:
+                        output_dir = p.get("output_dir")
+                        break
+            if not output_dir:
+                # Fallback: try job_id as output directory name
                 output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                           "aib_instance", "output", job_id)
-                break
+            break
 
     if not output_dir:
         return jsonify({"error": "Job not found"}), 404
 
     instruction_file = os.path.join(output_dir, "live_instruction.txt")
-    os.makedirs(os.path.dirname(instruction_file), exist_ok=True)
+    os.makedirs(output_dir, exist_ok=True)
     _log_app_event(f"Live instruction injected — job_id={job_id}")
     try:
         with open(instruction_file, 'w') as f:
@@ -1344,8 +1384,25 @@ def api_agent_resume():
 
     _log_app_event(f"Resume requested — job_id={job_id}, input_len={len(user_input)}")
 
-    output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                              "aib_instance", "output", job_id)
+    # Look up the job's output directory from history or projects
+    output_dir = None
+    for h in job_history:
+        if h.get("job_id") == job_id:
+            pid = h.get("project_id")
+            if pid:
+                projects = load_projects()
+                for p in projects:
+                    if p["id"] == pid:
+                        output_dir = p.get("output_dir")
+                        break
+            if not output_dir:
+                output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                          "aib_instance", "output", job_id)
+            break
+
+    if not output_dir:
+        output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                  "aib_instance", "output", job_id)
     resume_file = os.path.join(output_dir, "resume_input.txt")
     os.makedirs(output_dir, exist_ok=True)
     try:
@@ -1361,18 +1418,26 @@ def api_agent_resend():
     """Resend the last LLM request to kick the agent if it stalled."""
     data = request.json
     job_id = data.get("job_id")
-    
+
     if not job_id:
         return jsonify({"error": "job_id required"}), 400
-    
+
     # Find the output directory for this job
     output_dir = None
     for h in job_history:
         if h.get("job_id") == job_id:
-            output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                      "aib_instance", "output", job_id)
+            pid = h.get("project_id")
+            if pid:
+                projects = load_projects()
+                for p in projects:
+                    if p["id"] == pid:
+                        output_dir = p.get("output_dir")
+                        break
+            if not output_dir:
+                output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                          "aib_instance", "output", job_id)
             break
-    
+
     if not output_dir or not os.path.exists(output_dir):
         return jsonify({"error": "Job output directory not found"}), 404
     
@@ -1857,11 +1922,13 @@ apply_settings_to_env()
 start_worker()
 _log_app_event("App started — worker thread launched")
 
+# Determine the port once and use it for both server and browser
+_server_port = _find_available_port()
+
 # Auto-open browser after a short delay so the server is ready
 def _open_browser():
-    port = _find_available_port()
     try:
-        webbrowser.open(f"http://127.0.0.1:{port}/")
+        webbrowser.open(f"http://127.0.0.1:{_server_port}/")
     except Exception:
         pass
 
@@ -1874,4 +1941,4 @@ def api_app_log():
         return jsonify({"log": list(_app_log)})
 
 if __name__ == "__main__":
-    app.run(port=_find_available_port(), debug=True, threaded=True, use_reloader=False)
+    app.run(port=_server_port, debug=True, threaded=True, use_reloader=False)

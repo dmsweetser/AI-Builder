@@ -105,7 +105,7 @@ class CheckSyntaxTool(BaseTool):
                 if 'error:' in line or 'Note:' not in line:
                     errors.append(line.strip())
             if errors:
-                return ToolResult(False, "\n".join(errors[:10]), error=errors[0] if errors else "Java compilation failed")
+                return ToolResult(False, "\n".join(errors), error=errors[0] if errors else "Java compilation failed")
             return ToolResult(True, f"Java syntax OK ({path})", summary="Syntax check passed")
         except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
             return self._check_java_braces(path)
@@ -201,8 +201,8 @@ class CheckSyntaxTool(BaseTool):
                         if 'error CS' in line or 'Error ' in line:
                             errors.append(line.strip())
                     if errors:
-                        return ToolResult(False, "\n".join(errors[:10]), error=errors[0])
-                    return ToolResult(False, result.stderr[:500], error=f"Error: C# compilation failed")
+                        return ToolResult(False, "\n".join(errors), error=errors[0])
+                    return ToolResult(False, result.stderr, error=f"Error: C# compilation failed")
 
             with tempfile.TemporaryDirectory() as tmpdir:
                 proj_file = os.path.join(tmpdir, "check.csproj")
@@ -224,8 +224,8 @@ class CheckSyntaxTool(BaseTool):
                     if 'error CS' in line:
                         errors.append(line.strip())
                 if errors:
-                    return ToolResult(False, "\n".join(errors[:10]), error=errors[0])
-                return ToolResult(False, result.stderr[:500], error=f"Error: C# compilation failed")
+                    return ToolResult(False, "\n".join(errors), error=errors[0])
+                return ToolResult(False, result.stderr, error=f"Error: C# compilation failed")
         except FileNotFoundError:
             return self._check_csharp_braces(path)
         except subprocess.TimeoutExpired:
@@ -271,7 +271,7 @@ class CheckSyntaxTool(BaseTool):
             )
             if result.returncode == 0:
                 return ToolResult(True, "JavaScript syntax OK", summary="Syntax check passed")
-            return ToolResult(False, result.stderr[:500], error=result.stderr[:200])
+            return ToolResult(False, result.stderr, error=result.stderr)
         except FileNotFoundError:
             try:
                 with open(path, 'r', encoding='utf-8') as f:
@@ -308,7 +308,7 @@ class CheckSyntaxTool(BaseTool):
                 if not content[m.start():m.start()+2].startswith('</'):
                     open_tags.append((tag, m.start()))
             if open_tags:
-                errors.append(f"Unclosed tags: {', '.join(t[0] for t in open_tags[:5])}")
+                errors.append(f"Unclosed tags: {', '.join(t[0] for t in open_tags)}")
             if errors:
                 return ToolResult(False, "\n".join(errors), error=errors[0])
             return ToolResult(True, "HTML syntax OK", summary="Basic HTML check passed")

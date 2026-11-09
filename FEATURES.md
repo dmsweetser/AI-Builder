@@ -109,9 +109,7 @@
 | 10.19 | delete_file | files.py | ✅ PASS | 2025-07-25 00:00 UTC | Delete file from disk |
 | 10.20 | find_symbol | search.py | ✅ PASS | 2025-07-25 00:00 UTC | Find symbol definitions |
 | 10.21 | decompile_jar | search.py | ✅ PASS | 2025-07-25 00:00 UTC | Decompile Java JAR files |
-| 10.22 | list_dependencies | misc.py | ✅ PASS | 2025-07-25 00:00 UTC | List project dependencies |
 | 10.23 | check_syntax | checkers.py | ✅ PASS | 2025-07-25 00:00 UTC | Syntax check source files |
-| 10.24 | get_file_info | misc.py | ✅ PASS | 2025-07-25 00:00 UTC | Get file metadata |
 | 10.25 | create_tool | misc.py | ✅ PASS | 2025-07-25 00:00 UTC | Create custom tool at runtime |
 | 10.26 | compress_context | misc.py | ✅ PASS | 2025-07-25 00:00 UTC | Compress conversation context |
 | 10.27 | respond_to_user | communication.py | ✅ PASS | 2025-07-25 00:00 UTC | Agent responds to user |

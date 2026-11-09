@@ -22,5 +22,5 @@ class TaskCompletedTool(BaseTool):
         return ToolResult(
             success=True,
             content=json.dumps({"task_completed": True, "summary": summary}),
-            summary=f"Task completed: {summary[:100]}",
+            summary=f"Task completed: {summary}",
         )

@@ -99,7 +99,7 @@ class ProjectToolLoader:
                     import re
                     m = re.search(r'class\s+\w+\(BaseTool\):\s*"""(.*?)"""', code, re.DOTALL)
                     if m:
-                        description = m.group(1).strip()[:200]
+                        description = m.group(1).strip()
                     tools.append({
                         "name": tool_name,
                         "description": description,

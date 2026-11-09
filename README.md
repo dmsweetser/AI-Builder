@@ -109,8 +109,6 @@ An agentic, multi-step code-revision engine with a web UI. You give it a project
 | `check_syntax` | Syntax check for Python, Java, C#, JS/TS, HTML, CSS, XML, JSON |
 | `find_symbol` | Find references to a code symbol across the codebase |
 | `decompile_jar` | Decompile a JAR file (requires `jd-cli` or `javap`) |
-| `list_dependencies` | Parse dependency manifests (requirements.txt, pom.xml, package.json, .csproj, etc.) |
-| `get_file_info` | Get file metadata: size, language, line count, binary/text |
 | `execute_python` | Execute Python code (requires explicit approval) |
 
 ### Tool-call format

@@ -59,11 +59,11 @@ class DecompileJarTool(BaseTool):
                         for f in files:
                             full = os.path.join(root, f)
                             extracted.append(os.path.relpath(full, self.root_dir))
-                    return ToolResult(True, json.dumps(extracted[:20], indent=2),
+                    return ToolResult(True, json.dumps(extracted, indent=2),
                                       summary=f"Decompiled {len(extracted)} files to {output_dir}",
                                       file_paths=extracted)
                 else:
-                    return ToolResult(False, "", error=f"jd-cli failed: {result.stderr[:500]}")
+                    return ToolResult(False, "", error=f"jd-cli failed: {result.stderr}")
             except subprocess.TimeoutExpired:
                 return ToolResult(False, "", error="jd-cli timed out after 120s")
             except OSError as e:
@@ -104,7 +104,7 @@ class DecompileJarTool(BaseTool):
                                 extracted.append(os.path.relpath(class_file, self.root_dir))
                         except Exception:
                             extracted.append(os.path.relpath(class_file, self.root_dir))
-            return ToolResult(True, json.dumps(extracted[:20], indent=2),
+            return ToolResult(True, json.dumps(extracted, indent=2),
                               summary=f"Extracted/decompiled {len(extracted)} class files",
                               file_paths=extracted)
         except Exception as e:

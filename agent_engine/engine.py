@@ -384,7 +384,7 @@ AVAILABLE TOOLS:{tool_defs}
 
 WORKFLOW:
 1. EXPLORE: Use list_directory, search_files, and grep_code to understand the project structure.
-2. UNDERSTAND: Use read_file, find_symbol, and get_file_info to inspect relevant code.
+2. UNDERSTAND: Use read_file and find_symbol to inspect relevant code.
 3. PLAN: Decide what changes are needed. For large codebases, focus on specific files.
 4. MODIFY: Use write_file (new files), edit_file (targeted changes), or delete_file.
 5. VERIFY: Use check_syntax to validate your changes before moving on.
@@ -811,7 +811,6 @@ def truncate_tool_result(content: str, max_length: int, tool_name: str) -> Tuple
         return content, False
 
     # Keep first N chars + last 200 for context
-    tail = content[-200:] if len(content) > max_length + 200 else ""
     truncated = content[:max_length] + "\n\n... [TRUNCATED - output was too long, "
     truncated += f"showing first {max_length} of {len(content)} characters]"
 
@@ -984,8 +983,6 @@ class AgentEngine:
                 # Read results are somewhat valuable, but old ones can be compressed
                 is_low_value = True
             elif tool_name == "check_syntax":
-                is_low_value = True
-            elif tool_name == "get_file_info":
                 is_low_value = True
 
             # Never compress if the result was truncated (important context)
@@ -1268,7 +1265,7 @@ class AgentEngine:
         self._check_pending_tools()
 
         self.logger.info(f"Starting agentic engine for: {self.root_dir}")
-        self.logger.info(f"Instructions: {self.instructions[:200]}...")
+        self.logger.info(f"Instructions: {self.instructions}...")
 
         try:
             # Build initial prompt
@@ -1328,7 +1325,7 @@ class AgentEngine:
                     self.job_id, base_dir=self.output_dir
                 )
                 if live_instruction:
-                    self.logger.info(f"Received live instruction: {live_instruction[:100]}...")
+                    self.logger.info(f"Received live instruction: {live_instruction}...")
                     # Use a clear separator and explicit instruction to start fresh
                     self.messages.append({
                         "role": "user",
@@ -1339,6 +1336,23 @@ class AgentEngine:
                             "You must respond with EXACTLY ONE tool call. "
                             "Do NOT combine this with any previous context. "
                             "Start fresh with a single tool call to address the new instructions."
+                        )
+                    })
+
+                # Check for resume input (user response to request_user_input)
+                resume_input = EngineConfig.get_resume_input(
+                    self.job_id, base_dir=self.output_dir
+                )
+                if resume_input:
+                    self.logger.info(f"Received resume input: {resume_input}...")
+                    self.messages.append({
+                        "role": "user",
+                        "content": (
+                            f"========== USER RESPONSE ==========\n"
+                            f"{resume_input}\n"
+                            "========== END USER RESPONSE ==========\n\n"
+                            "Use this response to continue your task. "
+                            "Respond with EXACTLY ONE tool call."
                         )
                     })
 
@@ -1518,7 +1532,7 @@ class AgentEngine:
                             "role": "user",
                             "content": f"[COMPLETION]\n{final_summary}",
                         })
-                        self.logger.info(f"Agent completed via task_completed: {final_summary[:200]}")
+                        self.logger.info(f"Agent completed via task_completed: {final_summary}")
                         self._update_status("completed", summary=final_summary)
                         break
 
@@ -1664,7 +1678,7 @@ class AgentEngine:
                         return {
                             "status": "pending_user_input",
                             "steps": self.step_count,
-                            "summary": f"Waiting for user input: {question[:200]}",
+                            "summary": f"Waiting for user input: {question}",
                             "max_steps": self.max_steps,
                             "step_history": self.step_history,
                             "question": question,
@@ -1683,7 +1697,7 @@ class AgentEngine:
                         # Extract entry names for quick inspection
                         try:
                             entries = json.loads(result_content) if result_content else []
-                            entry_names = [e.get("name", "?") for e in entries[:10]]
+                            entry_names = [e.get("name", "?") for e in entries]
                             self.logger.info(
                                 f"  list_directory step={self.step_count} path='{dir_path}' "
                                 f"entries={len(entries)} names={entry_names}"
@@ -1725,7 +1739,7 @@ class AgentEngine:
                         "role": "user",
                         "content": f"[COMPLETION]\n{summary}",
                     })
-                    self.logger.info(f"Agent completed: {summary[:200]}")
+                    self.logger.info(f"Agent completed: {summary}")
                     self._update_status("completed", summary=final_summary)
                     break
 
@@ -1733,7 +1747,7 @@ class AgentEngine:
                 # Inject "Please continue" to nudge it back on track.
                 self.logger.warning(
                     f"No tool calls in response (step {self.step_count}). "
-                    f"Response preview: {response[:200]}"
+                    f"Response preview: {response}"
                 )
                 # Append the raw response as-is so the LLM can see its own output
                 self.messages.append({

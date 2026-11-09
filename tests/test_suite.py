@@ -44,8 +44,6 @@ from agent_engine.tools.search_files import SearchFilesTool
 from agent_engine.tools.grep_code import GrepCodeTool
 from agent_engine.tools.delete_file import DeleteFileTool
 from agent_engine.tools.check_syntax import CheckSyntaxTool
-from agent_engine.tools.get_file_info import GetFileInfoTool
-from agent_engine.tools.list_dependencies import ListDependenciesTool
 from agent_engine.tools.find_symbol import FindSymbolTool
 from agent_engine.tools.decompile_jar import DecompileJarTool
 from agent_engine.tools.respond_to_user import RespondToUserTool
@@ -1164,8 +1162,8 @@ class TestToolRegistry(unittest.TestCase):
         expected = [
             'list_directory', 'search_files', 'grep_code',
             'read_file', 'write_file', 'edit_file', 'delete_file',
-            'find_symbol', 'decompile_jar', 'list_dependencies',
-            'check_syntax', 'get_file_info', 'create_tool',
+            'find_symbol', 'decompile_jar',
+            'check_syntax', 'create_tool',
             'respond_to_user', 'request_user_input', 'task_completed',
         ]
         for name in expected:
@@ -1277,7 +1275,7 @@ class TestSingletonRegistry(unittest.TestCase):
             'list_directory', 'list_directory_deep', 'search_files', 'search_files_dir',
             'grep_code', 'grep_code_dir', 'read_file', 'read_file_range',
             'write_file', 'edit_file', 'delete_file', 'find_symbol',
-            'decompile_jar', 'list_dependencies', 'check_syntax', 'get_file_info',
+            'decompile_jar', 'check_syntax',
             'create_tool',
             'respond_to_user', 'request_user_input', 'task_completed',
         ]

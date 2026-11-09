@@ -18,7 +18,7 @@ const AVAILABLE_TOOLS = [
     "list_directory", "list_directory_deep", "search_files", "search_files_dir",
     "grep_code", "grep_code_dir", "read_file", "read_file_range",
     "write_file", "edit_file", "delete_file", "find_symbol",
-    "decompile_jar", "list_dependencies", "check_syntax", "get_file_info",
+    "decompile_jar", "check_syntax",
     "create_tool", "respond_to_user", "request_user_input", "task_completed"
 ];
 
@@ -329,6 +329,14 @@ function _pollOnce(jobId, outputDir, agentBox) {
                         st.style.fontWeight = 'bold';
                     }
                 }
+
+                // Show pending approval / user input prompts immediately
+                if (status === 'pending_approval' && outputDir) {
+                    _showPendingApproval(jobId, outputDir, agentBox);
+                }
+                if (status === 'pending_user_input') {
+                    _showPendingUserInput(statusData, agentBox);
+                }
             } else {
                 // Job is in a terminal state — load all steps and stop polling
                 _pollSteps(jobId, outputDir, agentBox, status, true);
@@ -391,8 +399,13 @@ function _pollSteps(jobId, outputDir, agentBox, currentStatus, loadAll) {
             var steps = data.steps || [];
             var count = data.count || 0;
 
-            // Only update if we have new steps
-            if (count <= _lastStepCount && !loadAll) return;
+            // For pending_approval/pending_user_input states, always load all steps
+            // to ensure the UI reflects the latest state
+            var forceLoad = loadAll || currentStatus === 'pending_approval' || currentStatus === 'pending_user_input';
+            if (!forceLoad && count <= _lastStepCount) return;
+
+            // If force loading, reset step count to re-render everything
+            if (forceLoad) _lastStepCount = 0;
 
             // Render only new steps (from _lastStepCount onwards)
             for (var i = _lastStepCount; i < count; i++) {
@@ -1654,6 +1667,56 @@ function refreshLiveView() {
             agentBox2.appendChild(refreshMsg);
             agentBox2.scrollTop = agentBox2.scrollHeight;
         }
+    });
+}
+
+// === Inject Live Instruction ===
+function injectLiveInstruction() {
+    var input = document.getElementById('live-inject-input');
+    var btn = document.getElementById('live-inject-btn');
+    if (!input || !btn) return;
+    var instruction = input.value.trim();
+    if (!instruction) return;
+
+    var jobId = currentRunningJobId;
+    if (!jobId) {
+        // Try to find the job from the container
+        var container = document.getElementById('agent-live-container');
+        if (container) jobId = container.dataset.jobId;
+    }
+    if (!jobId) {
+        showNotification('No active job to inject into', 'warning');
+        return;
+    }
+
+    // Disable the button while injecting
+    btn.disabled = true;
+    btn.textContent = 'INJECTING...';
+    input.disabled = true;
+
+    fetch('/api/agent/inject', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({job_id: jobId, instruction: instruction})
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (data.error) throw new Error(data.error);
+        input.value = '';
+        showNotification('Instruction injected successfully', 'success');
+        // Re-enable after a short delay
+        setTimeout(function() {
+            btn.disabled = false;
+            btn.textContent = 'INJECT';
+            input.disabled = false;
+        }, 1000);
+    })
+    .catch(function(err) {
+        console.error('Inject failed:', err);
+        showNotification('Failed to inject: ' + err.message, 'error');
+        btn.disabled = false;
+        btn.textContent = 'INJECT';
+        input.disabled = false;
     });
 }
 

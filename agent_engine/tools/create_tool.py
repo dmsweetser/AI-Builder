@@ -167,8 +167,7 @@ class CreateToolTool(BaseTool):
         return ToolResult(
             True,
             f"Tool '{tool_name}' proposed for approval.\n\n"
-            f"Code preview (first 500 chars):\n{tool_code[:500]}\n\n"
-            f"Go to the TOOLS tab to review and approve or reject.",
+            f"Full code:\n{tool_code}\n\n",
             summary=f"Tool '{tool_name}' proposed for approval.",
         )
 

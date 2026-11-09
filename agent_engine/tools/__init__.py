@@ -26,8 +26,6 @@ from agent_engine.tools.delete_file import DeleteFileTool
 from agent_engine.tools.find_symbol import FindSymbolTool
 from agent_engine.tools.decompile_jar import DecompileJarTool
 from agent_engine.tools.check_syntax import CheckSyntaxTool
-from agent_engine.tools.list_dependencies import ListDependenciesTool
-from agent_engine.tools.get_file_info import GetFileInfoTool
 from agent_engine.tools.create_tool import CreateToolTool
 from agent_engine.tools.respond_to_user import RespondToUserTool
 from agent_engine.tools.request_user_input import RequestUserInputTool
