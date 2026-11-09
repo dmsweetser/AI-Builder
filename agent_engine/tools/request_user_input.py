@@ -28,7 +28,7 @@ class RequestUserInputTool(BaseTool):
             resp_file = os.path.join(output_dir, "user_input_request.txt")
             try:
                 with open(resp_file, 'w', encoding='utf-8') as f:
-                    json.dump({"question": question, "job_id": job_id}, indent=2)
+                    json.dump({"question": question, "job_id": job_id}, f, indent=2)
             except OSError:
                 pass
         return ToolResult(

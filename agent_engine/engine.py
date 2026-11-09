@@ -413,6 +413,7 @@ RULES:
 - After making changes, verify them. If check_syntax fails, fix the errors.
 - When done, use the task_completed tool with a summary of all changes made.
 - To create a new tool, use create_tool. It proposes the tool for user approval - it does NOT execute arbitrary code. Wait for user approval in the live feed before expecting the tool to be available. The tool code must define a class that inherits from BaseTool with name, description, parameters, and an execute(params) method.
+- If the user asks you to do something you CANNOT do with the currently available tools (e.g., run a shell command, execute a script, make an HTTP request, compile code, run tests, use a specific CLI tool), you SHOULD create a tool to do it. Use create_tool to propose a Python tool that implements the requested functionality, then wait for approval. Do NOT give up, do NOT say you cannot do it, and do NOT just write a script and stop — create a proper tool so the functionality is reusable.
 - Use respond_to_user to communicate findings, status updates, or questions to the user.
 - Use request_user_input when you need clarification or a decision before proceeding.
 
