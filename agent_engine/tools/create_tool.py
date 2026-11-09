@@ -118,10 +118,10 @@ class CreateToolTool(BaseTool):
                     if isinstance(attr, type) and attr.__name__ != "BaseTool":
                         # Check if it inherits from BaseTool
                         try:
-                            is_subclass = issubclass(attr, BaseTool)
+                            is_sub = issubclass(attr, BaseTool)
                         except TypeError:
-                            is_subclass = False
-                        if is_subclass:
+                            is_sub = False
+                        if is_sub:
                             if getattr(attr, "name", None) == tool_name:
                                 found_class = True
                                 break

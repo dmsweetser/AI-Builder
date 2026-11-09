@@ -1659,14 +1659,20 @@ def _find_project_and_resume_engine(project_output_dir, tool_name):
 
     # Run the engine in a background thread so that subsequent create_tool
     # calls (e.g., for a second tool) still prompt the user for approval in the UI.
+    def resume_callback(event):
+        """Callback that emits engine events back to the app's app_log for UI polling."""
+        try:
+            _log_app_event(f"Resume engine event: {event.get('type', 'unknown')} step={event.get('step', '')}")
+        except Exception:
+            pass
+
     def resume_engine():
         try:
-
             logging.info(f"Re-invoking engine for tool approval: {tool_name} in {project_output_dir}")
             _run_engine_in_background(
                 project_config=project_config,
                 output_dir=project_output_dir,
-                step_callback=resume_callback,  # Now emits events to UI
+                step_callback=resume_callback,
                 stop_event=None,
                 prev_step_history=prev_step_history,
             )
