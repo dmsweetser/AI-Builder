@@ -54,7 +54,7 @@ def _init_builtin_classes():
         ReadFileTool, ReadFileRangeTool,
         WriteFileTool, EditFileTool, DeleteFileTool,
         FindSymbolTool, DecompileJarTool,
-        ListDependenciesTool, CheckSyntaxTool, GetFileInfoTool,
+        CheckSyntaxTool,
         CreateToolTool,
         RespondToUserTool, RequestUserInputTool, TaskCompletedTool,
     ]:
