@@ -591,8 +591,14 @@ def api_update_project(pid):
         if not root_directory:
             return jsonify({"error": "Root directory is required"}), 400
 
-        # Sanitize instructions to prevent JSON injection (prevent corruption)
+        # Sanitize instructions: store as a JSON-safe string to prevent corruption
+        # when pasting large blocks of text with special characters
         instructions = data.get("instructions", project.get("instructions", ""))
+        # Ensure instructions is a proper string (not raw bytes or None)
+        if instructions is None:
+            instructions = ""
+        elif not isinstance(instructions, str):
+            instructions = str(instructions)
 
         old_name = project["name"]
         project.update({
@@ -1378,14 +1384,10 @@ def api_agent_inject():
             try:
                 os.makedirs(output_dir, exist_ok=True)
 
-                # Write the live instruction so the engine picks it up
-                instruction_file = os.path.join(output_dir, "live_instruction.txt")
-                with open(instruction_file, 'w', encoding='utf-8') as f:
-                    f.write(instruction)
-
                 # Build a project config that includes the continuation instruction
                 cont_config = dict(project_config)
                 cont_config["instructions"] = instruction
+                cont_config["output_dir"] = output_dir
 
                 # Reconstruct conversation from step history so the LLM knows
                 # what was already done, then append the new instruction.
@@ -1477,6 +1479,14 @@ def api_agent_inject():
                         json.dump(engine.messages, f, indent=2, ensure_ascii=False)
                 except Exception:
                     pass
+
+                # Update the job history entry with the new run's step history
+                if result.get("step_history"):
+                    job_record["step_history"] = result["step_history"]
+                    job_record["status"] = result.get("status", "completed")
+                    job_record["summary"] = result.get("summary", "")
+                    job_record["steps"] = result.get("steps", 0)
+                    save_job_history()
 
                 logging.info(f"Engine continuation completed: {result.get('status', 'unknown')}")
             except Exception as e:

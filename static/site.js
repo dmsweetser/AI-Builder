@@ -287,22 +287,20 @@ function _doRunProject(projectId, overrideInstruction) {
 
 // === File-Based Polling (replaces SSE) ===
 var _pollInterval = null;
-var _lastStepCount = 0;
-var _pendingApprovalShown = {};
+var _lastPollTimestamp = 0;
 
 function _startPolling(jobId, outputDir, agentBox) {
     // Clear any existing poll interval
     if (_pollInterval) clearInterval(_pollInterval);
-    _lastStepCount = 0;
-    _pendingApprovalShown = {};
+    _lastPollTimestamp = Date.now();
 
     // Initial fetch
     _pollOnce(jobId, outputDir, agentBox);
 
-    // Poll every 1.5 seconds
+    // Poll every 30 seconds
     _pollInterval = setInterval(function() {
         _pollOnce(jobId, outputDir, agentBox);
-    }, 1500);
+    }, 30000);
 }
 
 function _pollOnce(jobId, outputDir, agentBox) {
@@ -312,34 +310,33 @@ function _pollOnce(jobId, outputDir, agentBox) {
         .then(function(statusData) {
             var status = statusData.status || 'running';
 
-            // Fetch steps if we haven't loaded them all yet
-            if (status === 'running' || status === 'pending_approval' || status === 'pending_user_input') {
-                _pollSteps(jobId, outputDir, agentBox, status);
+            // Always load ALL steps (full re-render each poll)
+            _renderAllSteps(jobId, outputDir, agentBox, status);
 
-                // Update status text for pending states
-                var st = document.getElementById('agent-status-text');
-                if (st) {
-                    if (status === 'pending_approval') {
-                        st.textContent = 'PENDING TOOL APPROVAL';
-                        st.style.color = 'var(--warning)';
-                        st.style.fontWeight = 'bold';
-                    } else if (status === 'pending_user_input') {
-                        st.textContent = 'AWAITING INPUT';
-                        st.style.color = 'var(--warning)';
-                        st.style.fontWeight = 'bold';
-                    }
+            // Update status text for pending states
+            var st = document.getElementById('agent-status-text');
+            if (st) {
+                if (status === 'pending_approval') {
+                    st.textContent = 'PENDING TOOL APPROVAL';
+                    st.style.color = 'var(--warning)';
+                    st.style.fontWeight = 'bold';
+                } else if (status === 'pending_user_input') {
+                    st.textContent = 'AWAITING INPUT';
+                    st.style.color = 'var(--warning)';
+                    st.style.fontWeight = 'bold';
                 }
+            }
 
-                // Show pending approval / user input prompts immediately
-                if (status === 'pending_approval' && outputDir) {
-                    _showPendingApproval(jobId, outputDir, agentBox);
-                }
-                if (status === 'pending_user_input') {
-                    _showPendingUserInput(statusData, agentBox);
-                }
-            } else {
-                // Job is in a terminal state — load all steps and stop polling
-                _pollSteps(jobId, outputDir, agentBox, status, true);
+            // Show pending approval / user input prompts immediately
+            if (status === 'pending_approval' && outputDir) {
+                _showPendingApproval(jobId, outputDir, agentBox);
+            }
+            if (status === 'pending_user_input') {
+                _showPendingUserInput(statusData, agentBox);
+            }
+
+            // If terminal state, stop polling
+            if (status !== 'running' && status !== 'pending_approval' && status !== 'pending_user_input') {
                 if (_pollInterval) {
                     clearInterval(_pollInterval);
                     _pollInterval = null;
@@ -353,7 +350,6 @@ function _pollOnce(jobId, outputDir, agentBox) {
                 if (liveStopBtn) liveStopBtn.style.display = 'none';
 
                 // Update status text
-                var st = document.getElementById('agent-status-text');
                 if (st) {
                     if (status === 'completed') {
                         st.textContent = 'COMPLETED';
@@ -377,14 +373,6 @@ function _pollOnce(jobId, outputDir, agentBox) {
                 var ib = document.getElementById('live-inject-btn');
                 if (ii) { ii.disabled = false; ii.placeholder = 'Continue with new instructions...'; }
                 if (ib) { ib.disabled = false; ib.textContent = 'INJECT'; }
-
-                // Load pending tools if pending_approval
-                if (status === 'pending_approval' && outputDir) {
-                    _showPendingApproval(jobId, outputDir, agentBox);
-                }
-                if (status === 'pending_user_input') {
-                    _showPendingUserInput(statusData, agentBox);
-                }
             }
         })
         .catch(function(err) {
@@ -392,38 +380,30 @@ function _pollOnce(jobId, outputDir, agentBox) {
         });
 }
 
-function _pollSteps(jobId, outputDir, agentBox, currentStatus, loadAll) {
+function _renderAllSteps(jobId, outputDir, agentBox, currentStatus) {
     fetch('/api/job/' + jobId + '/steps')
         .then(function(r) { return r.json(); })
         .then(function(data) {
             var steps = data.steps || [];
             var count = data.count || 0;
 
-            // For pending_approval/pending_user_input states, always load all steps
-            // to ensure the UI reflects the latest state
-            var forceLoad = loadAll || currentStatus === 'pending_approval' || currentStatus === 'pending_user_input';
-            if (!forceLoad && count <= _lastStepCount) return;
+            // Always re-render all steps from scratch
+            agentBox.innerHTML = '';
 
-            // If force loading, reset step count to re-render everything
-            if (forceLoad) _lastStepCount = 0;
-
-            // Render only new steps (from _lastStepCount onwards)
-            for (var i = _lastStepCount; i < count; i++) {
+            for (var i = 0; i < count; i++) {
                 var step = steps[i];
                 if (step) {
                     _renderStep(step, agentBox);
                 }
             }
-            _lastStepCount = count;
 
-            // Handle pending_approval from step data
-            if (currentStatus === 'pending_approval' && outputDir && !(_pendingApprovalShown[jobId])) {
-                _pendingApprovalShown[jobId] = true;
+            // Show pending approval banner if applicable
+            if (currentStatus === 'pending_approval' && outputDir) {
                 _showPendingApproval(jobId, outputDir, agentBox);
             }
         })
         .catch(function(err) {
-            console.error('Failed to poll steps:', err);
+            console.error('Failed to load steps:', err);
         });
 }
 
@@ -457,19 +437,17 @@ function _renderStep(step, agentBox) {
         var rawReq = step.raw_request || '';
         var rawResp = step.raw_response || '';
         var hasRaw = rawReq.length > 0 || rawResp.length > 0;
-        var html = '<div class="step-tool">Thinking (' + msgCount + ' messages)</div>';
-        html += '<div class="step-result">' + escapeHtml(step.result ? step.result.content : 'Processing request...') + '</div>';
+        var respContent = step.result ? step.result.content : '';
+        var preview = respContent ? (respContent.length > 200 ? respContent.substring(0, 200) + '...' : respContent) : 'Processing request...';
+        var html = '<div class="step-tool">🤔 Thinking (' + msgCount + ' messages)</div>' +
+            '<div class="step-result">' + escapeHtml(preview) + '</div>';
         if (hasRaw) {
             html += '<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">';
             if (rawReq.length > 0) {
-                var reqId = 'raw-req-' + step.step + '-' + Math.random().toString(36).substr(2,5);
-                var reqPreview = rawReq;
-                html += '<details class="raw-data-block"><summary class="raw-summary">📤 Raw Request (' + rawReq.length + ' chars)</summary><div class="raw-content"><pre>' + escapeHtml(reqPreview) + '</pre></div></details>';
+                html += '<details class="raw-data-block"><summary class="raw-summary">📤 Raw Request (' + rawReq.length + ' chars)</summary><div class="raw-content"><pre>' + escapeHtml(rawReq) + '</pre></div></details>';
             }
             if (rawResp.length > 0) {
-                var respId = 'raw-resp-' + step.step + '-' + Math.random().toString(36).substr(2,5);
-                var respPreview = rawResp;
-                html += '<details class="raw-data-block"><summary class="raw-summary">📥 Raw Response (' + rawResp.length + ' chars)</summary><div class="raw-content"><pre>' + escapeHtml(respPreview) + '</pre></div></details>';
+                html += '<details class="raw-data-block"><summary class="raw-summary">📥 Raw Response (' + rawResp.length + ' chars)</summary><div class="raw-content"><pre>' + escapeHtml(rawResp) + '</pre></div></details>';
             }
             html += '</div>';
         }
@@ -604,19 +582,17 @@ function handleAgentStep(data, agentBox) {
         var rawReq = data.raw_request || '';
         var rawResp = data.raw_response || '';
         var hasRaw = rawReq.length > 0 || rawResp.length > 0;
-        var html = '<div class="step-tool">Thinking (' + msgCount + ' messages)</div>';
-        html += '<div class="step-result">' + escapeHtml(data.result ? data.result.content : 'Processing request...') + '</div>';
+        var respContent = data.result ? data.result.content : '';
+        var preview = respContent ? (respContent.length > 200 ? respContent.substring(0, 200) + '...' : respContent) : 'Processing request...';
+        var html = '<div class="step-tool">🤔 Thinking (' + msgCount + ' messages)</div>' +
+            '<div class="step-result">' + escapeHtml(preview) + '</div>';
         if (hasRaw) {
             html += '<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">';
             if (rawReq.length > 0) {
-                var reqId = 'raw-req-' + data.step + '-' + Math.random().toString(36).substr(2,5);
-                var reqPreview = rawReq;
-                html += '<details class="raw-data-block"><summary class="raw-summary">📤 Raw Request (' + rawReq.length + ' chars)</summary><div class="raw-content"><pre>' + escapeHtml(reqPreview) + '</pre></div></details>';
+                html += '<details class="raw-data-block"><summary class="raw-summary">📤 Raw Request (' + rawReq.length + ' chars)</summary><div class="raw-content"><pre>' + escapeHtml(rawReq) + '</pre></div></details>';
             }
             if (rawResp.length > 0) {
-                var respId = 'raw-resp-' + data.step + '-' + Math.random().toString(36).substr(2,5);
-                var respPreview = rawResp;
-                html += '<details class="raw-data-block"><summary class="raw-summary">📥 Raw Response (' + rawResp.length + ' chars)</summary><div class="raw-content"><pre>' + escapeHtml(respPreview) + '</pre></div></details>';
+                html += '<details class="raw-data-block"><summary class="raw-summary">📥 Raw Response (' + rawResp.length + ' chars)</summary><div class="raw-content"><pre>' + escapeHtml(rawResp) + '</pre></div></details>';
             }
             html += '</div>';
         }
@@ -1555,6 +1531,11 @@ function showLiveViewForJob(jobId) {
         } else {
             // Job is pending, completed, or stopped - load history and show it
             loadJobHistory(jobId, function() {
+                // Always start polling (every 30s) so the feed auto-refreshes
+                // even for completed jobs — user can see if a continuation started
+                var agentBox = document.getElementById('agent-live-box');
+                _startPolling(jobId, null, agentBox);
+
                 // Enable inject if job is pending (user can inject to resume)
                 if (isPendingApproval || isPendingInput) {
                     agentRunning = false;
@@ -1577,6 +1558,11 @@ function showLiveViewForJob(jobId) {
                         statusText.textContent = jobRecord.status === 'completed' ? 'COMPLETED' : (jobRecord.status === 'error' ? 'ERROR' : (jobRecord.status === 'stopped' ? 'STOPPED' : jobRecord.status.toUpperCase()));
                         statusText.style.color = jobRecord.status === 'completed' ? 'var(--success)' : (jobRecord.status === 'error' ? 'var(--danger)' : 'var(--text-muted)');
                     }
+                    // Enable inject for completed jobs so user can INJECT to resume
+                    var injectInput = document.getElementById('live-inject-input');
+                    var injectBtn = document.getElementById('live-inject-btn');
+                    if (injectInput) { injectInput.disabled = false; injectInput.placeholder = 'Continue with new instructions...'; }
+                    if (injectBtn) { injectBtn.disabled = false; injectBtn.textContent = 'INJECT'; }
                 }
             });
         }
