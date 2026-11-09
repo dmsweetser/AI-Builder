@@ -579,37 +579,43 @@ def api_create_project():
 
 @app.route("/api/projects/<pid>", methods=["POST"])
 def api_update_project(pid):
-    project, projects = get_project(pid)
-    if not project:
-        return jsonify({"error": "Project not found"}), 404
+    try:
+        project, projects = get_project(pid)
+        if not project:
+            return jsonify({"error": "Project not found"}), 404
 
-    # Accept both JSON and form-encoded data (like api_create_project)
-    data = request.get_json(silent=True) or request.form.to_dict()
+        # Accept both JSON and form-encoded data (like api_create_project)
+        data = request.get_json(silent=True) or request.form.to_dict()
 
-    root_directory = data.get("rootDirectory", project.get("rootDirectory", ""))
-    if not root_directory:
-        return jsonify({"error": "Root directory is required"}), 400
+        root_directory = data.get("rootDirectory", project.get("rootDirectory", ""))
+        if not root_directory:
+            return jsonify({"error": "Root directory is required"}), 400
 
-    # Sanitize instructions to prevent JSON injection (prevent corruption)
-    instructions = data.get("instructions", project.get("instructions", ""))
+        # Sanitize instructions to prevent JSON injection (prevent corruption)
+        instructions = data.get("instructions", project.get("instructions", ""))
 
-    project.update({
-        "name": data.get("name", project["name"]),
-        "rootDirectory": root_directory,
-        "instructions": instructions,
-    })
+        old_name = project["name"]
+        project.update({
+            "name": data.get("name", old_name),
+            "rootDirectory": root_directory,
+            "instructions": instructions,
+        })
 
-    # Only update output_dir if the name actually changed
-    old_safe_name = sanitize_output_dir_name(project.get("name", ""))
-    new_safe_name = sanitize_output_dir_name(project["name"])
-    if old_safe_name != new_safe_name:
-        project["output_dir"] = os.path.join(_AIB_INSTANCE, "output", new_safe_name)
-        os.makedirs(project["output_dir"], exist_ok=True)
+        # Only update output_dir if the name actually changed
+        old_safe_name = sanitize_output_dir_name(old_name)
+        new_safe_name = sanitize_output_dir_name(project["name"])
+        if old_safe_name != new_safe_name:
+            project["output_dir"] = os.path.join(_AIB_INSTANCE, "output", new_safe_name)
+            os.makedirs(project["output_dir"], exist_ok=True)
 
-    # Clean up old enabled_tools field if present
-    project.pop("enabled_tools", None)
-    save_project(project)
-    return jsonify({"status": "saved", "project": project})
+        # Clean up old enabled_tools field if present
+        project.pop("enabled_tools", None)
+        save_project(project)
+        return jsonify({"status": "saved", "project": project})
+    except Exception as e:
+        import traceback
+        app.logger.error(f"Error updating project {pid}: {e}\n{traceback.format_exc()}")
+        return jsonify({"error": str(e)}), 500
 
 @app.route("/api/projects/<pid>/archive", methods=["POST"])
 def api_archive_project(pid):
