@@ -681,6 +681,67 @@ def api_run_project(pid):
     return jsonify({"status": "queued", "job_id": job_id, "run_number": run_number, "output_dir": output_dir})
 
 # --- Routes: Queue ---
+@app.route("/api/agent/run", methods=["POST"])
+def api_agent_run():
+    """Start a new agent run from the frontend (non-project-lookup path).
+
+    Accepts JSON with: project_id, rootDirectory, instructions,
+    and optionally continue_from_job / new_instruction for continuation.
+    """
+    data = request.get_json(silent=True) or {}
+    pid = data.get("project_id")
+
+    if pid:
+        project, projects = get_project(pid)
+        if not project:
+            return jsonify({"error": "Project not found"}), 404
+
+        root_dir = data.get("rootDirectory", project.get("rootDirectory", ""))
+        instructions = data.get("instructions", project.get("instructions", ""))
+        continue_from_job = data.get("continue_from_job")
+        new_instruction = data.get("new_instruction")
+
+        if not root_dir:
+            return jsonify({"error": "Root directory is required"}), 400
+
+        # Use project's persistent output directory
+        output_dir = project.get("output_dir", os.path.join(_AIB_INSTANCE, "output", pid))
+        os.makedirs(output_dir, exist_ok=True)
+
+        # If continuing from a previous job, merge instructions
+        if continue_from_job and new_instruction:
+            instructions = new_instruction
+    else:
+        root_dir = data.get("rootDirectory", "")
+        instructions = data.get("instructions", "")
+        if not root_dir:
+            return jsonify({"error": "Root directory is required"}), 400
+        output_dir = os.path.join(_AIB_INSTANCE, "output", str(int(time.time() * 1000)))
+        os.makedirs(output_dir, exist_ok=True)
+        project = None
+
+    # Increment run number if we have a project
+    if project:
+        project["run_number"] = project.get("run_number", 0) + 1
+        run_number = project["run_number"]
+        project["last_job_id"] = None
+        save_project(project)
+    else:
+        run_number = 0
+
+    job_id = str(int(time.time() * 1000))
+
+    with job_queue_lock:
+        job_queue.append({"job_id": job_id, "project_id": pid or job_id})
+    start_worker()
+    return jsonify({
+        "status": "queued",
+        "job_id": job_id,
+        "run_number": run_number,
+        "output_dir": output_dir,
+    })
+
+
 @app.route("/api/queue", methods=["GET"])
 def api_get_queue():
     with job_queue_lock:
