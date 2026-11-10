@@ -2552,6 +2552,7 @@ class TestPendingToolApprovalEngine(unittest.TestCase):
     def test_pending_approval_status(self):
         tmpdir = tempfile.mkdtemp()
         try:
+            os.environ["AIB_OUTPUT_DIR"] = tmpdir
             os.makedirs(os.path.join(tmpdir, "src"), exist_ok=True)
             with open(os.path.join(tmpdir, "README.md"), "w") as f:
                 f.write("# Test")
@@ -2566,6 +2567,9 @@ class TestPendingToolApprovalEngine(unittest.TestCase):
                 f"[{prefix}_TOOL_START]\n[{prefix}_TOOL_NAME]\n"
                 f"{prefix}_create_tool\n"
                 f"[{prefix}_PARAM_NAME]\nname\n[{prefix}_PARAM_VALUE]\nmy_tool\n"
+                f"[{prefix}_PARAM_NAME]\ndescription\n[{prefix}_PARAM_VALUE]\nA test tool that does something for testing purposes\n"
+                f"[{prefix}_PARAM_NAME]\nparameters\n[{prefix}_PARAM_VALUE]\n{{}}\n"
+                f"[{prefix}_PARAM_NAME]\ncode\n[{prefix}_PARAM_VALUE]\nfrom agent_engine.tools.base import BaseTool, ToolResult\nclass my_tool(BaseTool):\n    name = 'my_tool'\n    description = 'A test tool'\n    parameters = {{}}\n    def execute(self, params):\n        return ToolResult(True, 'ok')\n"
                 f"[{prefix}_TOOL_END]"
             )
             with patch.object(engine.llm, 'call', return_value={
@@ -2575,6 +2579,7 @@ class TestPendingToolApprovalEngine(unittest.TestCase):
                 self.assertEqual(result["status"], "pending_approval")
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)
+            os.environ.pop("AIB_OUTPUT_DIR", None)
 
     def test_check_pending_tools_emits_events(self):
         """_check_pending_tools should emit pending_approval events for each pending tool."""
