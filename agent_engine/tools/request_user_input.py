@@ -22,13 +22,11 @@ class RequestUserInputTool(BaseTool):
 
     def execute(self, params: Dict[str, str]) -> ToolResult:
         question = params["question"]
-        output_dir = os.environ.get("AIB_OUTPUT_DIR", "")
-        job_id = os.environ.get("AIB_JOB_ID", "")
-        if output_dir:
-            resp_file = os.path.join(output_dir, "user_input_request.txt")
+        if self.output_dir:
+            resp_file = os.path.join(self.output_dir, "user_input_request.txt")
             try:
                 with open(resp_file, 'w', encoding='utf-8') as f:
-                    json.dump({"question": question, "job_id": job_id}, f, indent=2)
+                    json.dump({"question": question, "job_id": self.job_id}, f, indent=2)
             except OSError:
                 pass
         return ToolResult(

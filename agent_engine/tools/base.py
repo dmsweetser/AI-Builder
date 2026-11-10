@@ -27,8 +27,10 @@ class BaseTool:
     description: str = ""
     parameters: Dict[str, str] = {}
 
-    def __init__(self, root_dir: str):
+    def __init__(self, root_dir: str, output_dir: str = "", job_id: str = ""):
         self.root_dir = root_dir
+        self.output_dir = output_dir
+        self.job_id = job_id
 
     def execute(self, params: Dict[str, str]) -> ToolResult:
         raise NotImplementedError

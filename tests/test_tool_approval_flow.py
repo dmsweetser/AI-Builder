@@ -108,7 +108,7 @@ class TestCreateToolPendingApproval(unittest.TestCase):
 
             called_tools = []
 
-            def mock_execute(tn, params, root_dir=None, project_output_dir="", disabled_tools=None):
+            def mock_execute(tn, params, root_dir=None, project_output_dir="", disabled_tools=None, job_id="", **kwargs):
                 called_tools.append(tn)
                 if tn == "create_tool":
                     pending_dir = os.path.join(project_output_dir, "tools", "pending")
@@ -175,7 +175,7 @@ class TestResumeWithoutStepHistory(unittest.TestCase):
 
             all_called_tools = []
 
-            def mock_execute1(tn, params, root_dir=None, project_output_dir="", disabled_tools=None):
+            def mock_execute1(tn, params, root_dir=None, project_output_dir="", disabled_tools=None, job_id="", **kwargs):
                 all_called_tools.append(tn)
                 if tn == "create_tool":
                     pending_dir = os.path.join(project_output_dir, "tools", "pending")
@@ -231,7 +231,7 @@ class TestResumeWithoutStepHistory(unittest.TestCase):
                 "raw_request": "", "raw_response": "",
             }
 
-            def mock_execute2(tn, params, root_dir=None, project_output_dir="", disabled_tools=None):
+            def mock_execute2(tn, params, root_dir=None, project_output_dir="", disabled_tools=None, job_id="", **kwargs):
                 all_called_tools.append(tn)
                 if tn == "task_completed":
                     return TaskCompletedTool(root_dir or tmpdir).execute(params)
@@ -278,7 +278,7 @@ class TestResumeWithStepHistory(unittest.TestCase):
 
             all_called_tools = []
 
-            def mock_execute1(tn, params, root_dir=None, project_output_dir="", disabled_tools=None):
+            def mock_execute1(tn, params, root_dir=None, project_output_dir="", disabled_tools=None, job_id="", **kwargs):
                 all_called_tools.append(tn)
                 if tn == "create_tool":
                     pending_dir = os.path.join(project_output_dir, "tools", "pending")
@@ -334,7 +334,7 @@ class TestResumeWithStepHistory(unittest.TestCase):
                 "raw_request": "", "raw_response": "",
             }
 
-            def mock_execute2(tn, params, root_dir=None, project_output_dir="", disabled_tools=None):
+            def mock_execute2(tn, params, root_dir=None, project_output_dir="", disabled_tools=None, job_id="", **kwargs):
                 all_called_tools.append(tn)
                 if tn == "task_completed":
                     return TaskCompletedTool(root_dir or tmpdir).execute(params)

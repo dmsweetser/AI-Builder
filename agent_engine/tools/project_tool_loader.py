@@ -114,14 +114,15 @@ class ProjectToolLoader:
         """Return all registered tool names (built-in + dynamic)."""
         return set(self._dynamic_tools.keys())
 
-    def create_tool_instance(self, tool_name: str, root_dir: str) -> Optional[BaseTool]:
+    def create_tool_instance(self, tool_name: str, root_dir: str,
+                             output_dir: str = "", job_id: str = "") -> Optional[BaseTool]:
         """Create a tool instance for execution."""
         if tool_name in self.disabled_tools:
             return None
         if tool_name in self._dynamic_tools:
             cls = self._dynamic_tools[tool_name]
             try:
-                return cls(root_dir)
+                return cls(root_dir, output_dir=output_dir or self.project_output_dir, job_id=job_id)
             except Exception:
                 return None
         return None

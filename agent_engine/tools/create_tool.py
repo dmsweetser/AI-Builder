@@ -64,9 +64,9 @@ class CreateToolTool(BaseTool):
             return ToolResult(False, "", error=f"Invalid JSON for parameters: {e}")
 
         # Determine the project's output directory
-        output_dir = os.environ.get("AIB_OUTPUT_DIR", "")
+        output_dir = self.output_dir
         if not output_dir:
-            return ToolResult(False, "", error="AIB_OUTPUT_DIR not set — cannot create tool")
+            return ToolResult(False, "", error="output_dir not available — cannot create tool")
 
         # Ensure sys is available for the project-root lookup below
         import sys as _sys

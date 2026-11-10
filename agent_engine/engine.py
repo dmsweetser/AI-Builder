@@ -1521,7 +1521,7 @@ class AgentEngine:
                                     })
                                 except Exception:
                                     pass
-                            result = self.tools.execute("task_completed", tool_calls[0][1], self.root_dir, self.output_dir, set(self.project_config.get("disabled_tools", [])))
+                            result = self.tools.execute("task_completed", tool_calls[0][1], self.root_dir, self.output_dir, set(self.project_config.get("disabled_tools", [])), job_id=self.job_id)
                             result_dict = result.to_dict()
                             step_entry["result"] = result_dict
                         except Exception as e:
@@ -1590,7 +1590,7 @@ class AgentEngine:
                                 })
                             except Exception:
                                 pass
-                        result = self.tools.execute(tool_name, params, self.root_dir, self.output_dir, set(self.project_config.get("disabled_tools", [])))
+                        result = self.tools.execute(tool_name, params, self.root_dir, self.output_dir, set(self.project_config.get("disabled_tools", [])), job_id=self.job_id)
                         result_dict = result.to_dict()
 
                         # Truncate tool result content to prevent context overflow.

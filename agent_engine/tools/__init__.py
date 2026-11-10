@@ -197,7 +197,8 @@ class ToolRegistry:
 
     def _create_tool_instance(self, tool_name: str, root_dir: str,
                               project_output_dir: str,
-                              disabled_tools: Optional[Set[str]] = None) -> Optional[BaseTool]:
+                              disabled_tools: Optional[Set[str]] = None,
+                              job_id: str = "") -> Optional[BaseTool]:
         """Create a tool instance for execution.
 
         Checks project-local tools first, then built-in tools.
@@ -209,7 +210,7 @@ class ToolRegistry:
 
         # Check project-local tools first
         loader = self._get_or_create_loader(project_output_dir, disabled_tools)
-        project_tool = loader.create_tool_instance(tool_name, root_dir)
+        project_tool = loader.create_tool_instance(tool_name, root_dir, job_id=job_id)
         if project_tool:
             return project_tool
 
@@ -217,7 +218,7 @@ class ToolRegistry:
         if tool_name in _BUILTIN_TOOL_CLASSES:
             cls = _BUILTIN_TOOL_CLASSES[tool_name]
             try:
-                return cls(root_dir)
+                return cls(root_dir, output_dir=project_output_dir, job_id=job_id)
             except Exception as e:
                 logging.warning(f"Failed to instantiate built-in tool '{tool_name}': {e}")
                 return None
@@ -252,7 +253,8 @@ class ToolRegistry:
         return set(_BUILTIN_TOOL_CLASSES.keys()) | self._get_all_dynamic_names()
 
     def execute(self, tool_name: str, params: Dict[str, Any], root_dir: str,
-                project_output_dir: str = "", disabled_tools: Optional[Set[str]] = None) -> ToolResult:
+                project_output_dir: str = "", disabled_tools: Optional[Set[str]] = None,
+                job_id: str = "") -> ToolResult:
         """Execute a tool by name with validated parameters.
 
         Creates a tool instance with the given root_dir for this execution.
@@ -264,13 +266,14 @@ class ToolRegistry:
             root_dir: Project root directory.
             project_output_dir: Project output directory (for project-local tools).
             disabled_tools: Set of tool names to disable for this project.
+            job_id: Current job ID (for tools that need it).
         """
         if disabled_tools is None:
             disabled_tools = set()
         if not project_output_dir:
             project_output_dir = os.path.join(root_dir, "output")
 
-        tool = self._create_tool_instance(tool_name, root_dir, project_output_dir, disabled_tools)
+        tool = self._create_tool_instance(tool_name, root_dir, project_output_dir, disabled_tools, job_id=job_id)
         if not tool:
             available = [t for t in _BUILTIN_TOOL_CLASSES.keys() if t not in self._enabled_tools]
             available += sorted(self._get_all_dynamic_names())

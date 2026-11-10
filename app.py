@@ -70,6 +70,8 @@ _sse_event_queues_lock = threading.Lock()
 # --- Settings State ---
 settings_lock = threading.RLock()  # RLock allows re-entrant locking
 settings_cache = {}
+# Global settings cache for engine access
+_settings = {}
 
 
 def _load_settings_unlocked():
@@ -82,33 +84,33 @@ def _load_settings_unlocked():
         except Exception:
             loaded = {}
 
-    # Fill defaults from env vars for anything not in settings file
-    loaded.setdefault('custom_endpoint_url', os.getenv("CUSTOM_ENDPOINT_URL", ""))
-    loaded.setdefault('custom_api_key', os.getenv("CUSTOM_API_KEY", ""))
-    loaded.setdefault('custom_model_name', os.getenv("CUSTOM_MODEL_NAME", ""))
-    loaded.setdefault('custom_verify_ssl', os.getenv("CUSTOM_VERIFY_SSL", "false").lower() == "true")
-    loaded.setdefault('max_steps', int(os.getenv("AIB_MAX_STEPS", "500")))
-    loaded.setdefault('timeout', int(os.getenv("CUSTOM_TIMEOUT", "7200")))
-    loaded.setdefault('max_context_tokens', int(os.getenv("AIB_MAX_CONTEXT_TOKENS", "262144")))
-    loaded.setdefault('max_output_tokens', int(os.getenv("AIB_MAX_OUTPUT_TOKENS", "131072")))
-    loaded.setdefault('max_tool_result_length', int(os.getenv("AIB_MAX_TOOL_RESULT_LENGTH", "10000")))
-    loaded.setdefault('root_directory', os.getenv("ROOT_DIRECTORY", ""))
-    loaded.setdefault('jd_cli_path', os.getenv("JD_CLI_PATH", ""))
-    loaded.setdefault('java_home', os.getenv("JAVA_HOME", ""))
-    loaded.setdefault('dotnet_cli_path', os.getenv("DOTNET_CLI_PATH", ""))
+    # Fill defaults for anything not in settings file
+    loaded.setdefault('custom_endpoint_url', "")
+    loaded.setdefault('custom_api_key', "")
+    loaded.setdefault('custom_model_name', "")
+    loaded.setdefault('custom_verify_ssl', False)
+    loaded.setdefault('max_steps', 500)
+    loaded.setdefault('timeout', 7200)
+    loaded.setdefault('max_context_tokens', 262144)
+    loaded.setdefault('max_output_tokens', 131072)
+    loaded.setdefault('max_tool_result_length', 2000)
+    loaded.setdefault('root_directory', "")
+    loaded.setdefault('jd_cli_path', "")
+    loaded.setdefault('java_home', "")
+    loaded.setdefault('dotnet_cli_path', "")
 
     return loaded
 
 
 def load_settings():
-    """Load settings from disk, falling back to env vars."""
-    global settings_cache
+    """Load settings from disk, falling back to defaults."""
+    global settings_cache, _settings
     with settings_lock:
         if settings_cache:
             return settings_cache.copy()
-
         loaded = _load_settings_unlocked()
         settings_cache = loaded
+        _settings = loaded
         return loaded.copy()
 
 
@@ -119,35 +121,22 @@ def save_settings(settings):
             with open(SETTINGS_FILE, 'w') as f:
                 json.dump(settings, f, indent=2)
             settings_cache.clear()
+            _settings.clear()
             load_settings()  # Reload into cache
+            # Sync to engine config
+            from agent_engine.config import set_global_settings
+            set_global_settings(get_settings())
         except Exception as e:
             logging.error(f"Failed to save settings: {e}")
 
 
-def apply_settings_to_env():
-    """Apply settings to environment variables for engine config."""
-    s = load_settings()
-    os.environ["AIB_MAX_STEPS"] = str(s.get('max_steps', 500))
-    os.environ["CUSTOM_TIMEOUT"] = str(s.get('timeout', 7200))
-    os.environ["AIB_MAX_CONTEXT_TOKENS"] = str(s.get('max_context_tokens', 262144))
-    os.environ["AIB_MAX_OUTPUT_TOKENS"] = str(s.get('max_output_tokens', 131072))
-    os.environ["AIB_MAX_TOOL_RESULT_LENGTH"] = str(s.get('max_tool_result_length', 10000))
-    if s.get('root_directory'):
-        os.environ["ROOT_DIRECTORY"] = s['root_directory']
-    if s.get('jd_cli_path'):
-        os.environ["JD_CLI_PATH"] = s['jd_cli_path']
-    if s.get('java_home'):
-        os.environ["JAVA_HOME"] = s['java_home']
-    if s.get('dotnet_cli_path'):
-        os.environ["DOTNET_CLI_PATH"] = s['dotnet_cli_path']
-    # OpenAI-compatible endpoint settings (always used now)
-    if s.get('custom_endpoint_url'):
-        os.environ["CUSTOM_ENDPOINT_URL"] = s['custom_endpoint_url']
-    if s.get('custom_api_key'):
-        os.environ["CUSTOM_API_KEY"] = s['custom_api_key']
-    if s.get('custom_model_name'):
-        os.environ["CUSTOM_MODEL_NAME"] = s['custom_model_name']
-    os.environ["CUSTOM_VERIFY_SSL"] = str(s.get('custom_verify_ssl', False)).lower()
+def get_settings():
+    """Get the current settings dict (thread-safe)."""
+    global _settings
+    with settings_lock:
+        if not _settings:
+            load_settings()
+        return dict(_settings)
 
 
 # --- Initialization ---
@@ -214,8 +203,12 @@ def load_projects():
     return projects
 
 
-def save_project(project):
-    """Save a single project to its own JSON file (atomic write to prevent corruption)."""
+# --- Project Lock (prevents concurrent writes that corrupt project.json) ---
+_project_lock = threading.RLock()
+
+
+def _save_project_unlocked(project):
+    """Internal: save a project to disk without acquiring lock. Must be called inside _project_lock."""
     pid = project.get("id", "")
     if not pid:
         raise ValueError("Project must have an id")
@@ -226,7 +219,6 @@ def save_project(project):
         if field not in project:
             raise ValueError(f"Project missing required field: {field}")
     # Atomic write: write to temp file first, then rename
-    # This prevents JSON corruption if the write is interrupted
     tmp_path = fpath + ".tmp"
     try:
         with open(tmp_path, 'w', encoding='utf-8') as f:
@@ -241,6 +233,12 @@ def save_project(project):
         except OSError:
             pass
         raise
+
+
+def save_project(project):
+    """Save a single project to its own JSON file (thread-safe, atomic write)."""
+    with _project_lock:
+        _save_project_unlocked(project)
 
 
 def delete_project_file(pid):
@@ -327,14 +325,11 @@ def run_with_agent_engine(project_config: Dict[str, Any], output_dir: str = None
     if output_dir is None:
         output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aib_instance", "output", project_config["job_id"])
 
-    os.environ["AIB_ROOT"] = root_dir
     # Write instructions to a file to avoid env var length limits
     instructions_file = os.path.join(output_dir, "instructions.txt")
     os.makedirs(output_dir, exist_ok=True)
     with open(instructions_file, 'w', encoding='utf-8') as f:
         f.write(project_config.get("instructions", ""))
-    os.environ["AIB_INSTRUCTIONS_FILE"] = instructions_file
-    os.environ["AIB_OUTPUT_DIR"] = output_dir
 
     # Clean old step files from previous runs in this project's output dir
     # so a fresh run doesn't pick up stale steps
@@ -543,43 +538,44 @@ def api_get_project(pid):
 
 @app.route("/api/projects", methods=["POST"])
 def api_create_project():
-    projects = load_projects()
-    pid = str(uuid.uuid4())
+    with _project_lock:
+        projects = load_projects()
+        pid = str(uuid.uuid4())
 
-    # Accept both JSON and form-encoded data
-    data = request.get_json(silent=True) or request.form.to_dict()
-    name = data.get("name", "")
-    if not name:
-        return jsonify({"error": "Project name is required"}), 400
+        # Accept both JSON and form-encoded data
+        data = request.get_json(silent=True) or request.form.to_dict()
+        name = data.get("name", "")
+        if not name:
+            return jsonify({"error": "Project name is required"}), 400
 
-    root_directory = data.get("rootDirectory", "")
-    if not root_directory:
-        return jsonify({"error": "Root directory is required"}), 400
+        root_directory = data.get("rootDirectory", "")
+        if not root_directory:
+            return jsonify({"error": "Root directory is required"}), 400
 
-    # Determine output directory for this project — use sanitized project name
-    safe_name = sanitize_output_dir_name(name)
-    output_dir = os.path.join(_AIB_INSTANCE, "output", safe_name)
-    os.makedirs(output_dir, exist_ok=True)
+        # Determine output directory for this project — use sanitized project name
+        safe_name = sanitize_output_dir_name(name)
+        output_dir = os.path.join(_AIB_INSTANCE, "output", safe_name)
+        os.makedirs(output_dir, exist_ok=True)
 
-    project = {
-        "id": pid,
-        "name": name,
-        "rootDirectory": root_directory,
-        "instructions": data.get("instructions", ""),
-        "isArchived": False,
-        "disabled_tools": [],
-        "output_dir": output_dir,
-        "run_number": 0,
-        "last_job_id": None,
-    }
+        project = {
+            "id": pid,
+            "name": name,
+            "rootDirectory": root_directory,
+            "instructions": data.get("instructions", ""),
+            "isArchived": False,
+            "disabled_tools": [],
+            "output_dir": output_dir,
+            "run_number": 0,
+            "last_job_id": None,
+        }
 
-    projects.append(project)
-    save_project(project)
-    return jsonify(project)
+        projects.append(project)
+        _save_project_unlocked(project)
+        return jsonify(project)
 
 @app.route("/api/projects/<pid>", methods=["POST"])
 def api_update_project(pid):
-    try:
+    with _project_lock:
         project, projects = get_project(pid)
         if not project:
             return jsonify({"error": "Project not found"}), 404
@@ -616,37 +612,35 @@ def api_update_project(pid):
 
         # Clean up old enabled_tools field if present
         project.pop("enabled_tools", None)
-        save_project(project)
+        _save_project_unlocked(project)
         return jsonify({"status": "saved", "project": project})
-    except Exception as e:
-        import traceback
-        app.logger.error(f"Error updating project {pid}: {e}\n{traceback.format_exc()}")
-        return jsonify({"error": str(e)}), 500
 
 @app.route("/api/projects/<pid>/archive", methods=["POST"])
 def api_archive_project(pid):
-    projects = load_projects()
-    for project in projects:
-        if project["id"] == pid:
-            project["isArchived"] = True
-            save_project(project)
-            break
-    return jsonify({"status": "archived"})
+    with _project_lock:
+        projects = load_projects()
+        for project in projects:
+            if project["id"] == pid:
+                project["isArchived"] = True
+                _save_project_unlocked(project)
+                break
+        return jsonify({"status": "archived"})
 
 @app.route("/api/projects/<pid>/unarchive", methods=["POST"])
 def api_unarchive_project(pid):
-    projects = load_projects()
-    for project in projects:
-        if project["id"] == pid:
-            project["isArchived"] = False
-            save_project(project)
-            break
-    return jsonify({"status": "unarchived"})
+    with _project_lock:
+        projects = load_projects()
+        for project in projects:
+            if project["id"] == pid:
+                project["isArchived"] = False
+                _save_project_unlocked(project)
+                break
+        return jsonify({"status": "unarchived"})
 
 
 @app.route("/api/projects/<pid>/reset", methods=["POST"])
 def api_reset_project(pid):
-    """Reset a project: clear all run output, reset run counter."""
+    """Reset a project: kill any running job, archive output, reset run counter."""
     try:
         project, projects = get_project(pid)
         if not project:
@@ -655,12 +649,21 @@ def api_reset_project(pid):
         # Check if project is currently running or queued
         is_running, is_queued, existing_job_id = get_concurrent_job_info(pid)
         if is_running or is_queued:
-            return jsonify({"error": "Cannot reset a project that is running or queued"}), 409
+            # Kill the running/queued job first
+            _kill_job_for_project(pid)
+            # Small delay to let the worker clean up
+            import time as _time
+            _time.sleep(0.3)
 
-        # Clear the output directory
+        # Archive the output directory instead of deleting
         output_dir = project.get("output_dir", os.path.join(_AIB_INSTANCE, "output", pid))
+        archive_dir = output_dir + ".archive"
         if os.path.exists(output_dir):
-            shutil.rmtree(output_dir)
+            # Remove old archive if any
+            if os.path.exists(archive_dir):
+                shutil.rmtree(archive_dir)
+            os.rename(output_dir, archive_dir)
+        # Create fresh output directory
         os.makedirs(output_dir, exist_ok=True)
 
         # Reset project state
@@ -678,6 +681,18 @@ def api_reset_project(pid):
         import traceback
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
+
+
+def _kill_job_for_project(pid):
+    """Kill a running or queued job for a project."""
+    global running_job
+    with job_queue_lock:
+        # Remove from queue
+        job_queue[:] = [j for j in job_queue if j["project_id"] != pid]
+        # Stop running job if it's for this project
+        if running_job and running_job["project_id"] == pid:
+            running_job = None
+    start_worker()
 
 
 @app.route("/api/projects/<pid>/run", methods=["POST"])
@@ -1133,7 +1148,6 @@ def api_save_settings():
         current[key] = value
 
     save_settings(current)
-    apply_settings_to_env()
     return jsonify({"status": "saved"})
 
 
@@ -1144,7 +1158,6 @@ def api_reload_settings():
     with settings_lock:
         settings_cache.clear()
     settings = load_settings()
-    apply_settings_to_env()
     return jsonify({"status": "reloaded", "settings": settings})
 
 # --- Agent Routes ---
@@ -1835,18 +1848,19 @@ def api_get_project_tools(pid):
 @app.route("/api/projects/<pid>/tools", methods=["POST"])
 def api_set_project_tools(pid):
     """Set per-project disabled tools list."""
-    project, projects = get_project(pid)
-    if not project:
-        return jsonify({"error": "Project not found"}), 404
-    data = request.get_json(silent=True) or {}
-    disabled_tools = data.get("disabled_tools", [])
-    project["disabled_tools"] = disabled_tools
-    # Clean up old enabled_tools field if present
-    project.pop("enabled_tools", None)
-    save_project(project)
-    # Note: tool reload for running engines was removed with SSE migration.
-    # Tool changes will apply on next engine restart.
-    return jsonify({"status": "updated", "disabled_tools": disabled_tools})
+    with _project_lock:
+        project, projects = get_project(pid)
+        if not project:
+            return jsonify({"error": "Project not found"}), 404
+        data = request.get_json(silent=True) or {}
+        disabled_tools = data.get("disabled_tools", [])
+        project["disabled_tools"] = disabled_tools
+        # Clean up old enabled_tools field if present
+        project.pop("enabled_tools", None)
+        _save_project_unlocked(project)
+        # Note: tool reload for running engines was removed with SSE migration.
+        # Tool changes will apply on next engine restart.
+        return jsonify({"status": "updated", "disabled_tools": disabled_tools})
 
 
 # --- Routes: Pending Tools ---
@@ -1926,14 +1940,6 @@ def _find_project_and_resume_engine(project_output_dir, tool_name):
             # Use the most recent running/pending job's step history
             prev_step_history = h["step_history"]
             break
-
-    # Apply current settings to env
-    apply_settings_to_env()
-    os.environ["CUSTOM_ENDPOINT_URL"] = os.getenv("CUSTOM_ENDPOINT_URL", "")
-    os.environ["CUSTOM_API_KEY"] = os.getenv("CUSTOM_API_KEY", "")
-    os.environ["CUSTOM_MODEL_NAME"] = os.getenv("CUSTOM_MODEL_NAME", "")
-    os.environ["CUSTOM_VERIFY_SSL"] = os.getenv("CUSTOM_VERIFY_SSL", "false")
-    os.environ["CUSTOM_TIMEOUT"] = os.getenv("CUSTOM_TIMEOUT", "7200")
 
     # Run the engine in a background thread so that subsequent create_tool
     # calls (e.g., for a second tool) still prompt the user for approval in the UI.
@@ -2070,7 +2076,9 @@ import threading
 # --- Start Worker on App Start ---
 init_directories()
 load_job_history()
-apply_settings_to_env()
+load_settings()  # Initialize settings cache
+from agent_engine.config import set_global_settings
+set_global_settings(get_settings())
 start_worker()
 _log_app_event("App started — worker thread launched")
 

@@ -7,6 +7,7 @@ import tempfile
 import shutil
 from typing import Any, Dict
 from agent_engine.tools.base import BaseTool, ToolResult
+from agent_engine.config import EngineConfig
 from agent_engine.security import ensure_under_root
 
 
@@ -63,7 +64,7 @@ class CheckSyntaxTool(BaseTool):
             return ToolResult(False, "", error=str(e))
 
     def _check_java(self, path: str) -> ToolResult:
-        java_home = os.getenv("JAVA_HOME")
+        java_home = EngineConfig.get_java_home()
         javac = None
         if java_home:
             javac = os.path.join(java_home, "bin", "javac")
@@ -143,7 +144,7 @@ class CheckSyntaxTool(BaseTool):
 
     def _check_csharp(self, path: str) -> ToolResult:
         dotnet = None
-        dotnet_cli = os.getenv("DOTNET_CLI_PATH")
+        dotnet_cli = EngineConfig.get_dotnet_cli_path()
         if dotnet_cli and os.path.isfile(dotnet_cli):
             dotnet = dotnet_cli
         else:

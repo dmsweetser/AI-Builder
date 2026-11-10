@@ -29,9 +29,8 @@ class CompressContextTool(BaseTool):
             return ToolResult(False, "", error="Summary is required")
 
         # Write the compressed context to a file so the engine can use it
-        output_dir = os.environ.get("AIB_OUTPUT_DIR", "")
-        if output_dir:
-            context_file = os.path.join(output_dir, "compressed_context.txt")
+        if self.output_dir:
+            context_file = os.path.join(self.output_dir, "compressed_context.txt")
             try:
                 with open(context_file, 'w', encoding='utf-8') as f:
                     f.write(summary)

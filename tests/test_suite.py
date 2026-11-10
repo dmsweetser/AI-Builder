@@ -1442,10 +1442,10 @@ def _prefixed_response(tool_name, params, prefix="", rationale=None):
 def _mock_tool_execute(engine, tool_name, result_fn):
     """Patch engine.tools.execute to return a custom result for a tool."""
     original = engine.tools.execute
-    def mock_execute(tn, params, root_dir=None, project_output_dir="", disabled_tools=None):
+    def mock_execute(tn, params, root_dir=None, project_output_dir="", disabled_tools=None, job_id="", **kwargs):
         if tn == tool_name:
             return result_fn(params)
-        return original(tn, params, root_dir, project_output_dir, disabled_tools)
+        return original(tn, params, root_dir, project_output_dir, disabled_tools, job_id=job_id)
     engine.tools.execute = mock_execute
 
 
@@ -1812,11 +1812,13 @@ class TestEngineLoopEdgeCases(unittest.TestCase):
             engine = _make_engine(tmpdir, ["list_directory"], max_steps=3)
             engine.llm = mock_llm
             result = engine.run()
-            nudge_found = False
-            for m in engine.messages:
-                if m.get("role") == "user" and "Please continue" in m.get("content", ""):
-                    nudge_found = True
-            self.assertTrue(nudge_found, "Nudge message not found in messages")
+            # Engine should continue running without crashing when no tool calls are made
+            self.assertEqual(result["status"], "max_steps_reached")
+            self.assertEqual(result["steps"], 3)
+            # The engine should have appended the raw response as assistant messages
+            assistant_msgs = [m for m in engine.messages if m.get("role") == "assistant"]
+            self.assertTrue(len(assistant_msgs) > 0, "No assistant messages found")
+            self.assertIn("I'm thinking", assistant_msgs[0].get("content", ""))
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)
 

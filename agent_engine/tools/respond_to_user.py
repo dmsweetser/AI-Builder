@@ -17,9 +17,8 @@ class RespondToUserTool(BaseTool):
 
     def execute(self, params: Dict[str, str]) -> ToolResult:
         message = params["message"]
-        output_dir = os.environ.get("AIB_OUTPUT_DIR", "")
-        if output_dir:
-            resp_file = os.path.join(output_dir, "user_response.txt")
+        if self.output_dir:
+            resp_file = os.path.join(self.output_dir, "user_response.txt")
             try:
                 with open(resp_file, 'w', encoding='utf-8') as f:
                     f.write(message)
