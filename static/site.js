@@ -182,20 +182,28 @@ function loadProjects() {
 }
 
 function runProject(projectId) {
-    var project = getProjectById(projectId);
-    if (!project) {
-        fetch('/api/projects/' + projectId)
-            .then(function(r) { return r.json(); })
-            .then(function(data) {
-                if (data.error) { alert('Project not found'); return; }
-                _loadedProjects = _loadedProjects || [];
-                if (!_loadedProjects.find(function(p) { return p.id === projectId; })) _loadedProjects.push(data);
-                _doRunProject(projectId);
-            })
-            .catch(function(err) { console.error('Failed to fetch project:', err); alert('Failed to load project details'); });
-        return;
-    }
-    _doRunProject(projectId);
+    // Save project first (name, rootDirectory, instructions, tools)
+    saveProjectChanges()
+        .then(function() {
+            var project = getProjectById(projectId);
+            if (!project) {
+                fetch('/api/projects/' + projectId)
+                    .then(function(r) { return r.json(); })
+                    .then(function(data) {
+                        if (data.error) { alert('Project not found'); return; }
+                        _loadedProjects = _loadedProjects || [];
+                        if (!_loadedProjects.find(function(p) { return p.id === projectId; })) _loadedProjects.push(data);
+                        _doRunProject(projectId);
+                    })
+                    .catch(function(err) { console.error('Failed to fetch project:', err); alert('Failed to load project details'); });
+                return;
+            }
+            _doRunProject(projectId);
+        })
+        .catch(function(err) {
+            console.error('Failed to save project:', err);
+            alert('Failed to save project changes. Please try again.');
+        });
 }
 
 function _doRunProject(projectId, overrideInstruction) {
@@ -983,6 +991,19 @@ function selectProject(projectId) {
 }
 
 function goBackToProjects() {
+    // Save project first (name, rootDirectory, instructions, tools)
+    saveProjectChanges()
+        .then(function() {
+        _goBackToProjects();
+    })
+    .catch(function(err) {
+        console.error('Failed to save project:', err);
+        // Still allow going back even if save fails
+        _goBackToProjects();
+    });
+}
+
+function _goBackToProjects() {
     if (agentRunning) stopProject(currentProjectId);
     agentRunning = false;
     liveInjectActive = false;
@@ -1056,10 +1077,13 @@ function saveProjectChanges() {
     })
     .catch(function(err) { console.error('Failed to save project tools:', err); });
     // Also save other project fields
-    fetch('/api/projects/' + projectId, { method: 'POST', body: formData })
+    return fetch('/api/projects/' + projectId, { method: 'POST', body: formData })
         .then(function(res) { return res.json(); })
-        .then(function(data) { if (data.status === 'saved') console.log('Project saved'); })
-        .catch(function(err) { console.error('Failed to save project:', err); });
+        .then(function(data) {
+            if (data.status === 'saved') console.log('Project saved');
+            return data;
+        })
+        .catch(function(err) { console.error('Failed to save project:', err); throw err; });
 }
 
 // === Tool Selector ===

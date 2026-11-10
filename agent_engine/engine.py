@@ -1778,7 +1778,7 @@ class AgentEngine:
                     break
 
                 # No tool calls - LLM didn't produce a valid tool call.
-                # Inject "Please continue" to nudge it back on track.
+                # Send a format reminder so the LLM knows how to invoke tools properly.
                 self.logger.warning(
                     f"No tool calls in response (step {self.step_count}). "
                     f"Response preview: {response}"
@@ -1788,10 +1788,23 @@ class AgentEngine:
                     "role": "assistant",
                     "content": response,
                 })
-                # Nudge the LLM to take action
+                # Format reminder — tell the LLM how to call tools
                 self.messages.append({
                     "role": "user",
-                    "content": "Please continue with your next action.",
+                    "content": (
+                        "Your response did not include a tool call. "
+                        "To take an action, you MUST output a tool call using this exact format:\n"
+                        "[TOOL_START]\n"
+                        "[TOOL_NAME]\n"
+                        "a relevant tool name\n"
+                        "[PARAM_NAME]\n"
+                        "a relevant param name\n"
+                        "[PARAM_VALUE]\n"
+                        "a relevant param value\n"
+                        "[TOOL_END]\n"
+                        "Each parameter needs its own [PARAM_NAME] and [PARAM_VALUE] pair. "
+                        "Please use a tool call to continue."
+                    ),
                 })
                 self.step_history.append({
                     "step": self.step_count,
