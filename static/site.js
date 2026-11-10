@@ -698,6 +698,51 @@ document.addEventListener('keydown', function(e) {
     }
 });
 
+// === Event delegation for approve/reject buttons in pending approval section ===
+document.addEventListener('click', function(e) {
+    var btn = e.target.closest('[data-url]');
+    if (!btn) return;
+    var url = btn.dataset.url;
+    var outputDir = btn.dataset.outputDir || '';
+    var jobId = btn.dataset.jobId || '';
+    var isApprove = url.indexOf('/approve') !== -1;
+
+    // Disable button to prevent double-clicks
+    btn.disabled = true;
+    btn.textContent = isApprove ? '⏳ APPROVING...' : '⏳ REJECTING...';
+
+    fetch(url, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({project_output_dir: outputDir})
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (isApprove && data.status === 'approved') {
+            alert('Tool approved! The agent will continue shortly.');
+            clearPendingApprovalState();
+        } else if (!isApprove && data.status === 'rejected') {
+            alert('Tool rejected. The agent will choose a different approach.');
+            clearPendingApprovalState();
+        } else {
+            alert('Failed: ' + (data.error || 'Unknown error'));
+        }
+    })
+    .catch(function(err) { console.error('Failed:', err); alert('Failed to process tool action.'); })
+    .finally(function() {
+        // Re-enable button on failure so user can retry
+        btn.disabled = false;
+        btn.textContent = isApprove ? '✅ APPROVE' : '❌ REJECT';
+    });
+});
+
+function clearPendingApprovalState() {
+    var actions = document.getElementById('pending-approval-actions');
+    if (actions) actions.innerHTML = '<div style="color:var(--success);font-size:12px;">✅ Tool action processed. The agent will resume automatically.</div>';
+    var statusText = document.getElementById('agent-status-text');
+    if (statusText) { statusText.textContent = 'AGENT RUNNING'; statusText.style.color = ''; statusText.style.fontWeight = ''; }
+}
+
 function stopProject(projectId) {
     agentRunning = false;
     liveInjectActive = false;

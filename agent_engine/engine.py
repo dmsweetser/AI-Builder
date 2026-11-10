@@ -488,6 +488,17 @@ If the tool is approved, it will appear in the tool selector. You can then use i
 If the tool is rejected, do not use it. Choose a different approach or use existing tools.
 You will see a "PENDING TOOL APPROVAL" message in the live feed while waiting for user review.
 
+TOOL FAILURE HANDLING (CRITICAL - READ CAREFULLY):
+- Every tool result includes a "success" field: true means the tool worked, false means it failed.
+- When success is false, the "error" field contains the specific reason for failure.
+- If a tool fails, you MUST retry with a corrected approach. Do NOT ignore the error and continue.
+- For write_file/edit_file failures: re-read the file first to get the current content, then retry with the correct original text.
+- For edit_file failures: the error will show what was expected vs what was found — use that to adjust your original_text or try a different strategy.
+- For create_tool failures: fix the code or parameters based on the error message and retry.
+- For delete_file failures: verify the file exists and is not a backup file before retrying.
+- If a tool fails 3+ times with the same error, try a completely different approach rather than repeating the same call.
+- NEVER proceed as if a failed tool succeeded. Always address the error before moving on.
+
 CONTEXT MANAGEMENT:
 '''
 
