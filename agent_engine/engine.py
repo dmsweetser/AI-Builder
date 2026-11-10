@@ -1185,6 +1185,10 @@ class AgentEngine:
         2. Injects a user message telling the LLM about the pending tools so it
            can inform the user and wait for approval before proceeding.
 
+        Uses per-tool tracking so that when a tool is approved and removed from
+        pending, any NEW pending tools will trigger a fresh reminder on the next
+        engine loop iteration.
+
         Args:
             emit_once: When True (default), only inject the reminder message
                 once per engine instance. When False, always emit events but
@@ -1192,6 +1196,9 @@ class AgentEngine:
         """
         pending = self.tools.get_project_pending_tools(self.output_dir)
         if not pending:
+            # No pending tools — clear the flag so future proposals get
+            # reminders on the next engine loop iteration.
+            self._pending_tools_message_injected = False
             return
 
         # Guard: only inject the message once per engine instance
@@ -1322,6 +1329,10 @@ class AgentEngine:
                         self.logger.info(f"Tool approval resume detected - approved tool: {approved_tool}")
                         # Reload approved tools to ensure the new tool is in the registry
                         self.reload_approved_tools()
+                        # Reset the pending-tools reminder flag so that any NEW
+                        # pending tools (proposed while the engine was paused)
+                        # will trigger a fresh reminder for the LLM.
+                        self._pending_tools_message_injected = False
                     except Exception:
                         pass
 
@@ -1614,10 +1625,10 @@ class AgentEngine:
                         step_entry["result"] = ToolResult(False, "", error=f"Unexpected error: {e}").to_dict()
                         self.logger.error(f"Unexpected tool error: {e}")
 
-                    # If create_tool was used, emit a pending approval event
+                    # If create_tool was used, handle pending-approval flow
                     if tool_name == "create_tool":
                         # Append the create_tool step to history BEFORE returning
-                        # (the normal path appends at line 1610, but create_tool
+                        # (the normal path appends at line ~1727, but create_tool
                         # returns early, so we must do it here to avoid losing it)
                         self.step_history.append(step_entry)
                         # Persist the step to disk
@@ -1633,25 +1644,37 @@ class AgentEngine:
                                 })
                             except Exception:
                                 pass
-                        # Emit pending_approval event for UI
-                        if self._step_callback:
-                            try:
-                                tool_name_val = params.get("name", "unknown")
-                                self._step_callback({
-                                    "type": "pending_approval",
-                                    "tool_name": tool_name_val,
-                                    "output_dir": self.output_dir,
-                                })
-                            except Exception:
-                                pass
-                        self._update_status("pending_approval")
-                        return {
-                            "status": "pending_approval",
-                            "steps": self.step_count,
-                            "summary": summary if done else "Pending tool approval",
-                            "max_steps": self.max_steps,
-                            "step_history": self.step_history,
-                        }
+
+                        # Only enter the pending-approval flow when the tool was
+                        # actually created successfully.  If validation failed,
+                        # feed the error back to the LLM so it can fix and retry.
+                        result_ok = step_entry.get("result", {}).get("success", False)
+                        if not result_ok:
+                            self.logger.warning(
+                                f"  create_tool failed (success=false) — "
+                                f"feeding error back to LLM for retry"
+                            )
+                            # Fall through to the normal "feed result back" path
+                        else:
+                            # Emit pending_approval event for UI
+                            if self._step_callback:
+                                try:
+                                    tool_name_val = params.get("name", "unknown")
+                                    self._step_callback({
+                                        "type": "pending_approval",
+                                        "tool_name": tool_name_val,
+                                        "output_dir": self.output_dir,
+                                    })
+                                except Exception:
+                                    pass
+                            self._update_status("pending_approval")
+                            return {
+                                "status": "pending_approval",
+                                "steps": self.step_count,
+                                "summary": summary if done else "Pending tool approval",
+                                "max_steps": self.max_steps,
+                                "step_history": self.step_history,
+                            }
 
                     # If request_user_input was used, PAUSE the agent for user response
                     if tool_name == "request_user_input":

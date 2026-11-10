@@ -68,8 +68,30 @@ class CreateToolTool(BaseTool):
         if not output_dir:
             return ToolResult(False, "", error="AIB_OUTPUT_DIR not set — cannot create tool")
 
+        # Ensure sys is available for the project-root lookup below
+        import sys as _sys
+
         # Build the tool file content
         file_content = self._build_tool_file(tool_name, tool_desc, tool_params_json, tool_code)
+
+        # Ensure the project root (parent of agent_engine/) is on sys.path so
+        # that the generated tool code can resolve imports like
+        # "from agent_engine.tools.base import BaseTool" when executed from
+        # the temp file.  The temp file lives in output_dir (e.g.
+        # aib_instance/output/Project/tools/pending/), so we walk up until we
+        # find a directory containing the agent_engine package.
+        _project_root = None
+        _candidate = os.path.dirname(os.path.abspath(output_dir))
+        for _depth in range(10):
+            if os.path.isdir(os.path.join(_candidate, "agent_engine")):
+                _project_root = _candidate
+                break
+            _parent = os.path.dirname(_candidate)
+            if _parent == _candidate:
+                break
+            _candidate = _parent
+        if _project_root and _project_root not in _sys.path:
+            _sys.path.insert(0, _project_root)
 
         # Validate the tool code by compiling it in a temporary module
         try:
@@ -97,7 +119,7 @@ class CreateToolTool(BaseTool):
             if "base" not in _sys.modules:
                 try:
                     from agent_engine.tools.base import BaseTool, ToolResult as _TB
-                    _shim = _types.ModuleType("tools.base")
+                    _shim = _types.ModuleType("base")
                     _shim.BaseTool = BaseTool
                     _shim.ToolResult = _TB
                     _sys.modules["base"] = _shim
@@ -110,6 +132,10 @@ class CreateToolTool(BaseTool):
             spec = _importlib_util.spec_from_file_location(f"validate_{tool_name}", tmp_path)
             if spec and spec.loader:
                 module = _importlib_util.module_from_spec(spec)
+                # Set __package__ so relative imports and the import machinery
+                # resolve the full dotted path (agent_engine.tools.base)
+                # correctly when exec_module runs the temp file.
+                module.__package__ = spec.submodule_search_locations[0] if spec.submodule_search_locations else ""
                 spec.loader.exec_module(module)
                 # Verify it has a class that inherits from BaseTool
                 found_class = False
