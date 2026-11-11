@@ -1,3 +1,4 @@
+import sys
 import os
 import json
 import tempfile
@@ -22,27 +23,41 @@ from agent_engine import run as agent_run
 def _get_app_dir():
     """Return the directory containing the app.
 
-    For PyInstaller one-file builds, we want the directory where the
-    executable lives (not the extracted temp directory), so that the
-    aib_instance directory is created relative to the executable.
+    For PyInstaller one-file builds, sys._MEIPASS points to the extracted
+    temp directory that contains templates/ and static/ bundled by PyInstaller.
+    For one-dir builds, same thing — sys._MEIPASS has the bundled assets.
+    For dev, use the directory containing this file.
     """
-    if getattr(sys, 'frozen', False):
-        # PyInstaller one-file build: use the directory containing the exe
-        return os.path.dirname(os.path.abspath(sys.executable))
     if hasattr(sys, '_MEIPASS'):
-        # PyInstaller one-dir build: use the extracted temp directory
+        # PyInstaller one-file or one-dir build: assets are in the extracted temp dir
         return sys._MEIPASS
+    if getattr(sys, 'frozen', False):
+        # PyInstaller one-file build running from disk: assets are next to the exe
+        return os.path.dirname(os.path.abspath(sys.executable))
     return os.path.dirname(os.path.abspath(__file__))
 
-import sys
 _app_dir = _get_app_dir()
 
 from agent_engine import AgentEngine, EngineConfig, ToolResult, get_registry
 from agent_engine.config import EngineConfig as Config
 
+# --- Determine template/static paths ---
+# In dev: templates/ and static/ are real directories on disk
+# In PyInstaller one-file: they're inside the _MEIPASS temp dir
+_templates_dir = os.path.join(_app_dir, 'templates')
+_static_dir = os.path.join(_app_dir, 'static')
+
+# Verify assets exist; if not, fall back to the exe directory (one-file from disk)
+if not os.path.isdir(_templates_dir) or not os.path.isdir(_static_dir):
+    _fallback_dir = os.path.dirname(os.path.abspath(sys.executable)) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.abspath(__file__))
+    if os.path.isdir(os.path.join(_fallback_dir, 'templates')):
+        _templates_dir = os.path.join(_fallback_dir, 'templates')
+        _static_dir = os.path.join(_fallback_dir, 'static')
+        _app_dir = _fallback_dir
+
 app = Flask(__name__,
-            template_folder=os.path.join(_app_dir, 'templates'),
-            static_folder=os.path.join(_app_dir, 'static'))
+            template_folder=_templates_dir,
+            static_folder=_static_dir)
 
 # --- Constants (all relative to the app directory) ---
 _AIB_INSTANCE = os.path.join(_app_dir, "aib_instance")

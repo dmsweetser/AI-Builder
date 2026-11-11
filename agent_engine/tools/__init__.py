@@ -204,8 +204,15 @@ class ToolRegistry:
         Checks project-local tools first, then built-in tools.
         Returns None if the tool is disabled or not found.
         """
+        if disabled_tools is None:
+            disabled_tools = set()
+
         # Check if disabled globally
         if tool_name in self._enabled_tools:
+            return None
+
+        # Check if disabled for this project
+        if tool_name in disabled_tools:
             return None
 
         # Check project-local tools first

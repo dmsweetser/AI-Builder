@@ -367,7 +367,7 @@ def build_system_prompt(tools: List[Dict[str, Any]], instance_prefix: str = "") 
         f"{m_pname}\n"
         "content\n"
         f"{m_pval}\n"
-        '\"\"\"Hello module.\"\"\"\n'
+        '"""Hello module."""\n'
         "from src.main import greet\n"
         "\n"
         'if __name__ == "__main__":\n'
@@ -1077,8 +1077,7 @@ class AgentEngine:
             summary = (
                 f"[COMPRESSED] Removed {removed_count} low-value tool result(s) "
                 f"({tokens_removed} tokens) for brevity:\n"
-                + "\n".join(summary_parts) +
-                f"\n[Removed {removed_count} tool result(s), {tokens_removed} tokens]"
+                + "\n".join(summary_parts) + f"\n[Removed {removed_count} tool result(s), {tokens_removed} tokens]"
             )
 
             # Replace the first tool result with the summary
@@ -1318,50 +1317,19 @@ class AgentEngine:
                 self.step_count += 1
                 self.logger.info(f"Step {self.step_count}/{self.max_steps}")
 
-                # Check for tool approval resume signal (written by approval endpoint)
-                # If a tool was approved while the engine was paused, the engine
-                # needs to know to continue its loop and use the new tool.
-                tool_approved_file = os.path.join(self.output_dir, "_tool_approved_resume.txt")
-                if os.path.exists(tool_approved_file):
-                    try:
-                        approved_tool = open(tool_approved_file, 'r').read().strip()
-                        os.remove(tool_approved_file)
-                        self.logger.info(f"Tool approval resume detected - approved tool: {approved_tool}")
-                        # Reload approved tools to ensure the new tool is in the registry
-                        self.reload_approved_tools()
-                        # Reset the pending-tools reminder flag so that any NEW
-                        # pending tools (proposed while the engine was paused)
-                        # will trigger a fresh reminder for the LLM.
-                        self._pending_tools_message_injected = False
-                    except Exception:
-                        pass
-
-                # State-based pending tool check: at the top of each loop iteration,
-                # check if there are any tools in the pending folder. This replaces
-                # the signal-file approach and is more reliable/idempotent — it checks
-                # the actual filesystem state rather than relying on a transient file.
+                # ============================================================
+                # IDENTITY FILE CHECKS — simple, idempotent, stateless
+                # ============================================================
+                #
+                # Pending tool approval: check filesystem state. If a pending
+                # tool file exists, the agent should know. The engine loop
+                # injects a reminder into the conversation.
                 self._check_pending_tools()
 
-                # Check for live instructions injected mid-run
-                live_instruction = EngineConfig.get_live_instruction(
-                    self.job_id, base_dir=self.output_dir
-                )
-                if live_instruction:
-                    self.logger.info(f"Received live instruction: {live_instruction}...")
-                    # Use a clear separator and explicit instruction to start fresh
-                    self.messages.append({
-                        "role": "user",
-                        "content": (
-                            "========== NEW USER INSTRUCTION ==========\n"
-                            f"User has sent new instructions:\n{live_instruction}\n"
-                            "========== END NEW INSTRUCTION ==========\n\n"
-                            "You must respond with EXACTLY ONE tool call. "
-                            "Do NOT combine this with any previous context. "
-                            "Start fresh with a single tool call to address the new instructions."
-                        )
-                    })
-
-                # Check for resume input (user response to request_user_input)
+                # User input (request_user_input resume): check filesystem
+                # state. If a resume_input.txt file exists with content,
+                # consume it and feed it to the agent. Idempotent — the file
+                # is truncated after reading.
                 resume_input = EngineConfig.get_resume_input(
                     self.job_id, base_dir=self.output_dir
                 )
@@ -1375,6 +1343,24 @@ class AgentEngine:
                             "========== END USER RESPONSE ==========\n\n"
                             "Use this response to continue your task. "
                             "Respond with EXACTLY ONE tool call."
+                        )
+                    })
+
+                # Live instruction injection: check filesystem state.
+                live_instruction = EngineConfig.get_live_instruction(
+                    self.job_id, base_dir=self.output_dir
+                )
+                if live_instruction:
+                    self.logger.info(f"Received live instruction: {live_instruction}...")
+                    self.messages.append({
+                        "role": "user",
+                        "content": (
+                            "========== NEW USER INSTRUCTION ==========\n"
+                            f"User has sent new instructions:\n{live_instruction}\n"
+                            "========== END NEW INSTRUCTION ==========\n\n"
+                            "You must respond with EXACTLY ONE tool call. "
+                            "Do NOT combine this with any previous context. "
+                            "Start fresh with a single tool call to address the new instructions."
                         )
                     })
 
@@ -1415,7 +1401,6 @@ class AgentEngine:
                             ),
                         })
 
-                # Call LLM
                 # Reload project settings to pick up live changes (instructions,
                 # enabled_tools, rootDirectory) before each LLM call.
                 self._reload_project_settings()

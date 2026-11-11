@@ -48,6 +48,8 @@ pyinstaller \
     --hidden-import=agent_engine \
     --hidden-import=agent_engine.tools \
     --add-data "agent_engine:agent_engine" \
+    --add-data "templates:templates" \
+    --add-data "static:static" \
     "$(dirname "$0")/../app.py"
 
 # Check build success

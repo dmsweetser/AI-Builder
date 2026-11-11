@@ -2454,7 +2454,8 @@ class TestContinuationMessages(unittest.TestCase):
 # ====================================================================
 
 class TestHTMLEscapingSafety(unittest.TestCase):
-    def test_escapeHtml_does_not_escape_quotes(self):
+    def test_escapeHtml_escapes_quotes(self):
+        """escapeHtml must escape quotes to prevent HTML attribute breakage in VIEW LIVE."""
         site_js = os.path.join(
             os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
             'static', 'site.js'
@@ -2464,7 +2465,8 @@ class TestHTMLEscapingSafety(unittest.TestCase):
         match = re.search(r'function escapeHtml\s*\([^)]*\)\s*\{([^}]+)\}', js)
         self.assertIsNotNone(match, "escapeHtml function not found in site.js")
         func_body = match.group(1)
-        self.assertNotIn('&quot;', func_body)
+        self.assertIn('&quot;', func_body)
+        self.assertIn('&apos;', func_body)
         self.assertIn('&amp;', func_body)
         self.assertIn('&lt;', func_body)
         self.assertIn('&gt;', func_body)

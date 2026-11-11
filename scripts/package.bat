@@ -36,8 +36,8 @@ if exist "dist" rmdir /s /q "dist"
 if exist "build" rmdir /s /q "build"
 if exist "ai_builder.spec" del /q "ai_builder.spec"
 
-REM Build single executable
-echo [INFO] Building executable...
+# Build single executable
+echo "[INFO] Building executable..."
 pyinstaller ^
     --onefile ^
     --name ai_builder ^
@@ -46,6 +46,8 @@ pyinstaller ^
     --hidden-import=agent_engine ^
     --hidden-import=agent_engine.tools ^
     --add-data "agent_engine;agent_engine" ^
+    --add-data "templates;templates" ^
+    --add-data "static;static" ^
     "%~dp0..\app.py"
 
 REM Check build success
