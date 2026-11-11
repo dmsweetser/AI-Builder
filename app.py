@@ -671,14 +671,22 @@ def api_reset_project(pid):
             import time as _time
             _time.sleep(0.3)
 
-        # Archive the output directory instead of deleting
+        # Archive the output directory with a datestamp so you can reset multiple times
         output_dir = project.get("output_dir", os.path.join(_AIB_INSTANCE, "output", pid))
-        archive_dir = output_dir + ".archive"
+        archive_name = "archive_" + datetime.now().strftime("%Y%m%d_%H%M%S")
+        archive_dir = os.path.join(os.path.dirname(output_dir), archive_name)
         if os.path.exists(output_dir):
-            # Remove old archive if any
+            # Remove old archive for this reset if it exists (shouldn't, but be safe)
             if os.path.exists(archive_dir):
                 shutil.rmtree(archive_dir)
-            os.rename(output_dir, archive_dir)
+            shutil.copytree(output_dir, archive_dir)
+            # Wipe the output directory contents
+            for fname in os.listdir(output_dir):
+                fpath = os.path.join(output_dir, fname)
+                if os.path.isdir(fpath):
+                    shutil.rmtree(fpath)
+                else:
+                    os.remove(fpath)
         # Create fresh output directory
         os.makedirs(output_dir, exist_ok=True)
 
@@ -1565,16 +1573,27 @@ def api_agent_resume():
 
     _log_app_event(f"Resume requested — job_id={job_id}, input_len={len(user_input)}")
 
-    # Look up the job's output directory from history or projects
+    # Look up the job's output directory and project from history
     output_dir = None
+    project_config = None
+    project_id = None
     for h in job_history:
         if h.get("job_id") == job_id:
             pid = h.get("project_id")
+            project_id = pid
             if pid:
                 projects = load_projects()
                 for p in projects:
                     if p["id"] == pid:
                         output_dir = p.get("output_dir")
+                        project_config = {
+                            "id": p["id"],
+                            "name": p.get("name", ""),
+                            "rootDirectory": p.get("rootDirectory", ""),
+                            "instructions": p.get("instructions", ""),
+                            "job_id": p.get("last_job_id", job_id),
+                            "disabled_tools": p.get("disabled_tools", []),
+                        }
                         break
             if not output_dir:
                 output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
@@ -1589,9 +1608,87 @@ def api_agent_resume():
     try:
         with open(resume_file, 'w', encoding='utf-8') as f:
             f.write(user_input)
-        return jsonify({"status": "resume_input_saved"})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+    # If the job was in pending_user_input state, the engine thread has already
+    # returned. Re-invoke the engine so it picks up the resume_input file.
+    job_record = next((h for h in job_history if h.get("job_id") == job_id), None)
+    if job_record and job_record.get("status") == "pending_user_input" and project_config:
+        prev_step_history = job_record.get("step_history", [])
+
+        def _resume_engine():
+            try:
+                from agent_engine import AgentEngine
+                os.makedirs(output_dir, exist_ok=True)
+                engine = AgentEngine(project_config, output_dir=output_dir)
+                engine.step_history = prev_step_history
+                engine.step_count = len(prev_step_history)
+
+                # Reconstruct conversation from step history
+                reconstructed_messages = [engine.messages[0]]  # system prompt
+                all_tool_names = engine.tools.tool_names()
+                for h in prev_step_history:
+                    if h.get("tool") in all_tool_names:
+                        res = h.get("result", {})
+                        content = res.get("content", "")
+                        error = res.get("error", "")
+                        summary = res.get("summary", "")
+                        if error:
+                            result_display = f"Error: {error}"
+                        elif summary:
+                            result_display = summary
+                            if content:
+                                result_display += f"\n\nOutput:\n{content}\n"
+                        elif content:
+                            result_display = content
+                        else:
+                            result_display = "(no output)"
+                        tool_name = h.get("tool", "unknown")
+                        reconstructed_messages.append({
+                            "role": "user",
+                            "content": f"[TOOL RESULT for {tool_name}]\n{result_display}\n[END TOOL RESULT]\n\nNow continue with your next action."
+                        })
+
+                # Inject the user's response
+                reconstructed_messages.append({
+                    "role": "user",
+                    "content": (
+                        f"========== USER RESPONSE ==========\n"
+                        f"{user_input}\n"
+                        "========== END USER RESPONSE ==========\n\n"
+                        "Use this response to continue your task. "
+                        "Respond with EXACTLY ONE tool call."
+                    )
+                })
+                engine.messages = reconstructed_messages
+
+                result = engine.run()
+
+                # Persist conversation history
+                messages_file = os.path.join(output_dir, "conversation_history.json")
+                try:
+                    with open(messages_file, 'w', encoding='utf-8') as f:
+                        json.dump(engine.messages, f, indent=2, ensure_ascii=False)
+                except Exception:
+                    pass
+
+                # Update the job history entry
+                if result.get("step_history"):
+                    job_record["step_history"] = result["step_history"]
+                    job_record["status"] = result.get("status", "completed")
+                    job_record["summary"] = result.get("summary", "")
+                    job_record["steps"] = result.get("steps", 0)
+                    save_job_history()
+
+                logging.info(f"Engine resumed successfully: {result.get('status', 'unknown')}")
+            except Exception as e:
+                logging.error(f"Engine resume failed: {e}", exc_info=True)
+
+        resume_thread = threading.Thread(target=_resume_engine, daemon=True)
+        resume_thread.start()
+
+    return jsonify({"status": "resume_input_saved"})
 
 
 @app.route("/api/agent/resend", methods=["POST"])

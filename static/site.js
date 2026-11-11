@@ -30,10 +30,6 @@ function escapeHtml(str) {
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;');
-    // Note: single quotes (' ) are intentionally NOT escaped.
-    // &apos; is an XML-only entity that can cause rendering issues
-    // in HTML content (especially inside <code> blocks), making
-    // single-quoted text invisible to the user.
 }
 
 function copyToClipboard(text, buttonEl) {
@@ -198,19 +194,19 @@ function runProject(projectId) {
                 fetch('/api/projects/' + projectId)
                     .then(function(r) { return r.json(); })
                     .then(function(data) {
-                        if (data.error) { alert('Project not found'); return; }
+                        if (data.error) { showNotification('Project not found', 'error'); return; }
                         _loadedProjects = _loadedProjects || [];
                         if (!_loadedProjects.find(function(p) { return p.id === projectId; })) _loadedProjects.push(data);
                         _doRunProject(projectId);
                     })
-                    .catch(function(err) { console.error('Failed to fetch project:', err); alert('Failed to load project details'); });
+                    .catch(function(err) { console.error('Failed to fetch project:', err); showNotification('Failed to load project details', 'info'); });
                 return;
             }
             _doRunProject(projectId);
         })
         .catch(function(err) {
             console.error('Failed to save project:', err);
-            alert('Failed to save project changes. Please try again.');
+            showNotification('Failed to save project changes. Please try again.', 'info');
         });
 }
 
@@ -225,17 +221,17 @@ function _doRunProject(projectId, overrideInstruction) {
             fetch('/api/projects/' + projectId)
                 .then(function(r) { return r.json(); })
                 .then(function(data) {
-                    if (data.error) { alert('Project not found'); return; }
+                    if (data.error) { showNotification('Project not found', 'info'); return; }
                     _loadedProjects = _loadedProjects || [];
                     if (!_loadedProjects.find(function(p) { return p.id === projectId; })) _loadedProjects.push(data);
                     _doRunProject(projectId, overrideInstruction);
                 })
-                .catch(function(err) { console.error('Failed to fetch project:', err); alert('Failed to load project details'); });
+                .catch(function(err) { console.error('Failed to fetch project:', err); showNotification('Failed to load project details', 'info'); });
             return;
         }
         rootDir = project.rootDirectory || '';
     }
-    if (!rootDir) { alert('Please set a root directory first.'); return; }
+    if (!rootDir) { showNotification('Please set a root directory first.', 'info'); return; }
     var instructions = overrideInstruction || (document.getElementById('details-instructions') ? document.getElementById('details-instructions').value : '');
     // All tools are always available — getEnabledTools() returns the full list.
     var enabledTools = getEnabledTools();
@@ -482,6 +478,7 @@ function _renderStep(step, agentBox) {
     } else {
         var ok = step.result && step.result.success !== false;
         var resultPreview = step.result ? (step.result.content || '') : 'no result';
+        var errorMsg = step.result ? (step.result.error || '') : '';
         entry.classList.add(ok ? 'success' : 'error');
         var html = '<div class="step-tool">' + (ok ? '✓' : '✗') + ' ' + escapeHtml(step.tool) + '</div>';
         if (step.rationale) {
@@ -490,7 +487,13 @@ function _renderStep(step, agentBox) {
         if (step.params && Object.keys(step.params).length) {
             html += '<div class="step-params">' + escapeHtml(JSON.stringify(step.params)) + '</div>';
         }
-        html += '<div class="step-result">' + escapeHtml(resultPreview) + '</div>';
+        // Show error details prominently when a tool fails
+        if (errorMsg && !ok) {
+            html += '<div class="step-result step-result-error" style="color:var(--mc-nether);font-weight:bold;margin-top:4px;">ERROR: ' + escapeHtml(errorMsg) + '</div>';
+        }
+        if (resultPreview) {
+            html += '<div class="step-result">' + escapeHtml(resultPreview) + '</div>';
+        }
         entry.innerHTML = html;
     }
 
@@ -628,6 +631,7 @@ function handleAgentStep(data, agentBox) {
     } else {
         var ok = data.result && data.result.success !== false;
         var resultPreview = data.result ? (data.result.content || '') : 'no result';
+        var errorMsg = data.result ? (data.result.error || '') : '';
         entry.classList.add(ok ? 'success' : 'error');
         var html = '<div class="step-tool">' + (ok ? '✓' : '✗') + ' ' + escapeHtml(data.tool) + '</div>';
         if (data.rationale) {
@@ -636,7 +640,13 @@ function handleAgentStep(data, agentBox) {
         if (data.params && Object.keys(data.params).length) {
             html += '<div class="step-params">' + escapeHtml(JSON.stringify(data.params)) + '</div>';
             }
-        html += '<div class="step-result">' + escapeHtml(resultPreview) + '</div>';
+        // Show error details prominently when a tool fails
+        if (errorMsg && !ok) {
+            html += '<div class="step-result step-result-error" style="color:var(--mc-nether);font-weight:bold;margin-top:4px;">ERROR: ' + escapeHtml(errorMsg) + '</div>';
+        }
+        if (resultPreview) {
+            html += '<div class="step-result">' + escapeHtml(resultPreview) + '</div>';
+        }
         entry.innerHTML = html;
     }
     agentBox.appendChild(entry);
@@ -735,16 +745,16 @@ document.addEventListener('click', function(e) {
     .then(function(r) { return r.json(); })
     .then(function(data) {
         if (isApprove && data.status === 'approved') {
-            alert('Tool approved! The agent will continue shortly.');
+            showNotification('Tool approved! The agent will continue shortly.', 'info');
             clearPendingApprovalState();
         } else if (!isApprove && data.status === 'rejected') {
-            alert('Tool rejected. The agent will choose a different approach.');
+            showNotification('Tool rejected. The agent will choose a different approach.', 'info');
             clearPendingApprovalState();
         } else {
-            alert('Failed: ' + (data.error || 'Unknown error'));
+            showNotification('Failed: ' + (data.error || 'Unknown error', 'info'));
         }
     })
-    .catch(function(err) { console.error('Failed:', err); alert('Failed to process tool action.'); })
+    .catch(function(err) { console.error('Failed:', err); showNotification('Failed to process tool action.', 'info'); })
     .finally(function() {
         // Re-enable button on failure so user can retry
         btn.disabled = false;
@@ -1034,10 +1044,10 @@ function resetProject(projectId) {
     fetch('/api/projects/' + projectId + '/reset', { method: 'POST' })
         .then(function(r) { return r.json(); })
         .then(function(data) {
-            if (data.status === 'reset') { loadProjects(); alert('Project reset successfully!'); }
-            else alert('Failed to reset project: ' + (data.error || 'Unknown error'));
+            if (data.status === 'reset') { loadProjects(); showNotification('Project reset successfully!', 'info'); }
+            else showNotification('Failed to reset project: ' + (data.error || 'Unknown error', 'info'));
         })
-        .catch(function(err) { console.error('Failed to reset project:', err); alert('Failed to reset project.'); });
+        .catch(function(err) { console.error('Failed to reset project:', err); showNotification('Failed to reset project.', 'info'); });
 }
 
 function deleteProject(projectId) {
@@ -1247,8 +1257,8 @@ function clearJobHistory() {
     if (!confirm('Are you sure you want to clear all job history?')) return;
     fetch('/api/history/clear', { method: 'POST' })
         .then(function(res) { return res.json(); })
-        .then(function(data) { if (data.status === 'cleared') loadJobs(); else alert('Failed to clear history: ' + (data.error || 'Unknown error')); })
-        .catch(function(err) { console.error('Failed to clear history:', err); alert('Failed to clear history.'); });
+        .then(function(data) { if (data.status === 'cleared') loadJobs(); else showNotification('Failed to clear history: ' + (data.error || 'Unknown error', 'info')); })
+        .catch(function(err) { console.error('Failed to clear history:', err); showNotification('Failed to clear history.', 'info'); });
 }
 
 
@@ -1440,10 +1450,10 @@ function reloadSettingsFromDisk() {
     fetch('/api/settings/reload', { method: 'POST' })
         .then(function(r) { return r.json(); })
         .then(function(data) {
-            if (data.status === 'reloaded') { loadSettingsUI(); alert('Settings reloaded from disk!'); }
-            else alert('Failed to reload settings: ' + (data.error || 'Unknown error'));
+            if (data.status === 'reloaded') { loadSettingsUI(); showNotification('Settings reloaded from disk!', 'info'); }
+            else showNotification('Failed to reload settings: ' + (data.error || 'Unknown error', 'info'));
         })
-        .catch(function(err) { console.error('Failed to reload settings:', err); alert('Failed to reload settings.'); });
+        .catch(function(err) { console.error('Failed to reload settings:', err); showNotification('Failed to reload settings.', 'info'); });
 }
 
 function saveSettings() {
@@ -1465,10 +1475,10 @@ function saveSettings() {
     fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(settings) })
         .then(function(r) { return r.json(); })
         .then(function(data) {
-            if (data.status === 'saved') alert('Settings saved! Changes will apply on next run.');
-            else alert('Failed to save settings: ' + (data.error || 'Unknown error'));
+            if (data.status === 'saved') showNotification('Settings saved! Changes will apply on next run.', 'info');
+            else showNotification('Failed to save settings: ' + (data.error || 'Unknown error', 'info'));
         })
-        .catch(function(err) { console.error('Failed to save settings:', err); alert('Failed to save settings.'); });
+        .catch(function(err) { console.error('Failed to save settings:', err); showNotification('Failed to save settings.', 'info'); });
 }
 
 
@@ -1487,9 +1497,80 @@ function cancelRootPathChange() {
 }
 
 function showNotification(message, type) {
-    // Simple alert-based notification (no toast system in current UI)
-    alert(message);
+    showNotificationModal(message, type);
 }
+
+// === Notification Modal System ===
+let _notificationResolve = null;
+
+function showNotificationModal(message, type) {
+    type = type || 'info';
+    var icons = { info: '💬', success: '✅', warning: '⚠️', error: '❌' };
+    var iconEl = document.getElementById('notification-icon');
+    var titleEl = document.getElementById('notification-title');
+    var bodyEl = document.getElementById('notification-body');
+    var modal = document.getElementById('notification-modal');
+
+    if (!modal) return;
+
+    iconEl.textContent = icons[type] || icons.info;
+    iconEl.className = 'notification-icon ' + type;
+
+    var titles = { info: 'NOTICE', success: 'SUCCESS', warning: 'WARNING', error: 'ERROR' };
+    titleEl.textContent = titles[type] || titles.info;
+    bodyEl.innerHTML = escapeHtml(message);
+
+    modal.style.display = 'flex';
+}
+
+function showNotificationModalDetailed(title, bodyHtml, type) {
+    var icons = { info: '💬', success: '✅', warning: '⚠️', error: '❌' };
+    var iconEl = document.getElementById('notification-icon');
+    var titleEl = document.getElementById('notification-title');
+    var bodyEl = document.getElementById('notification-body');
+    var modal = document.getElementById('notification-modal');
+
+    if (!modal) return;
+
+    iconEl.textContent = icons[type] || icons.info;
+    iconEl.className = 'notification-icon ' + type;
+    titleEl.textContent = title || 'NOTICE';
+    bodyEl.innerHTML = bodyHtml;
+
+    modal.style.display = 'flex';
+}
+
+function closeNotificationModal() {
+    var modal = document.getElementById('notification-modal');
+    if (modal) modal.style.display = 'none';
+    if (_notificationResolve) {
+        _notificationResolve();
+        _notificationResolve = null;
+    }
+}
+
+// Returns a promise that resolves when the user clicks OK
+function showNotificationModalPromise(message, type) {
+    return new Promise(function(resolve) {
+        showNotificationModal(message, type);
+        _notificationResolve = resolve;
+    });
+}
+
+// Wait for user to click OK before continuing
+async function showNotificationAndWait(message, type) {
+    return await showNotificationModalPromise(message, type);
+}
+
+// Close notification modal on Escape key
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+        var notifModal = document.getElementById('notification-modal');
+        if (notifModal && notifModal.style.display === 'flex') {
+            closeNotificationModal();
+        }
+    }
+});
 
 // === Live View Functions ===
 function showLiveView(project_id) {
@@ -1753,7 +1834,7 @@ function refreshLiveView() {
                     currentRunningJobId = qd.running.job_id;
                     refreshLiveView();
                 } else {
-                    alert('No active job to refresh.');
+                    showNotification('No active job to refresh.', 'info');
                 }
             });
         return;
@@ -1800,68 +1881,97 @@ function injectLiveInstruction() {
     btn.textContent = 'INJECTING...';
     input.disabled = true;
 
-    fetch('/api/agent/inject', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({job_id: jobId, instruction: instruction})
-    })
-    .then(function(r) { return r.json(); })
-    .then(function(data) {
-        if (data.error) throw new Error(data.error);
-        input.value = '';
-
-        if (data.continuation) {
-            // A new engine run was started for this completed job.
-            // Show a continuation message in the live feed.
-            var agentBox = document.getElementById('agent-live-box');
-            if (agentBox) {
-                var contEntry = document.createElement('div');
-                contEntry.className = 'step-entry';
-                contEntry.style.borderLeftColor = 'var(--info)';
-                contEntry.style.background = 'rgba(74, 237, 223, 0.1)';
-                contEntry.innerHTML = '<div class="step-tool" style="color:var(--info);">🔄 CONTINUING WITH NEW INSTRUCTIONS...</div>';
-                agentBox.appendChild(contEntry);
-                agentBox.scrollTop = agentBox.scrollHeight;
-            }
-
-            // Update status text
-            var statusText = document.getElementById('agent-status-text');
-            if (statusText) { statusText.textContent = 'CONTINUING...'; statusText.style.color = 'var(--info)'; }
-
-            // Start polling for the continuation results
-            // Get outputDir from the container or project
-            var container = document.getElementById('agent-live-container');
-            var outputDir = container ? container.dataset.outputDir : null;
-            if (!outputDir && currentRunningProjectId) {
-                fetch('/api/projects/' + currentRunningProjectId)
-                    .then(function(r) { return r.json(); })
-                    .then(function(proj) {
-                        outputDir = proj.output_dir;
-                        _startPolling(jobId, outputDir, null);
-                    });
+    // Check if the job is in pending_user_input state — if so, use the resume endpoint
+    fetch('/api/job/' + jobId + '/status')
+        .then(function(r) { return r.json(); })
+        .then(function(statusData) {
+            if (statusData.status === 'pending_user_input') {
+                // Use the resume endpoint which re-invokes the engine
+                return fetch('/api/agent/resume', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({job_id: jobId, input: instruction})
+                }).then(function(r) { return r.json(); });
             } else {
-                _startPolling(jobId, outputDir, null);
+                // Use the inject endpoint for running jobs
+                return fetch('/api/agent/inject', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({job_id: jobId, instruction: instruction})
+                }).then(function(r) { return r.json(); });
+            }
+        })
+        .then(function(data) {
+            if (data.error) throw new Error(data.error);
+            input.value = '';
+
+            if (data.continuation) {
+                // A new engine run was started for this completed job.
+                // Show a continuation message in the live feed.
+                var agentBox = document.getElementById('agent-live-box');
+                if (agentBox) {
+                    var contEntry = document.createElement('div');
+                    contEntry.className = 'step-entry';
+                    contEntry.style.borderLeftColor = 'var(--info)';
+                    contEntry.style.background = 'rgba(74, 237, 223, 0.1)';
+                    contEntry.innerHTML = '<div class="step-tool" style="color:var(--info);">🔄 CONTINUING WITH NEW INSTRUCTIONS...</div>';
+                    agentBox.appendChild(contEntry);
+                    agentBox.scrollTop = agentBox.scrollHeight;
+                }
+
+                // Update status text
+                var statusText = document.getElementById('agent-status-text');
+                if (statusText) { statusText.textContent = 'CONTINUING...'; statusText.style.color = 'var(--info)'; }
+
+                // Start polling for the continuation results
+                // Get outputDir from the container or project
+                var container = document.getElementById('agent-live-container');
+                var outputDir = container ? container.dataset.outputDir : null;
+                if (!outputDir && currentRunningProjectId) {
+                    fetch('/api/projects/' + currentRunningProjectId)
+                        .then(function(r) { return r.json(); })
+                        .then(function(proj) {
+                            outputDir = proj.output_dir;
+                            _startPolling(jobId, outputDir, null);
+                        });
+                } else {
+                    _startPolling(jobId, outputDir, null);
+                }
+
+                showNotification('Continuation started — engine running', 'success');
+            } else if (data.status === 'resume_input_saved') {
+                // Resume was triggered — engine is restarting
+                var agentBox = document.getElementById('agent-live-box');
+                if (agentBox) {
+                    var contEntry = document.createElement('div');
+                    contEntry.className = 'step-entry';
+                    contEntry.style.borderLeftColor = 'var(--info)';
+                    contEntry.style.background = 'rgba(74, 237, 223, 0.1)';
+                    contEntry.innerHTML = '<div class="step-tool" style="color:var(--info);">🔄 RESUMING AGENT...</div>';
+                    agentBox.appendChild(contEntry);
+                    agentBox.scrollTop = agentBox.scrollHeight;
+                }
+                var statusText = document.getElementById('agent-status-text');
+                if (statusText) { statusText.textContent = 'RESUMING...'; statusText.style.color = 'var(--info)'; }
+                showNotification('Agent resumed — waiting for response', 'success');
+            } else {
+                showNotification('Instruction injected successfully', 'success');
             }
 
-            showNotification('Continuation started — engine running', 'success');
-        } else {
-            showNotification('Instruction injected successfully', 'success');
-        }
-
-        // Re-enable after a short delay
-        setTimeout(function() {
+            // Re-enable after a short delay
+            setTimeout(function() {
+                btn.disabled = false;
+                btn.textContent = 'INJECT';
+                input.disabled = false;
+            }, 1000);
+        })
+        .catch(function(err) {
+            console.error('Inject failed:', err);
+            showNotification('Failed to inject: ' + err.message, 'error');
             btn.disabled = false;
             btn.textContent = 'INJECT';
             input.disabled = false;
-        }, 1000);
-    })
-    .catch(function(err) {
-        console.error('Inject failed:', err);
-        showNotification('Failed to inject: ' + err.message, 'error');
-        btn.disabled = false;
-        btn.textContent = 'INJECT';
-        input.disabled = false;
-    });
+        });
 }
 
 // === Init ===
@@ -1902,7 +2012,7 @@ document.addEventListener('DOMContentLoaded', function() {
             fetch('/api/projects', { method: 'POST', body: formData })
                 .then(function(res) { return res.json(); })
                 .then(function(data) {
-                    if (data.error) { alert('Error: ' + data.error); }
+                    if (data.error) { showNotification('Error: ' + data.error, 'error'); }
                     else {
                         // Save disabled_tools via dedicated endpoint
                         var pid = data.id;

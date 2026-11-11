@@ -292,6 +292,18 @@
         </div>
     </div>
 
+    <!-- Notification / Alert Modal -->
+    <div id="notification-modal" class="modal" role="dialog" aria-live="assertive">
+        <div class="modal-content notification-modal-content">
+            <div id="notification-icon" class="notification-icon"></div>
+            <h3 id="notification-title"></h3>
+            <div id="notification-body" class="notification-body"></div>
+            <div class="modal-actions">
+                <button class="btn btn-primary" id="notification-ok-btn" onclick="closeNotificationModal()">OK</button>
+            </div>
+        </div>
+    </div>
+
 
     <script src="/static/site.js"></script>
 </body>
