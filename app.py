@@ -313,8 +313,9 @@ def worker():
                 job_history[-1]["status"] = "error"
                 job_history[-1]["error"] = "Project not found"
         except Exception as e:
-            job_history[-1]["status"] = "error"
-            job_history[-1]["error"] = str(e)
+            if job_history.count() > 0:
+                job_history[-1]["status"] = "error"
+                job_history[-1]["error"] = str(e)
         finally:
             # Check for incomplete actions file
             actions_file = os.path.join(output_dir, "actions.txt")

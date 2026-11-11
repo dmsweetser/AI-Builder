@@ -1,4 +1,5 @@
 """grep_code tool - optimized with subprocess grep (cross-platform)."""
+from __future__ import annotations
 import os
 import platform
 import subprocess

@@ -139,12 +139,16 @@ class CreateToolTool(BaseTool):
                 spec.loader.exec_module(module)
                 # Verify it has a class that inherits from BaseTool
                 found_class = False
+                # Use the BaseTool class from this module's globals to avoid
+                # UnboundLocalError in Python 3.14 when the executed module
+                # also imports BaseTool (the two names can collide).
+                _base_tool_cls = BaseTool
                 for attr_name in dir(module):
                     attr = getattr(module, attr_name)
                     if isinstance(attr, type) and attr.__name__ != "BaseTool":
                         # Check if it inherits from BaseTool
                         try:
-                            is_sub = issubclass(attr, BaseTool)
+                            is_sub = issubclass(attr, _base_tool_cls)
                         except TypeError:
                             is_sub = False
                         if is_sub:

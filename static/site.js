@@ -29,8 +29,11 @@ function escapeHtml(str) {
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&apos;');
+        .replace(/"/g, '&quot;');
+    // Note: single quotes (' ) are intentionally NOT escaped.
+    // &apos; is an XML-only entity that can cause rendering issues
+    // in HTML content (especially inside <code> blocks), making
+    // single-quoted text invisible to the user.
 }
 
 function copyToClipboard(text, buttonEl) {
@@ -96,7 +99,7 @@ function copyCodeBlock(id, btn) {
     if (!el) return;
     var text = el.textContent || el.innerText || '';
     // Decode HTML entities
-    var decoded = text.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+    var decoded = text.replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
     // Strip language label if present (e.g., "python\nprint(...)" -> "print(...)")
     var firstLineEnd = decoded.indexOf('\n');
     if (firstLineEnd !== -1) {
