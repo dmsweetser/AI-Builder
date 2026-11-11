@@ -496,7 +496,6 @@ TOOL FAILURE HANDLING (CRITICAL - READ CAREFULLY):
 - For edit_file failures: the error will show what was expected vs what was found — use that to adjust your original_text or try a different strategy.
 - For create_tool failures: fix the code or parameters based on the error message and retry.
 - For delete_file failures: verify the file exists and is not a backup file before retrying.
-- If a tool fails 3+ times with the same error, try a completely different approach rather than repeating the same call.
 - NEVER proceed as if a failed tool succeeded. Always address the error before moving on.
 
 CONTEXT MANAGEMENT:
