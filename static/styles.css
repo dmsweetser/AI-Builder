@@ -1103,14 +1103,29 @@ textarea {
 /* === Settings === */
 .settings-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    grid-template-columns: 1fr;
     gap: 16px;
+}
+
+/* Fields that benefit from full width */
+.setting-row.full-width {
+    grid-column: 1 / -1;
+}
+
+.setting-row.full-width input[type="text"],
+.setting-row.full-width textarea {
+    width: 100%;
 }
 
 .setting-row {
     display: flex;
     flex-direction: column;
     gap: 6px;
+}
+
+/* Number fields: keep compact multi-column */
+.settings-grid > .setting-row:not(.full-width) {
+    max-width: 280px;
 }
 
 .setting-row label {

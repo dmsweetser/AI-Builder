@@ -214,15 +214,16 @@
                 </div>
                 <form id="settings-form">
                     <div class="settings-grid">
-                        <div class="setting-row">
+                        <!-- Full-width text fields -->
+                        <div class="setting-row full-width">
                             <label for="set-custom-endpoint-url">Endpoint URL</label>
                             <input type="text" id="set-custom-endpoint-url" name="custom_endpoint_url" placeholder="http://127.0.0.1:8080/v1/chat/completions">
                         </div>
-                        <div class="setting-row">
+                        <div class="setting-row full-width">
                             <label for="set-custom-api-key">API Key</label>
-                            <input type="text" id="set-custom-api-key" name="custom_api_key" placeholder="sk-no-key-required">
+                            <input type="text" id="set-custom-api-key" name="custom_api_key" placeholder="«redacted:sk-…»">
                         </div>
-                        <div class="setting-row">
+                        <div class="setting-row full-width">
                             <label for="set-custom-model-name">Model Name</label>
                             <input type="text" id="set-custom-model-name" name="custom_model_name" placeholder="qwen36">
                         </div>
@@ -230,6 +231,7 @@
                             <label for="set-custom-verify-ssl">Verify SSL</label>
                             <input type="checkbox" id="set-custom-verify-ssl" name="custom_verify_ssl">
                         </div>
+                        <!-- Number fields (compact) -->
                         <div class="setting-row">
                             <label for="set-max-steps">Max Steps</label>
                             <input type="number" id="set-max-steps" name="max_steps" value="500">
@@ -250,19 +252,20 @@
                             <label for="set-max-tool-result-length">Max Tool Result Length</label>
                             <input type="number" id="set-max-tool-result-length" name="max_tool_result_length" value="10000">
                         </div>
-                        <div class="setting-row">
+                        <!-- Full-width path fields -->
+                        <div class="setting-row full-width">
                             <label for="set-root-dir">Default Root Directory</label>
                             <input type="text" id="set-root-dir" name="root_directory" placeholder="/path/to/default">
                         </div>
-                        <div class="setting-row">
+                        <div class="setting-row full-width">
                             <label for="set-jd-cli">JD CLI Path</label>
                             <input type="text" id="set-jd-cli" name="jd_cli_path" placeholder="/path/to/jd-cli">
                         </div>
-                        <div class="setting-row">
+                        <div class="setting-row full-width">
                             <label for="set-java-home">Java Home</label>
                             <input type="text" id="set-java-home" name="java_home" placeholder="/path/to/java">
                         </div>
-                        <div class="setting-row">
+                        <div class="setting-row full-width">
                             <label for="set-dotnet-cli">.NET CLI Path</label>
                             <input type="text" id="set-dotnet-cli" name="dotnet_cli_path" placeholder="/path/to/dotnet">
                         </div>

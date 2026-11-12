@@ -162,23 +162,72 @@ function loadProjects() {
                 projectItem.onclick = function() {
                     selectProject(project.id);
                 };
-                projectItem.innerHTML =
-                    '<div class="project-item-header">' +
-                        '<span class="project-item-name">' + escapeHtml(project.name || 'Untitled') + '</span>' +
-                        (project.run_number > 0 ? '<span style="color:var(--text-muted);font-size:11px;">Run #' + project.run_number + '</span>' : '') +
-                    '</div>' +
-                    '<div class="project-item-meta">' +
-                        '<span class="project-item-path">' + escapeHtml(project.rootDirectory || '') + '</span>' +
-                        '<div class="project-item-actions">' +
-                            (project.status === 'running' ? '<button class="btn btn-sm btn-info" onclick="event.stopPropagation(); showLiveViewForJob(\'' + project.id + '\')">📺 LIVE</button>' : '<button class="btn btn-sm btn-primary" onclick="event.stopPropagation(); runProject(\'' + project.id + '\')">RUN</button>') +
-                            (project.status === 'running' ? '<button class="btn btn-sm btn-danger" onclick="event.stopPropagation(); stopProject(\'' + project.id + '\')">STOP</button>' : '<button class="btn btn-sm btn-danger" onclick="event.stopPropagation(); stopProject(\'' + project.id + '\')" style="display:none;">STOP</button>') +
-                            '<button class="btn btn-sm btn-secondary" onclick="event.stopPropagation(); resetProject(\'' + project.id + '\')">RESET</button>' +
-                            '<button class="btn btn-sm btn-secondary" onclick="event.stopPropagation(); archiveProject(\'' + project.id + '\', this)" title="Archive">' +
-                                (project.isArchived ? '📤' : '📦') +
-                            '</button>' +
-                            '<button class="btn btn-sm btn-danger" onclick="event.stopPropagation(); deleteProject(\'' + project.id + '\')">DEL</button>' +
-                        '</div>' +
-                    '</div>';
+
+                // Build header
+                var header = document.createElement('div');
+                header.className = 'project-item-header';
+                var nameSpan = document.createElement('span');
+                nameSpan.className = 'project-item-name';
+                nameSpan.textContent = project.name || 'Untitled';
+                header.appendChild(nameSpan);
+                if (project.run_number > 0) {
+                    var runSpan = document.createElement('span');
+                    runSpan.style.cssText = 'color:var(--text-muted);font-size:11px;';
+                    runSpan.textContent = 'Run #' + project.run_number;
+                    header.appendChild(runSpan);
+                }
+                projectItem.appendChild(header);
+
+                // Build meta
+                var meta = document.createElement('div');
+                meta.className = 'project-item-meta';
+                var pathSpan = document.createElement('span');
+                pathSpan.className = 'project-item-path';
+                pathSpan.textContent = project.rootDirectory || '';
+                meta.appendChild(pathSpan);
+
+                // Actions
+                var actions = document.createElement('div');
+                actions.className = 'project-item-actions';
+                var isRunning = project.status === 'running';
+                var liveBtn = document.createElement('button');
+                liveBtn.className = 'btn btn-sm btn-info';
+                liveBtn.textContent = '📺 LIVE';
+                liveBtn.onclick = function(e) { e.stopPropagation(); showLiveViewForJob(project.id); };
+                var runBtn = document.createElement('button');
+                runBtn.className = 'btn btn-sm btn-primary';
+                runBtn.textContent = 'RUN';
+                runBtn.onclick = function(e) { e.stopPropagation(); runProject(project.id); };
+                var stopBtn = document.createElement('button');
+                stopBtn.className = 'btn btn-sm btn-danger';
+                stopBtn.textContent = 'STOP';
+                stopBtn.onclick = function(e) { e.stopPropagation(); stopProject(project.id); };
+                if (isRunning) {
+                    actions.appendChild(liveBtn);
+                    actions.appendChild(stopBtn);
+                } else {
+                    actions.appendChild(runBtn);
+                    stopBtn.style.display = 'none';
+                    actions.appendChild(stopBtn);
+                }
+                var resetBtn = document.createElement('button');
+                resetBtn.className = 'btn btn-sm btn-secondary';
+                resetBtn.textContent = 'RESET';
+                resetBtn.onclick = function(e) { e.stopPropagation(); resetProject(project.id); };
+                actions.appendChild(resetBtn);
+                var archiveBtn = document.createElement('button');
+                archiveBtn.className = 'btn btn-sm btn-secondary';
+                archiveBtn.textContent = project.isArchived ? '📤' : '📦';
+                archiveBtn.title = 'Archive';
+                archiveBtn.onclick = function(e) { e.stopPropagation(); archiveProject(project.id, e.target); };
+                actions.appendChild(archiveBtn);
+                var delBtn = document.createElement('button');
+                delBtn.className = 'btn btn-sm btn-danger';
+                delBtn.textContent = 'DEL';
+                delBtn.onclick = function(e) { e.stopPropagation(); deleteProject(project.id); };
+                actions.appendChild(delBtn);
+                meta.appendChild(actions);
+                projectItem.appendChild(meta);
                 projectList.appendChild(projectItem);
             });
         })
@@ -435,14 +484,34 @@ function _renderStep(step, agentBox) {
     if (step.tool === 'respond_to_user') {
         entry.classList.add('llm-step');
         entry.style.borderLeftColor = 'var(--info)';
+        var toolDiv = document.createElement('div');
+        toolDiv.className = 'step-tool';
+        toolDiv.style.color = 'var(--info)';
+        toolDiv.textContent = '💬 AI Response';
+        entry.appendChild(toolDiv);
         var respContent = step.result ? (step.result.content || '') : '';
-        entry.innerHTML = '<div class="step-tool" style="color:var(--info);">💬 AI Response</div><div class="step-result">' + escapeHtml(respContent) + '</div>';
+        var resultDiv = document.createElement('div');
+        resultDiv.className = 'step-result';
+        resultDiv.textContent = respContent;
+        entry.appendChild(resultDiv);
     } else if (step.tool === 'request_user_input') {
         entry.classList.add('pending-approval');
+        var toolDiv2 = document.createElement('div');
+        toolDiv2.className = 'step-tool';
+        toolDiv2.style.color = 'var(--warning)';
+        toolDiv2.textContent = '⏸ REQUEST USER INPUT';
+        entry.appendChild(toolDiv2);
         var reqQuestion = step.result ? (step.result.content || 'The agent is waiting for your input.') : 'The agent is waiting for your input.';
-        entry.innerHTML = '<div class="step-tool" style="color:var(--warning);">⏸ REQUEST USER INPUT</div>' +
-            '<div class="step-result" style="color:var(--warning);white-space:pre-wrap;">' + escapeHtml(reqQuestion) + '</div>' +
-            '<div class="step-result" style="color:var(--text-muted);font-size:11px;margin-top:6px;">👉 The agent is waiting for your response. Type instructions below and click INJECT or RUN to continue</div>';
+        var resultDiv2 = document.createElement('div');
+        resultDiv2.className = 'step-result';
+        resultDiv2.style.cssText = 'color:var(--warning);white-space:pre-wrap;';
+        resultDiv2.textContent = reqQuestion;
+        entry.appendChild(resultDiv2);
+        var hintDiv = document.createElement('div');
+        hintDiv.className = 'step-result';
+        hintDiv.style.cssText = 'color:var(--text-muted);font-size:11px;margin-top:6px;';
+        hintDiv.textContent = '👉 The agent is waiting for your response. Type instructions below and click INJECT or RUN to continue';
+        entry.appendChild(hintDiv);
     } else if (step.tool === 'llm_call') {
         var msgCount = step.params ? step.params.messages : 0;
         entry.classList.add('llm-step');
@@ -451,50 +520,125 @@ function _renderStep(step, agentBox) {
         var hasRaw = rawReq.length > 0 || rawResp.length > 0;
         var respContent = step.result ? step.result.content : '';
         var preview = respContent ? (respContent.length > 200 ? respContent.substring(0, 200) + '...' : respContent) : 'Processing request...';
-        var html = '<div class="step-tool">🤔 Thinking (' + msgCount + ' messages)</div>' +
-            '<div class="step-result">' + escapeHtml(preview) + '</div>';
+        var toolDiv3 = document.createElement('div');
+        toolDiv3.className = 'step-tool';
+        toolDiv3.textContent = '🤔 Thinking (' + msgCount + ' messages)';
+        entry.appendChild(toolDiv3);
+        var resultDiv3 = document.createElement('div');
+        resultDiv3.className = 'step-result';
+        resultDiv3.textContent = preview;
+        entry.appendChild(resultDiv3);
         if (hasRaw) {
-            html += '<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">';
+            var rawDiv = document.createElement('div');
+            rawDiv.style.cssText = 'margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;';
             if (rawReq.length > 0) {
-                html += '<details class="raw-data-block"><summary class="raw-summary">📤 Raw Request (' + rawReq.length + ' chars)</summary><div class="raw-content"><pre>' + escapeHtml(rawReq) + '</pre></div></details>';
+                var details1 = document.createElement('details');
+                details1.className = 'raw-data-block';
+                var summary1 = document.createElement('summary');
+                summary1.className = 'raw-summary';
+                summary1.textContent = '📤 Raw Request (' + rawReq.length + ' chars)';
+                details1.appendChild(summary1);
+                var contentDiv1 = document.createElement('div');
+                contentDiv1.className = 'raw-content';
+                var pre1 = document.createElement('pre');
+                var code1 = document.createElement('code');
+                code1.textContent = rawReq;
+                pre1.appendChild(code1);
+                contentDiv1.appendChild(pre1);
+                details1.appendChild(contentDiv1);
+                rawDiv.appendChild(details1);
             }
             if (rawResp.length > 0) {
-                html += '<details class="raw-data-block"><summary class="raw-summary">📥 Raw Response (' + rawResp.length + ' chars)</summary><div class="raw-content"><pre>' + escapeHtml(rawResp) + '</pre></div></details>';
+                var details2 = document.createElement('details');
+                details2.className = 'raw-data-block';
+                var summary2 = document.createElement('summary');
+                summary2.className = 'raw-summary';
+                summary2.textContent = '📥 Raw Response (' + rawResp.length + ' chars)';
+                details2.appendChild(summary2);
+                var contentDiv2 = document.createElement('div');
+                contentDiv2.className = 'raw-content';
+                var pre2 = document.createElement('pre');
+                var code2 = document.createElement('code');
+                code2.textContent = rawResp;
+                pre2.appendChild(code2);
+                contentDiv2.appendChild(pre2);
+                details2.appendChild(contentDiv2);
+                rawDiv.appendChild(details2);
             }
-            html += '</div>';
+            entry.appendChild(rawDiv);
         }
-        entry.innerHTML = html;
     } else if (step.tool === 'format_retry') {
         entry.classList.add('llm-step');
-        entry.innerHTML = '<div class="step-tool" style="color:var(--warning);">⚠ Format reminder sent</div><div class="step-result" style="color:var(--warning);">' + escapeHtml(step.result ? step.result.content : '') + '</div>';
+        var toolDiv4 = document.createElement('div');
+        toolDiv4.className = 'step-tool';
+        toolDiv4.style.color = 'var(--warning)';
+        toolDiv4.textContent = '⚠ Format reminder sent';
+        entry.appendChild(toolDiv4);
+        var resultDiv4 = document.createElement('div');
+        resultDiv4.className = 'step-result';
+        resultDiv4.style.color = 'var(--warning)';
+        resultDiv4.textContent = step.result ? step.result.content : '';
+        entry.appendChild(resultDiv4);
     } else if (step.tool === 'task_completed') {
         var summary = step.result ? (step.result.content || '') : '';
-        var rationaleHtml = step.rationale ? '<div class="step-rationale">💡 ' + escapeHtml(step.rationale) + '</div>' : '';
-        var paramsHtml = step.params && step.params.summary ? '<div class="step-result" style="margin-top:6px;font-style:italic;color:var(--text-muted);">Summary: ' + escapeHtml(step.params.summary) + '</div>' : '';
-        entry.innerHTML = '<div class="step-tool" style="color:var(--success);font-weight:bold;font-size:16px;">🎉 TASK COMPLETED</div>' +
-            rationaleHtml +
-            '<div class="step-result" style="margin-top:6px;padding:8px;background:rgba(46,204,113,0.1);border:1px solid var(--success);border-radius:4px;">' + escapeHtml(summary) + '</div>' +
-            paramsHtml;
+        var toolDiv5 = document.createElement('div');
+        toolDiv5.className = 'step-tool';
+        toolDiv5.style.cssText = 'color:var(--success);font-weight:bold;font-size:16px;';
+        toolDiv5.textContent = '🎉 TASK COMPLETED';
+        entry.appendChild(toolDiv5);
+        if (step.rationale) {
+            var rationaleDiv = document.createElement('div');
+            rationaleDiv.className = 'step-rationale';
+            rationaleDiv.textContent = '💡 ' + step.rationale;
+            entry.appendChild(rationaleDiv);
+        }
+        var resultDiv5 = document.createElement('div');
+        resultDiv5.className = 'step-result';
+        resultDiv5.style.cssText = 'margin-top:6px;padding:8px;background:rgba(46,204,113,0.1);border:1px solid var(--success);border-radius:4px;';
+        resultDiv5.textContent = summary;
+        entry.appendChild(resultDiv5);
+        if (step.params && step.params.summary) {
+            var paramsDiv = document.createElement('div');
+            paramsDiv.className = 'step-result';
+            paramsDiv.style.cssText = 'margin-top:6px;font-style:italic;color:var(--text-muted);';
+            paramsDiv.textContent = 'Summary: ' + step.params.summary;
+            entry.appendChild(paramsDiv);
+        }
     } else {
         var ok = step.result && step.result.success !== false;
         var resultPreview = step.result ? (step.result.content || '') : 'no result';
         var errorMsg = step.result ? (step.result.error || '') : '';
         entry.classList.add(ok ? 'success' : 'error');
-        var html = '<div class="step-tool">' + (ok ? '✓' : '✗') + ' ' + escapeHtml(step.tool) + '</div>';
+        var toolDiv6 = document.createElement('div');
+        toolDiv6.className = 'step-tool';
+        toolDiv6.textContent = (ok ? '✓' : '✗') + ' ' + step.tool;
+        entry.appendChild(toolDiv6);
         if (step.rationale) {
-            html += '<div class="step-rationale">💡 ' + escapeHtml(step.rationale) + '</div>';
+            var rationaleDiv2 = document.createElement('div');
+            rationaleDiv2.className = 'step-rationale';
+            rationaleDiv2.textContent = '💡 ' + step.rationale;
+            entry.appendChild(rationaleDiv2);
         }
         if (step.params && Object.keys(step.params).length) {
-            html += '<div class="step-params">' + escapeHtml(JSON.stringify(step.params)) + '</div>';
+            var paramsDiv2 = document.createElement('div');
+            paramsDiv2.className = 'step-params';
+            paramsDiv2.textContent = JSON.stringify(step.params);
+            entry.appendChild(paramsDiv2);
         }
         // Show error details prominently when a tool fails
         if (errorMsg && !ok) {
-            html += '<div class="step-result step-result-error" style="color:var(--mc-nether);font-weight:bold;margin-top:4px;">ERROR: ' + escapeHtml(errorMsg) + '</div>';
+            var errDiv = document.createElement('div');
+            errDiv.className = 'step-result step-result-error';
+            errDiv.style.cssText = 'color:var(--mc-nether);font-weight:bold;margin-top:4px;';
+            errDiv.textContent = 'ERROR: ' + errorMsg;
+            entry.appendChild(errDiv);
         }
         if (resultPreview) {
-            html += '<div class="step-result">' + escapeHtml(resultPreview) + '</div>';
+            var resultDiv6 = document.createElement('div');
+            resultDiv6.className = 'step-result';
+            resultDiv6.textContent = resultPreview;
+            entry.appendChild(resultDiv6);
         }
-        entry.innerHTML = html;
     }
 
     agentBox.appendChild(entry);
@@ -507,10 +651,18 @@ function _showPendingApproval(jobId, outputDir, agentBox) {
 
     var entry = document.createElement('div');
     entry.className = 'step-entry pending-approval';
-    entry.innerHTML =
-        '<div class="step-tool">⏸ AGENT WAITING — PENDING TOOL APPROVAL</div>' +
-        '<div class="step-result">The agent cannot proceed until you approve or reject new tools.</div>' +
-        '<div id="pending-approval-actions" style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;"></div>';
+    var toolDiv = document.createElement('div');
+    toolDiv.className = 'step-tool';
+    toolDiv.textContent = '⏸ AGENT WAITING — PENDING TOOL APPROVAL';
+    entry.appendChild(toolDiv);
+    var resultDiv = document.createElement('div');
+    resultDiv.className = 'step-result';
+    resultDiv.textContent = 'The agent cannot proceed until you approve or reject new tools.';
+    entry.appendChild(resultDiv);
+    var actionsDiv = document.createElement('div');
+    actionsDiv.id = 'pending-approval-actions';
+    actionsDiv.style.cssText = 'margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;';
+    entry.appendChild(actionsDiv);
 
     agentBox.appendChild(entry);
     agentBox.scrollTop = agentBox.scrollHeight;
@@ -533,21 +685,42 @@ function _showPendingApproval(jobId, outputDir, agentBox) {
             var toolEntry = document.createElement('div');
             toolEntry.style.cssText = 'background:var(--muted);padding:12px;border-radius:6px;margin-top:8px;width:100%;';
 
-            var codePreview = '';
+            var nameDiv = document.createElement('div');
+            nameDiv.style.cssText = 'font-weight:bold;margin-bottom:4px;';
+            nameDiv.textContent = '📦 ' + tool.name;
+            toolEntry.appendChild(nameDiv);
+
+            var descDiv = document.createElement('div');
+            descDiv.style.cssText = 'font-size:12px;color:var(--text-muted);margin-bottom:4px;';
+            descDiv.textContent = tool.description || '';
+            toolEntry.appendChild(descDiv);
+
             if (tool.code) {
-                codePreview = '<pre style="background:var(--bg-primary);padding:8px;border-radius:4px;max-height:200px;overflow:auto;font-size:11px;margin:8px 0;white-space:pre-wrap;">' + escapeHtml(tool.code) + '</pre>';
+                var codePre = document.createElement('pre');
+                codePre.style.cssText = 'background:var(--bg-primary);padding:8px;border-radius:4px;max-height:200px;overflow:auto;font-size:11px;margin:8px 0;white-space:pre-wrap;';
+                codePre.textContent = tool.code;
+                toolEntry.appendChild(codePre);
             }
 
-            var approveUrl = '/api/tools/pending/' + encodeURIComponent(tool.name) + '/approve';
-            var rejectUrl = '/api/tools/pending/' + encodeURIComponent(tool.name) + '/reject';
-            toolEntry.innerHTML =
-                '<div style="font-weight:bold;margin-bottom:4px;">📦 ' + escapeHtml(tool.name) + '</div>' +
-                '<div style="font-size:12px;color:var(--text-muted);margin-bottom:4px;">' + escapeHtml(tool.description || '') + '</div>' +
-                codePreview +
-                '<div style="display:flex;gap:8px;margin-top:8px;">' +
-                '<button class="btn btn-success btn-sm" data-url="' + approveUrl + '" data-output-dir="' + escapeHtml(outputDir) + '" data-job-id="' + escapeHtml(jobId) + '">✅ APPROVE</button>' +
-                '<button class="btn btn-danger btn-sm" data-url="' + rejectUrl + '" data-output-dir="' + escapeHtml(outputDir) + '">❌ REJECT</button>' +
-                '</div>';
+            var btnRow = document.createElement('div');
+            btnRow.style.cssText = 'display:flex;gap:8px;margin-top:8px;';
+
+            var approveBtn = document.createElement('button');
+            approveBtn.className = 'btn btn-success btn-sm';
+            approveBtn.textContent = '✅ APPROVE';
+            approveBtn.dataset.url = '/api/tools/pending/' + encodeURIComponent(tool.name) + '/approve';
+            approveBtn.dataset.outputDir = outputDir;
+            approveBtn.dataset.jobId = jobId;
+            btnRow.appendChild(approveBtn);
+
+            var rejectBtn = document.createElement('button');
+            rejectBtn.className = 'btn btn-danger btn-sm';
+            rejectBtn.textContent = '❌ REJECT';
+            rejectBtn.dataset.url = '/api/tools/pending/' + encodeURIComponent(tool.name) + '/reject';
+            rejectBtn.dataset.outputDir = outputDir;
+            btnRow.appendChild(rejectBtn);
+
+            toolEntry.appendChild(btnRow);
             actions.appendChild(toolEntry);
         });
     })
@@ -564,9 +737,21 @@ function _showPendingUserInput(statusData, agentBox) {
     entry.className = 'step-entry pending-approval';
     entry.id = 'pending-user-input-entry';
     var questionText = statusData.question || statusData.summary || 'The agent is waiting for your input.';
-    entry.innerHTML = '<div class="step-tool" style="color:var(--warning);">⏸ AGENT NEEDS HELP</div>' +
-        '<div class="step-result" style="color:var(--warning);white-space:pre-wrap;">' + escapeHtml(questionText) + '</div>' +
-        '<div class="step-result" style="color:var(--text-muted);font-size:11px;margin-top:6px;">👉 Type instructions below and click INJECT or RUN to continue</div>';
+    var toolDiv = document.createElement('div');
+    toolDiv.className = 'step-tool';
+    toolDiv.style.color = 'var(--warning)';
+    toolDiv.textContent = '⏸ AGENT NEEDS HELP';
+    entry.appendChild(toolDiv);
+    var resultDiv = document.createElement('div');
+    resultDiv.className = 'step-result';
+    resultDiv.style.cssText = 'color:var(--warning);white-space:pre-wrap;';
+    resultDiv.textContent = questionText;
+    entry.appendChild(resultDiv);
+    var hintDiv = document.createElement('div');
+    hintDiv.className = 'step-result';
+    hintDiv.style.cssText = 'color:var(--text-muted);font-size:11px;margin-top:6px;';
+    hintDiv.textContent = '👉 Type instructions below and click INJECT or RUN to continue';
+    entry.appendChild(hintDiv);
     agentBox.appendChild(entry);
     agentBox.scrollTop = agentBox.scrollHeight;
     var statusText = document.getElementById('agent-status-text');
@@ -587,14 +772,34 @@ function handleAgentStep(data, agentBox) {
     if (data.tool === 'respond_to_user') {
         entry.classList.add('llm-step');
         entry.style.borderLeftColor = 'var(--info)';
+        var toolDiv = document.createElement('div');
+        toolDiv.className = 'step-tool';
+        toolDiv.style.color = 'var(--info)';
+        toolDiv.textContent = '💬 AI Response';
+        entry.appendChild(toolDiv);
         var respContent = data.result ? (data.result.content || '') : '';
-        entry.innerHTML = '<div class="step-tool" style="color:var(--info);">💬 AI Response</div><div class="step-result">' + escapeHtml(respContent) + '</div>';
+        var resultDiv = document.createElement('div');
+        resultDiv.className = 'step-result';
+        resultDiv.textContent = respContent;
+        entry.appendChild(resultDiv);
     } else if (data.tool === 'request_user_input') {
         entry.classList.add('pending-approval');
+        var toolDiv2 = document.createElement('div');
+        toolDiv2.className = 'step-tool';
+        toolDiv2.style.color = 'var(--warning)';
+        toolDiv2.textContent = '⏸ REQUEST USER INPUT';
+        entry.appendChild(toolDiv2);
         var reqQuestion = data.result ? (data.result.content || 'The agent is waiting for your input.') : 'The agent is waiting for your input.';
-        entry.innerHTML = '<div class="step-tool" style="color:var(--warning);">⏸ REQUEST USER INPUT</div>' +
-            '<div class="step-result" style="color:var(--warning);white-space:pre-wrap;">' + escapeHtml(reqQuestion) + '</div>' +
-            '<div class="step-result" style="color:var(--text-muted);font-size:11px;margin-top:6px;">👉 The agent is waiting for your response. Type instructions below and click INJECT or RUN to continue</div>';
+        var resultDiv2 = document.createElement('div');
+        resultDiv2.className = 'step-result';
+        resultDiv2.style.cssText = 'color:var(--warning);white-space:pre-wrap;';
+        resultDiv2.textContent = reqQuestion;
+        entry.appendChild(resultDiv2);
+        var hintDiv = document.createElement('div');
+        hintDiv.className = 'step-result';
+        hintDiv.style.cssText = 'color:var(--text-muted);font-size:11px;margin-top:6px;';
+        hintDiv.textContent = '👉 The agent is waiting for your response. Type instructions below and click INJECT or RUN to continue';
+        entry.appendChild(hintDiv);
     } else if (data.tool === 'llm_call') {
         var msgCount = data.params ? data.params.messages : 0;
         entry.classList.add('llm-step');
@@ -603,51 +808,126 @@ function handleAgentStep(data, agentBox) {
         var hasRaw = rawReq.length > 0 || rawResp.length > 0;
         var respContent = data.result ? data.result.content : '';
         var preview = respContent ? (respContent.length > 200 ? respContent.substring(0, 200) + '...' : respContent) : 'Processing request...';
-        var html = '<div class="step-tool">🤔 Thinking (' + msgCount + ' messages)</div>' +
-            '<div class="step-result">' + escapeHtml(preview) + '</div>';
+        var toolDiv3 = document.createElement('div');
+        toolDiv3.className = 'step-tool';
+        toolDiv3.textContent = '🤔 Thinking (' + msgCount + ' messages)';
+        entry.appendChild(toolDiv3);
+        var resultDiv3 = document.createElement('div');
+        resultDiv3.className = 'step-result';
+        resultDiv3.textContent = preview;
+        entry.appendChild(resultDiv3);
         if (hasRaw) {
-            html += '<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">';
+            var rawDiv = document.createElement('div');
+            rawDiv.style.cssText = 'margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;';
             if (rawReq.length > 0) {
-                html += '<details class="raw-data-block"><summary class="raw-summary">📤 Raw Request (' + rawReq.length + ' chars)</summary><div class="raw-content"><pre>' + escapeHtml(rawReq) + '</pre></div></details>';
+                var details1 = document.createElement('details');
+                details1.className = 'raw-data-block';
+                var summary1 = document.createElement('summary');
+                summary1.className = 'raw-summary';
+                summary1.textContent = '📤 Raw Request (' + rawReq.length + ' chars)';
+                details1.appendChild(summary1);
+                var contentDiv1 = document.createElement('div');
+                contentDiv1.className = 'raw-content';
+                var pre1 = document.createElement('pre');
+                var code1 = document.createElement('code');
+                code1.textContent = rawReq;
+                pre1.appendChild(code1);
+                contentDiv1.appendChild(pre1);
+                details1.appendChild(contentDiv1);
+                rawDiv.appendChild(details1);
             }
             if (rawResp.length > 0) {
-                html += '<details class="raw-data-block"><summary class="raw-summary">📥 Raw Response (' + rawResp.length + ' chars)</summary><div class="raw-content"><pre>' + escapeHtml(rawResp) + '</pre></div></details>';
+                var details2 = document.createElement('details');
+                details2.className = 'raw-data-block';
+                var summary2 = document.createElement('summary');
+                summary2.className = 'raw-summary';
+                summary2.textContent = '📥 Raw Response (' + rawResp.length + ' chars)';
+                details2.appendChild(summary2);
+                var contentDiv2 = document.createElement('div');
+                contentDiv2.className = 'raw-content';
+                var pre2 = document.createElement('pre');
+                var code2 = document.createElement('code');
+                code2.textContent = rawResp;
+                pre2.appendChild(code2);
+                contentDiv2.appendChild(pre2);
+                details2.appendChild(contentDiv2);
+                rawDiv.appendChild(details2);
             }
-            html += '</div>';
+            entry.appendChild(rawDiv);
         }
-        entry.innerHTML = html;
     } else if (data.tool === 'format_retry') {
         entry.classList.add('llm-step');
-        entry.innerHTML = '<div class="step-tool" style="color:var(--warning);">⚠ Format reminder sent</div><div class="step-result" style="color:var(--warning);">' + escapeHtml(data.result ? data.result.content : '') + '</div>';
+        var toolDiv4 = document.createElement('div');
+        toolDiv4.className = 'step-tool';
+        toolDiv4.style.color = 'var(--warning)';
+        toolDiv4.textContent = '⚠ Format reminder sent';
+        entry.appendChild(toolDiv4);
+        var resultDiv4 = document.createElement('div');
+        resultDiv4.className = 'step-result';
+        resultDiv4.style.color = 'var(--warning)';
+        resultDiv4.textContent = data.result ? data.result.content : '';
+        entry.appendChild(resultDiv4);
     } else if (data.tool === 'task_completed') {
         // Celebration entry for task completion
         var summary = data.result ? (data.result.content || '') : '';
-        var rationaleHtml = data.rationale ? '<div class="step-rationale">💡 ' + escapeHtml(data.rationale) + '</div>' : '';
-        var paramsHtml = data.params && data.params.summary ? '<div class="step-result" style="margin-top:6px;font-style:italic;color:var(--text-muted);">Summary: ' + escapeHtml(data.params.summary) + '</div>' : '';
-        entry.innerHTML = '<div class="step-tool" style="color:var(--success);font-weight:bold;font-size:16px;">🎉 TASK COMPLETED</div>' +
-            rationaleHtml +
-            '<div class="step-result" style="margin-top:6px;padding:8px;background:rgba(46,204,113,0.1);border:1px solid var(--success);border-radius:4px;">' + escapeHtml(summary) + '</div>' +
-            paramsHtml;
+        var toolDiv5 = document.createElement('div');
+        toolDiv5.className = 'step-tool';
+        toolDiv5.style.cssText = 'color:var(--success);font-weight:bold;font-size:16px;';
+        toolDiv5.textContent = '🎉 TASK COMPLETED';
+        entry.appendChild(toolDiv5);
+        if (data.rationale) {
+            var rationaleDiv = document.createElement('div');
+            rationaleDiv.className = 'step-rationale';
+            rationaleDiv.textContent = '💡 ' + data.rationale;
+            entry.appendChild(rationaleDiv);
+        }
+        var resultDiv5 = document.createElement('div');
+        resultDiv5.className = 'step-result';
+        resultDiv5.style.cssText = 'margin-top:6px;padding:8px;background:rgba(46,204,113,0.1);border:1px solid var(--success);border-radius:4px;';
+        resultDiv5.textContent = summary;
+        entry.appendChild(resultDiv5);
+        if (data.params && data.params.summary) {
+            var paramsDiv = document.createElement('div');
+            paramsDiv.className = 'step-result';
+            paramsDiv.style.cssText = 'margin-top:6px;font-style:italic;color:var(--text-muted);';
+            paramsDiv.textContent = 'Summary: ' + data.params.summary;
+            entry.appendChild(paramsDiv);
+        }
     } else {
         var ok = data.result && data.result.success !== false;
         var resultPreview = data.result ? (data.result.content || '') : 'no result';
         var errorMsg = data.result ? (data.result.error || '') : '';
         entry.classList.add(ok ? 'success' : 'error');
-        var html = '<div class="step-tool">' + (ok ? '✓' : '✗') + ' ' + escapeHtml(data.tool) + '</div>';
+        var toolDiv6 = document.createElement('div');
+        toolDiv6.className = 'step-tool';
+        toolDiv6.textContent = (ok ? '✓' : '✗') + ' ' + data.tool;
+        entry.appendChild(toolDiv6);
         if (data.rationale) {
-            html += '<div class="step-rationale">💡 ' + escapeHtml(data.rationale) + '</div>';
+            var rationaleDiv2 = document.createElement('div');
+            rationaleDiv2.className = 'step-rationale';
+            rationaleDiv2.textContent = '💡 ' + data.rationale;
+            entry.appendChild(rationaleDiv2);
         }
         if (data.params && Object.keys(data.params).length) {
-            html += '<div class="step-params">' + escapeHtml(JSON.stringify(data.params)) + '</div>';
-            }
+            var paramsDiv2 = document.createElement('div');
+            paramsDiv2.className = 'step-params';
+            paramsDiv2.textContent = JSON.stringify(data.params);
+            entry.appendChild(paramsDiv2);
+        }
         // Show error details prominently when a tool fails
         if (errorMsg && !ok) {
-            html += '<div class="step-result step-result-error" style="color:var(--mc-nether);font-weight:bold;margin-top:4px;">ERROR: ' + escapeHtml(errorMsg) + '</div>';
+            var errDiv = document.createElement('div');
+            errDiv.className = 'step-result step-result-error';
+            errDiv.style.cssText = 'color:var(--mc-nether);font-weight:bold;margin-top:4px;';
+            errDiv.textContent = 'ERROR: ' + errorMsg;
+            entry.appendChild(errDiv);
         }
         if (resultPreview) {
-            html += '<div class="step-result">' + escapeHtml(resultPreview) + '</div>';
+            var resultDiv6 = document.createElement('div');
+            resultDiv6.className = 'step-result';
+            resultDiv6.textContent = resultPreview;
+            entry.appendChild(resultDiv6);
         }
-        entry.innerHTML = html;
     }
     agentBox.appendChild(entry);
     agentBox.scrollTop = agentBox.scrollHeight;
@@ -957,9 +1237,14 @@ function selectProject(projectId) {
             safeSet('run-project-id', project.id);
             var nameEl = document.getElementById('details-project-name');
             if (nameEl) {
-                var displayName = escapeHtml(project.name || 'Untitled');
-                if (project.run_number > 0) displayName += ' <span style="font-size:12px;color:var(--text-muted);">(Run #' + project.run_number + ')</span>';
-                nameEl.innerHTML = displayName;
+                nameEl.textContent = project.name || 'Untitled';
+                if (project.run_number > 0) {
+                    var runSpan = document.createElement('span');
+                    runSpan.style.cssText = 'font-size:12px;color:var(--text-muted);';
+                    runSpan.textContent = '(Run #' + project.run_number + ')';
+                    nameEl.appendChild(document.createTextNode(' '));
+                    nameEl.appendChild(runSpan);
+                }
             }
             safeSet('details-project-name-form', project.name || '');
             safeSet('details-root-dir', project.rootDirectory || '');
@@ -1204,37 +1489,132 @@ function renderJobs(queueData, history) {
         if (job.status === 'running') statusClass = 'running';
         else if (job.status === 'error') statusClass = 'error';
         else if (job.status === 'stopped') statusClass = 'stopped';
+
+        // Build header
+        var header = document.createElement('div');
+        header.className = 'history-item-header';
+        var nameSpan = document.createElement('span');
+        nameSpan.className = 'history-item-name';
+        nameSpan.textContent = job.project_name || 'Unknown Project';
+        header.appendChild(nameSpan);
+        var statusSpan = document.createElement('span');
+        statusSpan.className = 'project-item-status ' + statusClass;
+        statusSpan.textContent = job.status || 'unknown';
+        header.appendChild(statusSpan);
+        item.appendChild(header);
+
+        // Job ID
+        var idDiv = document.createElement('div');
+        idDiv.className = 'history-item-id';
+        idDiv.textContent = job.job_id.substring(0, 8) + '...';
+        item.appendChild(idDiv);
+
+        // Error
+        if (job.error) {
+            var errDiv = document.createElement('div');
+            errDiv.className = 'history-item-error';
+            errDiv.textContent = 'Error: ' + job.error;
+            item.appendChild(errDiv);
+        }
+
+        // Summary
+        if (job.summary) {
+            var sumDiv = document.createElement('div');
+            sumDiv.className = 'history-item-summary';
+            sumDiv.textContent = 'Summary: ' + job.summary.substring(0, 150);
+            item.appendChild(sumDiv);
+        }
+
+        // Steps
         var stepsData = (job.step_history && job.step_history.length > 0) ? job.step_history : (job.steps && Array.isArray(job.steps)) ? job.steps : null;
-        var stepsHtml = '';
         if (stepsData) {
-            var stepsHtmlInner = stepsData.map(function(s) {
+            var stepsBtn = document.createElement('button');
+            stepsBtn.className = 'btn btn-xs btn-secondary';
+            stepsBtn.textContent = '▼ SHOW STEPS (' + stepsData.length + ')';
+            stepsBtn.onclick = function(e) { e.stopPropagation(); toggleJobSteps(job.job_id); };
+            item.appendChild(stepsBtn);
+
+            var stepsList = document.createElement('div');
+            stepsList.id = 'job-steps-' + job.job_id;
+            stepsList.className = 'job-steps-list';
+            stepsList.style.display = 'none';
+            stepsData.forEach(function(s) {
+                var stepItem = document.createElement('div');
+                stepItem.className = 'job-step-item';
+
+                var stepNum = document.createElement('span');
+                stepNum.className = 'step-num';
+                stepNum.textContent = 'Step ' + s.step;
+                stepItem.appendChild(stepNum);
+
+                var toolName = document.createElement('span');
+                toolName.className = 'step-tool-name';
+                if (s.tool === 'llm_call') {
+                    toolName.textContent = '[Thinking]';
+                } else if (s.tool === 'request_user_input') {
+                    toolName.textContent = '[⏸ User Input]';
+                } else {
+                    toolName.textContent = '[' + s.tool + ']';
+                }
+                stepItem.appendChild(toolName);
+
+                var statusSpan = document.createElement('span');
+                var ok = s.result && s.result.success !== false;
+                if (s.tool === 'request_user_input') {
+                    statusSpan.className = 'step-status-err';
+                    statusSpan.textContent = '⏸';
+                } else {
+                    statusSpan.className = 'step-status-' + (ok ? 'ok' : 'err');
+                    statusSpan.textContent = ok ? '✓' : '✗';
+                }
+                stepItem.appendChild(statusSpan);
+
                 if (s.tool === 'llm_call') {
                     var mc = s.params ? s.params.messages : 0;
-                    return '<div class="job-step-item"><span class="step-num">Step ' + s.step + '</span><span class="step-tool-name">[Thinking]</span><span class="step-status-ok">✓</span><span style="color:var(--text-muted);">LLM (' + mc + ' msgs)</span></div>';
-                }
-                if (s.tool === 'request_user_input') {
+                    var llmSpan = document.createElement('span');
+                    llmSpan.style.color = 'var(--text-muted)';
+                    llmSpan.textContent = 'LLM (' + mc + ' msgs)';
+                    stepItem.appendChild(llmSpan);
+                } else if (s.tool === 'request_user_input') {
                     var rq = s.result ? (s.result.content || 'User input requested') : 'User input requested';
-                    return '<div class="job-step-item"><span class="step-num">Step ' + s.step + '</span><span class="step-tool-name">[⏸ User Input]</span><span class="step-status-err">⏸</span><span style="color:var(--warning);">' + escapeHtml(rq.substring(0, 150)) + (rq.length > 150 ? '...' : '') + '</span></div>';
+                    var rqSpan = document.createElement('span');
+                    rqSpan.style.color = 'var(--warning)';
+                    rqSpan.textContent = rq.substring(0, 150) + (rq.length > 150 ? '...' : '');
+                    stepItem.appendChild(rqSpan);
+                } else {
+                    var rt = s.result ? (s.result.content || '').substring(0, 200) : 'no result';
+                    var rtSpan = document.createElement('span');
+                    rtSpan.style.color = 'var(--text-muted)';
+                    rtSpan.textContent = rt;
+                    stepItem.appendChild(rtSpan);
                 }
-                var ok = s.result && s.result.success !== false;
-                var rt = s.result ? (s.result.content || '').substring(0, 200) : 'no result';
-                var rationaleHtml = s.rationale ? '<div style="color:var(--mc-gold);font-size:9px;margin-left:16px;font-style:italic;">💡 ' + escapeHtml(s.rationale) + '</div>' : '';
-                return '<div class="job-step-item"><span class="step-num">Step ' + s.step + '</span><span class="step-tool-name">[' + s.tool + ']</span><span class="step-status-' + (ok ? 'ok' : 'err') + '">' + (ok ? '✓' : '✗') + '</span><span style="color:var(--text-muted);">' + escapeHtml(rt) + '</span></div>' + rationaleHtml;
-            }).join('');
-            stepsHtml = '<button class="btn btn-xs btn-secondary" onclick="event.stopPropagation(); toggleJobSteps(\'' + job.job_id + '\')">▼ SHOW STEPS (' + stepsData.length + ')</button><div id="job-steps-' + job.job_id + '" class="job-steps-list" style="display:none;">' + stepsHtmlInner + '</div>';
+
+                // Rationale
+                if (s.rationale) {
+                    var ratDiv = document.createElement('div');
+                    ratDiv.style.cssText = 'color:var(--mc-gold);font-size:9px;margin-left:16px;font-style:italic;';
+                    ratDiv.textContent = '💡 ' + s.rationale;
+                    stepItem.appendChild(ratDiv);
+                }
+
+                stepsList.appendChild(stepItem);
+            });
+            item.appendChild(stepsList);
         } else if (job.step_count !== undefined) {
-            stepsHtml = '<div style="font-size:11px;color:var(--text-muted);margin-top:4px;">Completed ' + (job.steps || 0) + ' steps</div>';
+            var stepCountDiv = document.createElement('div');
+            stepCountDiv.style.cssText = 'font-size:11px;color:var(--text-muted);margin-top:4px;';
+            stepCountDiv.textContent = 'Completed ' + (job.steps || 0) + ' steps';
+            item.appendChild(stepCountDiv);
         }
-        item.innerHTML =
-            '<div class="history-item-header">' +
-                '<span class="history-item-name">' + escapeHtml(job.project_name || 'Unknown Project') + '</span>' +
-                '<span class="project-item-status ' + statusClass + '">' + (job.status || 'unknown') + '</span>' +
-            '</div>' +
-            '<div class="history-item-id">' + job.job_id.substring(0, 8) + '...</div>' +
-            (job.error ? '<div class="history-item-error">Error: ' + escapeHtml(job.error) + '</div>' : '') +
-            (job.summary ? '<div class="history-item-summary">Summary: ' + escapeHtml(job.summary.substring(0, 150)) + '</div>' : '') +
-            stepsHtml +
-            '<div style="margin-top:6px;"><button class="btn btn-xs btn-secondary" onclick="event.stopPropagation(); deleteJob(\'' + job.job_id + '\')">DELETE</button></div>';
+
+        // Delete button
+        var delBtn = document.createElement('button');
+        delBtn.className = 'btn btn-xs btn-secondary';
+        delBtn.style.cssText = 'margin-top:6px;';
+        delBtn.textContent = 'DELETE';
+        delBtn.onclick = function(e) { e.stopPropagation(); deleteJob(job.job_id); };
+        item.appendChild(delBtn);
+
         list.appendChild(item);
     });
 }
@@ -1274,7 +1654,10 @@ function loadChats() {
             chats.forEach(function(chat) {
                 var item = document.createElement('div');
                 item.className = 'chat-item' + (chat.id === currentChatId ? ' active' : '');
-                item.innerHTML = '<span class="chat-item-name">' + escapeHtml(chat.title || 'New Chat') + '</span>';
+                var nameSpan = document.createElement('span');
+                nameSpan.className = 'chat-item-name';
+                nameSpan.textContent = chat.title || 'New Chat';
+                item.appendChild(nameSpan);
                 item.onclick = function() { openChat(chat.id); };
                 list.appendChild(item);
             });
@@ -1518,7 +1901,7 @@ function showNotificationModal(message, type) {
 
     var titles = { info: 'NOTICE', success: 'SUCCESS', warning: 'WARNING', error: 'ERROR' };
     titleEl.textContent = titles[type] || titles.info;
-    bodyEl.innerHTML = escapeHtml(message);
+    bodyEl.textContent = message;
 
     modal.style.display = 'flex';
 }
