@@ -909,7 +909,10 @@ class TestSystemPrompt(unittest.TestCase):
     def test_system_prompt_references_task_completed_with_prefix(self):
         tools = [{"name": "task_completed", "description": "Signal task completion", "parameters": {"summary": "string"}}]
         prompt = build_system_prompt(tools, "abc12345")
-        self.assertIn('abc12345_task_completed', prompt)
+        # task_completed should appear in the prompt (tool names are NOT prefixed)
+        self.assertIn('task_completed', prompt)
+        # The prefix should appear in markers (e.g., [abc12345_TOOL_START])
+        self.assertIn('abc12345_TOOL_START', prompt)
 
     def test_system_prompt_contains_tool_format(self):
         prompt = build_system_prompt([])
@@ -930,10 +933,14 @@ class TestSystemPrompt(unittest.TestCase):
             {"name": "read_file", "description": "Read a file", "parameters": {"path": "string"}},
         ]
         prompt = build_system_prompt(tools, "abc12345")
-        self.assertIn("abc12345_write_file", prompt)
-        self.assertIn("abc12345_read_file", prompt)
-        # Unprefixed tool should NOT appear as standalone
-        unprefixed_matches = re.findall(r'^\s+- write_file:', prompt, re.MULTILINE)
+        # Tool names should appear WITHOUT prefix (as per user requirement)
+        self.assertIn('- write_file:', prompt)
+        self.assertIn('- read_file:', prompt)
+        # Prefixed markers should still be present
+        self.assertIn('abc12345_TOOL_START', prompt)
+        self.assertIn('abc12345_TOOL_END', prompt)
+        # Unprefixed tool names should NOT appear as standalone prefixed names
+        unprefixed_matches = re.findall(r'^\s+- abc12345_write_file:', prompt, re.MULTILINE)
         self.assertEqual(len(unprefixed_matches), 0)
 
     def test_user_prompt_contains_instructions(self):
@@ -2325,13 +2332,16 @@ class TestInstancePrefix(unittest.TestCase):
             shutil.rmtree(tmpdir, ignore_errors=True)
 
     def test_prefix_used_in_system_prompt(self):
-        """System prompt should contain prefixed tool names."""
+        """System prompt should contain prefixed markers (not prefixed tool names)."""
         tmpdir = tempfile.mkdtemp()
         try:
             engine = _make_engine(tmpdir, [])
             self.assertIn(engine.instance_prefix, engine.system_prompt)
-            # Prefixed tool names should appear
-            self.assertIn(f"{engine.instance_prefix}_list_directory", engine.system_prompt)
+            # Prefixed markers should appear in the prompt
+            self.assertIn(f"[{engine.instance_prefix}_TOOL_START]", engine.system_prompt)
+            self.assertIn(f"[{engine.instance_prefix}_TOOL_END]", engine.system_prompt)
+            # Tool names should NOT be prefixed
+            self.assertIn("- list_directory:", engine.system_prompt)
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)
 

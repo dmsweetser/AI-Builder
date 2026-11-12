@@ -366,48 +366,15 @@ def run_with_agent_engine(project_config: Dict[str, Any], output_dir: str = None
     with open(instructions_file, 'w', encoding='utf-8') as f:
         f.write(project_config.get("instructions", ""))
 
-    # Clean old step files from previous runs in this project's output dir
+    # Archive logs from any prior runs in this project's output dir
     # so a fresh run doesn't pick up stale steps
     steps_dir = os.path.join(output_dir, "steps")
-    if os.path.isdir(steps_dir):
-        for fname in os.listdir(steps_dir):
-            if fname.endswith(".json"):
-                try:
-                    os.remove(os.path.join(steps_dir, fname))
-                except OSError:
-                    pass
-    # Also clean legacy steps.jsonl
-    step_log = os.path.join(output_dir, "steps.jsonl")
-    if os.path.exists(step_log):
-        try:
-            os.remove(step_log)
-        except OSError:
-            pass
-    # Clean conversation_history.json so the engine starts fresh
-    conv_hist = os.path.join(output_dir, "conversation_history.json")
-    if os.path.exists(conv_hist):
-        try:
-            os.remove(conv_hist)
-        except OSError:
-            pass
-    # Clean resume/instruction state from previous runs
-    try:
-        status_file = os.path.join(output_dir, "status.json")
-        if os.path.exists(status_file):
-            with open(status_file, 'r', encoding='utf-8') as f:
-                status = json.load(f)
-            # Clear pending state fields, keep status/step/timestamp
-            status.pop("pending_user_input", None)
-            status.pop("pending_live_instruction", None)
-            status.pop("last_user_message", None)
-            tmp_file = status_file + ".tmp"
-            with open(tmp_file, 'w', encoding='utf-8') as f:
-                json.dump(status, f, indent=2, ensure_ascii=False)
-                f.flush()
-                os.fsync(f.fileno())
-            os.replace(tmp_file, status_file)
-    except Exception:
-        pass
+    if os.path.isdir(steps_dir) and os.listdir(steps_dir):
+        archive_name = "archive_" + datetime.now().strftime("%Y%m%d_%H%M%S")
+        archive_dir = os.path.join(os.path.dirname(output_dir), archive_name)
+        shutil.move(output_dir, archive_dir)
+        # Create a fresh output directory
+        os.makedirs(output_dir, exist_ok=True)
 
     return agent_run(project_config, output_dir=output_dir)
 

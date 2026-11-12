@@ -348,10 +348,9 @@ def build_system_prompt(tools: List[Dict[str, Any]], instance_prefix: str = "") 
 
     tool_defs = ""
     for t in tools:
-        tool_name = t['name']
-        if instance_prefix:
-            tool_name = f"{instance_prefix}_{tool_name}"
-        tool_defs += f"\n  - {tool_name}: {t['description']}"
+        # Tool names are listed without prefix — only markers are prefixed
+        # so the agent can't match unprefixed markers in source code it reads.
+        tool_defs += f"\n  - {t['name']}: {t['description']}"
         if t.get('parameters'):
             tool_defs += "\n    Required parameters:"
             for pk, pv in t['parameters'].items():
@@ -666,16 +665,32 @@ def _parse_params(params_block: str, pname_marker: str = "[PARAM_NAME]",
 
     # Split into tokens by tag
     # Strategy: find all [PARAM_NAME] and [PARAM_VALUE] tags and their content
-    name_pattern = re.escape(pname_marker) + r'\s*\n(.*?)(?=' + re.escape(pval_marker) + r'|' + re.escape(end_marker) + r'|\[TOOL_NAME\]|\Z)'
-    value_pattern = re.escape(pval_marker) + r'\s*\n(.*?)(?=' + re.escape(pname_marker) + r'|' + re.escape(end_marker) + r'|\[TOOL_NAME\]|\Z)'
+    # Lookahead boundaries: next PARAM_VALUE, PARAM_NAME, RATIONALE, TOOL_END, TOOL_NAME, or end of string.
+    # Use wildcard patterns to also match prefixed variants (e.g., [abc_PARAM_VALUE]).
+    _base_markers = ('[PARAM_VALUE]', '[PARAM_NAME]', '[RATIONALE]', '[TOOL_END]', '[TOOL_NAME]')
+    _boundary_parts = [re.escape(m) for m in _base_markers]
+    # Also add wildcard variants for prefixed markers: [anything_PARAM_NAME], etc.
+    for base in _base_markers:
+        inner = base.strip('[]')  # e.g. PARAM_NAME
+        _boundary_parts.append(r'\[[^\]]*' + re.escape(inner) + r'\]')
+    _boundary = '|'.join(_boundary_parts)
+    name_pattern = re.escape(pname_marker) + r'\s*\n(.*?)(?=' + _boundary + r'|\Z)'
+    value_pattern = re.escape(pval_marker) + r'\s*\n(.*?)(?=' + _boundary + r'|\Z)'
 
     name_matches = list(re.finditer(name_pattern, params_block, re.DOTALL))
     value_matches = list(re.finditer(value_pattern, params_block, re.DOTALL))
 
     if len(name_matches) != len(value_matches):
-        # Fallback: try a simpler approach - just grab everything between tags
+        # Fallback: try a simpler approach - just grab everything between tags.
+        # First, strip the [RATIONALE]... tail (both standard and prefixed forms)
+        # so it doesn't bleed into the last parameter value.
+        stripped = re.sub(
+            r'\[[^\]]*RATIONALE\][\s\S]*$',
+            '',
+            params_block,
+        )
         # Split by [PARAM_NAME] and [PARAM_VALUE] tags
-        parts = re.split(r'(' + re.escape(pname_marker) + r'|' + re.escape(pval_marker) + r')', params_block)
+        parts = re.split(r'(' + re.escape(pname_marker) + r'|' + re.escape(pval_marker) + r')', stripped)
         if len(parts) >= 4:
             i = 0
             while i < len(parts) - 2:

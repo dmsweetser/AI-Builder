@@ -21,22 +21,19 @@ def get_global_settings() -> dict:
 
 
 def _settings_get(key: str, default=None):
-    """Get a value from global settings, falling back to os.environ.
+    """Get a value from global settings.
 
     Checks in order:
     1. Global settings dict (lowercase key)
-    2. Environment variable with AIB_ prefix (e.g., AIB_MAX_CONTEXT_TOKENS)
-    3. Environment variable without prefix (e.g., MAX_CONTEXT_TOKENS)
-    4. Provided default
+    2. Provided default
+
+    No os.environ fallback — settings are loaded from settings.json
+    by app.py and pushed into the global settings dict, keeping
+    multiple app instances independent.
     """
     val = _global_settings.get(key)
     if val is not None:
         return val
-    # Fall back to env vars: first with AIB_ prefix, then without
-    for env_key in (f"AIB_{key.upper()}", key.upper()):
-        env_val = os.getenv(env_key)
-        if env_val is not None:
-            return env_val
     return default
 
 
