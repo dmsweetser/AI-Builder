@@ -2,6 +2,7 @@
 import os
 from typing import Dict
 from agent_engine.tools.base import BaseTool, ToolResult
+from agent_engine.config import _read_status_file, _write_status_file
 
 
 class RespondToUserTool(BaseTool):
@@ -18,10 +19,10 @@ class RespondToUserTool(BaseTool):
     def execute(self, params: Dict[str, str]) -> ToolResult:
         message = params["message"]
         if self.output_dir:
-            resp_file = os.path.join(self.output_dir, "user_response.txt")
             try:
-                with open(resp_file, 'w', encoding='utf-8') as f:
-                    f.write(message)
+                status = _read_status_file(self.output_dir)
+                status["last_user_message"] = message
+                _write_status_file(self.output_dir, status)
             except OSError:
                 pass
         return ToolResult(

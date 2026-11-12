@@ -1618,10 +1618,13 @@ class TestRequestUserInputPause(unittest.TestCase):
             self.assertEqual(result["status"], "pending_user_input")
             self.assertIn("question", result)
             self.assertIn("What is your name?", result["question"])
-            question_file = os.path.join(tmpdir, "user_input_request.txt")
-            self.assertTrue(os.path.exists(question_file))
-            with open(question_file) as f:
-                self.assertEqual(f.read(), "What is your name?")
+            # Verify status.json contains the pending user input
+            status_file = os.path.join(tmpdir, "status.json")
+            self.assertTrue(os.path.exists(status_file))
+            with open(status_file) as f:
+                status = json.load(f)
+            self.assertIn("pending_user_input", status)
+            self.assertEqual(status["pending_user_input"]["question"], "What is your name?")
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)
 

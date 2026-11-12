@@ -371,14 +371,24 @@ def run_with_agent_engine(project_config: Dict[str, Any], output_dir: str = None
             os.remove(conv_hist)
         except OSError:
             pass
-    # Clean resume/instruction files from previous runs
-    for fname in ["live_instruction.txt", "resume_input.txt", "_tool_approved_resume.txt", "user_input_request.txt"]:
-        fpath = os.path.join(output_dir, fname)
-        if os.path.exists(fpath):
-            try:
-                os.remove(fpath)
-            except OSError:
-                pass
+    # Clean resume/instruction state from previous runs
+    try:
+        status_file = os.path.join(output_dir, "status.json")
+        if os.path.exists(status_file):
+            with open(status_file, 'r', encoding='utf-8') as f:
+                status = json.load(f)
+            # Clear pending state fields, keep status/step/timestamp
+            status.pop("pending_user_input", None)
+            status.pop("pending_live_instruction", None)
+            status.pop("last_user_message", None)
+            tmp_file = status_file + ".tmp"
+            with open(tmp_file, 'w', encoding='utf-8') as f:
+                json.dump(status, f, indent=2, ensure_ascii=False)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_file, status_file)
+    except Exception:
+        pass
 
     return agent_run(project_config, output_dir=output_dir)
 
@@ -1535,18 +1545,43 @@ def api_agent_inject():
         _log_app_event(f"Continuation started for completed job {job_id}")
         return jsonify({"status": "injected", "continuation": True})
 
-    # Job is still running — inject into the live instruction file
-    instruction_file = os.path.join(output_dir, "live_instruction.txt")
+    # Job is still running — inject into status.json
     os.makedirs(output_dir, exist_ok=True)
     _log_app_event(f"Live instruction injected — job_id={job_id}")
     try:
-        with open(instruction_file, 'w') as f:
-            f.write(instruction)
-        # If the agent was paused for user input, write a resume signal
+        status_file = os.path.join(output_dir, "status.json")
+        try:
+            with open(status_file, 'r', encoding='utf-8') as f:
+                status = json.load(f)
+        except Exception:
+            status = {}
+
+        # Write live instruction
+        status["pending_live_instruction"] = instruction
+        tmp_file = status_file + ".tmp"
+        with open(tmp_file, 'w', encoding='utf-8') as f:
+            json.dump(status, f, indent=2, ensure_ascii=False)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_file, status_file)
+
+        # If the agent was paused for user input, also write the resume answer
         # so the engine knows to continue
-        resume_file = os.path.join(output_dir, "resume_input.txt")
-        with open(resume_file, 'w', encoding='utf-8') as f:
-            f.write(instruction)
+        resume_file = os.path.join(output_dir, "status.json")
+        try:
+            with open(resume_file, 'r', encoding='utf-8') as f:
+                resume_status = json.load(f)
+        except Exception:
+            resume_status = {}
+        pending = resume_status.get("pending_user_input")
+        if pending and isinstance(pending, dict):
+            pending["answer"] = instruction
+            tmp_file = resume_file + ".tmp"
+            with open(tmp_file, 'w', encoding='utf-8') as f:
+                json.dump(resume_status, f, indent=2, ensure_ascii=False)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_file, resume_file)
         return jsonify({"status": "injected"})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -1603,11 +1638,24 @@ def api_agent_resume():
     if not output_dir:
         output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                   "aib_instance", "output", job_id)
-    resume_file = os.path.join(output_dir, "resume_input.txt")
+    status_file = os.path.join(output_dir, "status.json")
     os.makedirs(output_dir, exist_ok=True)
     try:
-        with open(resume_file, 'w', encoding='utf-8') as f:
-            f.write(user_input)
+        # Write the resume answer into status.json
+        try:
+            with open(status_file, 'r', encoding='utf-8') as f:
+                status = json.load(f)
+        except Exception:
+            status = {}
+        pending = status.get("pending_user_input")
+        if pending and isinstance(pending, dict):
+            pending["answer"] = user_input
+            tmp_file = status_file + ".tmp"
+            with open(tmp_file, 'w', encoding='utf-8') as f:
+                json.dump(status, f, indent=2, ensure_ascii=False)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_file, status_file)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 

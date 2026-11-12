@@ -11,7 +11,7 @@ import platform
 import sys
 import threading as _threading
 from typing import Any, Dict, List, Tuple, Optional
-from agent_engine.config import EngineConfig
+from agent_engine.config import EngineConfig, _read_status_file
 from agent_engine.security import SecurityError, ToolError, EngineError
 from agent_engine.tools import get_registry
 from agent_engine.tools.base import ToolResult
@@ -1262,12 +1262,14 @@ class AgentEngine:
             pass
 
     def _update_status(self, status: str, **extra) -> None:
-        """Update status.json with the current status."""
+        """Update status.json with the current status, preserving existing fields."""
+        existing = _read_status_file(self.output_dir)
         status_data = {
             "status": status,
             "step": self.step_count,
             "timestamp": time.time(),
         }
+        status_data.update(existing)
         status_data.update(extra)
         _write_status_file(self.output_dir, status_data)
 
@@ -1678,11 +1680,8 @@ class AgentEngine:
                                 })
                             except Exception:
                                 pass
-                        # Write the question to a file so the UI can read it
-                        os.makedirs(self.output_dir, exist_ok=True)
-                        question_file = os.path.join(self.output_dir, "user_input_request.txt")
-                        with open(question_file, "w") as f:
-                            f.write(question)
+                        # The question is already in status.json (written by the tool).
+                        # Update status to pending_user_input with the question.
                         if self._step_callback:
                             try:
                                 self._step_callback({

@@ -2,6 +2,7 @@
 import os
 import sys
 import json
+import logging
 from typing import Optional
 
 # Global settings cache set by app.py
@@ -37,6 +38,30 @@ def _settings_get(key: str, default=None):
         if env_val is not None:
             return env_val
     return default
+
+
+def _read_status_file(output_dir: str) -> dict:
+    """Read status.json from disk. Returns empty dict on failure."""
+    status_file = os.path.join(output_dir, "status.json")
+    try:
+        with open(status_file, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _write_status_file(output_dir: str, data: dict) -> None:
+    """Atomically write status.json in the output directory."""
+    status_file = os.path.join(output_dir, "status.json")
+    tmp_file = status_file + ".tmp"
+    try:
+        with open(tmp_file, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_file, status_file)
+    except Exception as e:
+        logging.warning(f"Failed to write status file {status_file}: {e}")
 
 
 class EngineConfig:
@@ -129,42 +154,54 @@ class EngineConfig:
 
     @staticmethod
     def get_live_instruction(job_id: str, base_dir: Optional[str] = None) -> Optional[str]:
-        """Read a live instruction file for a running job."""
+        """Read a pending live instruction from status.json.
+
+        The instruction is consumed (removed from status.json) after reading,
+        making this idempotent.
+        """
         if base_dir:
-            instruction_file = os.path.join(base_dir, "live_instruction.txt")
+            status = _read_status_file(base_dir)
         else:
-            instruction_file = os.path.join(
-                os.path.dirname(os.path.abspath(__file__)),
-                "aib_instance", "output", job_id, "live_instruction.txt"
-            )
-        if os.path.exists(instruction_file):
-            try:
-                with open(instruction_file, 'r') as f:
-                    instruction = f.read().strip()
-                with open(instruction_file, 'w') as f:
-                    f.write('')
-                return instruction if instruction else None
-            except Exception:
-                return None
+            status = {}
+
+        pending = status.get("pending_live_instruction")
+        if pending:
+            # Consume it
+            if base_dir:
+                try:
+                    status.pop("pending_live_instruction")
+                    _write_status_file(base_dir, status)
+                except Exception:
+                    pass
+            return pending
         return None
 
     @staticmethod
     def get_resume_input(job_id: str, base_dir: Optional[str] = None) -> Optional[str]:
-        """Read a resume input file for a paused agent run."""
+        """Read a pending resume input from status.json.
+
+        The answer is consumed (removed from status.json) after reading,
+        making this idempotent.
+        """
         if base_dir:
-            resume_file = os.path.join(base_dir, "resume_input.txt")
+            status = _read_status_file(base_dir)
         else:
-            resume_file = os.path.join(
-                os.path.dirname(os.path.abspath(__file__)),
-                "aib_instance", "output", job_id, "resume_input.txt"
-            )
-        if os.path.exists(resume_file):
-            try:
-                with open(resume_file, 'r', encoding='utf-8') as f:
-                    user_input = f.read().strip()
-                with open(resume_file, 'w', encoding='utf-8') as f:
-                    f.write('')
-                return user_input if user_input else None
-            except Exception:
-                return None
+            status = {}
+
+        pending = status.get("pending_user_input")
+        answer = None
+        if pending and isinstance(pending, dict):
+            answer = pending.get("answer")
+
+        if answer:
+            # Consume it
+            if base_dir:
+                try:
+                    status["pending_user_input"] = {
+                        "question": pending.get("question", ""),
+                    }
+                    _write_status_file(base_dir, status)
+                except Exception:
+                    pass
+            return answer
         return None
