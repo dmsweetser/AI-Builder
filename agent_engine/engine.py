@@ -432,6 +432,7 @@ PARAMETER FORMAT (tag-based, NO EXCEPTIONS):
      <your summary here>
      {m_end}
 - You are FORBIDDEN from writing any other text outside of tool call blocks.
+- Tool names must be provided without prefix or brackets - so "your_tool_name", NOT "[12345_YOUR_TOOL_NAME]"
 - Do NOT write any reasoning, thinking, or explanation text.
 - Do NOT write "I will..." or "Let me..." or any natural language.
 - Do NOT explain what you are about to do - just DO it with a tool call.
