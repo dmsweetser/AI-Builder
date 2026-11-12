@@ -2165,8 +2165,14 @@ class ToolB(BaseTool):
 
 
 def _create_pending_tool_file(output_dir, tool_name, code):
-    """Create a pending tool .py file."""
-    pending_dir = os.path.join(output_dir, "tools", "pending")
+    """Create a pending tool .py file in the project-level pending directory.
+
+    The loader resolves _pending_dir() relative to the project root, which is
+    the parent of output_dir (when output_dir doesn't contain 'output/' and
+    'tools/' siblings).  So the pending dir is: parent(output_dir)/tools/pending/
+    """
+    project_root = os.path.dirname(output_dir)
+    pending_dir = os.path.join(project_root, "tools", "pending")
     os.makedirs(pending_dir, exist_ok=True)
     tool_file = os.path.join(pending_dir, f"{tool_name}.py")
     with open(tool_file, 'w') as f:
@@ -2600,8 +2606,10 @@ class TestPendingToolApprovalEngine(unittest.TestCase):
                 "instructions": "Test",
             }
             engine = AgentEngine(project_config)
-            # Create a pending tool file in the engine's output_dir
-            pending_dir = os.path.join(engine.output_dir, "tools", "pending")
+            # Create a pending tool file in the project-level pending directory
+            # (loader resolves _pending_dir() relative to project root = parent of output_dir)
+            project_root = os.path.dirname(engine.output_dir)
+            pending_dir = os.path.join(project_root, "tools", "pending")
             os.makedirs(pending_dir, exist_ok=True)
             with open(os.path.join(pending_dir, "my_tool.py"), "w") as f:
                 f.write('from agent_engine.tools.base import BaseTool, ToolResult\n\nclass my_tool(BaseTool):\n    name = "my_tool"\n    description = "A test tool"\n    parameters = {}\n    def execute(self, params):\n        return ToolResult(True, "ok")\n')

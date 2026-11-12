@@ -49,6 +49,7 @@ class ProjectToolLoader:
 
         Fallback: walk up looking for a directory containing both
         'output/' and 'tools/' subdirectories.
+        Ultimate fallback: use the output_dir's parent.
         """
         candidate = self.project_output_dir
         for _ in range(10):
@@ -59,7 +60,8 @@ class ProjectToolLoader:
             # Check if this looks like aib_instance/<project_id>/
             if os.path.isdir(os.path.join(candidate, "tools")) and os.path.isdir(os.path.join(candidate, "output")):
                 return candidate
-        # Ultimate fallback: use the output_dir's grandparent
+        # Ultimate fallback: use the output_dir's parent as the project root.
+        # This handles test cases where output_dir is a bare temp directory.
         return os.path.dirname(self.project_output_dir)
 
     def _tools_dir(self) -> str:

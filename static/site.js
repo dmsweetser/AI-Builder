@@ -365,39 +365,105 @@ function _startPolling(jobId, outputDir, agentBox) {
 }
 
 function _pollOnce(jobId, outputDir, agentBox) {
-    // Fetch status
-    fetch('/api/job/' + jobId + '/status')
+    // Fetch steps to detect pending states from the data (not status.json)
+    var stepsPromise = fetch('/api/job/' + jobId + '/steps')
         .then(function(r) { return r.json(); })
-        .then(function(statusData) {
-            var status = statusData.status || 'running';
+        .catch(function() { return { steps: [], count: 0 }; });
 
-            // Always load ALL steps (full re-render each poll)
-            _renderAllSteps(jobId, outputDir, agentBox, status);
+    // Fetch status for terminal states (completed, error, etc.)
+    var statusPromise = fetch('/api/job/' + jobId + '/status')
+        .then(function(r) { return r.json(); })
+        .catch(function() { return {}; });
+
+    Promise.all([stepsPromise, statusPromise])
+        .then(function(results) {
+            var stepsData = results[0];
+            var statusData = results[1];
+            var steps = stepsData.steps || [];
+            var count = stepsData.count || 0;
+
+            // Detect pending states from the steps data
+            var hasPendingTools = false;
+            var hasPendingUserInput = false;
+
+            if (count > 0) {
+                var lastStep = steps[count - 1];
+                // Detect pending user input: last step was request_user_input
+                if (lastStep && lastStep.tool === 'request_user_input') {
+                    hasPendingUserInput = true;
+                }
+            }
+
+            // Check for pending tools via API (filesystem-based)
+            if (outputDir) {
+                fetch('/api/tools/pending', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({project_output_dir: outputDir})
+                })
+                .then(function(r) { return r.json(); })
+                .then(function(pendingTools) {
+                    if (pendingTools && pendingTools.length > 0) {
+                        hasPendingTools = true;
+                    }
+                    _renderAllSteps(jobId, outputDir, agentBox, statusData, hasPendingTools, hasPendingUserInput);
+                })
+                .catch(function() {
+                    _renderAllSteps(jobId, outputDir, agentBox, statusData, hasPendingTools, hasPendingUserInput);
+                });
+            } else {
+                _renderAllSteps(jobId, outputDir, agentBox, statusData, hasPendingTools, hasPendingUserInput);
+            }
+        })
+        .catch(function(err) {
+            console.error('Polling error:', err);
+        });
+}
+
+function _renderAllSteps(jobId, outputDir, agentBox, statusData, hasPendingTools, hasPendingUserInput) {
+    fetch('/api/job/' + jobId + '/steps')
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            var steps = data.steps || [];
+            var count = data.count || 0;
+
+            // Always re-render all steps from scratch
+            agentBox.innerHTML = '';
+
+            for (var i = 0; i < count; i++) {
+                var step = steps[i];
+                if (step) {
+                    _renderStep(step, agentBox);
+                }
+            }
+
+            // Show pending approval banner if detected from filesystem
+            if (hasPendingTools && outputDir) {
+                _showPendingApproval(jobId, outputDir, agentBox);
+            }
+
+            // Show pending user input banner if detected from steps
+            if (hasPendingUserInput) {
+                _showPendingUserInput(statusData, agentBox);
+            }
 
             // Update status text for pending states
             var st = document.getElementById('agent-status-text');
             if (st) {
-                if (status === 'pending_approval') {
+                if (hasPendingTools) {
                     st.textContent = 'PENDING TOOL APPROVAL';
                     st.style.color = 'var(--warning)';
                     st.style.fontWeight = 'bold';
-                } else if (status === 'pending_user_input') {
+                } else if (hasPendingUserInput) {
                     st.textContent = 'AWAITING INPUT';
                     st.style.color = 'var(--warning)';
                     st.style.fontWeight = 'bold';
                 }
             }
 
-            // Show pending approval / user input prompts immediately
-            if (status === 'pending_approval' && outputDir) {
-                _showPendingApproval(jobId, outputDir, agentBox);
-            }
-            if (status === 'pending_user_input') {
-                _showPendingUserInput(statusData, agentBox);
-            }
-
-            // If terminal state, stop polling
-            if (status !== 'running' && status !== 'pending_approval' && status !== 'pending_user_input') {
+            // If terminal state (not pending), stop polling
+            var status = statusData.status || 'running';
+            if (status !== 'running' && !hasPendingTools && !hasPendingUserInput) {
                 if (_pollInterval) {
                     clearInterval(_pollInterval);
                     _pollInterval = null;
@@ -434,33 +500,6 @@ function _pollOnce(jobId, outputDir, agentBox) {
                 var ib = document.getElementById('live-inject-btn');
                 if (ii) { ii.disabled = false; ii.placeholder = 'Continue with new instructions...'; }
                 if (ib) { ib.disabled = false; ib.textContent = 'INJECT'; }
-            }
-        })
-        .catch(function(err) {
-            console.error('Polling error:', err);
-        });
-}
-
-function _renderAllSteps(jobId, outputDir, agentBox, currentStatus) {
-    fetch('/api/job/' + jobId + '/steps')
-        .then(function(r) { return r.json(); })
-        .then(function(data) {
-            var steps = data.steps || [];
-            var count = data.count || 0;
-
-            // Always re-render all steps from scratch
-            agentBox.innerHTML = '';
-
-            for (var i = 0; i < count; i++) {
-                var step = steps[i];
-                if (step) {
-                    _renderStep(step, agentBox);
-                }
-            }
-
-            // Show pending approval banner if applicable
-            if (currentStatus === 'pending_approval' && outputDir) {
-                _showPendingApproval(jobId, outputDir, agentBox);
             }
         })
         .catch(function(err) {
@@ -589,7 +628,7 @@ function _renderStep(step, agentBox) {
         if (step.rationale) {
             var rationaleDiv = document.createElement('div');
             rationaleDiv.className = 'step-rationale';
-            rationaleDiv.textContent = '💡 ' + step.rationale;
+            rationaleDiv.innerText = '💡 ' + step.rationale;
             entry.appendChild(rationaleDiv);
         }
         var resultDiv5 = document.createElement('div');
@@ -616,7 +655,7 @@ function _renderStep(step, agentBox) {
         if (step.rationale) {
             var rationaleDiv2 = document.createElement('div');
             rationaleDiv2.className = 'step-rationale';
-            rationaleDiv2.textContent = '💡 ' + step.rationale;
+            rationaleDiv2.innerText = '💡 ' + step.rationale;
             entry.appendChild(rationaleDiv2);
         }
         if (step.params && Object.keys(step.params).length) {
@@ -893,7 +932,7 @@ function handleAgentStep(data, agentBox) {
         if (data.rationale) {
             var rationaleDiv = document.createElement('div');
             rationaleDiv.className = 'step-rationale';
-            rationaleDiv.textContent = '💡 ' + data.rationale;
+            rationaleDiv.innerText = '💡 ' + data.rationale;
             entry.appendChild(rationaleDiv);
         }
         var resultDiv5 = document.createElement('div');
@@ -920,7 +959,7 @@ function handleAgentStep(data, agentBox) {
         if (data.rationale) {
             var rationaleDiv2 = document.createElement('div');
             rationaleDiv2.className = 'step-rationale';
-            rationaleDiv2.textContent = '💡 ' + data.rationale;
+            rationaleDiv2.innerText = '💡 ' + data.rationale;
             entry.appendChild(rationaleDiv2);
         }
         if (data.params && Object.keys(data.params).length) {

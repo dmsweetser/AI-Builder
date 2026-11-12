@@ -1222,6 +1222,12 @@ class AgentEngine:
 
         self._pending_tools_message_injected = True
 
+        # Update status.json so the UI polling picks up the pending state.
+        # This is critical for resumed engine instances (e.g. after app restart)
+        # where _init_status_file() has already written {"status": "running"}
+        # and the status must be corrected before the LLM loop continues.
+        self._update_status("pending_approval")
+
         # Emit a pending_approval event for each pending tool so the UI shows
         # the approval banner immediately.
         for tool in pending:
