@@ -646,12 +646,21 @@ function _renderStep(step, agentBox) {
 }
 
 function _showPendingApproval(jobId, outputDir, agentBox) {
-    // Only show once per job — but allow re-show if the actions were cleared
-    var actions = document.getElementById('pending-approval-actions');
-    if (actions && actions.querySelector('.pending-tool-item')) return;
+    // Idempotent: if already showing, just refresh the tool list (in case new tools were added)
+    var existingEntry = document.getElementById('pending-approval-entry');
+    if (existingEntry) {
+        // Refresh the tool list inside the existing entry
+        var actionsDiv = document.getElementById('pending-approval-actions');
+        if (actionsDiv) {
+            actionsDiv.innerHTML = '';
+            _loadPendingTools(actionsDiv, outputDir, jobId);
+        }
+        return;
+    }
 
     var entry = document.createElement('div');
     entry.className = 'step-entry pending-approval';
+    entry.id = 'pending-approval-entry';
     var toolDiv = document.createElement('div');
     toolDiv.className = 'step-tool';
     toolDiv.textContent = '⏸ AGENT WAITING — PENDING TOOL APPROVAL';
@@ -671,7 +680,10 @@ function _showPendingApproval(jobId, outputDir, agentBox) {
     var statusText = document.getElementById('agent-status-text');
     if (statusText) { statusText.textContent = 'PENDING TOOL APPROVAL'; statusText.style.color = 'var(--warning)'; statusText.style.fontWeight = 'bold'; }
 
-    // Fetch pending tools for this project and show approve/reject
+    _loadPendingTools(actionsDiv, outputDir, jobId);
+}
+
+function _loadPendingTools(actionsDiv, outputDir, jobId) {
     fetch('/api/tools/pending', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
@@ -679,9 +691,10 @@ function _showPendingApproval(jobId, outputDir, agentBox) {
     })
     .then(function(r) { return r.json(); })
     .then(function(pendingTools) {
-        var actions = document.getElementById('pending-approval-actions');
-        if (!actions || !pendingTools || pendingTools.length === 0) return;
-
+        if (!pendingTools || pendingTools.length === 0) {
+            actionsDiv.innerHTML = '<div style="color:var(--text-muted);font-size:12px;">No pending tools.</div>';
+            return;
+        }
         pendingTools.forEach(function(tool) {
             var toolEntry = document.createElement('div');
             toolEntry.style.cssText = 'background:var(--muted);padding:12px;border-radius:6px;margin-top:8px;width:100%;';
@@ -722,7 +735,7 @@ function _showPendingApproval(jobId, outputDir, agentBox) {
             btnRow.appendChild(rejectBtn);
 
             toolEntry.appendChild(btnRow);
-            actions.appendChild(toolEntry);
+            actionsDiv.appendChild(toolEntry);
         });
     })
     .catch(function(err) {
@@ -732,6 +745,7 @@ function _showPendingApproval(jobId, outputDir, agentBox) {
 
 function _showPendingUserInput(statusData, agentBox) {
     if (!agentBox) return;
+    // Idempotent: if already showing, nothing to do
     if (document.getElementById('pending-user-input-entry')) return;
 
     var entry = document.createElement('div');
@@ -1046,10 +1060,6 @@ document.addEventListener('click', function(e) {
 function clearPendingApprovalState() {
     var actions = document.getElementById('pending-approval-actions');
     if (actions) actions.innerHTML = '<div style="color:var(--success);font-size:12px;">✅ Tool action processed. The agent will resume automatically.</div>';
-    // Also remove the pending approval entry entirely so the next tool
-    // proposal re-triggers the approval UI (avoids the stale element guard)
-    var pendingEntry = document.querySelector('.step-entry.pending-approval:not([style*="animation"])');
-    if (pendingEntry) pendingEntry.remove();
     var statusText = document.getElementById('agent-status-text');
     if (statusText) { statusText.textContent = 'AGENT RUNNING'; statusText.style.color = ''; statusText.style.fontWeight = ''; }
 }
