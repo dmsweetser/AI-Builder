@@ -31,7 +31,8 @@ class ProjectToolLoader:
     def __init__(self, project_output_dir: str, disabled_tools: Optional[Set[str]] = None):
         """
         Args:
-            project_output_dir: The project's output_dir (from projects.json).
+            project_output_dir: The project's output_dir (from project.json).
+                Expected: aib_instance/<project_id>/output/
             disabled_tools: Set of built-in tool names to disable for this project.
         """
         self.project_output_dir = project_output_dir
@@ -40,45 +41,25 @@ class ProjectToolLoader:
         self._load_active_tools()
 
     def _project_root(self) -> str:
-        """Resolve the project root from the output directory.
+        """Resolve the aib_instance/<project_id>/ directory from the output path.
 
-        The output_dir is either:
-          - aib_instance/output/<project_name>/  → root is two levels up
-          - aib_instance/output/<job_id>/         → root is two levels up
-          - a project root itself                 → root is the output_dir
+        The output_dir is now: aib_instance/<project_id>/output/
+        So we walk up two levels to reach aib_instance/<project_id>/,
+        then return that directory (tools/ lives alongside output/).
 
-        We walk up from output_dir looking for a directory containing
-        'agent_engine/' (the AI-Builder project root).  If not found, we
-        fall back to treating the output_dir's grandparent as the project
-        root (i.e. output_dir is aib_instance/output/<name>/).
+        Fallback: walk up looking for a directory containing both
+        'output/' and 'tools/' subdirectories.
         """
         candidate = self.project_output_dir
-        project_root = None
         for _ in range(10):
-            if os.path.isdir(os.path.join(candidate, "agent_engine")):
-                project_root = candidate
-                break
             parent = os.path.dirname(candidate)
             if parent == candidate:
                 break
             candidate = parent
-
-        if project_root:
-            return os.path.join(project_root, "aib_instance")
-        # Fallback: output_dir is under aib_instance/output/<name>/
-        # Walk up two levels to reach aib_instance, then use that.
-        candidate = self.project_output_dir
-        for _ in range(3):
-            parent = os.path.dirname(candidate)
-            if parent == candidate:
-                break
-            candidate = parent
-            # Check if this is an aib_instance directory
-            if os.path.isdir(os.path.join(candidate, "tools")):
+            # Check if this looks like aib_instance/<project_id>/
+            if os.path.isdir(os.path.join(candidate, "tools")) and os.path.isdir(os.path.join(candidate, "output")):
                 return candidate
-            if os.path.basename(candidate) == "aib_instance":
-                return candidate
-        # Ultimate fallback: use the output_dir's parent as project root
+        # Ultimate fallback: use the output_dir's grandparent
         return os.path.dirname(self.project_output_dir)
 
     def _tools_dir(self) -> str:

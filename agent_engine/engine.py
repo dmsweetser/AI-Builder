@@ -862,13 +862,14 @@ class AgentEngine:
         self.instance_prefix = f"{int(time.time() * 1000000) % 100000000:08d}"
 
         # Use caller-provided output_dir (from UI) to ensure consistent
-        # aib_instance/output/ path for both agent_engine and legacy modes.
+        # aib_instance/<pid>/output/ path for both agent_engine and legacy modes.
         if output_dir:
             self.output_dir = output_dir
         else:
+            # Default: aib_instance/<pid>/output/
             self.output_dir = os.path.join(
                 os.path.dirname(os.path.abspath(__file__)),
-                "aib_instance", "output", self.job_id
+                "aib_instance", self.job_id, "output"
             )
         self.log_file = os.path.join(self.output_dir, "log.txt")
         self.response_file = os.path.join(self.output_dir, "current_response.txt")
@@ -1135,22 +1136,22 @@ class AgentEngine:
         try:
             import json as _json
             # Determine the projects file path
+            # New: aib_instance/<pid>/project.json
+            project_id = self.project_config.get("id")
+            if not project_id:
+                return
+
             projects_file = os.path.join(
-                os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                "aib_instance", "projects.json"
+                os.path.dirname(os.path.abspath(__file__)),
+                "aib_instance", project_id, "project.json"
             )
-            # Also check the app-level projects file
+            # Also check the app-level projects file for backward compat
             if not os.path.exists(projects_file):
                 projects_file = os.path.join(
                     os.path.dirname(os.path.abspath(__file__)),
-                    "..", "aib_instance", "projects.json"
+                    "..", "aib_instance", "projects", f"{project_id}.json"
                 )
             if not os.path.exists(projects_file):
-                return
-
-            # Find the project by ID in the projects file
-            project_id = self.project_config.get("id")
-            if not project_id:
                 return
 
             with open(projects_file, 'r', encoding='utf-8') as f:
@@ -1828,8 +1829,8 @@ def run(project_config: Dict[str, Any], output_dir: Optional[str] = None,
     """Run the agentic engine with the given project configuration."""
     if output_dir is None:
         root_dir = project_config.get("rootDirectory", EngineConfig.get_root_directory())
-        output_dir = os.path.join(root_dir, "aib_instance", "output",
-                                   project_config.get("job_id", ""))
+        pid = project_config.get("id", project_config.get("job_id", ""))
+        output_dir = os.path.join(root_dir, "aib_instance", pid, "output")
     engine = AgentEngine(project_config, output_dir=output_dir,
                          step_callback=step_callback)
     return engine.run()

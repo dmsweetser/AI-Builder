@@ -74,13 +74,11 @@ class EngineConfig:
 
     @staticmethod
     def get_pending_tools_file() -> str:
-        """Return the global pending tools file path (app-level, not per-project)."""
-        if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
-            app_dir = sys._MEIPASS
-        else:
-            app_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        instance_dir = os.path.join(app_dir, "aib_instance", "output")
-        return os.path.join(instance_dir, "pending_tools.json")
+        """Return the global pending tools file path (app-level, not per-project).
+        
+        Legacy — pending tools are now per-project under aib_instance/<pid>/tools/pending/.
+        """
+        return ""
 
     @staticmethod
     def get_log_file_path(root_dir: str) -> str:

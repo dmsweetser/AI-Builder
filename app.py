@@ -63,7 +63,7 @@ app = Flask(__name__,
 _AIB_INSTANCE = os.path.join(_app_dir, "aib_instance")
 STATUS_FILE = os.path.join(_AIB_INSTANCE, "run_status.json")
 HISTORY_FILE = os.path.join(_AIB_INSTANCE, "job_history.json")
-PROJECTS_DIR = os.path.join(_AIB_INSTANCE, "projects")
+PROJECTS_DIR = os.path.join(_AIB_INSTANCE)  # Project dirs live directly under aib_instance/<pid>/
 os.makedirs(PROJECTS_DIR, exist_ok=True)
 CHATS_DIR = os.path.join(_AIB_INSTANCE, "chats")
 SETTINGS_FILE = os.path.join(_AIB_INSTANCE, "settings.json")
@@ -197,24 +197,37 @@ def save_job_history():
         raise
 
 def load_projects():
-    """Load all projects from individual JSON files in PROJECTS_DIR."""
+    """Load all projects from per-project directories under aib_instance/<pid>/.
+
+    Each project lives in aib_instance/<uuid>/ with:
+      - project.json (the project config)
+      - output/ (run artifacts)
+      - tools/active/, tools/pending/ (project-local tools)
+    """
     projects = []
-    if os.path.isdir(PROJECTS_DIR):
-        for fname in sorted(os.listdir(PROJECTS_DIR)):
-            if fname.endswith(".json"):
-                fpath = os.path.join(PROJECTS_DIR, fname)
-                try:
-                    with open(fpath, "r", encoding="utf-8") as f:
-                        p = json.load(f)
-                    # Migrate legacy fields
-                    if "output_dir" not in p:
-                        p["output_dir"] = os.path.join(_AIB_INSTANCE, "output", p["id"])
-                        p["run_number"] = 0
-                        p["last_job_id"] = None
-                    os.makedirs(p.get("output_dir", ""), exist_ok=True)
-                    projects.append(p)
-                except Exception:
-                    continue
+    for pid in sorted(os.listdir(PROJECTS_DIR)):
+        pid_path = os.path.join(PROJECTS_DIR, pid)
+        if not os.path.isdir(pid_path):
+            continue
+        # Skip non-project directories (output, chats, settings.json, etc.)
+        proj_file = os.path.join(pid_path, "project.json")
+        if not os.path.exists(proj_file):
+            continue
+        try:
+            with open(proj_file, "r", encoding="utf-8") as f:
+                p = json.load(f)
+            # Ensure output_dir exists
+            output_dir = p.get("output_dir", "")
+            if output_dir:
+                os.makedirs(output_dir, exist_ok=True)
+            else:
+                # Legacy fallback: build output_dir from old convention
+                output_dir = os.path.join(_AIB_INSTANCE, pid, "output")
+                p["output_dir"] = output_dir
+                os.makedirs(output_dir, exist_ok=True)
+            projects.append(p)
+        except Exception:
+            continue
     return projects
 
 
@@ -223,16 +236,18 @@ _project_lock = threading.RLock()
 
 
 def _save_project_unlocked(project):
-    """Internal: save a project to disk without acquiring lock. Must be called inside _project_lock."""
+    """Internal: save a project to aib_instance/<pid>/project.json (thread-safe, atomic)."""
     pid = project.get("id", "")
     if not pid:
         raise ValueError("Project must have an id")
-    fpath = os.path.join(PROJECTS_DIR, f"{pid}.json")
+    fpath = os.path.join(PROJECTS_DIR, pid, "project.json")
     # Validate project structure before writing
     required_fields = ["id", "name", "rootDirectory"]
     for field in required_fields:
         if field not in project:
             raise ValueError(f"Project missing required field: {field}")
+    # Ensure the project directory exists
+    os.makedirs(os.path.dirname(fpath), exist_ok=True)
     # Atomic write: write to temp file first, then rename
     tmp_path = fpath + ".tmp"
     try:
@@ -257,10 +272,10 @@ def save_project(project):
 
 
 def delete_project_file(pid):
-    """Delete a project's JSON file."""
-    fpath = os.path.join(PROJECTS_DIR, f"{pid}.json")
-    if os.path.exists(fpath):
-        os.remove(fpath)
+    """Delete a project's directory (aib_instance/<pid>/)."""
+    proj_dir = os.path.join(PROJECTS_DIR, pid)
+    if os.path.exists(proj_dir):
+        shutil.rmtree(proj_dir)
         return True
     return False
 
@@ -281,11 +296,11 @@ def worker():
         pid = running_job["project_id"]
         project, _ = get_project(pid)
 
-        # Use project's persistent output directory
+        # Use project's persistent output directory: aib_instance/<pid>/output/
         if project and "output_dir" in project:
             output_dir = project["output_dir"]
         else:
-            output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aib_instance", "output", job_id)
+            output_dir = os.path.join(_AIB_INSTANCE, pid, "output")
         os.makedirs(output_dir, exist_ok=True)
 
         job_history.append({
@@ -339,7 +354,8 @@ def run_with_agent_engine(project_config: Dict[str, Any], output_dir: str = None
     root_dir = project_config.get("rootDirectory", "")
 
     if output_dir is None:
-        output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aib_instance", "output", project_config["job_id"])
+        pid = project_config.get("id", project_config.get("job_id", ""))
+        output_dir = os.path.join(root_dir, "aib_instance", pid, "output")
 
     # Write instructions to a file to avoid env var length limits
     instructions_file = os.path.join(output_dir, "instructions.txt")
@@ -578,9 +594,8 @@ def api_create_project():
         if not root_directory:
             return jsonify({"error": "Root directory is required"}), 400
 
-        # Determine output directory for this project — use sanitized project name
-        safe_name = sanitize_output_dir_name(name)
-        output_dir = os.path.join(_AIB_INSTANCE, "output", safe_name)
+        # Determine output directory: aib_instance/<pid>/output/
+        output_dir = os.path.join(_AIB_INSTANCE, pid, "output")
         os.makedirs(output_dir, exist_ok=True)
 
         project = {
@@ -594,6 +609,12 @@ def api_create_project():
             "run_number": 0,
             "last_job_id": None,
         }
+
+        # Create the project directory structure
+        proj_dir = os.path.join(PROJECTS_DIR, pid)
+        os.makedirs(proj_dir, exist_ok=True)
+        os.makedirs(os.path.join(proj_dir, "tools", "active"), exist_ok=True)
+        os.makedirs(os.path.join(proj_dir, "tools", "pending"), exist_ok=True)
 
         projects.append(project)
         _save_project_unlocked(project)
@@ -622,19 +643,11 @@ def api_update_project(pid):
         elif not isinstance(instructions, str):
             instructions = str(instructions)
 
-        old_name = project["name"]
         project.update({
-            "name": data.get("name", old_name),
+            "name": data.get("name", project.get("name", "")),
             "rootDirectory": root_directory,
             "instructions": instructions,
         })
-
-        # Only update output_dir if the name actually changed
-        old_safe_name = sanitize_output_dir_name(old_name)
-        new_safe_name = sanitize_output_dir_name(project["name"])
-        if old_safe_name != new_safe_name:
-            project["output_dir"] = os.path.join(_AIB_INSTANCE, "output", new_safe_name)
-            os.makedirs(project["output_dir"], exist_ok=True)
 
         # Clean up old enabled_tools field if present
         project.pop("enabled_tools", None)
@@ -682,7 +695,7 @@ def api_reset_project(pid):
             _time.sleep(0.3)
 
         # Archive the output directory with a datestamp so you can reset multiple times
-        output_dir = project.get("output_dir", os.path.join(_AIB_INSTANCE, "output", pid))
+        output_dir = project.get("output_dir", os.path.join(_AIB_INSTANCE, pid, "output"))
         archive_name = "archive_" + datetime.now().strftime("%Y%m%d_%H%M%S")
         archive_dir = os.path.join(os.path.dirname(output_dir), archive_name)
         if os.path.exists(output_dir):
@@ -743,8 +756,8 @@ def api_run_project(pid):
     if is_queued:
         return jsonify({"error": "Project is already queued", "job_id": existing_job_id}), 409
 
-    # Use project's persistent output directory
-    output_dir = project.get("output_dir", os.path.join(_AIB_INSTANCE, "output", pid))
+    # Use project's persistent output directory: aib_instance/<pid>/output/
+    output_dir = project.get("output_dir", os.path.join(_AIB_INSTANCE, pid, "output"))
     os.makedirs(output_dir, exist_ok=True)
 
     # Increment run number
@@ -784,8 +797,8 @@ def api_agent_run():
         if not root_dir:
             return jsonify({"error": "Root directory is required"}), 400
 
-        # Use project's persistent output directory
-        output_dir = project.get("output_dir", os.path.join(_AIB_INSTANCE, "output", pid))
+        # Use project's persistent output directory: aib_instance/<pid>/output/
+        output_dir = project.get("output_dir", os.path.join(_AIB_INSTANCE, pid, "output"))
         os.makedirs(output_dir, exist_ok=True)
 
         # If continuing from a previous job, merge instructions
@@ -796,7 +809,7 @@ def api_agent_run():
         instructions = data.get("instructions", "")
         if not root_dir:
             return jsonify({"error": "Root directory is required"}), 400
-        output_dir = os.path.join(_AIB_INSTANCE, "output", str(int(time.time() * 1000)))
+        output_dir = os.path.join(_AIB_INSTANCE, str(uuid.uuid4()), "output")
         os.makedirs(output_dir, exist_ok=True)
         project = None
 
@@ -863,8 +876,8 @@ def api_add_to_queue():
     if is_queued:
         return jsonify({"error": "Project is already queued", "job_id": existing_job_id}), 409
 
-    # Use project's persistent output directory
-    output_dir = project.get("output_dir", os.path.join(os.path.dirname(os.path.abspath(__file__)), "aib_instance", "output", pid))
+    # Use project's persistent output directory: aib_instance/<pid>/output/
+    output_dir = project.get("output_dir", os.path.join(_AIB_INSTANCE, pid, "output"))
     os.makedirs(output_dir, exist_ok=True)
 
     # Increment run number
@@ -1319,10 +1332,9 @@ def api_agent_history(job_id):
                         break
             break
     
-    # Fallback: try job_id as output directory name
+    # Fallback: try aib_instance/<pid>/output/ or aib_instance/<job_id>/output/
     if not output_dir:
-        output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                  "aib_instance", "output", job_id)
+        output_dir = os.path.join(_AIB_INSTANCE, job_id, "output")
     
     if not output_dir or not os.path.exists(output_dir):
         return jsonify({"steps": [], "project_id": None})
@@ -1410,9 +1422,8 @@ def api_agent_inject():
                         }
                         break
             if not output_dir:
-                # Fallback: try job_id as output directory name
-                output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                          "aib_instance", "output", job_id)
+                # Fallback: try aib_instance/<job_id>/output/
+                output_dir = os.path.join(_AIB_INSTANCE, job_id, "output")
             break
 
     if not output_dir:
@@ -1631,13 +1642,11 @@ def api_agent_resume():
                         }
                         break
             if not output_dir:
-                output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                          "aib_instance", "output", job_id)
+                output_dir = os.path.join(_AIB_INSTANCE, job_id, "output")
             break
 
     if not output_dir:
-        output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                  "aib_instance", "output", job_id)
+        output_dir = os.path.join(_AIB_INSTANCE, job_id, "output")
     status_file = os.path.join(output_dir, "status.json")
     os.makedirs(output_dir, exist_ok=True)
     try:
@@ -1760,8 +1769,7 @@ def api_agent_resend():
                         output_dir = p.get("output_dir")
                         break
             if not output_dir:
-                output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                          "aib_instance", "output", job_id)
+                output_dir = os.path.join(_AIB_INSTANCE, job_id, "output")
             break
 
     if not output_dir or not os.path.exists(output_dir):
@@ -1862,10 +1870,9 @@ def api_job_status_by_id(job_id):
                         break
             break
 
-    # Fallback: try job_id as output directory name
+    # Fallback: try aib_instance/<job_id>/output/
     if not output_dir:
-        output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                  "aib_instance", "output", job_id)
+        output_dir = os.path.join(_AIB_INSTANCE, job_id, "output")
 
     status_file = os.path.join(output_dir, "status.json")
     if os.path.exists(status_file):
@@ -1908,10 +1915,9 @@ def api_job_steps(job_id):
                         break
             break
 
-    # Fallback: try job_id as output directory name
+    # Fallback: try aib_instance/<job_id>/output/
     if not output_dir:
-        output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                  "aib_instance", "output", job_id)
+        output_dir = os.path.join(_AIB_INSTANCE, job_id, "output")
 
     steps_dir = os.path.join(output_dir, "steps")
     if os.path.isdir(steps_dir):
@@ -1967,8 +1973,7 @@ def api_job_last_step(job_id):
             break
 
     if not output_dir:
-        output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                  "aib_instance", "output", job_id)
+        output_dir = os.path.join(_AIB_INSTANCE, job_id, "output")
 
     steps_dir = os.path.join(output_dir, "steps")
     if os.path.isdir(steps_dir):
