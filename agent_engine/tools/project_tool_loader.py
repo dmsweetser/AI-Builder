@@ -1,15 +1,17 @@
 """Project-local tool loader.
 
-Loads approved tools from a project's tools/active/ directory.
+Loads approved tools from a project's aib_instance/tools/active/ directory.
 Each tool is a .py file containing a class that inherits from BaseTool.
 
 Tools are stored as:
-    <project_output_dir>/tools/active/<tool_name>.py
+    <project_root>/aib_instance/tools/active/<tool_name>.py
 
 Pending tools live in:
-    <project_output_dir>/tools/pending/<tool_name>.py
+    <project_root>/aib_instance/tools/pending/<tool_name>.py
 
-The engine passes the project's output_dir so tools can be scoped per-project.
+This is a project-level directory (not per-run output_dir) so tools persist
+across resets and runs.  Recognition is idempotent: loading re-scans the
+active/ directory each time and silently skips files that fail to import.
 """
 
 import importlib.util
@@ -24,7 +26,7 @@ from agent_engine.security import ensure_under_root, validate_tool_params, Secur
 
 
 class ProjectToolLoader:
-    """Loads project-local tools from a project's tools/active/ directory."""
+    """Loads project-local tools from a project-level aib_instance/tools/active/ directory."""
 
     def __init__(self, project_output_dir: str, disabled_tools: Optional[Set[str]] = None):
         """
@@ -37,11 +39,57 @@ class ProjectToolLoader:
         self._dynamic_tools: Dict[str, Type[BaseTool]] = {}
         self._load_active_tools()
 
+    def _project_root(self) -> str:
+        """Resolve the project root from the output directory.
+
+        The output_dir is either:
+          - aib_instance/output/<project_name>/  → root is two levels up
+          - aib_instance/output/<job_id>/         → root is two levels up
+          - a project root itself                 → root is the output_dir
+
+        We walk up from output_dir looking for a directory containing
+        'agent_engine/' (the AI-Builder project root).  If not found, we
+        fall back to treating the output_dir's grandparent as the project
+        root (i.e. output_dir is aib_instance/output/<name>/).
+        """
+        candidate = self.project_output_dir
+        project_root = None
+        for _ in range(10):
+            if os.path.isdir(os.path.join(candidate, "agent_engine")):
+                project_root = candidate
+                break
+            parent = os.path.dirname(candidate)
+            if parent == candidate:
+                break
+            candidate = parent
+
+        if project_root:
+            return os.path.join(project_root, "aib_instance")
+        # Fallback: output_dir is under aib_instance/output/<name>/
+        # Walk up two levels to reach aib_instance, then use that.
+        candidate = self.project_output_dir
+        for _ in range(3):
+            parent = os.path.dirname(candidate)
+            if parent == candidate:
+                break
+            candidate = parent
+            # Check if this is an aib_instance directory
+            if os.path.isdir(os.path.join(candidate, "tools")):
+                return candidate
+            if os.path.basename(candidate) == "aib_instance":
+                return candidate
+        # Ultimate fallback: use the output_dir's parent as project root
+        return os.path.dirname(self.project_output_dir)
+
+    def _tools_dir(self) -> str:
+        """Return the project-level tools directory."""
+        return os.path.join(self._project_root(), "tools")
+
     def _pending_dir(self) -> str:
-        return os.path.join(self.project_output_dir, "tools", "pending")
+        return os.path.join(self._tools_dir(), "pending")
 
     def _active_dir(self) -> str:
-        return os.path.join(self.project_output_dir, "tools", "active")
+        return os.path.join(self._tools_dir(), "active")
 
     def _load_active_tools(self):
         """Load all approved tools from the project's tools/active/ directory."""

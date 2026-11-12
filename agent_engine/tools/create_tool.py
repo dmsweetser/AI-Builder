@@ -184,8 +184,8 @@ class CreateToolTool(BaseTool):
             except Exception:
                 pass
 
-        # Create the pending tools directory
-        pending_dir = os.path.join(output_dir, "tools", "pending")
+        # Create the pending tools directory (project-level, not per-output_dir)
+        pending_dir = os.path.join(self._tools_dir(), "pending")
         os.makedirs(pending_dir, exist_ok=True)
 
         # Write the tool .py file
@@ -200,6 +200,29 @@ class CreateToolTool(BaseTool):
             f"Full code:\n{tool_code}\n\n",
             summary=f"Tool '{tool_name}' proposed for approval.",
         )
+
+    def _tools_dir(self) -> str:
+        """Return the project-level tools directory for this tool instance.
+
+        Walks up from self.output_dir to find the project root (a directory
+        containing agent_engine/), then returns <project_root>/aib_instance/tools.
+        """
+        output_dir = self.output_dir
+        if not output_dir:
+            return os.path.join(os.getcwd(), "aib_instance", "tools")
+        candidate = output_dir
+        project_root = None
+        for _ in range(10):
+            if os.path.isdir(os.path.join(candidate, "agent_engine")):
+                project_root = candidate
+                break
+            parent = os.path.dirname(candidate)
+            if parent == candidate:
+                break
+            candidate = parent
+        if project_root:
+            return os.path.join(project_root, "aib_instance", "tools")
+        return os.path.join(os.path.dirname(output_dir), "aib_instance", "tools")
 
     def _build_tool_file(self, tool_name: str, description: str,
                          parameters_json: str, code: str) -> str:

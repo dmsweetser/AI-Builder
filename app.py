@@ -1983,6 +1983,8 @@ def api_get_pending_tools():
     data = request.get_json(silent=True) or {}
     project_output_dir = data.get("project_output_dir", "")
     if not project_output_dir:
+        project_output_dir = request.args.get("project_output_dir", "")
+    if not project_output_dir:
         return jsonify({"error": "project_output_dir required"}), 400
 
     registry = get_registry()
@@ -1995,6 +1997,8 @@ def api_approve_tool(tool_name):
     """Approve a pending tool proposal — moves it to active."""
     data = request.get_json(silent=True) or {}
     project_output_dir = data.get("project_output_dir", "")
+    if not project_output_dir:
+        project_output_dir = request.args.get("project_output_dir", "")
     if not project_output_dir:
         return jsonify({"error": "project_output_dir required"}), 400
 
@@ -2087,6 +2091,8 @@ def api_reject_tool(tool_name):
     data = request.get_json(silent=True) or {}
     project_output_dir = data.get("project_output_dir", "")
     if not project_output_dir:
+        project_output_dir = request.args.get("project_output_dir", "")
+    if not project_output_dir:
         return jsonify({"error": "project_output_dir required"}), 400
 
     registry = get_registry()
@@ -2096,11 +2102,14 @@ def api_reject_tool(tool_name):
     return jsonify(result), 404
 
 
-@app.route("/api/tools/approved", methods=["GET"])
+@app.route("/api/tools/approved", methods=["GET", "POST"])
 def api_get_approved_tools():
     """List all approved (registered) project-local tools (per-project)."""
     data = request.get_json(silent=True) or {}
     project_output_dir = data.get("project_output_dir", "")
+    if not project_output_dir:
+        # Support query param for GET requests
+        project_output_dir = request.args.get("project_output_dir", "")
     if not project_output_dir:
         return jsonify({"error": "project_output_dir required"}), 400
 
@@ -2115,6 +2124,8 @@ def api_delete_approved_tool(tool_name):
     """Delete an approved project-local tool."""
     data = request.get_json(silent=True) or {}
     project_output_dir = data.get("project_output_dir", "")
+    if not project_output_dir:
+        project_output_dir = request.args.get("project_output_dir", "")
     if not project_output_dir:
         return jsonify({"error": "project_output_dir required"}), 400
 
