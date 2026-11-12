@@ -204,25 +204,25 @@ class CreateToolTool(BaseTool):
     def _tools_dir(self) -> str:
         """Return the project-level tools directory for this tool instance.
 
-        Walks up from self.output_dir to find the project root (a directory
-        containing agent_engine/), then returns <project_root>/aib_instance/tools.
+        Walks up from self.output_dir to find the project directory
+        (aib_instance/<project_id>/ — has both tools/ and output/), then
+        returns <project_dir>/tools.  This matches ProjectToolLoader's
+        _project_root() / _tools_dir() so tools land where the loader reads them.
         """
         output_dir = self.output_dir
         if not output_dir:
             return os.path.join(os.getcwd(), "aib_instance", "tools")
         candidate = output_dir
-        project_root = None
         for _ in range(10):
-            if os.path.isdir(os.path.join(candidate, "agent_engine")):
-                project_root = candidate
-                break
             parent = os.path.dirname(candidate)
             if parent == candidate:
                 break
             candidate = parent
-        if project_root:
-            return os.path.join(project_root, "aib_instance", "tools")
-        return os.path.join(os.path.dirname(output_dir), "aib_instance", "tools")
+            # Check if this looks like aib_instance/<project_id>/
+            if os.path.isdir(os.path.join(candidate, "tools")) and os.path.isdir(os.path.join(candidate, "output")):
+                return os.path.join(candidate, "tools")
+        # Ultimate fallback: use the output_dir's grandparent (aib_instance/<project_id>/)
+        return os.path.join(os.path.dirname(output_dir), "tools")
 
     def _build_tool_file(self, tool_name: str, description: str,
                          parameters_json: str, code: str) -> str:
