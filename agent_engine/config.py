@@ -81,8 +81,9 @@ class EngineConfig:
         return ""
 
     @staticmethod
-    def get_log_file_path(root_dir: str) -> str:
-        return os.path.join(root_dir, "aib_instance", "output", "utility.log")
+    def get_log_file_path(root_dir: str = "") -> str:
+        from agent_engine._paths import get_exe_dir
+        return os.path.join(get_exe_dir(), "aib_instance", "output", "utility.log")
 
     @staticmethod
     def get_custom_endpoint_url() -> Optional[str]:

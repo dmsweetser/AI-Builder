@@ -12,6 +12,7 @@ import sys
 import threading as _threading
 from typing import Any, Dict, List, Tuple, Optional
 from agent_engine.config import EngineConfig, _read_status_file
+from agent_engine._paths import get_exe_dir
 from agent_engine.security import SecurityError, ToolError, EngineError
 from agent_engine.tools import get_registry
 from agent_engine.tools.base import ToolResult
@@ -869,7 +870,7 @@ class AgentEngine:
         else:
             # Default: aib_instance/<pid>/output/
             self.output_dir = os.path.join(
-                os.path.dirname(os.path.abspath(__file__)),
+                get_exe_dir(),
                 "aib_instance", self.job_id, "output"
             )
         self.log_file = os.path.join(self.output_dir, "log.txt")
@@ -1143,14 +1144,14 @@ class AgentEngine:
                 return
 
             projects_file = os.path.join(
-                os.path.dirname(os.path.abspath(__file__)),
+                get_exe_dir(),
                 "aib_instance", project_id, "project.json"
             )
             # Also check the app-level projects file for backward compat
             if not os.path.exists(projects_file):
                 projects_file = os.path.join(
-                    os.path.dirname(os.path.abspath(__file__)),
-                    "..", "aib_instance", "projects", f"{project_id}.json"
+                    get_exe_dir(),
+                    "aib_instance", "projects", f"{project_id}.json"
                 )
             if not os.path.exists(projects_file):
                 return
@@ -1829,9 +1830,10 @@ def run(project_config: Dict[str, Any], output_dir: Optional[str] = None,
         step_callback=None) -> Dict[str, Any]:
     """Run the agentic engine with the given project configuration."""
     if output_dir is None:
-        root_dir = project_config.get("rootDirectory", EngineConfig.get_root_directory())
+        # aib_instance lives next to the exe (not relative to rootDirectory)
+        from agent_engine._paths import get_exe_dir
         pid = project_config.get("id", project_config.get("job_id", ""))
-        output_dir = os.path.join(root_dir, "aib_instance", pid, "output")
+        output_dir = os.path.join(get_exe_dir(), "aib_instance", pid, "output")
     engine = AgentEngine(project_config, output_dir=output_dir,
                          step_callback=step_callback)
     return engine.run()

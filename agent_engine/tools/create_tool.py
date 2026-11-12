@@ -211,7 +211,8 @@ class CreateToolTool(BaseTool):
         """
         output_dir = self.output_dir
         if not output_dir:
-            return os.path.join(os.getcwd(), "aib_instance", "tools")
+            from agent_engine._paths import get_exe_dir
+            return os.path.join(get_exe_dir(), "aib_instance", "tools")
         candidate = output_dir
         for _ in range(10):
             parent = os.path.dirname(candidate)

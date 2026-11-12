@@ -21,7 +21,7 @@ from agent_engine import run as agent_run
 
 # --- Resolve app directory (works for both dev and PyInstaller one-file builds) ---
 def _get_app_dir():
-    """Return the directory containing the app.
+    """Return the directory containing the app assets.
 
     For PyInstaller one-file builds, sys._MEIPASS points to the extracted
     temp directory that contains templates/ and static/ bundled by PyInstaller.
@@ -40,6 +40,7 @@ _app_dir = _get_app_dir()
 
 from agent_engine import AgentEngine, EngineConfig, ToolResult, get_registry
 from agent_engine.config import EngineConfig as Config
+from agent_engine._paths import get_exe_dir
 
 # --- Determine template/static paths ---
 # In dev: templates/ and static/ are real directories on disk
@@ -59,8 +60,10 @@ app = Flask(__name__,
             template_folder=_templates_dir,
             static_folder=_static_dir)
 
-# --- Constants (all relative to the app directory) ---
-_AIB_INSTANCE = os.path.join(_app_dir, "aib_instance")
+# --- Persistent data directory ---
+# aib_instance/ always lives next to the executable (or next to app.py in dev),
+# NOT inside the PyInstaller temp extraction directory.
+_AIB_INSTANCE = os.path.join(get_exe_dir(), "aib_instance")
 STATUS_FILE = os.path.join(_AIB_INSTANCE, "run_status.json")
 HISTORY_FILE = os.path.join(_AIB_INSTANCE, "job_history.json")
 PROJECTS_DIR = os.path.join(_AIB_INSTANCE)  # Project dirs live directly under aib_instance/<pid>/
@@ -853,7 +856,7 @@ def api_get_queue():
 
 @app.route("/api/job/<job_id>/actions", methods=["GET"])
 def api_get_job_actions(job_id):
-    actions_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aib_instance", "output", job_id, "actions.txt")
+    actions_path = os.path.join(get_exe_dir(), "aib_instance", "output", job_id, "actions.txt")
     if os.path.exists(actions_path):
         with open(actions_path, 'r', encoding='utf-8') as f:
             return jsonify({"content": f.read()})
@@ -1367,7 +1370,7 @@ def api_agent_history(job_id):
 @app.route("/api/agent/response/<job_id>", methods=["GET"])
 def api_agent_response(job_id):
     """Get the current LLM response for a running agent run."""
-    response_file = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+    response_file = os.path.join(get_exe_dir(),
                                  "aib_instance", "output", job_id, "current_response.txt")
     if os.path.exists(response_file):
         with open(response_file, 'r', encoding='utf-8') as f:
@@ -1379,7 +1382,7 @@ def api_agent_response(job_id):
 @app.route("/api/agent/output/<job_id>", methods=["GET"])
 def api_agent_output(job_id):
     """Get the output file for a job."""
-    output_file = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+    output_file = os.path.join(get_exe_dir(),
                                "aib_instance", "output", job_id, "output.txt")
     if os.path.exists(output_file):
         with open(output_file, 'r', encoding='utf-8') as f:
