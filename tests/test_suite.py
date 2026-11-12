@@ -1397,11 +1397,12 @@ class TestRespondToUserTool(unittest.TestCase):
 def _make_engine(tmpdir, enabled_tools, max_steps=10, max_context_tokens=0,
                  max_tool_result_length=10000):
     """Helper to create an engine with standard config."""
-    os.environ["AIB_OUTPUT_DIR"] = tmpdir
-    os.environ["AIB_JOB_ID"] = "test-job"
-    os.environ["AIB_MAX_STEPS"] = str(max_steps)
-    os.environ["AIB_MAX_CONTEXT_TOKENS"] = str(max_context_tokens)
-    os.environ["AIB_MAX_TOOL_RESULT_LENGTH"] = str(max_tool_result_length)
+    from agent_engine.config import set_global_settings
+    set_global_settings({
+        "max_steps": str(max_steps),
+        "max_context_tokens": str(max_context_tokens),
+        "max_tool_result_length": str(max_tool_result_length),
+    })
     return AgentEngine({
         "rootDirectory": tmpdir,
         "instructions": "Test",
