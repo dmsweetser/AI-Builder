@@ -103,11 +103,18 @@ class ToolRegistry:
 
     def _get_or_create_loader(self, project_output_dir: str,
                               disabled_tools: Optional[Set[str]] = None) -> ProjectToolLoader:
-        """Get or create a ProjectToolLoader for a project."""
+        """Get or create a ProjectToolLoader for a project.
+
+        If a loader already exists, update its disabled_tools set so that
+        list_tools() always reflects the current disable state.
+        """
         if project_output_dir not in self._project_loaders:
             self._project_loaders[project_output_dir] = ProjectToolLoader(
                 project_output_dir, disabled_tools or set()
             )
+        else:
+            # Update disabled_tools on existing loader (idempotent)
+            self._project_loaders[project_output_dir].disabled_tools = disabled_tools or set()
         return self._project_loaders[project_output_dir]
 
     def reload_project_tools(self, project_output_dir: str,
@@ -243,8 +250,9 @@ class ToolRegistry:
         Includes both built-in tools and project-local (approved) tools.
         """
         defs = []
+        disabled = disabled_tools or set()
         for name, cls in _BUILTIN_TOOL_CLASSES.items():
-            if name not in self._enabled_tools:
+            if name not in self._enabled_tools and name not in disabled:
                 try:
                     defs.append(cls("/tmp").get_definition())
                 except Exception:
