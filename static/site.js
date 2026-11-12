@@ -646,8 +646,9 @@ function _renderStep(step, agentBox) {
 }
 
 function _showPendingApproval(jobId, outputDir, agentBox) {
-    // Only show once per job
-    if (document.getElementById('pending-approval-actions')) return;
+    // Only show once per job — but allow re-show if the actions were cleared
+    var actions = document.getElementById('pending-approval-actions');
+    if (actions && actions.querySelector('.pending-tool-item')) return;
 
     var entry = document.createElement('div');
     entry.className = 'step-entry pending-approval';
@@ -1045,6 +1046,10 @@ document.addEventListener('click', function(e) {
 function clearPendingApprovalState() {
     var actions = document.getElementById('pending-approval-actions');
     if (actions) actions.innerHTML = '<div style="color:var(--success);font-size:12px;">✅ Tool action processed. The agent will resume automatically.</div>';
+    // Also remove the pending approval entry entirely so the next tool
+    // proposal re-triggers the approval UI (avoids the stale element guard)
+    var pendingEntry = document.querySelector('.step-entry.pending-approval:not([style*="animation"])');
+    if (pendingEntry) pendingEntry.remove();
     var statusText = document.getElementById('agent-status-text');
     if (statusText) { statusText.textContent = 'AGENT RUNNING'; statusText.style.color = ''; statusText.style.fontWeight = ''; }
 }
@@ -1694,19 +1699,27 @@ function openChat(chatId) {
                     var bodyDiv = document.createElement('div');
                     bodyDiv.className = 'chat-msg-body';
                     bodyDiv.innerHTML = markdownToHtml(msg.content);
+
                     var headerDiv = document.createElement('div');
                     headerDiv.className = 'chat-msg-header';
                     var roleSpan = document.createElement('span');
                     roleSpan.className = 'chat-msg-role';
                     roleSpan.textContent = roleLabel;
+                    headerDiv.appendChild(roleSpan);
+
+                    div.appendChild(headerDiv);
+                    div.appendChild(bodyDiv);
+
+                    // Copy button at bottom-right of the message body
                     var copyBtn = document.createElement('button');
                     copyBtn.className = 'copy-btn';
                     copyBtn.textContent = 'COPY';
                     copyBtn.onclick = function(e) { e.stopPropagation(); copyToClipboard(getChatMessageText(div), copyBtn); };
-                    headerDiv.appendChild(roleSpan);
-                    headerDiv.appendChild(copyBtn);
-                    div.appendChild(headerDiv);
-                    div.appendChild(bodyDiv);
+                    var bodyWrapper = document.createElement('div');
+                    bodyWrapper.style.position = 'relative';
+                    bodyWrapper.appendChild(bodyDiv);
+                    bodyWrapper.appendChild(copyBtn);
+                    div.appendChild(bodyWrapper);
                     log.appendChild(div);
                 });
                 log.scrollTop = log.scrollHeight;
@@ -1743,7 +1756,17 @@ function sendChat() {
     userRole.textContent = 'YOU';
     userHeader.appendChild(userRole);
     userDiv.appendChild(userHeader);
-    userDiv.appendChild(userBody);
+
+    // Copy button at bottom-right of the message body
+    var userCopyBtn = document.createElement('button');
+    userCopyBtn.className = 'copy-btn';
+    userCopyBtn.textContent = 'COPY';
+    userCopyBtn.onclick = function(e) { e.stopPropagation(); copyToClipboard(getChatMessageText(userDiv), userCopyBtn); };
+    var userBodyWrapper = document.createElement('div');
+    userBodyWrapper.style.position = 'relative';
+    userBodyWrapper.appendChild(userBody);
+    userBodyWrapper.appendChild(userCopyBtn);
+    userDiv.appendChild(userBodyWrapper);
     log.appendChild(userDiv);
     input.value = '';
     log.scrollTop = log.scrollHeight;
@@ -1756,16 +1779,22 @@ function sendChat() {
     aiRole.className = 'chat-msg-role';
     aiRole.textContent = 'AI';
     aiHeader.appendChild(aiRole);
-    var aiCopyBtn = document.createElement('button');
-    aiCopyBtn.className = 'copy-btn';
-    aiCopyBtn.textContent = 'COPY';
-    aiCopyBtn.onclick = function(e) { e.stopPropagation(); copyToClipboard(getChatMessageText(aiDiv), aiCopyBtn); };
-    aiHeader.appendChild(aiCopyBtn);
     aiDiv.appendChild(aiHeader);
     var aiBodyDiv = document.createElement('div');
     aiBodyDiv.className = 'chat-msg-body';
     aiBodyDiv.id = 'chat-stream-text-' + Date.now();
     aiDiv.appendChild(aiBodyDiv);
+
+    // Copy button at bottom-right of the message body
+    var aiCopyBtn = document.createElement('button');
+    aiCopyBtn.className = 'copy-btn';
+    aiCopyBtn.textContent = 'COPY';
+    aiCopyBtn.onclick = function(e) { e.stopPropagation(); copyToClipboard(getChatMessageText(aiDiv), aiCopyBtn); };
+    var aiBodyWrapper = document.createElement('div');
+    aiBodyWrapper.style.position = 'relative';
+    aiBodyWrapper.appendChild(aiBodyDiv);
+    aiBodyWrapper.appendChild(aiCopyBtn);
+    aiDiv.appendChild(aiBodyWrapper);
     log.appendChild(aiDiv);
     log.scrollTop = log.scrollHeight;
 
@@ -2030,6 +2059,14 @@ function showLiveViewForJob(jobId) {
     container.scrollIntoView({ behavior: 'smooth' });
     container.dataset.jobId = jobId;
     currentRunningJobId = jobId;
+
+    // Always clear any stale poll interval and inject state before starting fresh
+    if (_pollInterval) { clearInterval(_pollInterval); _pollInterval = null; }
+    var injectInput = document.getElementById('live-inject-input');
+    var injectBtn = document.getElementById('live-inject-btn');
+    if (injectInput) { injectInput.disabled = true; injectInput.placeholder = 'Loading...'; }
+    if (injectBtn) { injectBtn.disabled = true; injectBtn.textContent = 'LOADING...'; }
+
     // Show refresh button
     var refreshBtn = document.getElementById('live-refresh-btn');
     if (refreshBtn) refreshBtn.style.display = 'inline-block';
@@ -2079,6 +2116,8 @@ function showLiveViewForJob(jobId) {
 
 function _resolveOutputDirAndContinue(jobId, queueData, history, jobRecord, isRunning, isPendingApproval, isPendingInput, outputDir) {
     var agentBox = document.getElementById('agent-live-box');
+    var injectInput = document.getElementById('live-inject-input');
+    var injectBtn = document.getElementById('live-inject-btn');
 
     if (isRunning && !isPendingApproval && !isPendingInput) {
         // Job is actively running (not pending) - show the view and start polling
@@ -2094,8 +2133,6 @@ function _resolveOutputDirAndContinue(jobId, queueData, history, jobRecord, isRu
         }
         var statusText = document.getElementById('agent-status-text');
         if (statusText) { statusText.textContent = 'LIVE'; statusText.style.color = 'var(--success)'; }
-        var injectInput = document.getElementById('live-inject-input');
-        var injectBtn = document.getElementById('live-inject-btn');
         if (injectInput) { injectInput.disabled = false; injectInput.placeholder = 'Type instructions or questions...'; }
         if (injectBtn) { injectBtn.disabled = false; injectBtn.textContent = 'INJECT'; }
         // Start polling for live updates
@@ -2119,8 +2156,6 @@ function _resolveOutputDirAndContinue(jobId, queueData, history, jobRecord, isRu
                 liveInjectActive = true;
                 var stopBtn = document.getElementById('details-stop-btn');
                 if (stopBtn) stopBtn.style.display = 'inline-block';
-                var injectInput = document.getElementById('live-inject-input');
-                var injectBtn = document.getElementById('live-inject-btn');
                 if (injectInput) { injectInput.disabled = false; injectInput.placeholder = 'Type instructions to resume...'; }
                 if (injectBtn) { injectBtn.disabled = false; injectBtn.textContent = 'INJECT'; }
                 var statusText = document.getElementById('agent-status-text');
@@ -2136,8 +2171,6 @@ function _resolveOutputDirAndContinue(jobId, queueData, history, jobRecord, isRu
                     statusText.style.color = jobRecord.status === 'completed' ? 'var(--success)' : (jobRecord.status === 'error' ? 'var(--danger)' : 'var(--text-muted)');
                 }
                 // Enable inject for completed jobs so user can INJECT to resume
-                var injectInput = document.getElementById('live-inject-input');
-                var injectBtn = document.getElementById('live-inject-btn');
                 if (injectInput) { injectInput.disabled = false; injectInput.placeholder = 'Continue with new instructions...'; }
                 if (injectBtn) { injectBtn.disabled = false; injectBtn.textContent = 'INJECT'; }
             }

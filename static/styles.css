@@ -1058,6 +1058,7 @@ textarea {
     line-height: 1.6;
     white-space: pre-wrap;
     word-break: break-word;
+    padding-bottom: 28px; /* space for the bottom-right copy button */
 }
 
 .chat-msg-body code {
@@ -1379,7 +1380,6 @@ textarea {
     font-family: 'Press Start 2P', monospace;
     cursor: pointer;
     transition: all 0.1s;
-    margin-top: 6px;
     box-shadow: 0 2px 0 #000;
     position: absolute;
     bottom: 8px;
