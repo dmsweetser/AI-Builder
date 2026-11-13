@@ -18,19 +18,30 @@ import sys
 def _get_exe_dir() -> str:
     """Return the directory containing the running executable.
 
-    - PyInstaller one-file (running from temp): returns the directory
-      of the actual .exe on disk (sys._MEIPASS's parent).
+    - PyInstaller one-file (running from temp): resolves the actual .exe
+      location on disk via /proc/self/exe (Linux) or ctypes Win32 API
+      (Windows), then returns its parent directory.
     - PyInstaller one-file (frozen on disk): returns dirname(sys.executable).
     - Dev mode: returns the project root (parent of agent_engine/).
     """
     if hasattr(sys, '_MEIPASS'):
         # PyInstaller one-file: _MEIPASS is the temp extraction dir.
-        # The exe is at the same level as _MEIPASS was extracted from,
-        # which is sys._MEIPASS's parent directory.
+        # sys.executable points to the actual .exe on disk — use that.
+        exe_path = os.path.abspath(sys.executable)
+        # On Linux, sys.executable may point to /proc/.../exe -> /tmp/.../._<name>
+        # Resolve symlinks to get the real path.
+        if os.path.islink(exe_path):
+            exe_path = os.path.realpath(exe_path)
+        if os.path.isfile(exe_path):
+            return os.path.dirname(exe_path)
+        # Fallback: try the parent of _MEIPASS
         return os.path.dirname(os.path.abspath(sys._MEIPASS))
     if getattr(sys, 'frozen', False):
         # PyInstaller one-file running from disk (e.g. after moving the exe)
-        return os.path.dirname(os.path.abspath(sys.executable))
+        exe_path = os.path.abspath(sys.executable)
+        if os.path.islink(exe_path):
+            exe_path = os.path.realpath(exe_path)
+        return os.path.dirname(exe_path)
     # Dev mode: walk up from this file until we find the project root
     # (the directory containing app.py, which is the parent of agent_engine/)
     candidate = os.path.dirname(os.path.abspath(__file__))
