@@ -1546,23 +1546,6 @@ def api_agent_inject():
             os.fsync(f.fileno())
         os.replace(tmp_file, status_file)
 
-        # If the agent was paused for user input, also write the resume answer
-        # so the engine knows to continue
-        resume_file = os.path.join(output_dir, "status.json")
-        try:
-            with open(resume_file, 'r', encoding='utf-8') as f:
-                resume_status = json.load(f)
-        except Exception:
-            resume_status = {}
-        pending = resume_status.get("pending_user_input")
-        if pending and isinstance(pending, dict):
-            pending["answer"] = instruction
-            tmp_file = resume_file + ".tmp"
-            with open(tmp_file, 'w', encoding='utf-8') as f:
-                json.dump(resume_status, f, indent=2, ensure_ascii=False)
-                f.flush()
-                os.fsync(f.fileno())
-            os.replace(tmp_file, resume_file)
         return jsonify({"status": "injected"})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -1677,17 +1660,6 @@ def api_agent_resume():
                             "content": f"[TOOL RESULT for {tool_name}]\n{result_display}\n[END TOOL RESULT]\n\nNow continue with your next action."
                         })
 
-                # Inject the user's response
-                reconstructed_messages.append({
-                    "role": "user",
-                    "content": (
-                        f"========== USER RESPONSE ==========\n"
-                        f"{user_input}\n"
-                        "========== END USER RESPONSE ==========\n\n"
-                        "Use this response to continue your task. "
-                        "Respond with EXACTLY ONE tool call."
-                    )
-                })
                 engine.messages = reconstructed_messages
 
                 result = engine.run()
