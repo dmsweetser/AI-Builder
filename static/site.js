@@ -29,8 +29,7 @@ function escapeHtml(str) {
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&apos;');
+        .replace(/"/g, '&quot;');
 }
 
 function copyToClipboard(text, buttonEl) {
@@ -130,13 +129,20 @@ function showTab(tabName) {
     });
     if (tabName === 'jobs') loadJobs();
     if (tabName === 'settings') loadSettingsUI();
-    
+    if (tabName === 'chat') loadChats();
 }
 
 // === Project Form Toggle ===
 function toggleCreateForm() {
     var form = document.getElementById('create-project-form');
-    if (form) form.style.display = form.style.display === 'none' ? 'block' : 'none';
+    if (form) {
+        var isVisible = form.style.display === 'block';
+        form.style.display = isVisible ? 'none' : 'block';
+        // Populate the tool selector when opening the form
+        if (!isVisible) {
+            buildToolSelectorForElement('add-tool-selector', []);
+        }
+    }
 }
 
 // === Project Management ===
@@ -2499,6 +2505,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // Load initial data
     loadProjectsCached();
     loadJobs();
+    loadChats();
 
     // Keyboard navigation for sidebar
     var sidebarNav = document.querySelector('.sidebar-nav');
