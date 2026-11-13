@@ -1310,9 +1310,14 @@ class AgentEngine:
         self.logger.info(f"Instructions: {self.instructions}...")
 
         try:
-            # Build initial prompt
-            user_prompt = build_user_prompt(self.instructions, instance_prefix=self.instance_prefix)
-            self.messages.append({"role": "user", "content": user_prompt})
+            # Build initial prompt — only when starting fresh (no pre-loaded
+            # conversation history).  When messages already contain more than
+            # just the system prompt (e.g. resumed via _resume_engine), skip
+            # this so we don't overwrite the user's response with a
+            # "start with list_directory" prompt.
+            if len(self.messages) <= 1:
+                user_prompt = build_user_prompt(self.instructions, instance_prefix=self.instance_prefix)
+                self.messages.append({"role": "user", "content": user_prompt})
 
             # Main loop
             final_summary = ""
@@ -1752,6 +1757,19 @@ class AgentEngine:
                         "role": "user",
                         "content": f"[TOOL_RESULT]\n{json.dumps(step_entry['result'], indent=2)}\n[TOOL_RESULT]",
                     })
+
+                    # If the tool failed, re-send the system prompt prefixed with
+                    # "REMINDER: " as a user message so the LLM sees its own
+                    # instructions and can self-correct.
+                    tool_result = step_entry.get("result", {})
+                    if not tool_result.get("success", True):
+                        self.logger.info(
+                            f"  Tool '{tool_name}' failed — injecting system prompt reminder"
+                        )
+                        self.messages.append({
+                            "role": "user",
+                            "content": f"REMINDER: {self.system_prompt}",
+                        })
 
                     # Log the step
                     self.step_history.append(step_entry)
