@@ -22,6 +22,15 @@ const AVAILABLE_TOOLS = [
     "create_tool", "respond_to_user", "request_user_input", "task_completed"
 ];
 
+// === Utility Functions ===
+function escapeHtml(str) {
+    if (!str) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
 
 function copyToClipboard(text, buttonEl) {
     if (!text) return;
