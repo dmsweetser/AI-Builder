@@ -424,6 +424,15 @@ function _pollOnce(jobId, outputDir, agentBox) {
 }
 
 function _renderAllSteps(jobId, outputDir, agentBox, statusData, hasPendingTools, hasPendingUserInput) {
+    // Guard: if agentBox is null, try to re-resolve it (element may have been recreated)
+    if (!agentBox) {
+        agentBox = document.getElementById('agent-live-box');
+    }
+    if (!agentBox) {
+        console.warn('agent-live-box not found, skipping step render');
+        return;
+    }
+
     fetch('/api/job/' + jobId + '/steps')
         .then(function(r) { return r.json(); })
         .then(function(data) {
