@@ -1681,6 +1681,22 @@ def api_agent_resume():
                             "content": f"[TOOL RESULT for {tool_name}]\n{result_display}\n[END TOOL RESULT]\n\nNow continue with your next action."
                         })
 
+                # Inject the user's answer directly into the conversation.
+                # The AgentEngine.__init__ call above calls _init_status_file()
+                # which overwrites status.json, erasing the pending_user_input
+                # data.  Bypass the file mechanism by injecting the answer
+                # directly so the new engine instance sees it immediately.
+                reconstructed_messages.append({
+                    "role": "user",
+                    "content": (
+                        f"========== USER RESPONSE ==========\n"
+                        f"{user_input}\n"
+                        "========== END USER RESPONSE ==========\n\n"
+                        "Use this response to continue your task. "
+                        "Respond with EXACTLY ONE tool call."
+                    )
+                })
+
                 engine.messages = reconstructed_messages
 
                 result = engine.run()
