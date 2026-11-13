@@ -536,15 +536,20 @@ STEP 1: Use list_directory to explore the project structure. Do NOT use task_com
 
 
 def _strip_code_blocks(response: str) -> str:
-    """Strip fenced code blocks (```...```) and inline code (`...`) from response.
+    """Strip fenced code blocks (```...```) from response.
 
     Prevents the parser from extracting tool call blocks that appear inside
     code examples in the LLM's response.
+
+    NOTE: We intentionally do NOT strip inline code blocks (`...`) because
+    doing so would remove backtick-delimited text from the LLM's rationale
+    (e.g. "Compiling `class.cs`" would become "Compiling "). Fenced blocks
+    are sufficient to prevent false-positive tool call extraction from code
+    examples, while inline code preserves the rationale's content intact.
     """
     # Strip fenced code blocks: ```...```
     result = re.sub(r'```[\s\S]*?```', '', response)
-    # Strip inline code: `...`
-    result = re.sub(r'`[^`]*`', '', result)
+    # NOTE: We no longer strip inline code blocks (`...`) — see docstring.
     return result
 
 
@@ -1764,11 +1769,24 @@ class AgentEngine:
                     tool_result = step_entry.get("result", {})
                     if not tool_result.get("success", True):
                         self.logger.info(
-                            f"  Tool '{tool_name}' failed — injecting system prompt reminder"
-                        )
+                            f"  Tool '{tool_name}' failed — injecting tool format reminder"
+                        )                                
+                        # Format reminder — tell the LLM how to call tools
                         self.messages.append({
                             "role": "user",
-                            "content": f"REMINDER: {self.system_prompt}",
+                            "content": (
+                                "REMINDER: The tool call format is as follows:\n"
+                                "[TOOL_START]\n"
+                                "[TOOL_NAME]\n"
+                                "a relevant tool name\n"
+                                "[PARAM_NAME]\n"
+                                "a relevant param name\n"
+                                "[PARAM_VALUE]\n"
+                                "a relevant param value\n"
+                                "[TOOL_END]\n"
+                                "Each parameter needs its own [PARAM_NAME] and [PARAM_VALUE] pair. "
+                                "Please use a tool call to continue."
+                            ),
                         })
 
                     # Log the step

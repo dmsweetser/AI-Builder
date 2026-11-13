@@ -69,7 +69,7 @@ function markdownToHtml(md) {
     });
     html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
     html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-    html = html.replace(/(?<!\w)\*(.+?)\*(?!\w)/g, '<em>$1</em>');
+    html = html.replace(/\b\*(.+?)\*\b/g, '<em>$1</em>');
     html = html.replace(/^- (.+)$/gm, '<div style="margin-left:12px;">• $1</div>');
     html = html.replace(/\n\n/g, '<br><br>');
     html = html.replace(/\n/g, '<br>');

@@ -236,10 +236,32 @@ path
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0][0], 'list_directory')
 
-    def test_inline_code_stripping(self):
-        response2 = "Use `write_file` for writing, then [test1234_TOOL_START][test1234_TOOL_NAME]test1234_list_directory..."
+    def test_inline_code_preserved(self):
+        """Inline code blocks are preserved so rationale content isn't lost.
+
+        The parser already prevents false-positive tool call extraction by
+        looking for specific markers ([TOOL_START], [TOOL_END], etc.), so
+        stripping inline code is unnecessary and was causing rationales like
+        "Compiling `class.cs`" to become "Compiling ".
+        """
+        response2 = (
+            "Use `write_file` for writing, then "
+            "[test1234_TOOL_START]\n"
+            "[test1234_TOOL_NAME]\n"
+            "test1234_list_directory\n"
+            "[test1234_PARAM_NAME]\n"
+            "path\n"
+            "[test1234_PARAM_VALUE]\n"
+            ".\n"
+            "[test1234_TOOL_END]"
+        )
         stripped2 = _strip_code_blocks(response2)
-        self.assertNotIn('write_file', stripped2)
+        # Inline code should be preserved (the text "write_file" remains)
+        self.assertIn('write_file', stripped2)
+        # But the tool call should still be extracted correctly
+        calls = parse_tool_calls(response2, "test1234")
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0][0], 'list_directory')
 
 
 class TestIsDoneTaskCompleted(unittest.TestCase):
