@@ -22,15 +22,6 @@ const AVAILABLE_TOOLS = [
     "create_tool", "respond_to_user", "request_user_input", "task_completed"
 ];
 
-// === Utility Functions ===
-function escapeHtml(str) {
-    if (!str) return '';
-    return String(str)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;');
-}
 
 function copyToClipboard(text, buttonEl) {
     if (!text) return;
@@ -69,7 +60,7 @@ function getChatMessageText(msgElement) {
 
 function markdownToHtml(md) {
     if (!md) return '';
-    var html = escapeHtml(md);
+    var html = md;
     var codeBlocks = [];
     html = html.replace(/```([\s\S]*?)```/g, function(match, code) {
         var uniqueId = 'code-block-' + Math.random().toString(36).substr(2, 9);
@@ -85,7 +76,7 @@ function markdownToHtml(md) {
     codeBlocks.forEach(function(block) {
         var escaped = block.content.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
         html = html.replace('%%CODEBLOCK_' + block.id + '%%',
-            '<div style="position:relative;margin:4px 0;"><button class="pre-copy-btn" onclick="copyCodeBlock(\'' + block.id + '\', this)" style="position:absolute;top:4px;right:4px;background:var(--wood);border:1px solid #000;padding:3px 8px;cursor:pointer;font-size:8px;color:#fff;z-index:10;border-radius:3px;font-family:\'Press Start 2P\',monospace;">COPY</button><pre style="background:#111;padding:8px;border-radius:4px;overflow-x:auto;margin:0;"><code id="' + block.id + '" style="white-space:pre-wrap;">' + escaped + '</code></pre></div>');
+            '<div style="position:relative;margin:4px 0;"><button class="pre-copy-btn" onclick="copyCodeBlock(\'' + block.id + '\', this)" style="position:absolute;bottom:4px;right:4px;background:var(--wood);border:1px solid #000;padding:3px 8px;cursor:pointer;font-size:8px;color:#fff;z-index:10;border-radius:3px;font-family:\'Press Start 2P\',monospace;">COPY</button><pre style="background:#111;padding:8px;border-radius:4px;overflow-x:auto;margin:0;"><code id="' + block.id + '" style="white-space:pre-wrap;">' + escaped + '</code></pre></div>');
     });
     return html;
 }
@@ -99,7 +90,7 @@ function copyCodeBlock(id, btn) {
     // Strip language label if present (e.g., "python\nprint(...)" -> "print(...)")
     var firstLineEnd = decoded.indexOf('\n');
     if (firstLineEnd !== -1) {
-        var firstLine = decoded.substring(0, firstLineEnd).trim().toLowerCase();
+        var firstLine = decoded.substring(0, firstLineEnd).trim().toLowerCase().replace('```','');
         var langNames = ['python','javascript','js','ts','typescript','java','c','cpp','c++','c#','cs','go','rust','rs','ruby','rb','php','html','css','bash','sh','shell','sql','json','yaml','yml','xml','markdown','md','txt','plaintext'];
         if (langNames.indexOf(firstLine) !== -1) {
             decoded = decoded.substring(firstLineEnd + 1);
@@ -138,10 +129,6 @@ function toggleCreateForm() {
     if (form) {
         var isVisible = form.style.display === 'block';
         form.style.display = isVisible ? 'none' : 'block';
-        // Populate the tool selector when opening the form
-        if (!isVisible) {
-            buildToolSelectorForElement('add-tool-selector', []);
-        }
     }
 }
 
