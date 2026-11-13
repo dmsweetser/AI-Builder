@@ -1770,21 +1770,27 @@ class AgentEngine:
                     if not tool_result.get("success", True):
                         self.logger.info(
                             f"  Tool '{tool_name}' failed — injecting tool format reminder"
-                        )                                
+                        )
                         # Format reminder — tell the LLM how to call tools
+                        # Use prefixed markers so the example matches what the agent expects
+                        m_start = _marker(self.instance_prefix, "TOOL_START")
+                        m_end = _marker(self.instance_prefix, "TOOL_END")
+                        m_name = _marker(self.instance_prefix, "TOOL_NAME")
+                        m_pname = _marker(self.instance_prefix, "PARAM_NAME")
+                        m_pval = _marker(self.instance_prefix, "PARAM_VALUE")
                         self.messages.append({
                             "role": "user",
                             "content": (
-                                "REMINDER: The tool call format is as follows:\n"
-                                "[TOOL_START]\n"
-                                "[TOOL_NAME]\n"
+                                f"REMINDER: The tool call format is as follows:\n"
+                                f"{m_start}\n"
+                                f"{m_name}\n"
                                 "a relevant tool name\n"
-                                "[PARAM_NAME]\n"
+                                f"{m_pname}\n"
                                 "a relevant param name\n"
-                                "[PARAM_VALUE]\n"
+                                f"{m_pval}\n"
                                 "a relevant param value\n"
-                                "[TOOL_END]\n"
-                                "Each parameter needs its own [PARAM_NAME] and [PARAM_VALUE] pair. "
+                                f"{m_end}\n"
+                                f"Each parameter needs its own {m_pname} and {m_pval} pair. "
                                 "Please use a tool call to continue."
                             ),
                         })
@@ -1832,20 +1838,26 @@ class AgentEngine:
                     "content": response,
                 })
                 # Format reminder — tell the LLM how to call tools
+                # Use prefixed markers so the example matches what the agent expects
+                m_start = _marker(self.instance_prefix, "TOOL_START")
+                m_end = _marker(self.instance_prefix, "TOOL_END")
+                m_name = _marker(self.instance_prefix, "TOOL_NAME")
+                m_pname = _marker(self.instance_prefix, "PARAM_NAME")
+                m_pval = _marker(self.instance_prefix, "PARAM_VALUE")
                 self.messages.append({
                     "role": "user",
                     "content": (
                         "Your response did not include a tool call. "
                         "To take an action, you MUST output a tool call using this exact format:\n"
-                        "[TOOL_START]\n"
-                        "[TOOL_NAME]\n"
+                        f"{m_start}\n"
+                        f"{m_name}\n"
                         "a relevant tool name\n"
-                        "[PARAM_NAME]\n"
+                        f"{m_pname}\n"
                         "a relevant param name\n"
-                        "[PARAM_VALUE]\n"
+                        f"{m_pval}\n"
                         "a relevant param value\n"
-                        "[TOOL_END]\n"
-                        "Each parameter needs its own [PARAM_NAME] and [PARAM_VALUE] pair. "
+                        f"{m_end}\n"
+                        f"Each parameter needs its own {m_pname} and {m_pval} pair. "
                         "Please use a tool call to continue."
                     ),
                 })

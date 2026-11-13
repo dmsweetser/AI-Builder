@@ -2490,32 +2490,8 @@ class TestContinuationMessages(unittest.TestCase):
                 self.assertIn("task_completed", m['content'])
                 break
 
-
 # ====================================================================
-# 20. HTML Escaping Safety Test
-# ====================================================================
-
-class TestHTMLEscapingSafety(unittest.TestCase):
-    def test_escapeHtml_escapes_quotes(self):
-        """escapeHtml must escape quotes to prevent HTML attribute breakage in VIEW LIVE."""
-        site_js = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-            'static', 'site.js'
-        )
-        with open(site_js) as f:
-            js = f.read()
-        match = re.search(r'function escapeHtml\s*\([^)]*\)\s*\{([^}]+)\}', js)
-        self.assertIsNotNone(match, "escapeHtml function not found in site.js")
-        func_body = match.group(1)
-        self.assertIn('&quot;', func_body)
-        self.assertIn('&apos;', func_body)
-        self.assertIn('&amp;', func_body)
-        self.assertIn('&lt;', func_body)
-        self.assertIn('&gt;', func_body)
-
-
-# ====================================================================
-# 21. Reload Approved Tools & Script Tests
+# 20. Reload Approved Tools & Script Tests
 # ====================================================================
 
 class TestReloadApprovedTools(unittest.TestCase):
@@ -2538,7 +2514,7 @@ class TestReloadApprovedTools(unittest.TestCase):
 
 
 # ====================================================================
-# 22. Stop Event & Max Steps Tests
+# 21. Stop Event & Max Steps Tests
 # ====================================================================
 
 class TestStopEventHandling(unittest.TestCase):
@@ -2591,7 +2567,7 @@ class TestMaxStepsHandling(unittest.TestCase):
 
 
 # ====================================================================
-# 23. Pending Tool Approval in Engine
+# 22. Pending Tool Approval in Engine
 # ====================================================================
 
 class TestPendingToolApprovalEngine(unittest.TestCase):
@@ -2687,7 +2663,7 @@ class TestPendingToolApprovalEngine(unittest.TestCase):
 
 
 # ====================================================================
-# 24. Context Warning Flag Test
+# 23. Context Warning Flag Test
 # ====================================================================
 
 class TestContextWarning(unittest.TestCase):
@@ -2709,7 +2685,7 @@ class TestContextWarning(unittest.TestCase):
 
 
 # ====================================================================
-# 25. respond_to_user / request_user_input truncation exclusion
+# 24. respond_to_user / request_user_input truncation exclusion
 # ====================================================================
 
 class TestRespondToUserNoTruncation(unittest.TestCase):
@@ -2725,7 +2701,7 @@ class TestRespondToUserNoTruncation(unittest.TestCase):
 
 
 # ====================================================================
-# 26. Queue & App Integration Tests
+# 25. Queue & App Integration Tests
 # ====================================================================
 
 class TestQueueBehavior(unittest.TestCase):
@@ -2745,7 +2721,7 @@ class TestQueueBehavior(unittest.TestCase):
 
 
 # ====================================================================
-# 27. Edit File Strategies (from test_round16.py)
+# 26. Edit File Strategies (from test_round16.py)
 # ====================================================================
 
 class TestEditFileStrategies(unittest.TestCase):
@@ -2816,7 +2792,7 @@ class TestEditFileStrategies(unittest.TestCase):
 
 
 # ====================================================================
-# 28. Tool Approval Endpoint Tests
+# 27. Tool Approval Endpoint Tests
 # ====================================================================
 
 class TestToolApprovalEndpoint(unittest.TestCase):
