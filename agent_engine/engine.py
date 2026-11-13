@@ -413,6 +413,7 @@ RULES:
 - After making changes, verify them. If check_syntax fails, fix the errors.
 - When done, use the task_completed tool with a summary of all changes made.
 - To create a new tool, use create_tool. It proposes the tool for user approval - it does NOT execute arbitrary code. Wait for user approval in the live feed before expecting the tool to be available. The tool code must define a class that inherits from BaseTool with name, description, parameters, and an execute(params) method.
+- To revise a custom (project-local) tool that has failed, use revise_custom_tool. This lets you propose a fixed or completely rewritten version of an existing custom tool for user approval. You CAN generate a full unabridged replacement — the entire Python source code — and submit it here. Do NOT try to provide a "diff" or "patch"; provide the complete working code.
 - If the user asks you to do something you CANNOT do with the currently available tools (e.g., run a shell command, execute a script, make an HTTP request, compile code, run tests, use a specific CLI tool), you SHOULD create a tool to do it. Use create_tool to propose a Python tool that implements the requested functionality, then wait for approval. Do NOT give up, do NOT say you cannot do it, and do NOT just write a script and stop — create a proper tool so the functionality is reusable.
 - Use respond_to_user to communicate findings, status updates, or questions to the user.
 - Use request_user_input when you need clarification or a decision before proceeding.
@@ -497,6 +498,8 @@ TOOL FAILURE HANDLING (CRITICAL - READ CAREFULLY):
 - For edit_file failures: the error will show what was expected vs what was found — use that to adjust your original_text or try a different strategy.
 - For create_tool failures: fix the code or parameters based on the error message and retry.
 - For delete_file failures: verify the file exists and is not a backup file before retrying.
+- For custom (project-local) tool failures: the tool result now includes the full source code of the failed tool for debugging. Use this to understand what went wrong and generate a fix.
+- For custom tool failures that are beyond a simple fix: use revise_custom_tool to propose a complete rewrite of the tool. You can generate a full unabridged replacement — the entire Python source code — and submit it for user approval. Do NOT provide a "diff" or "patch"; provide the complete working code.
 - NEVER proceed as if a failed tool succeeded. Always address the error before moving on.
 
 CONTEXT MANAGEMENT:

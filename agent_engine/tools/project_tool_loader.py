@@ -38,6 +38,7 @@ class ProjectToolLoader:
         self.project_output_dir = project_output_dir
         self.disabled_tools = disabled_tools or set()
         self._dynamic_tools: Dict[str, Type[BaseTool]] = {}
+        self._dynamic_tool_sources: Dict[str, str] = {}  # name → source code
         self._load_active_tools()
 
     def _project_root(self) -> str:
@@ -91,6 +92,9 @@ class ProjectToolLoader:
     def _load_tool_from_file(self, tool_path: str, tool_name: str):
         """Load a single tool .py file."""
         try:
+            # Read source code for error reporting
+            with open(tool_path, 'r', encoding='utf-8') as f:
+                source_code = f.read()
             spec = importlib.util.spec_from_file_location(
                 f"project_tool_{uuid.uuid4().hex[:8]}", tool_path
             )
@@ -107,6 +111,7 @@ class ProjectToolLoader:
                         and getattr(attr, "name", None) == tool_name
                     ):
                         self._dynamic_tools[tool_name] = attr
+                        self._dynamic_tool_sources[tool_name] = source_code
                         return
         except Exception as e:
             pass  # Silently skip broken tool files
@@ -210,3 +215,7 @@ class ProjectToolLoader:
                 except Exception:
                     pass
         return defs
+
+    def get_tool_source(self, tool_name: str) -> Optional[str]:
+        """Return the full source code of a dynamic (project-local) tool, or None."""
+        return self._dynamic_tool_sources.get(tool_name)

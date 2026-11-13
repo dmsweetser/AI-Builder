@@ -30,6 +30,7 @@ from agent_engine.tools.create_tool import CreateToolTool
 from agent_engine.tools.respond_to_user import RespondToUserTool
 from agent_engine.tools.request_user_input import RequestUserInputTool
 from agent_engine.tools.task_completed import TaskCompletedTool
+from agent_engine.tools.revise_custom_tool import ReviseCustomToolTool
 from agent_engine.tools.project_tool_loader import ProjectToolLoader
 
 # ------------------------------------------------------------------
@@ -56,6 +57,7 @@ def _init_builtin_classes():
         FindSymbolTool, DecompileJarTool,
         CheckSyntaxTool,
         CreateToolTool,
+        ReviseCustomToolTool,
         RespondToUserTool, RequestUserInputTool, TaskCompletedTool,
     ]:
         _instance = _cls("/tmp")
@@ -275,13 +277,8 @@ class ToolRegistry:
         Creates a tool instance with the given root_dir for this execution.
         Strips JSON Schema structural keys that the LLM might accidentally include.
 
-        Args:
-            tool_name: Name of the tool to execute.
-            params: Parameter dict for the tool call.
-            root_dir: Project root directory.
-            project_output_dir: Project output directory (for project-local tools).
-            disabled_tools: Set of tool names to disable for this project.
-            job_id: Current job ID (for tools that need it).
+        For custom/project-local tools that fail, the error response includes
+        the full source code of the tool so the LLM can diagnose and fix it.
         """
         if disabled_tools is None:
             disabled_tools = set()
@@ -302,10 +299,45 @@ class ToolRegistry:
                 merged[k] = v
 
         try:
-            return tool.execute(merged)
+            result = tool.execute(merged)
+            # If the tool is a custom/project-local tool and it failed,
+            # inject the full source code into the error content so the
+            # LLM can see exactly what went wrong and generate a fix.
+            if not result.success and result.error:
+                source = self._get_tool_source(tool_name)
+                if source:
+                    result.content = (
+                        f"{result.content}\n\n"
+                        f"--- TOOL SOURCE CODE (for debugging) ---\n"
+                        f"```\n{source}\n```\n"
+                        f"--- END TOOL SOURCE CODE ---\n\n"
+                        f"ERROR: {result.error}"
+                    )
+                    result.error = ""  # Clear the separate error field since it's in content
+            return result
         except SecurityError:
             raise
         except ToolError:
             raise
         except Exception as e:
-            return ToolResult(False, "", error=f"Unexpected error: {e}")
+            # For unexpected errors on custom tools, also include source
+            source = self._get_tool_source(tool_name)
+            error_msg = f"Unexpected error: {e}"
+            if source:
+                content = (
+                    f"--- TOOL SOURCE CODE (for debugging) ---\n"
+                    f"```\n{source}\n```\n"
+                    f"--- END TOOL SOURCE CODE ---\n\n"
+                    f"ERROR: {error_msg}"
+                )
+            else:
+                content = error_msg
+            return ToolResult(False, content, error="" if source else error_msg)
+
+    def _get_tool_source(self, tool_name: str) -> Optional[str]:
+        """Get the full source code for a custom/project-local tool, if any."""
+        for loader in self._project_loaders.values():
+            source = loader.get_tool_source(tool_name)
+            if source:
+                return source
+        return None
