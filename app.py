@@ -360,23 +360,56 @@ def run_with_agent_engine(project_config: Dict[str, Any], output_dir: str = None
         pid = project_config.get("id", project_config.get("job_id", ""))
         output_dir = os.path.join(root_dir, "aib_instance", pid, "output")
 
+    # --- Full run isolation: archive every file from the previous run ---
+    # This guarantees zero bleed between runs — no stale steps, no open log
+    # handles, no leftover state.
+    _archive_output_dir(output_dir)
+
     # Write instructions to a file to avoid env var length limits
     instructions_file = os.path.join(output_dir, "instructions.txt")
     os.makedirs(output_dir, exist_ok=True)
     with open(instructions_file, 'w', encoding='utf-8') as f:
         f.write(project_config.get("instructions", ""))
 
-    # Archive logs from any prior runs in this project's output dir
-    # so a fresh run doesn't pick up stale steps
-    steps_dir = os.path.join(output_dir, "steps")
-    if os.path.isdir(steps_dir) and os.listdir(steps_dir):
-        archive_name = "archive_" + datetime.now().strftime("%Y%m%d_%H%M%S")
-        archive_dir = os.path.join(os.path.dirname(output_dir), archive_name)
-        shutil.move(output_dir, archive_dir)
-        # Create a fresh output directory
-        os.makedirs(output_dir, exist_ok=True)
-
     return agent_run(project_config, output_dir=output_dir)
+
+
+def _archive_output_dir(output_dir: str) -> None:
+    """Archive the entire output directory (if it exists) so the next run
+    starts with a clean slate.
+
+    Uses a date-stamped archive dir at the parent level.  If the engine's
+    log file is still open from a prior crash, the archive falls back to
+    copying individual files instead of shutil.move.
+    """
+    if not os.path.isdir(output_dir):
+        return
+
+    # Try a full move first (fastest, atomic on same fs)
+    archive_name = "archive_" + datetime.now().strftime("%Y%m%d_%H%M%S")
+    archive_dir = os.path.join(os.path.dirname(output_dir), archive_name)
+
+    try:
+        shutil.move(output_dir, archive_dir)
+    except OSError:
+        # Likely a file handle is still open (e.g. log file).  Fall back to
+        # a full recursive copy + removal, which works even with open handles
+        # on macOS.
+        try:
+            shutil.copytree(output_dir, archive_dir)
+            shutil.rmtree(output_dir, ignore_errors=True)
+        except Exception:
+            # Last-resort: wipe the directory in place (archive is lost, but
+            # the next run still gets a clean directory).
+            try:
+                for entry in os.listdir(output_dir):
+                    _path = os.path.join(output_dir, entry)
+                    if os.path.isdir(_path):
+                        shutil.rmtree(_path, ignore_errors=True)
+                    else:
+                        os.remove(_path)
+            except Exception:
+                pass
 
 
 def start_worker():
@@ -1269,7 +1302,10 @@ def _run_engine_in_background(project_config, output_dir, step_callback=None, st
         engine.messages = reconstructed_messages
 
     # Run the engine
-    result = engine.run()
+    try:
+        result = engine.run()
+    finally:
+        engine.close()
 
     # Persist conversation history
     messages_file = os.path.join(output_dir, "conversation_history.json")
@@ -1497,8 +1533,11 @@ def api_agent_inject():
                 })
                 engine.messages = reconstructed_messages
 
-                # Run the engine
-                result = engine.run()
+                # Run the engine (close log on exit to free handles)
+                try:
+                    result = engine.run()
+                finally:
+                    engine.close()
 
                 # Persist conversation history
                 messages_file = os.path.join(output_dir, "conversation_history.json")
@@ -1699,7 +1738,11 @@ def api_agent_resume():
 
                 engine.messages = reconstructed_messages
 
-                result = engine.run()
+                # Run the engine (close log on exit to free handles)
+                try:
+                    result = engine.run()
+                finally:
+                    engine.close()
 
                 # Persist conversation history
                 messages_file = os.path.join(output_dir, "conversation_history.json")

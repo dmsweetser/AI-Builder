@@ -905,13 +905,22 @@ class AgentEngine:
         # --- Initialize persistent step files ---
         _init_status_file(self.output_dir)
 
-        # Set up logging
+        # Set up logging — use a named temporary file so the log handle never
+        # collides with archive / move operations on log.txt.  The engine still
+        # writes to log.txt at shutdown time via _close_log().
+        import tempfile as _tempfile
+        self._log_tmp_fd, self._log_tmp_path = _tempfile.mkstemp(
+            dir=self.output_dir, prefix=".log_", suffix=".tmp"
+        )
+        os.close(self._log_tmp_fd)
+        self._log_tmp_fd = None  # FileHandler will open its own handle
+
         self.logger = logging.getLogger(f"agent_engine.{self.job_id}")
         self.logger.setLevel(logging.INFO)
         self.logger.handlers = []
         self.logger.propagate = False
 
-        fh = logging.FileHandler(self.log_file)
+        fh = logging.FileHandler(self._log_tmp_path)
         fh.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
         self.logger.addHandler(fh)
 
@@ -1898,6 +1907,29 @@ class AgentEngine:
             self._update_status("error", error=str(e))
             return {"status": "error", "error": str(e), "steps": self.step_count}
 
+    def _close_log(self) -> None:
+        """Flush and close all log handlers, then move the temp log to log.txt."""
+        try:
+            for handler in self.logger.handlers[:]:
+                handler.close()
+                self.logger.removeHandler(handler)
+        except Exception:
+            pass
+        # Move the temp log file to the real log.txt (atomic on same filesystem)
+        if hasattr(self, '_log_tmp_path') and os.path.exists(self._log_tmp_path):
+            try:
+                os.replace(self._log_tmp_path, self.log_file)
+            except Exception:
+                try:
+                    os.remove(self._log_tmp_path)
+                except OSError:
+                    pass
+
+    def close(self) -> None:
+        """Public cleanup: close log, remove any stale temp files."""
+        self._close_log()
+
+
 def run(project_config: Dict[str, Any], output_dir: Optional[str] = None,
         step_callback=None) -> Dict[str, Any]:
     """Run the agentic engine with the given project configuration."""
@@ -1908,7 +1940,10 @@ def run(project_config: Dict[str, Any], output_dir: Optional[str] = None,
         output_dir = os.path.join(get_exe_dir(), "aib_instance", pid, "output")
     engine = AgentEngine(project_config, output_dir=output_dir,
                          step_callback=step_callback)
-    return engine.run()
+    try:
+        return engine.run()
+    finally:
+        engine.close()
 
 
 if __name__ == "__main__":
