@@ -1623,8 +1623,29 @@ def api_agent_resume():
 
     # If the job was in pending_user_input state, the engine thread has already
     # returned. Re-invoke the engine so it picks up the resume_input file.
+    # Check both job_history (authoritative when up-to-date) and status.json
+    # (authoritative source of truth for the engine's own state). This handles
+    # the race condition where job_history hasn't been updated yet by the worker
+    # but status.json already reflects the pending_user_input state.
     job_record = next((h for h in job_history if h.get("job_id") == job_id), None)
-    if job_record and job_record.get("status") == "pending_user_input" and project_config:
+    status_is_pending = False
+    try:
+        with open(status_file, 'r', encoding='utf-8') as f:
+            _status = json.load(f)
+        _pending = _status.get("pending_user_input")
+        if _pending and isinstance(_pending, dict) and "answer" in _pending:
+            status_is_pending = True
+            # Re-lookup job_record — it may have been added since the first lookup
+            job_record = next((h for h in job_history if h.get("job_id") == job_id), job_record)
+    except Exception:
+        pass
+    should_resume = False
+    if job_record and project_config:
+        if job_record.get("status") == "pending_user_input":
+            should_resume = True
+        elif status_is_pending:
+            should_resume = True
+    if should_resume:
         prev_step_history = job_record.get("step_history", [])
 
         def _resume_engine():
