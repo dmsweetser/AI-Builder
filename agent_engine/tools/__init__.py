@@ -30,7 +30,6 @@ from agent_engine.tools.create_tool import CreateToolTool
 from agent_engine.tools.respond_to_user import RespondToUserTool
 from agent_engine.tools.request_user_input import RequestUserInputTool
 from agent_engine.tools.task_completed import TaskCompletedTool
-from agent_engine.tools.revise_custom_tool import ReviseCustomToolTool
 from agent_engine.tools.project_tool_loader import ProjectToolLoader
 
 # ------------------------------------------------------------------
@@ -277,8 +276,6 @@ class ToolRegistry:
         Creates a tool instance with the given root_dir for this execution.
         Strips JSON Schema structural keys that the LLM might accidentally include.
 
-        For custom/project-local tools that fail, the error response includes
-        the full source code of the tool so the LLM can diagnose and fix it.
         """
         if disabled_tools is None:
             disabled_tools = set()
@@ -304,16 +301,10 @@ class ToolRegistry:
             # inject the full source code into the error content so the
             # LLM can see exactly what went wrong and generate a fix.
             if not result.success and result.error:
-                source = self._get_tool_source(tool_name)
-                if source:
-                    result.content = (
-                        f"{result.content}\n\n"
-                        f"--- TOOL SOURCE CODE (for debugging) ---\n"
-                        f"```\n{source}\n```\n"
-                        f"--- END TOOL SOURCE CODE ---\n\n"
-                        f"ERROR: {result.error}"
-                    )
-                    result.error = ""  # Clear the separate error field since it's in content
+                result.content = (
+                    f"ERROR: {result.error}"
+                )
+                result.error = ""  # Clear the separate error field since it's in content
             return result
         except SecurityError:
             raise
