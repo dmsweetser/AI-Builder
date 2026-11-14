@@ -514,6 +514,13 @@ function _renderAllSteps(jobId, outputDir, agentBox, statusData, hasPendingTools
                 var ib = document.getElementById('live-inject-btn');
                 if (ii) { ii.disabled = false; ii.placeholder = 'Continue with new instructions...'; }
                 if (ib) { ib.disabled = false; ib.textContent = 'INJECT'; }
+            } else {
+                // Non-terminal state (running, pending, error, stopped, etc.)
+                // Always enable inject so the user can inject into any job state
+                var ii = document.getElementById('live-inject-input');
+                var ib = document.getElementById('live-inject-btn');
+                if (ii) { ii.disabled = false; ii.placeholder = 'Continue with new instructions...'; }
+                if (ib) { ib.disabled = false; ib.textContent = 'INJECT'; }
             }
         })
         .catch(function(err) {
