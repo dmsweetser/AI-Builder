@@ -56,6 +56,9 @@
                 <button class="tab-btn" data-tab="settings" aria-selected="false" tabindex="-1">
                     <span class="nav-icon">⚡</span> Settings
                 </button>
+                <button class="tab-btn" data-tab="diagnostics" aria-selected="false" tabindex="-1">
+                    <span class="nav-icon">🔧</span> Diagnostics
+                </button>
             </nav>
         </aside>
 
@@ -198,6 +201,69 @@
                         <div class="chat-controls" id="chat-controls-container" style="display:none;">
                             <textarea id="chat-input" placeholder="Type a message..." rows="3"></textarea>
                             <button class="btn btn-primary" id="send-chat-btn" onclick="sendChat()">SEND</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Diagnostics Panel -->
+            <div id="diagnostics-panel" class="panel" role="tabpanel">
+                <div class="panel-header">
+                    <h2>🔧 Tool Diagnostics</h2>
+                    <div class="header-actions">
+                        <button class="btn btn-secondary" onclick="loadDiagnosticsTools()">REFRESH</button>
+                    </div>
+                </div>
+
+                <div class="diagnostics-container">
+                    <!-- Selection Area -->
+                    <div class="diagnostics-selection">
+                        <div class="form-group">
+                            <label for="diag-project-select">Project</label>
+                            <select id="diag-project-select" onchange="onDiagnosticsProjectChange()">
+                                <option value="">— Select a project —</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="diag-tool-select">Tool</label>
+                            <select id="diag-tool-select" onchange="onDiagnosticsToolChange()">
+                                <option value="">— Select a tool —</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group" id="diag-tool-desc-group" style="display:none;">
+                            <label>Tool Description</label>
+                            <div id="diag-tool-desc" class="diag-desc-box"></div>
+                        </div>
+
+                        <div class="form-group" id="diag-params-group" style="display:none;">
+                            <label for="diag-params-editor">Parameters (JSON)</label>
+                            <div class="diag-params-header">
+                                <span id="diag-params-schema" style="font-size:8px;color:var(--mc-text-dim);"></span>
+                                <button class="btn btn-xs btn-secondary" onclick="formatJsonParams()">FORMAT</button>
+                                <button class="btn btn-xs btn-secondary" onclick="clearParamsEditor()">CLEAR</button>
+                            </div>
+                            <textarea id="diag-params-editor" rows="8" placeholder='{"path": "src/main.py", "content": "..."}'></textarea>
+                        </div>
+
+                        <div class="form-actions">
+                            <button class="btn btn-primary" id="diag-run-btn" onclick="runDiagnostic()" disabled>▶ RUN TOOL</button>
+                            <button class="btn btn-secondary" onclick="clearDiagnosticOutput()">CLEAR OUTPUT</button>
+                        </div>
+                    </div>
+
+                    <!-- Output Area -->
+                    <div class="diagnostics-output">
+                        <div class="diag-output-tabs">
+                            <button class="diag-tab-btn active" data-diag-tab="stdout" onclick="switchDiagTab('stdout')">STDOUT</button>
+                            <button class="diag-tab-btn" data-diag-tab="stderr" onclick="switchDiagTab('stderr')">STDERR</button>
+                            <button class="diag-tab-btn" data-diag-tab="traceback" onclick="switchDiagTab('traceback')">TRACEBACK</button>
+                        </div>
+                        <div class="diag-output-content">
+                            <pre id="diag-output-stdout" class="diag-output-box" style="display:block;">Select a project and tool, then click RUN.</pre>
+                            <pre id="diag-output-stderr" class="diag-output-box" style="display:none;"></pre>
+                            <pre id="diag-output-traceback" class="diag-output-box" style="display:none;"></pre>
                         </div>
                     </div>
                 </div>

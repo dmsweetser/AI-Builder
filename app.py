@@ -2332,5 +2332,188 @@ def api_app_log():
     with _app_log_lock:
         return jsonify({"log": list(_app_log)})
 
+
+# === Diagnostics Routes ===
+
+@app.route("/api/diagnostics/tools", methods=["POST"])
+def api_diagnostics_tools():
+    """Return all available tools for a project (built-in + custom)."""
+    data = request.get_json(silent=True) or {}
+    project_id = data.get("project_id", "")
+
+    if not project_id:
+        return jsonify({"error": "project_id required"}), 400
+
+    project, _ = get_project(project_id)
+    if not project:
+        return jsonify({"error": "Project not found"}), 404
+
+    root_dir = project.get("rootDirectory", "")
+    if not root_dir:
+        return jsonify({"error": "Project has no root directory"}), 400
+
+    # Ensure the project root is on sys.path
+    if root_dir not in sys.path:
+        sys.path.insert(0, root_dir)
+
+    # Create shim modules for common LLM import patterns
+    if "tools.base" not in sys.modules:
+        try:
+            from agent_engine.tools.base import BaseTool, ToolResult
+            import types
+            _shim = types.ModuleType("tools.base")
+            _shim.BaseTool = BaseTool
+            _shim.ToolResult = ToolResult
+            sys.modules["tools.base"] = _shim
+        except ImportError:
+            pass
+    if "base" not in sys.modules:
+        try:
+            from agent_engine.tools.base import BaseTool, ToolResult
+            import types
+            _shim = types.ModuleType("base")
+            _shim.BaseTool = BaseTool
+            _shim.ToolResult = ToolResult
+            sys.modules["base"] = _shim
+        except ImportError:
+            pass
+
+    from agent_engine.tools import _BUILTIN_TOOL_CLASSES, ToolRegistry
+
+    registry = ToolRegistry()
+    output_dir = project.get("output_dir", os.path.join(root_dir, "aib_instance", "output"))
+
+    tools = []
+
+    # List built-in tools
+    for name, cls in sorted(_BUILTIN_TOOL_CLASSES.items()):
+        try:
+            instance = cls(root_dir, output_dir=output_dir)
+            tools.append({
+                "name": instance.name,
+                "description": instance.description,
+                "parameters": instance.parameters,
+                "type": "builtin",
+            })
+        except Exception:
+            tools.append({"name": name, "description": "[Failed to load]", "parameters": {}, "type": "builtin"})
+
+    # List project-local tools
+    try:
+        loader = registry._get_or_create_loader(output_dir)
+        for tool_name in sorted(loader.get_tool_names()):
+            if tool_name in loader.disabled_tools:
+                continue
+            try:
+                cls = loader._dynamic_tools[tool_name]
+                instance = cls(root_dir, output_dir=output_dir)
+                tools.append({
+                    "name": instance.name,
+                    "description": instance.description,
+                    "parameters": instance.parameters,
+                    "type": "custom",
+                })
+            except Exception:
+                tools.append({"name": tool_name, "description": "[Failed to load]", "parameters": {}, "type": "custom"})
+    except Exception:
+        pass
+
+    return jsonify({"tools": tools})
+
+
+@app.route("/api/diagnostics/run", methods=["POST"])
+def api_diagnostics_run():
+    """Execute a tool and return the result (stdout, stderr, traceback)."""
+    data = request.get_json(silent=True) or {}
+    tool_name = data.get("tool", "")
+    params = data.get("params", {})
+    root_dir = data.get("root_dir", "")
+
+    if not tool_name:
+        return jsonify({"error": "tool name required"}), 400
+    if not root_dir:
+        return jsonify({"error": "root_dir required"}), 400
+
+    # Ensure the project root is on sys.path
+    if root_dir not in sys.path:
+        sys.path.insert(0, root_dir)
+
+    # Create shim modules
+    if "tools.base" not in sys.modules:
+        try:
+            from agent_engine.tools.base import BaseTool, ToolResult
+            import types
+            _shim = types.ModuleType("tools.base")
+            _shim.BaseTool = BaseTool
+            _shim.ToolResult = ToolResult
+            sys.modules["tools.base"] = _shim
+        except ImportError:
+            pass
+    if "base" not in sys.modules:
+        try:
+            from agent_engine.tools.base import BaseTool, ToolResult
+            import types
+            _shim = types.ModuleType("base")
+            _shim.BaseTool = BaseTool
+            _shim.ToolResult = ToolResult
+            sys.modules["base"] = _shim
+        except ImportError:
+            pass
+
+    from agent_engine.tools import _BUILTIN_TOOL_CLASSES, ToolRegistry
+    from agent_engine.tools.base import ToolResult as _ToolResult
+    from agent_engine.security import SecurityError, ToolError
+
+    registry = ToolRegistry()
+    output_dir = os.path.join(root_dir, "aib_instance", "output")
+
+    result = {
+        "tool": tool_name,
+        "success": False,
+        "content": "",
+        "error": "",
+        "summary": "",
+        "traceback": "",
+    }
+
+    try:
+        tool_instance = registry._create_tool_instance(
+            tool_name, root_dir, output_dir, disabled_tools=set(), job_id="diagnostics"
+        )
+    except Exception as e:
+        result["error"] = f"Failed to create tool instance: {e}"
+        result["traceback"] = __import__('traceback').format_exc()
+        return jsonify(result)
+
+    if tool_instance is None:
+        available = sorted(_BUILTIN_TOOL_CLASSES.keys())
+        result["error"] = f"Tool '{tool_name}' not found. Available: {available}"
+        return jsonify(result)
+
+    try:
+        tool_result = registry.execute(
+            tool_name=tool_name,
+            params=params,
+            root_dir=root_dir,
+            project_output_dir=output_dir,
+            disabled_tools=set(),
+            job_id="diagnostics",
+        )
+        result["success"] = tool_result.success
+        result["content"] = tool_result.content
+        result["error"] = tool_result.error
+        result["summary"] = tool_result.summary
+    except SecurityError as e:
+        result["error"] = f"SecurityError: {e}"
+        result["traceback"] = __import__('traceback').format_exc()
+    except ToolError as e:
+        result["error"] = f"ToolError: {e}"
+        result["traceback"] = __import__('traceback').format_exc()
+    except Exception as e:
+        result["error"] = f"Unexpected error: {e}"
+        result["traceback"] = __import__('traceback').format_exc()
+
+    return jsonify(result)
+
 if __name__ == "__main__":
     app.run(port=_server_port, debug=True, threaded=True, use_reloader=False)

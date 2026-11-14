@@ -130,6 +130,7 @@ function showTab(tabName) {
     if (tabName === 'jobs') loadJobs();
     if (tabName === 'settings') loadSettingsUI();
     if (tabName === 'chat') loadChats();
+    if (tabName === 'diagnostics') loadDiagnosticsTools();
 }
 
 // === Project Form Toggle ===
@@ -2558,3 +2559,273 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
 });
+
+// === Diagnostics Panel ===
+var _diagTools = [];
+var _diagCurrentTool = null;
+
+function loadDiagnosticsTools() {
+    // Load projects into dropdown
+    fetch('/api/projects')
+        .then(function(r) { return r.json(); })
+        .then(function(projects) {
+            var sel = document.getElementById('diag-project-select');
+            if (!sel) return;
+            var currentVal = sel.value;
+            sel.innerHTML = '<option value="">— Select a project —</option>';
+            (projects || []).forEach(function(p) {
+                var opt = document.createElement('option');
+                opt.value = p.id;
+                opt.textContent = (p.name || p.id) + ' (' + (p.rootDirectory || '').substring(0, 40) + ')';
+                sel.appendChild(opt);
+            });
+            sel.value = currentVal;
+            // If a project is selected, load its tools
+            if (currentVal) onDiagnosticsProjectChange();
+        })
+        .catch(function(err) { console.error('Failed to load projects for diagnostics:', err); });
+}
+
+function onDiagnosticsProjectChange() {
+    var projectId = document.getElementById('diag-project-select').value;
+    var toolSel = document.getElementById('diag-tool-select');
+    if (!projectId) {
+        toolSel.innerHTML = '<option value="">— Select a tool —</option>';
+        _diagTools = [];
+        _diagCurrentTool = null;
+        toggleDiagnosticsControls(false);
+        return;
+    }
+    // Load tools for this project
+    fetch('/api/diagnostics/tools', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({project_id: projectId})
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        _diagTools = data.tools || [];
+        toolSel.innerHTML = '<option value="">— Select a tool —</option>';
+        _diagTools.forEach(function(t) {
+            var opt = document.createElement('option');
+            opt.value = t.name;
+            opt.textContent = t.name;
+            toolSel.appendChild(opt);
+        });
+        _diagCurrentTool = null;
+        toggleDiagnosticsControls(false);
+    })
+    .catch(function(err) {
+        console.error('Failed to load tools:', err);
+        showNotification('Failed to load tools: ' + err.message, 'error');
+    });
+}
+
+function onDiagnosticsToolChange() {
+    var toolName = document.getElementById('diag-tool-select').value;
+    var descGroup = document.getElementById('diag-tool-desc-group');
+    var paramsGroup = document.getElementById('diag-params-group');
+    var runBtn = document.getElementById('diag-run-btn');
+
+    if (!toolName) {
+        descGroup.style.display = 'none';
+        paramsGroup.style.display = 'none';
+        runBtn.disabled = true;
+        _diagCurrentTool = null;
+        return;
+    }
+
+    var tool = _diagTools.find(function(t) { return t.name === toolName; });
+    if (!tool) {
+        descGroup.style.display = 'none';
+        paramsGroup.style.display = 'none';
+        runBtn.disabled = true;
+        return;
+    }
+
+    _diagCurrentTool = tool;
+    descGroup.style.display = 'block';
+    document.getElementById('diag-tool-desc').textContent = tool.description || '';
+
+    // Show parameters schema
+    var paramsGroup = document.getElementById('diag-params-group');
+    paramsGroup.style.display = 'block';
+    var schemaEl = document.getElementById('diag-params-schema');
+    if (tool.parameters && Object.keys(tool.parameters).length > 0) {
+        var schemaStr = JSON.stringify(tool.parameters, null, 2);
+        schemaEl.textContent = 'Schema: ' + schemaStr;
+    } else {
+        schemaEl.textContent = 'No parameters required';
+    }
+
+    // Clear params editor
+    document.getElementById('diag-params-editor').value = '';
+    if (tool.parameters && Object.keys(tool.parameters).length > 0) {
+        var defaults = {};
+        for (var key in tool.parameters) {
+            var pType = tool.parameters[key];
+            if (pType.indexOf('?') !== -1) {
+                // Optional parameter
+            } else {
+                // Required — set empty string
+            }
+        }
+        // Pre-fill with empty required params
+        var prefill = {};
+        for (var k in tool.parameters) {
+            if (tool.parameters[k].indexOf('?') === -1) {
+                prefill[k] = '';
+            }
+        }
+        if (Object.keys(prefill).length > 0) {
+            document.getElementById('diag-params-editor').value = JSON.stringify(prefill, null, 2);
+        }
+    }
+
+    runBtn.disabled = false;
+}
+
+function toggleDiagnosticsControls(enabled) {
+    var toolSel = document.getElementById('diag-tool-select');
+    var runBtn = document.getElementById('diag-run-btn');
+    toolSel.disabled = !enabled;
+    runBtn.disabled = true;
+    document.getElementById('diag-tool-desc-group').style.display = 'none';
+    document.getElementById('diag-params-group').style.display = 'none';
+}
+
+function formatJsonParams() {
+    var editor = document.getElementById('diag-params-editor');
+    try {
+        var parsed = JSON.parse(editor.value);
+        editor.value = JSON.stringify(parsed, null, 2);
+    } catch(e) {
+        showNotification('Invalid JSON: ' + e.message, 'warning');
+    }
+}
+
+function clearParamsEditor() {
+    document.getElementById('diag-params-editor').value = '';
+}
+
+function runDiagnostic() {
+    var projectId = document.getElementById('diag-project-select').value;
+    var toolName = document.getElementById('diag-tool-select').value;
+    var paramsText = document.getElementById('diag-params-editor').value;
+
+    if (!projectId) {
+        showNotification('Please select a project.', 'warning');
+        return;
+    }
+    if (!toolName) {
+        showNotification('Please select a tool.', 'warning');
+        return;
+    }
+
+    var runBtn = document.getElementById('diag-run-btn');
+    runBtn.disabled = true;
+    runBtn.textContent = '⏳ RUNNING...';
+
+    // Parse parameters
+    var params = {};
+    try {
+        if (paramsText.trim()) {
+            params = JSON.parse(paramsText);
+        }
+    } catch(e) {
+        runBtn.disabled = false;
+        runBtn.textContent = '▶ RUN TOOL';
+        showNotification('Invalid JSON parameters: ' + e.message, 'error');
+        return;
+    }
+
+    // Get the project's root directory
+    fetch('/api/projects/' + projectId)
+        .then(function(r) { return r.json(); })
+        .then(function(project) {
+            if (project.error) throw new Error(project.error);
+            var rootDir = project.rootDirectory || '';
+            if (!rootDir) throw new Error('Project has no root directory set.');
+
+            // Run the diagnostic tool
+            return fetch('/api/diagnostics/run', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    tool: toolName,
+                    params: params,
+                    root_dir: rootDir
+                })
+            }).then(function(r) { return r.json(); });
+        })
+        .then(function(result) {
+            displayDiagnosticResult(result);
+        })
+        .catch(function(err) {
+            displayDiagnosticResult({
+                success: false,
+                content: '',
+                error: 'Request failed: ' + err.message,
+                summary: '',
+                traceback: err.stack || ''
+            });
+        })
+        .finally(function() {
+            runBtn.disabled = false;
+            runBtn.textContent = '▶ RUN TOOL';
+        });
+}
+
+function displayDiagnosticResult(result) {
+    // Stdout
+    var stdoutEl = document.getElementById('diag-output-stdout');
+    if (result.success) {
+        stdoutEl.innerHTML = '<span style="color:var(--mc-emerald);">✅ SUCCESS</span>\n';
+        if (result.summary) {
+            stdoutEl.innerHTML += '<span style="color:var(--mc-diamond);">Summary:</span> ' + escapeHtml(result.summary) + '\n\n';
+        }
+        if (result.content) {
+            stdoutEl.innerHTML += '<span style="color:var(--mc-text-dim);">Content:</span>\n' + escapeHtml(result.content);
+        }
+    } else {
+        stdoutEl.innerHTML = '<span style="color:var(--mc-nether);">❌ FAILED</span>\n';
+        if (result.error) {
+            stdoutEl.innerHTML += '<span style="color:var(--mc-nether);">Error:</span> ' + escapeHtml(result.error) + '\n\n';
+        }
+        if (result.content) {
+            stdoutEl.innerHTML += '<span style="color:var(--mc-text-dim);">Output:</span>\n' + escapeHtml(result.content);
+        }
+    }
+
+    // Stderr (for logging/warnings)
+    document.getElementById('diag-output-stderr').textContent = '';
+
+    // Traceback
+    var tbEl = document.getElementById('diag-output-traceback');
+    if (result.traceback) {
+        tbEl.textContent = result.traceback;
+    } else {
+        tbEl.textContent = result.error ? '(see error in stdout)' : '(no traceback)';
+    }
+
+    // Switch to stdout tab
+    switchDiagTab('stdout');
+}
+
+function switchDiagTab(tabName) {
+    // Update tab buttons
+    document.querySelectorAll('.diag-tab-btn').forEach(function(btn) {
+        btn.classList.toggle('active', btn.getAttribute('data-diag-tab') === tabName);
+    });
+    // Show/hide output boxes
+    document.getElementById('diag-output-stdout').style.display = tabName === 'stdout' ? 'block' : 'none';
+    document.getElementById('diag-output-stderr').style.display = tabName === 'stderr' ? 'block' : 'none';
+    document.getElementById('diag-output-traceback').style.display = tabName === 'traceback' ? 'block' : 'none';
+}
+
+function clearDiagnosticOutput() {
+    document.getElementById('diag-output-stdout').textContent = 'Select a project and tool, then click RUN.';
+    document.getElementById('diag-output-stderr').textContent = '';
+    document.getElementById('diag-output-traceback').textContent = '';
+    switchDiagTab('stdout');
+}
