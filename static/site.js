@@ -2127,11 +2127,7 @@ function showLiveViewForJob(jobId) {
 
     // Always clear any stale poll interval and inject state before starting fresh
     if (_pollInterval) { clearInterval(_pollInterval); _pollInterval = null; }
-    var injectInput = document.getElementById('live-inject-input');
-    var injectBtn = document.getElementById('live-inject-btn');
-    if (injectInput) { injectInput.disabled = true; injectInput.placeholder = 'Loading...'; }
-    if (injectBtn) { injectBtn.disabled = true; injectBtn.textContent = 'LOADING...'; }
-
+    
     // Show refresh button
     var refreshBtn = document.getElementById('live-refresh-btn');
     if (refreshBtn) refreshBtn.style.display = 'inline-block';
