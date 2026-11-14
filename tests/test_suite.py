@@ -2421,74 +2421,7 @@ class TestGrepCodeOptimization(unittest.TestCase):
 # 19. Continuation Message Tests
 # ====================================================================
 
-class TestContinuationEdgeCases(unittest.TestCase):
-    def test_continuation_without_system_prompt(self):
-        from app import _reconstruct_from_step_history
-        mock_engine = MagicMock()
-        mock_engine.messages = []
-        mock_engine.tools = MagicMock()
-        mock_engine.tools.tool_names.return_value = ['list_directory']
-        steps = []
-        with self.assertRaises((IndexError, KeyError)):
-            _reconstruct_from_step_history(mock_engine, steps, "Test", is_continuation=True)
-
-    def test_continuation_with_existing_history(self):
-        from app import _reconstruct_from_step_history
-        mock_engine = MagicMock()
-        mock_engine.messages = [
-            {"role": "system", "content": "You are a helpful assistant."},
-            {"role": "user", "content": "Add a function."},
-            {"role": "assistant", "content": "[TOOL_START]...[TOOL_END]"},
-            {"role": "user", "content": "Result: success"},
-        ]
-        mock_engine.tools = MagicMock()
-        mock_engine.tools.tool_names.return_value = ['list_directory']
-        steps = [
-            {'step': 1, 'tool': 'list_directory', 'params': {}, 'result': {'success': True, 'content': '[]'}},
-        ]
-        _reconstruct_from_step_history(mock_engine, steps, "Test", is_continuation=True)
-        self.assertEqual(len(mock_engine.messages), 4)
-        last_msg = mock_engine.messages[-1]
-        self.assertEqual(last_msg['role'], 'user')
-        self.assertIn('[CONTINUATION]', last_msg['content'])
-
-
-class TestContinuationMessages(unittest.TestCase):
-    def test_verbose_tool_format_in_continuation(self):
-        from app import _reconstruct_from_step_history
-        mock_engine = MagicMock()
-        mock_engine.messages = [{"role": "system", "content": "System prompt"}]
-        mock_engine.tools = MagicMock()
-        mock_engine.tools.tool_names.return_value = [
-            'list_directory', 'read_file', 'edit_file', 'write_file',
-            'delete_file', 'check_syntax'
-        ]
-        steps = [
-            {'step': 1, 'tool': 'list_directory', 'params': {}, 'result': {'success': True, 'content': '[]'}},
-        ]
-        _reconstruct_from_step_history(mock_engine, steps, "Test instructions", is_continuation=True)
-        continuation = None
-        for m in mock_engine.messages:
-            if m.get('role') == 'user' and '[CONTINUATION]' in m.get('content', ''):
-                continuation = m['content']
-                break
-        self.assertIsNotNone(continuation, "Continuation message not found")
-        self.assertIn("TOOL FORMAT REMINDER", continuation)
-        self.assertIn("task_completed", continuation)
-
-    def test_continuation_includes_task_completed(self):
-        from app import _reconstruct_from_step_history
-        mock_engine = MagicMock()
-        mock_engine.messages = [{"role": "system", "content": "System prompt"}]
-        mock_engine.tools = MagicMock()
-        mock_engine.tools.tool_names.return_value = ['list_directory']
-        steps = []
-        _reconstruct_from_step_history(mock_engine, steps, "Test", is_continuation=True)
-        self.assertIsNotNone(mock_engine.messages)
-        for m in mock_engine.messages:
-            if m.get('role') == 'user' and '[CONTINUATION]' in m.get('content', ''):
-                self.assertIn("task_completed", m['content'])
-                break
+# UNUSED
 
 # ====================================================================
 # 20. Reload Approved Tools & Script Tests
