@@ -132,10 +132,12 @@ class CreateToolTool(BaseTool):
             spec = _importlib_util.spec_from_file_location(f"validate_{tool_name}", tmp_path)
             if spec and spec.loader:
                 module = _importlib_util.module_from_spec(spec)
-                # Set __package__ so relative imports and the import machinery
-                # resolve the full dotted path (agent_engine.tools.base)
-                # correctly when exec_module runs the temp file.
-                module.__package__ = spec.submodule_search_locations[0] if spec.submodule_search_locations else ""
+                # Leave __package__ as None so Python resolves imports
+                # (e.g. "from agent_engine.tools.base import BaseTool") as
+                # absolute imports.  Setting __package__ to a filesystem
+                # path (which spec.submodule_search_locations can contain)
+                # breaks the import machinery and causes UnboundLocalError
+                # on names imported in the user's code.
                 spec.loader.exec_module(module)
                 # Verify it has a class that inherits from BaseTool
                 found_class = False
