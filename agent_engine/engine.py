@@ -405,6 +405,7 @@ RULES:
 - ALWAYS use read_file before edit_file to get the exact text to replace.
 - ALWAYS include ALL required parameters for every tool call. Missing parameters will cause errors.
 - ALWAYS use check_syntax after editing to verify correctness.
+- If the user asks you to run a tool, you must ALWAYS IMMEDIATELY execute the closest matching existing tool before you create a new one
 - Keep edits focused and small - one change at a time.
 - For large files, use read_file_range with a line_range parameter to read specific sections. Do NOT read entire large files.
 - For Java projects with JAR dependencies, use decompile_jar to inspect them.
