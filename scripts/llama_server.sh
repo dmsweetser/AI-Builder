@@ -101,6 +101,33 @@ warn() { printf "\033[1;33m[warn] \033[0m %s\n" "$*"; }
 die()  { printf "\033[1;31m[error]\033[0m %s\n" "$*" >&2; exit 1; }
 
 # ---------------------------------------------------------------------------
+# TLS configuration
+# ---------------------------------------------------------------------------
+# Certificate errors from curl are almost always caused by one of:
+#   1. A corporate MITM proxy / SSL-inspection appliance whose root CA is not
+#      trusted  -> export CA_BUNDLE=/path/to/corp-ca.pem
+#   2. A wrong system clock (certs appear "not yet valid" or "expired")
+#      -> macOS: System Settings > General > Date & Time
+# As a last resort only, run with ALLOW_INSECURE_TLS=1 to skip verification.
+CURL_EXTRA=()
+if [[ -n "${CA_BUNDLE:-}" ]]; then
+  CURL_EXTRA+=(--cacert "$CA_BUNDLE")
+  log "Using custom CA bundle: $CA_BUNDLE"
+fi
+if [[ "${ALLOW_INSECURE_TLS:-0}" == "1" ]]; then
+  warn "ALLOW_INSECURE_TLS=1 — TLS certificate verification is DISABLED. Use only for testing."
+  CURL_EXTRA+=(-k)
+fi
+fetch() { curl -fSL "${CURL_EXTRA[@]}" "$@"; }
+
+tls_error_hint() {
+  warn "If this is a certificate error (curl exit 60/77):"
+  warn "  - Corporate proxy/SSL inspection? export CA_BUNDLE=/path/to/company-root-ca.pem and retry."
+  warn "  - Check your system clock (System Settings > Date & Time)."
+  warn "  - As a last resort only: ALLOW_INSECURE_TLS=1 $0"
+}
+
+# ---------------------------------------------------------------------------
 # Platform check
 # ---------------------------------------------------------------------------
 [[ "$(uname -s)" == "Darwin" ]] || die "This script targets macOS (Darwin)."
@@ -146,8 +173,8 @@ install_llamacpp() {
   # Always clean up the temp dir, even on early failure.
   trap 'rm -rf "$tmp_dir"' EXIT
 
-  curl -fSL -o "$tmp_dir/llama.tar.gz" "$archive_url" \
-    || die "Failed to download llama.cpp pre-built (macOS arm64)."
+  fetch -o "$tmp_dir/llama.tar.gz" "$archive_url" \
+    || { tls_error_hint; die "Failed to download llama.cpp pre-built (macOS arm64)."; }
 
   mkdir -p "$LLAMACPP_DIR"
   tar -xzf "$tmp_dir/llama.tar.gz" -C "$tmp_dir"
@@ -196,16 +223,16 @@ download_model() {
 
   if [[ ! -s "$model_dir/$model_file" ]]; then
     log "Downloading ${MODEL_NAMES[$key]} model…"
-    curl -fSL -C - -o "$model_dir/$model_file" "$model_url" \
-      || { warn "Model download failed: $model_file"; return 1; }
+    fetch -C - -o "$model_dir/$model_file" "$model_url" \
+      || { tls_error_hint; warn "Model download failed: $model_file"; return 1; }
   else
     log "Model already present: $model_file"
   fi
 
   if [[ ! -s "$model_dir/$mmproj_file" ]]; then
     log "Downloading ${MODEL_NAMES[$key]} mmproj…"
-    curl -fSL -C - -o "$model_dir/$mmproj_file" "$mmproj_url" \
-      || { warn "mmproj download failed: $mmproj_file"; return 1; }
+    fetch -C - -o "$model_dir/$mmproj_file" "$mmproj_url" \
+      || { tls_error_hint; warn "mmproj download failed: $mmproj_file"; return 1; }
   else
     log "mmproj already present: $mmproj_file"
   fi
