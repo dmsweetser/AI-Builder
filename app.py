@@ -1435,9 +1435,10 @@ def api_agent_inject():
     if not output_dir:
         return jsonify({"error": "Job not found"}), 404
 
-    # Check if the job is completed (terminal state) — if so, start a continuation run
+    # Check job state
     job_record = next((h for h in job_history if h.get("job_id") == job_id), None)
     is_completed = job_record and job_record.get("status") in ("completed", "stopped", "error", "max_steps_reached")
+    is_pending_user_input = job_record and job_record.get("status") == "pending_user_input"
 
     if is_completed and project_config:
         # Start a new engine run in the background with the injected instruction
@@ -1583,6 +1584,118 @@ def api_agent_inject():
 
         _log_app_event(f"Continuation started for completed job {job_id}")
         return jsonify({"status": "injected", "continuation": True})
+
+    # Job is waiting for user input (request_user_input) — clear the pending
+    # state and re-invoke the engine so the injected instruction is picked up
+    # immediately instead of the agent hanging on the old question.
+    if is_pending_user_input and project_config:
+        # Clear the pending_user_input state from status.json
+        os.makedirs(output_dir, exist_ok=True)
+        status_file = os.path.join(output_dir, "status.json")
+        try:
+            with open(status_file, 'r', encoding='utf-8') as f:
+                status = json.load(f)
+            status.pop("pending_user_input", None)
+            tmp_file = status_file + ".tmp"
+            with open(tmp_file, 'w', encoding='utf-8') as f:
+                json.dump(status, f, indent=2, ensure_ascii=False)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_file, status_file)
+        except Exception:
+            pass
+
+        prev_step_history = job_record.get("step_history", [])
+
+        def _resume_engine():
+            try:
+                from agent_engine import AgentEngine
+                os.makedirs(output_dir, exist_ok=True)
+                engine = AgentEngine(project_config, output_dir=output_dir)
+                engine.step_history = prev_step_history
+                engine.step_count = len(prev_step_history)
+
+                # Reconstruct conversation from step history
+                reconstructed_messages = [engine.messages[0]]  # system prompt
+
+                # Add the initial user prompt so the LLM knows the original task.
+                if project_config and project_config.get("instructions"):
+                    from agent_engine.engine import build_user_prompt
+                    reconstructed_messages.append({
+                        "role": "user",
+                        "content": build_user_prompt(
+                            project_config["instructions"],
+                            instance_prefix=engine.instance_prefix,
+                        ),
+                    })
+
+                all_tool_names = engine.tools.tool_names()
+                for h in prev_step_history:
+                    if h.get("tool") in all_tool_names:
+                        res = h.get("result", {})
+                        content = res.get("content", "")
+                        error = res.get("error", "")
+                        summary = res.get("summary", "")
+                        if error:
+                            result_display = f"Error: {error}"
+                        elif summary:
+                            result_display = summary
+                            if content:
+                                result_display += f"\n\nOutput:\n{content}\n"
+                        elif content:
+                            result_display = content
+                        else:
+                            result_display = "(no output)"
+                        tool_name = h.get("tool", "unknown")
+                        reconstructed_messages.append({
+                            "role": "user",
+                            "content": f"[TOOL RESULT for {tool_name}]\n{result_display}\n[END TOOL RESULT]\n\nNow continue with your next action."
+                        })
+
+                # Append the injected instruction as a new user message
+                reconstructed_messages.append({
+                    "role": "user",
+                    "content": (
+                        f"========== NEW USER INSTRUCTION ==========\n"
+                        f"{instruction}\n"
+                        "========== END NEW INSTRUCTION ==========\n\n"
+                        "Respond with EXACTLY ONE tool call."
+                    )
+                })
+
+                engine.messages = reconstructed_messages
+
+                # Run the engine (close log on exit to free handles)
+                try:
+                    result = engine.run()
+                finally:
+                    engine.close()
+
+                # Persist conversation history
+                messages_file = os.path.join(output_dir, "conversation_history.json")
+                try:
+                    with open(messages_file, 'w', encoding='utf-8') as f:
+                        json.dump(engine.messages, f, indent=2, ensure_ascii=False)
+                except Exception:
+                    pass
+
+                # Update the job history entry
+                if result.get("step_history"):
+                    job_record["step_history"] = result["step_history"]
+                    job_record["status"] = result.get("status", "completed")
+                    job_record["summary"] = result.get("summary", "")
+                    job_record["steps"] = result.get("steps", 0)
+                    save_job_history()
+
+                logging.info(f"Engine resumed from pending_user_input: {result.get('status', 'unknown')}")
+            except Exception as e:
+                logging.error(f"Engine resume from pending_user_input failed: {e}", exc_info=True)
+
+        resume_thread = threading.Thread(target=_resume_engine, daemon=True)
+        resume_thread.start()
+
+        _log_app_event(f"Pending user input cleared and engine re-invoked — job_id={job_id}")
+        return jsonify({"status": "injected", "resumed": True})
 
     # Job is still running — inject into status.json
     os.makedirs(output_dir, exist_ok=True)

@@ -2358,97 +2358,83 @@ function injectLiveInstruction() {
     btn.textContent = 'INJECTING...';
     input.disabled = true;
 
-    // Check if the job is in pending_user_input state — if so, use the resume endpoint
-    fetch('/api/job/' + jobId + '/status')
-        .then(function(r) { return r.json(); })
-        .then(function(statusData) {
-            if (statusData.status === 'pending_user_input') {
-                // Use the resume endpoint which re-invokes the engine
-                return fetch('/api/agent/resume', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({job_id: jobId, input: instruction})
-                }).then(function(r) { return r.json(); });
-            } else {
-                // Use the inject endpoint for running jobs
-                return fetch('/api/agent/inject', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({job_id: jobId, instruction: instruction})
-                }).then(function(r) { return r.json(); });
+    // Always use the inject endpoint — it handles all job states:
+    //   - Running: appends instruction to conversation via pending_live_instruction
+    //   - Pending user input: clears the pending state and re-invokes the engine
+    //   - Completed: starts a continuation run
+    fetch('/api/agent/inject', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({job_id: jobId, instruction: instruction})
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (data.error) throw new Error(data.error);
+        input.value = '';
+
+        if (data.continuation) {
+            // A new engine run was started for this completed job.
+            var agentBox = document.getElementById('agent-live-box');
+            if (agentBox) {
+                var contEntry = document.createElement('div');
+                contEntry.className = 'step-entry';
+                contEntry.style.borderLeftColor = 'var(--info)';
+                contEntry.style.background = 'rgba(74, 237, 223, 0.1)';
+                contEntry.innerHTML = '<div class="step-tool" style="color:var(--info);">🔄 CONTINUING WITH NEW INSTRUCTIONS...</div>';
+                agentBox.appendChild(contEntry);
+                agentBox.scrollTop = agentBox.scrollHeight;
             }
-        })
-        .then(function(data) {
-            if (data.error) throw new Error(data.error);
-            input.value = '';
+            var statusText = document.getElementById('agent-status-text');
+            if (statusText) { statusText.textContent = 'CONTINUING...'; statusText.style.color = 'var(--info)'; }
 
-            if (data.continuation) {
-                // A new engine run was started for this completed job.
-                // Show a continuation message in the live feed.
-                var agentBox = document.getElementById('agent-live-box');
-                if (agentBox) {
-                    var contEntry = document.createElement('div');
-                    contEntry.className = 'step-entry';
-                    contEntry.style.borderLeftColor = 'var(--info)';
-                    contEntry.style.background = 'rgba(74, 237, 223, 0.1)';
-                    contEntry.innerHTML = '<div class="step-tool" style="color:var(--info);">🔄 CONTINUING WITH NEW INSTRUCTIONS...</div>';
-                    agentBox.appendChild(contEntry);
-                    agentBox.scrollTop = agentBox.scrollHeight;
-                }
-
-                // Update status text
-                var statusText = document.getElementById('agent-status-text');
-                if (statusText) { statusText.textContent = 'CONTINUING...'; statusText.style.color = 'var(--info)'; }
-
-                // Start polling for the continuation results
-                // Get outputDir from the container or project
-                var container = document.getElementById('agent-live-container');
-                var outputDir = container ? container.dataset.outputDir : null;
-                if (!outputDir && currentRunningProjectId) {
-                    fetch('/api/projects/' + currentRunningProjectId)
-                        .then(function(r) { return r.json(); })
-                        .then(function(proj) {
-                            outputDir = proj.output_dir;
-                            _startPolling(jobId, outputDir, null);
-                        });
-                } else {
-                    _startPolling(jobId, outputDir, null);
-                }
-
-                showNotification('Continuation started — engine running', 'success');
-            } else if (data.status === 'resume_input_saved') {
-                // Resume was triggered — engine is restarting
-                var agentBox = document.getElementById('agent-live-box');
-                if (agentBox) {
-                    var contEntry = document.createElement('div');
-                    contEntry.className = 'step-entry';
-                    contEntry.style.borderLeftColor = 'var(--info)';
-                    contEntry.style.background = 'rgba(74, 237, 223, 0.1)';
-                    contEntry.innerHTML = '<div class="step-tool" style="color:var(--info);">🔄 RESUMING AGENT...</div>';
-                    agentBox.appendChild(contEntry);
-                    agentBox.scrollTop = agentBox.scrollHeight;
-                }
-                var statusText = document.getElementById('agent-status-text');
-                if (statusText) { statusText.textContent = 'RESUMING...'; statusText.style.color = 'var(--info)'; }
-                showNotification('Agent resumed — waiting for response', 'success');
+            // Start polling for the continuation results
+            var container = document.getElementById('agent-live-container');
+            var outputDir = container ? container.dataset.outputDir : null;
+            if (!outputDir && currentRunningProjectId) {
+                fetch('/api/projects/' + currentRunningProjectId)
+                    .then(function(r) { return r.json(); })
+                    .then(function(proj) {
+                        outputDir = proj.output_dir;
+                        _startPolling(jobId, outputDir, null);
+                    });
             } else {
-                showNotification('Instruction injected successfully', 'success');
+                _startPolling(jobId, outputDir, null);
             }
 
-            // Re-enable after a short delay
-            setTimeout(function() {
-                btn.disabled = false;
-                btn.textContent = 'INJECT';
-                input.disabled = false;
-            }, 1000);
-        })
-        .catch(function(err) {
-            console.error('Inject failed:', err);
-            showNotification('Failed to inject: ' + err.message, 'error');
+            showNotification('Continuation started — engine running', 'success');
+        } else if (data.resumed) {
+            // Engine was waiting for user input — cleared and re-invoked
+            var agentBox = document.getElementById('agent-live-box');
+            if (agentBox) {
+                var contEntry = document.createElement('div');
+                contEntry.className = 'step-entry';
+                contEntry.style.borderLeftColor = 'var(--info)';
+                contEntry.style.background = 'rgba(74, 237, 223, 0.1)';
+                contEntry.innerHTML = '<div class="step-tool" style="color:var(--info);">🔄 INSTRUCTION INJECTED — ENGINE RESUMED...</div>';
+                agentBox.appendChild(contEntry);
+                agentBox.scrollTop = agentBox.scrollHeight;
+            }
+            var statusText = document.getElementById('agent-status-text');
+            if (statusText) { statusText.textContent = 'RESUMING...'; statusText.style.color = 'var(--info)'; }
+            showNotification('Instruction injected — agent resumed', 'success');
+        } else {
+            showNotification('Instruction injected successfully', 'success');
+        }
+
+        // Re-enable after a short delay
+        setTimeout(function() {
             btn.disabled = false;
             btn.textContent = 'INJECT';
             input.disabled = false;
-        });
+        }, 1000);
+    })
+    .catch(function(err) {
+        console.error('Inject failed:', err);
+        showNotification('Failed to inject: ' + err.message, 'error');
+        btn.disabled = false;
+        btn.textContent = 'INJECT';
+        input.disabled = false;
+    });
 }
 
 // === Init ===

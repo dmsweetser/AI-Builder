@@ -56,7 +56,6 @@ def _init_builtin_classes():
         FindSymbolTool, DecompileJarTool,
         CheckSyntaxTool,
         CreateToolTool,
-        ReviseCustomToolTool,
         RespondToUserTool, RequestUserInputTool, TaskCompletedTool,
     ]:
         _instance = _cls("/tmp")
