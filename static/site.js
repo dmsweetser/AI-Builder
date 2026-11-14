@@ -2739,12 +2739,13 @@ function runDiagnostic() {
         return;
     }
 
-    // Get the project's root directory
+    // Get the project's root directory and output_dir
     fetch('/api/projects/' + projectId)
         .then(function(r) { return r.json(); })
         .then(function(project) {
             if (project.error) throw new Error(project.error);
             var rootDir = project.rootDirectory || '';
+            var outputDir = project.output_dir || '';
             if (!rootDir) throw new Error('Project has no root directory set.');
 
             // Run the diagnostic tool
@@ -2754,7 +2755,8 @@ function runDiagnostic() {
                 body: JSON.stringify({
                     tool: toolName,
                     params: params,
-                    root_dir: rootDir
+                    root_dir: rootDir,
+                    output_dir: outputDir
                 })
             }).then(function(r) { return r.json(); });
         })

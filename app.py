@@ -2465,7 +2465,10 @@ def api_diagnostics_run():
     from agent_engine.security import SecurityError, ToolError
 
     registry = ToolRegistry()
-    output_dir = os.path.join(root_dir, "aib_instance", "output")
+    # Use project's output_dir if provided (for custom tool resolution)
+    output_dir = data.get("output_dir")
+    if not output_dir:
+        output_dir = os.path.join(root_dir, "aib_instance", "output")
 
     result = {
         "tool": tool_name,
