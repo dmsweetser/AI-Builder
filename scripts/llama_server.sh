@@ -24,6 +24,11 @@ WORKDIR="$(cd "$(dirname "$0")/.." && pwd)"
 LLAMACPP_DIR="$WORKDIR/llama.cpp-bin"
 MODEL_BASE_DIR="$WORKDIR/models"
 
+# Pinned llama.cpp release (binaries live on the bNNNNN pre-releases, NOT on
+# /releases/latest, which is a source-only "v1.0.0" release). Bump this to
+# upgrade; asset names verified against b12387.
+LLAMACPP_TAG="b12387"
+
 # ---------------------------------------------------------------------------
 # Model definitions
 # ---------------------------------------------------------------------------
@@ -123,24 +128,6 @@ check_memory() {
 }
 
 # ---------------------------------------------------------------------------
-# Fetch latest release tag from GitHub
-# ---------------------------------------------------------------------------
-fetch_latest_tag() {
-  local tag
-  # NOTE: /releases/latest must NOT be used — llama.cpp publishes a "v1.0.0"
-  # latest release that contains no prebuilt binaries. The binaries are
-  # attached to the dated bNNNNN pre-releases, so scan the release list and
-  # take the newest tag matching b<digits>.
-  tag=$(curl -fsSL "https://api.github.com/repos/ggml-org/llama.cpp/releases?per_page=15" 2>/dev/null \
-    | grep -oP '"tag_name":\s*"\Kb\d+' \
-    | head -n1 || true)
-  if [[ -z "$tag" ]]; then
-    die "Could not fetch latest binary release tag from GitHub. Check your internet connection or pin a tag in this script."
-  fi
-  echo "$tag"
-}
-
-# ---------------------------------------------------------------------------
 # Download + install pre-built llama.cpp
 # ---------------------------------------------------------------------------
 install_llamacpp() {
@@ -149,8 +136,7 @@ install_llamacpp() {
     return 0
   fi
 
-  local tag
-  tag="$(fetch_latest_tag)"
+  local tag="$LLAMACPP_TAG"
   log "Downloading llama.cpp pre-built release (tag: $tag)…"
 
   local archive_url="https://github.com/ggml-org/llama.cpp/releases/download/$tag/llama-${tag}-bin-macos-arm64.tar.gz"

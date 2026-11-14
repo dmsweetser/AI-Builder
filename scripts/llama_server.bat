@@ -27,6 +27,11 @@ set "WORKDIR=%CD%"
 set "LLAMACPP_DIR=%WORKDIR%\llama.cpp-bin"
 set "MODEL_BASE_DIR=%WORKDIR%\models"
 
+REM Pinned llama.cpp release (binaries live on the bNNNNN pre-releases, NOT on
+REM /releases/latest, which is a source-only "v1.0.0" release). Bump this to
+REM upgrade; asset names verified against b12387.
+set "TAG=b12387"
+
 REM ---------------------------------------------------------------------------
 REM Model definitions
 REM ---------------------------------------------------------------------------
@@ -135,39 +140,6 @@ REM ---------------------------------------------------------------------------
   if exist "%LLAMACPP_DIR%\llama-server.exe" (
     echo [llama_server] llama-server already installed.
     exit /b 0
-  )
-
-  REM Fetch latest BINARY release tag from GitHub.
-  REM NOTE: /releases/latest must NOT be used - llama.cpp publishes a "v1.0.0"
-  REM latest release that contains no prebuilt binaries. The binaries are
-  REM attached to the dated bNNNNN pre-releases, so scan the release list.
-  set "TMPFILE=%TEMP%\llama_releases.json"
-  curl -fsSL "https://api.github.com/repos/ggml-org/llama.cpp/releases?per_page=15" -o "%TMPFILE%" 2>nul
-  if not exist "%TMPFILE%" (
-    echo [error]   Could not fetch latest release info from GitHub.
-    exit /b 1
-  )
-
-  set "TAG="
-  REM Preferred: parse JSON with PowerShell, first tag matching b<digits>.
-  for /f "usebackq delims=" %%T in (`powershell -NoProfile -Command "(Get-Content -Raw '%TMPFILE%' | ConvertFrom-Json | Where-Object { $_.tag_name -match '^b\d+$' } | Select-Object -First 1).tag_name" 2^>nul`) do set "TAG=%%T"
-  REM Fallback: findstr on the raw JSON (list is date-ordered, so the first
-  REM b-tag encountered is the newest).
-  if not defined TAG (
-    for /f "tokens=2 delims=:," %%T in ('findstr /i /c:"\"tag_name\"" "%TMPFILE%"') do (
-      set "TAG=%%T"
-      set "TAG=!TAG:"=!"
-      set "TAG=!TAG: =!"
-      if "!TAG:~0,1!"=="b" goto :tag_found
-      set "TAG="
-    )
-  )
-  :tag_found
-  del /q "%TMPFILE%" >nul 2>&1
-
-  if not defined TAG (
-    echo [error]   Could not parse latest release tag from GitHub.
-    exit /b 1
   )
 
   REM Detect GPU and CUDA version.
