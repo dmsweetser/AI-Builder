@@ -71,11 +71,14 @@ declare -A MODEL_CONTEXTS=(
   [gemma4]="131072"
 )
 
-declare -A MODEL_NAMESPACES=(
-  [qwen35b]="131072"
-  [ministral]="65536"
-  [devstral]="65536"
-  [gemma4]="65536"
+# n_predict: -1 = unlimited (bounded by context size). The previous values
+# (131072 / 65536) were passed to `-n`, which is tokens-to-generate, not a
+# context window — almost certainly not what was intended.
+declare -A MODEL_NPREDICT=(
+  [qwen35b]="-1"
+  [ministral]="-1"
+  [devstral]="-1"
+  [gemma4]="-1"
 )
 
 declare -A MODEL_PORTS=(
@@ -83,20 +86,6 @@ declare -A MODEL_PORTS=(
   [ministral]="8081"
   [devstral]="8082"
   [gemma4]="8083"
-)
-
-declare -A MODEL_ALIASES=(
-  [qwen35b]="qwen35b"
-  [ministral]="ministral"
-  [devstral]="devstral"
-  [gemma4]="gemma4"
-)
-
-declare -A MODEL_GPU_LAYERS=(
-  [qwen35b]="999"
-  [ministral]="999"
-  [devstral]="999"
-  [gemma4]="999"
 )
 
 # ---------------------------------------------------------------------------
@@ -112,18 +101,37 @@ die()  { printf "\033[1;31m[error]\033[0m %s\n" "$*" >&2; exit 1; }
 [[ "$(uname -s)" == "Darwin" ]] || die "This script targets macOS (Darwin)."
 [[ "$(uname -m)" == "arm64" ]] || die "Apple Silicon (arm64) required."
 
+check_prereqs() {
+  command -v curl >/dev/null 2>&1 || die "curl is required (part of macOS by default)."
+  command -v tar  >/dev/null 2>&1 || die "tar is required (part of macOS by default)."
+}
+
+# Warn if unified memory looks too small for the chosen model/context.
+check_memory() {
+  local key="$1"
+  local ram_gb
+  ram_gb=$(( $(sysctl -n hw.memsize 2>/dev/null || echo 0) / 1024 / 1024 / 1024 ))
+  local min_gb
+  case "$key" in
+    qwen35b)  min_gb=32 ;;
+    devstral) min_gb=24 ;;
+    *)        min_gb=16 ;;
+  esac
+  if [[ "$ram_gb" -gt 0 ]] && [[ "$ram_gb" -lt "$min_gb" ]]; then
+    warn "This Mac reports ${ram_gb} GB unified memory; ${MODEL_NAMES[$key]} at Q4_K_M with a ${MODEL_CONTEXTS[$key]}-token context typically wants >= ${min_gb} GB. Consider a smaller context or quant."
+  fi
+}
+
 # ---------------------------------------------------------------------------
 # Fetch latest release tag from GitHub
 # ---------------------------------------------------------------------------
 fetch_latest_tag() {
   local tag
   tag=$(curl -fsSL https://api.github.com/repos/ggml-org/llama.cpp/releases/latest 2>/dev/null \
-    | grep '"tag_name"' \
-    | sed -E 's/.*"([^"]+)".*/\1/' \
-    || true)
+    | grep -oP '"tag_name":\s*"\K[^"]+' \
+    | head -n1 || true)
   if [[ -z "$tag" ]]; then
-    warn "Could not fetch latest release tag from GitHub."
-    die "Check your internet connection or specify a tag manually."
+    die "Could not fetch latest release tag from GitHub. Check your internet connection or pin a tag in this script."
   fi
   echo "$tag"
 }
@@ -132,7 +140,7 @@ fetch_latest_tag() {
 # Download + install pre-built llama.cpp
 # ---------------------------------------------------------------------------
 install_llamacpp() {
-  if [[ -x "$LLAMACPP_DIR/bin/llama-server" ]]; then
+  if [[ -x "$LLAMACPP_DIR/bin/llama-server" ]] || [[ -x "$LLAMACPP_DIR/llama-server" ]]; then
     log "llama-server already installed."
     return 0
   fi
@@ -145,24 +153,35 @@ install_llamacpp() {
   local tmp_dir
   tmp_dir=$(mktemp -d)
 
+  # Always clean up the temp dir, even on early failure.
+  trap 'rm -rf "$tmp_dir"' EXIT
+
   curl -fSL -o "$tmp_dir/llama.tar.gz" "$archive_url" \
     || die "Failed to download llama.cpp pre-built (macOS arm64)."
 
   mkdir -p "$LLAMACPP_DIR"
   tar -xzf "$tmp_dir/llama.tar.gz" -C "$tmp_dir"
 
-  # Extract the inner directory (e.g. llama-b12377-bin-macos-arm64/)
+  # Find the extracted payload. Handles both layouts: an archive that extracts
+  # into a "llama-<tag>-bin-macos-arm64/" subdirectory, and one that extracts
+  # bin/ etc. directly into the tar root.
   local extracted_dir
-  extracted_dir=$(find "$tmp_dir" -maxdepth 1 -type d -name "llama-*" | head -1)
-
-  if [[ -z "$extracted_dir" ]]; then
-    die "Could not find extracted directory in archive."
+  extracted_dir=$(find "$tmp_dir" -maxdepth 1 -type d -name "llama-*" | head -n1 || true)
+  if [[ -n "$extracted_dir" && -e "$extracted_dir/bin/llama-server" ]]; then
+    cp -a "$extracted_dir/." "$LLAMACPP_DIR/"
+  elif [[ -e "$tmp_dir/bin/llama-server" ]]; then
+    cp -a "$tmp_dir/." "$LLAMACPP_DIR/"
+  else
+    die "Could not locate llama-server in the downloaded archive."
   fi
 
-  # Copy everything from the extracted dir into LLAMACPP_DIR
-  cp -R "$extracted_dir"/* "$LLAMACPP_DIR/" 2>/dev/null || true
+  # Defensive: strip the quarantine attribute if present, so Gatekeeper does
+  # not block the downloaded binaries ("cannot be opened because the developer
+  # cannot be verified").
+  xattr -dr com.apple.quarantine "$LLAMACPP_DIR" 2>/dev/null || true
 
   rm -rf "$tmp_dir"
+  trap - EXIT
 
   if [[ ! -x "$LLAMACPP_DIR/bin/llama-server" ]] && [[ ! -x "$LLAMACPP_DIR/llama-server" ]]; then
     die "llama-server binary not found after extraction."
@@ -172,7 +191,8 @@ install_llamacpp() {
 }
 
 # ---------------------------------------------------------------------------
-# Download a single model + mmproj
+# Download a single model + mmproj (returns non-zero on failure instead of
+# killing the whole run, so `all` can skip past a broken download)
 # ---------------------------------------------------------------------------
 download_model() {
   local key="$1"
@@ -187,7 +207,7 @@ download_model() {
   if [[ ! -s "$model_dir/$model_file" ]]; then
     log "Downloading ${MODEL_NAMES[$key]} model…"
     curl -fSL -C - -o "$model_dir/$model_file" "$model_url" \
-      || die "Model download failed: $model_file"
+      || { warn "Model download failed: $model_file"; return 1; }
   else
     log "Model already present: $model_file"
   fi
@@ -195,7 +215,7 @@ download_model() {
   if [[ ! -s "$model_dir/$mmproj_file" ]]; then
     log "Downloading ${MODEL_NAMES[$key]} mmproj…"
     curl -fSL -C - -o "$model_dir/$mmproj_file" "$mmproj_url" \
-      || die "mmproj download failed: $mmproj_file"
+      || { warn "mmproj download failed: $mmproj_file"; return 1; }
   else
     log "mmproj already present: $mmproj_file"
   fi
@@ -209,24 +229,35 @@ start_server() {
   local model_dir="$MODEL_BASE_DIR/${MODEL_NAMES[$key]}"
   local model_file="${MODEL_FILES[$key]}"
   local mmproj_file="${MMPROJ_FILES[$key]}"
-  local gpu_layers="${MODEL_GPU_LAYERS[$key]}"
 
-  export PATH="$LLAMACPP_DIR/bin:$PATH"
+  if [[ ! -s "$model_dir/$model_file" ]]; then
+    die "Model file missing: $model_dir/$model_file"
+  fi
+
+  export PATH="$LLAMACPP_DIR/bin:$LLAMACPP_DIR:$PATH"
 
   log "Starting llama-server (${MODEL_NAMES[$key]})…"
   log "  Model: $model_dir/$model_file"
-  log "  mmproj: $model_dir/$mmproj_file"
   log "  Port:  ${MODEL_PORTS[$key]}"
   log "  Context: ${MODEL_CONTEXTS[$key]}"
-  log "  GPU layers: $gpu_layers"
+  log "  Backend: Metal"
 
-  llama-server \
+  local mmproj_args=()
+  if [[ -s "$model_dir/$mmproj_file" ]]; then
+    mmproj_args=(--mmproj "$model_dir/$mmproj_file")
+  else
+    log "  mmproj not found — running text-only."
+  fi
+
+  # -n is n_predict; -1 means unlimited (bounded by context size).
+  exec llama-server \
     -m "$model_dir/$model_file" \
-    --mmproj "$model_dir/$mmproj_file" \
-    --alias "${MODEL_ALIASES[$key]}" \
+    "${mmproj_args[@]}" \
+    --alias "$key" \
+    --jinja \
     --flash-attn on \
     -c "${MODEL_CONTEXTS[$key]}" \
-    -n "${MODEL_NAMESPACES[$key]}" \
+    -n "${MODEL_NPREDICT[$key]}" \
     --cache-type-k q8_0 \
     --cache-type-v q8_0 \
     --batch-size 512 \
@@ -236,7 +267,7 @@ start_server() {
     --top-k 20 \
     --host 0.0.0.0 \
     --port "${MODEL_PORTS[$key]}" \
-    --n-gpu-layers "$gpu_layers"
+    --n-gpu-layers 999
 }
 
 # ---------------------------------------------------------------------------
@@ -249,23 +280,28 @@ show_menu() {
   echo "============================================"
   echo ""
   echo "  1) Qwen3.6-35B-A3B       (port 8080, 256K ctx)"
-  echo "  2) Ministral-3-14B        (port 8081, 128K ctx)"
-  echo "  3) Devstral-Small-2-24B   (port 8082, 128K ctx)"
-  echo "  4) Gemma-4-26B-A4B-it     (port 8083, 128K ctx)"
+  echo "  2) Ministral-3-14B       (port 8081, 128K ctx)"
+  echo "  3) Devstral-Small-2-24B  (port 8082, 128K ctx)"
+  echo "  4) Gemma-4-26B-A4B-it    (port 8083, 128K ctx)"
   echo "  5) Download ALL models"
   echo "  0) Exit"
   echo ""
   echo "  Or run: $0 <qwen35b|ministral|devstral|gemma4|all>"
   echo ""
-  read -rp "Select model [1-5, 0=exit]: " choice
-  case "$choice" in
-    1)    echo "qwen35b" ;;
-    2)    echo "ministral" ;;
-    3)    echo "devstral" ;;
-    4)    echo "gemma4" ;;
-    5)    echo "all" ;;
-    *)    echo "exit" ;;
-  esac
+
+  local choice
+  while true; do
+    read -rp "Select model [1-5, 0=exit]: " choice
+    case "$choice" in
+      1) echo "qwen35b"; return 0 ;;
+      2) echo "ministral"; return 0 ;;
+      3) echo "devstral"; return 0 ;;
+      4) echo "gemma4"; return 0 ;;
+      5) echo "all"; return 0 ;;
+      0) echo "exit"; return 0 ;;
+      *) warn "Invalid choice." ;;
+    esac
+  done
 }
 
 # ---------------------------------------------------------------------------
@@ -274,6 +310,8 @@ show_menu() {
 main() {
   local selected="${1:-}"
 
+  check_prereqs
+
   if [[ -z "$selected" ]]; then
     selected="$(show_menu)"
   fi
@@ -281,19 +319,30 @@ main() {
   case "$selected" in
     qwen35b|ministral|devstral|gemma4)
       install_llamacpp
-      download_model "$selected"
+      download_model "$selected" || die "Model download failed — aborting."
+      check_memory "$selected"
       start_server "$selected"
       ;;
     all)
       install_llamacpp
+      local failed=0 key
       for key in "${MODEL_KEYS[@]}"; do
-        download_model "$key"
+        download_model "$key" || failed=$((failed + 1))
       done
+      if [[ "$failed" -gt 0 ]]; then
+        warn "$failed model download(s) failed."
+      fi
       log "All models downloaded. Use $0 <model> to start a server."
+      [[ "$failed" -eq 0 ]] || exit 1
       ;;
-    exit|*)
+    exit)
       log "Goodbye."
       exit 0
+      ;;
+    *)
+      warn "Unknown model: $selected"
+      log "Valid choices: ${MODEL_KEYS[*]} all"
+      exit 1
       ;;
   esac
 }

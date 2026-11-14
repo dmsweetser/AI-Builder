@@ -72,11 +72,14 @@ declare -A MODEL_CONTEXTS=(
   [gemma4]="131072"
 )
 
-declare -A MODEL_NAMESPACES=(
-  [qwen35b]="131072"
-  [ministral]="65536"
-  [devstral]="65536"
-  [gemma4]="65536"
+# n_predict: -1 = unlimited (bounded by context size). The previous values
+# (131072 / 65536) were passed to `-n`, which is tokens-to-generate, not a
+# context window — almost certainly not what was intended.
+declare -A MODEL_NPREDICT=(
+  [qwen35b]="-1"
+  [ministral]="-1"
+  [devstral]="-1"
+  [gemma4]="-1"
 )
 
 declare -A MODEL_PORTS=(
@@ -86,26 +89,16 @@ declare -A MODEL_PORTS=(
   [gemma4]="8083"
 )
 
-declare -A MODEL_ALIASES=(
-  [qwen35b]="qwen35b"
-  [ministral]="ministral"
-  [devstral]="devstral"
-  [gemma4]="gemma4"
-)
-
-declare -A MODEL_GPU_LAYERS=(
-  [qwen35b]="999"
-  [ministral]="999"
-  [devstral]="999"
-  [gemma4]="999"
-)
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 log()  { printf "\033[1;34m[llama_server]\033[0m %s\n" "$*"; }
 warn() { printf "\033[1;33m[warn] \033[0m %s\n" "$*"; }
 die()  { printf "\033[1;31m[error]\033[0m %s\n" "$*" >&2; exit 1; }
+
+backend_label() {
+  [[ "$HAS_CUDA_GPU" == true ]] && echo "CUDA" || echo "CPU"
+}
 
 # ---------------------------------------------------------------------------
 # Platform check
@@ -116,29 +109,31 @@ die()  { printf "\033[1;31m[error]\033[0m %s\n" "$*" >&2; exit 1; }
 # GPU detection
 # ---------------------------------------------------------------------------
 HAS_CUDA_GPU=false
-CUDA_LIB_VERSION=""
 
 detect_cuda_gpu() {
   if command -v nvidia-smi >/dev/null 2>&1; then
-    HAS_CUDA_GPU=true
     local driver_ver
-    driver_ver=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -1 || echo "unknown")
-    log "NVIDIA GPU detected (driver $driver_ver)."
+    if driver_ver=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -n1); then
+      HAS_CUDA_GPU=true
+      log "NVIDIA GPU detected (driver ${driver_ver:-unknown})."
+    else
+      log "nvidia-smi present but no GPU responded — treating as CPU-only."
+    fi
   fi
 }
 
-# Detect CUDA toolkit version on the system (12 or 13)
+# Detect CUDA toolkit version on the system (12 or 13); empty if unknown.
 detect_cuda_toolkit_version() {
   local cuda_ver=""
   if command -v nvcc >/dev/null 2>&1; then
-    cuda_ver=$(nvcc --version 2>&1 | grep -oP 'release \K[0-9]+' | head -1 || echo "")
+    cuda_ver=$(nvcc --version 2>&1 | grep -oP 'release \K[0-9]+' | head -n1 || true)
   fi
-  # Fallback: check common CUDA paths
+  # Fallback: check common CUDA paths. Only accept a major version we support.
   if [[ -z "$cuda_ver" ]]; then
-    for d in /usr/local/cuda-*; do
+    local d v
+    for d in /usr/local/cuda-13* /usr/local/cuda-12*; do
       if [[ -d "$d" ]]; then
-        local v
-        v=$(basename "$d" | grep -oP '\d+' | head -1 || echo "")
+        v=$(basename "$d" | grep -oP '\d+' | head -n1 || true)
         if [[ -n "$v" ]]; then
           cuda_ver="$v"
           break
@@ -150,21 +145,34 @@ detect_cuda_toolkit_version() {
 }
 
 # ---------------------------------------------------------------------------
-# Prerequisites (git only — no compiler needed for pre-built)
+# Prerequisites (curl + tar; git is not used by this script)
 # ---------------------------------------------------------------------------
 ensure_pkg() {
   local pkg="$1"
-  case "$(command -v apt-get 2>/dev/null || command -v dnf 2>/dev/null || command -v yum 2>/dev/null || command -v pacman 2>/dev/null)" in
+  local pm=""
+  if command -v apt-get >/dev/null 2>&1; then pm="apt-get"
+  elif command -v dnf >/dev/null 2>&1; then pm="dnf"
+  elif command -v yum >/dev/null 2>&1; then pm="yum"
+  elif command -v pacman >/dev/null 2>&1; then pm="pacman"
+  fi
+
+  case "$pm" in
     apt-get)
-      if ! dpkg -l "$pkg" >/dev/null 2>&1; then
+      if ! dpkg -s "$pkg" >/dev/null 2>&1; then
         log "Installing $pkg via apt…"
         sudo apt-get update -qq && sudo apt-get install -y -qq "$pkg" || warn "Failed to install $pkg via apt."
       fi
       ;;
-    dnf|yum)
+    dnf)
       if ! rpm -q "$pkg" >/dev/null 2>&1; then
         log "Installing $pkg via dnf…"
         sudo dnf install -y "$pkg" || warn "Failed to install $pkg via dnf."
+      fi
+      ;;
+    yum)
+      if ! rpm -q "$pkg" >/dev/null 2>&1; then
+        log "Installing $pkg via yum…"
+        sudo yum install -y "$pkg" || warn "Failed to install $pkg via yum."
       fi
       ;;
     pacman)
@@ -181,9 +189,10 @@ ensure_pkg() {
 
 install_prereqs() {
   log "Checking prerequisites…"
-  command -v git >/dev/null 2>&1 || ensure_pkg git
   command -v curl >/dev/null 2>&1 || ensure_pkg curl
-  command -v tar >/dev/null 2>&1 || ensure_pkg tar
+  command -v tar  >/dev/null 2>&1 || ensure_pkg tar
+  command -v curl >/dev/null 2>&1 || die "curl is required but not installed."
+  command -v tar  >/dev/null 2>&1 || die "tar is required but not installed."
   log "Prerequisites ready."
 }
 
@@ -193,12 +202,10 @@ install_prereqs() {
 fetch_latest_tag() {
   local tag
   tag=$(curl -fsSL https://api.github.com/repos/ggml-org/llama.cpp/releases/latest 2>/dev/null \
-    | grep '"tag_name"' \
-    | sed -E 's/.*"([^"]+)".*/\1/' \
-    || true)
+    | grep -oP '"tag_name":\s*"\K[^"]+' \
+    | head -n1 || true)
   if [[ -z "$tag" ]]; then
-    warn "Could not fetch latest release tag from GitHub."
-    die "Check your internet connection or specify a tag manually."
+    die "Could not fetch latest release tag from GitHub. Check your internet connection or pin a tag in this script."
   fi
   echo "$tag"
 }
@@ -207,7 +214,7 @@ fetch_latest_tag() {
 # Download + install pre-built llama.cpp
 # ---------------------------------------------------------------------------
 install_llamacpp() {
-  if [[ -x "$LLAMACPP_DIR/bin/llama-server" ]]; then
+  if [[ -x "$LLAMACPP_DIR/bin/llama-server" ]] || [[ -x "$LLAMACPP_DIR/llama-server" ]]; then
     log "llama-server already installed."
     return 0
   fi
@@ -222,33 +229,32 @@ install_llamacpp() {
   local cudart_url=""
 
   if [[ "$HAS_CUDA_GPU" == true ]]; then
-    # Detect which CUDA toolkit version is installed
     CUDA_LIB_VERSION="$(detect_cuda_toolkit_version)"
 
     if [[ "$CUDA_LIB_VERSION" == "13" ]]; then
       if [[ "$arch" == "x86_64" ]]; then
         archive_url="https://github.com/ggml-org/llama.cpp/releases/download/$tag/llama-${tag}-bin-ubuntu-cuda-13.5-x64.tar.gz"
-        cudart_url="https://github.com/ggml-org/llama.cpp/releases/download/$tag/cudart-llama-b12377-bin-ubuntu-cuda-13.5-x64.tar.gz"
+        cudart_url="https://github.com/ggml-org/llama.cpp/releases/download/$tag/cudart-llama-${tag}-bin-ubuntu-cuda-13.5-x64.tar.gz"
       elif [[ "$arch" == "aarch64" ]]; then
         archive_url="https://github.com/ggml-org/llama.cpp/releases/download/$tag/llama-${tag}-bin-ubuntu-cuda-13.5-arm64.tar.gz"
-        cudart_url="https://github.com/ggml-org/llama.cpp/releases/download/$tag/cudart-llama-b12377-bin-ubuntu-cuda-13.5-arm64.tar.gz"
+        cudart_url="https://github.com/ggml-org/llama.cpp/releases/download/$tag/cudart-llama-${tag}-bin-ubuntu-cuda-13.5-arm64.tar.gz"
       fi
-    elif [[ "$CUDA_LIB_VERSION" == "12" ]] || [[ -z "$CUDA_LIB_VERSION" ]]; then
-      # Try CUDA 12 as default (works with newer drivers too)
+    else
+      # CUDA 12 or undetectable toolkit — try CUDA 12 (works with newer drivers too).
       if [[ "$arch" == "x86_64" ]]; then
         archive_url="https://github.com/ggml-org/llama.cpp/releases/download/$tag/llama-${tag}-bin-ubuntu-cuda-12.8-x64.tar.gz"
-        cudart_url="https://github.com/ggml-org/llama.cpp/releases/download/$tag/cudart-llama-b12377-bin-ubuntu-cuda-12.8-x64.tar.gz"
+        cudart_url="https://github.com/ggml-org/llama.cpp/releases/download/$tag/cudart-llama-${tag}-bin-ubuntu-cuda-12.8-x64.tar.gz"
       elif [[ "$arch" == "aarch64" ]]; then
-        archive_url="https://github.com/ggml-org/llama.cpp/releases/download/$tag/llama-${tag}-bin-ubuntu-cuda-13.5-arm64.tar.gz"
-        cudart_url="https://github.com/ggml-org/llama.cpp/releases/download/$tag/cudart-llama-b12377-bin-ubuntu-cuda-13.5-arm64.tar.gz"
+        archive_url="https://github.com/ggml-org/llama.cpp/releases/download/$tag/llama-${tag}-bin-ubuntu-cuda-12.8-arm64.tar.gz"
+        cudart_url="https://github.com/ggml-org/llama.cpp/releases/download/$tag/cudart-llama-${tag}-bin-ubuntu-cuda-12.8-arm64.tar.gz"
       fi
     fi
 
     if [[ -z "$archive_url" ]]; then
-      warn "No CUDA pre-built found for arch=$arch CUDA=$CUDA_LIB_VERSION. Falling back to CPU."
+      warn "No CUDA pre-built found for arch=$arch CUDA=${CUDA_LIB_VERSION:-unknown}. Falling back to CPU."
       HAS_CUDA_GPU=false
     else
-      log "CUDA pre-built selected: $archive_url"
+      log "CUDA pre-built selected (CUDA ${CUDA_LIB_VERSION:-unknown}, $arch)."
     fi
   fi
 
@@ -268,6 +274,7 @@ install_llamacpp() {
 
   local tmp_dir
   tmp_dir=$(mktemp -d)
+  trap 'rm -rf "$tmp_dir"' RETURN
 
   curl -fSL -o "$tmp_dir/llama.tar.gz" "$archive_url" \
     || die "Failed to download llama.cpp pre-built."
@@ -275,44 +282,51 @@ install_llamacpp() {
   mkdir -p "$LLAMACPP_DIR"
   tar -xzf "$tmp_dir/llama.tar.gz" -C "$tmp_dir"
 
-  # Extract the inner directory
+  # Find the extracted payload. Handles both layouts: an archive that extracts
+  # into a "llama-<tag>-bin-..." subdirectory, and one that extracts bin/ etc.
+  # directly into the tar root.
   local extracted_dir
-  extracted_dir=$(find "$tmp_dir" -maxdepth 1 -type d -name "llama-*" | head -1)
-
-  if [[ -z "$extracted_dir" ]]; then
-    die "Could not find extracted directory in archive."
+  extracted_dir=$(find "$tmp_dir" -maxdepth 1 -type d -name "llama-*" | head -n1 || true)
+  if [[ -n "$extracted_dir" && -e "$extracted_dir/bin/llama-server" ]]; then
+    cp -a "$extracted_dir/." "$LLAMACPP_DIR/"
+  elif [[ -e "$tmp_dir/bin/llama-server" ]]; then
+    cp -a "$tmp_dir/." "$LLAMACPP_DIR/"
+  else
+    die "Could not locate llama-server in the downloaded archive."
   fi
 
-  cp -R "$extracted_dir"/* "$LLAMACPP_DIR/" 2>/dev/null || true
-
   # Download and extract CUDA runtime libraries if needed
-  if [[ -n "$cudart_url" ]] && [[ -f "$tmp_dir/llama.tar.gz" ]]; then
+  if [[ -n "$cudart_url" ]]; then
     log "Downloading CUDA runtime libraries…"
-    curl -fSL -o "$tmp_dir/cudart.tar.gz" "$cudart_url" \
-      || warn "Failed to download CUDA runtime libraries (non-fatal)."
-    if [[ -f "$tmp_dir/cudart.tar.gz" ]]; then
+    if curl -fSL -o "$tmp_dir/cudart.tar.gz" "$cudart_url"; then
       tar -xzf "$tmp_dir/cudart.tar.gz" -C "$tmp_dir"
       local cudart_dir
-      cudart_dir=$(find "$tmp_dir" -maxdepth 1 -type d -name "cudart-*" | head -1)
+      cudart_dir=$(find "$tmp_dir" -maxdepth 1 -type d -name "cudart-*" | head -n1 || true)
+      mkdir -p "$LLAMACPP_DIR/lib"
       if [[ -n "$cudart_dir" ]]; then
-        mkdir -p "$LLAMACPP_DIR/lib"
-        cp "$cudart_dir"/*.so* "$LLAMACPP_DIR/lib/" 2>/dev/null || true
-        log "CUDA runtime libraries installed."
+        cp -a "$cudart_dir"/. "$LLAMACPP_DIR/lib/" 2>/dev/null || true
+      elif compgen -G "$tmp_dir/*.so*" >/dev/null; then
+        cp -a "$tmp_dir"/*.so* "$LLAMACPP_DIR/lib/" 2>/dev/null || true
       fi
+      log "CUDA runtime libraries installed."
+    else
+      warn "Failed to download CUDA runtime libraries (non-fatal) — server may fail to start."
     fi
   fi
 
   rm -rf "$tmp_dir"
+  trap - RETURN
 
   if [[ ! -x "$LLAMACPP_DIR/bin/llama-server" ]] && [[ ! -x "$LLAMACPP_DIR/llama-server" ]]; then
     die "llama-server binary not found after extraction."
   fi
 
-  log "llama-server installed (tag: $tag, backend: $([ "$HAS_CUDA_GPU" = true ] && echo "CUDA" || echo "CPU"))."
+  log "llama-server installed (tag: $tag, backend: $(backend_label))."
 }
 
 # ---------------------------------------------------------------------------
-# Download a single model + mmproj
+# Download a single model + mmproj (returns non-zero on failure instead of
+# killing the whole run, so `all` can skip past a broken download)
 # ---------------------------------------------------------------------------
 download_model() {
   local key="$1"
@@ -327,7 +341,7 @@ download_model() {
   if [[ ! -s "$model_dir/$model_file" ]]; then
     log "Downloading ${MODEL_NAMES[$key]} model…"
     curl -fSL -C - -o "$model_dir/$model_file" "$model_url" \
-      || die "Model download failed: $model_file"
+      || { warn "Model download failed: $model_file"; return 1; }
   else
     log "Model already present: $model_file"
   fi
@@ -335,7 +349,7 @@ download_model() {
   if [[ ! -s "$model_dir/$mmproj_file" ]]; then
     log "Downloading ${MODEL_NAMES[$key]} mmproj…"
     curl -fSL -C - -o "$model_dir/$mmproj_file" "$mmproj_url" \
-      || die "mmproj download failed: $mmproj_file"
+      || { warn "mmproj download failed: $mmproj_file"; return 1; }
   else
     log "mmproj already present: $mmproj_file"
   fi
@@ -349,29 +363,46 @@ start_server() {
   local model_dir="$MODEL_BASE_DIR/${MODEL_NAMES[$key]}"
   local model_file="${MODEL_FILES[$key]}"
   local mmproj_file="${MMPROJ_FILES[$key]}"
-  local gpu_layers="${MODEL_GPU_LAYERS[$key]}"
 
-  export PATH="$LLAMACPP_DIR/bin:$PATH"
-  # Add CUDA libs to LD_LIBRARY_PATH if present
+  if [[ ! -s "$model_dir/$model_file" ]]; then
+    die "Model file missing: $model_dir/$model_file"
+  fi
+
+  export PATH="$LLAMACPP_DIR/bin:$LLAMACPP_DIR:$PATH"
+  # Add CUDA libs to LD_LIBRARY_PATH if present (guard against unset under set -u)
   if [[ -d "$LLAMACPP_DIR/lib" ]]; then
-    export LD_LIBRARY_PATH="$LLAMACPP_DIR/lib:$LD_LIBRARY_PATH"
+    export LD_LIBRARY_PATH="$LLAMACPP_DIR/lib:${LD_LIBRARY_PATH:-}"
   fi
 
   log "Starting llama-server (${MODEL_NAMES[$key]})…"
   log "  Model: $model_dir/$model_file"
-  log "  mmproj: $model_dir/$mmproj_file"
   log "  Port:  ${MODEL_PORTS[$key]}"
   log "  Context: ${MODEL_CONTEXTS[$key]}"
-  log "  Backend: $([ "$HAS_CUDA_GPU" = true ] && echo "CUDA" || echo "CPU")"
-  log "  GPU layers: $gpu_layers"
+  log "  Backend: $(backend_label)"
 
-  llama-server \
+  local mmproj_args=()
+  if [[ -s "$model_dir/$mmproj_file" ]]; then
+    mmproj_args=(--mmproj "$model_dir/$mmproj_file")
+  else
+    log "  mmproj not found — running text-only."
+  fi
+
+  # Only offload layers when a CUDA build was selected; the CPU build ignores
+  # the flag but it makes the intent explicit to pass it conditionally.
+  local gpu_args=()
+  if [[ "$HAS_CUDA_GPU" == true ]]; then
+    gpu_args=(--n-gpu-layers 999)
+  fi
+
+  # -n is n_predict; -1 means unlimited (bounded by context size).
+  exec llama-server \
     -m "$model_dir/$model_file" \
-    --mmproj "$model_dir/$mmproj_file" \
-    --alias "${MODEL_ALIASES[$key]}" \
+    "${mmproj_args[@]}" \
+    --alias "$key" \
+    --jinja \
     --flash-attn on \
     -c "${MODEL_CONTEXTS[$key]}" \
-    -n "${MODEL_NAMESPACES[$key]}" \
+    -n "${MODEL_NPREDICT[$key]}" \
     --cache-type-k q8_0 \
     --cache-type-v q8_0 \
     --batch-size 512 \
@@ -381,40 +412,42 @@ start_server() {
     --top-k 20 \
     --host 0.0.0.0 \
     --port "${MODEL_PORTS[$key]}" \
-    --n-gpu-layers "$gpu_layers"
+    "${gpu_args[@]}"
 }
 
 # ---------------------------------------------------------------------------
 # Interactive menu
 # ---------------------------------------------------------------------------
 show_menu() {
-  local backend
-  [[ "$HAS_CUDA_GPU" == true ]] && backend="CUDA" || backend="CPU"
-
   echo ""
   echo "============================================"
   echo "  AI-Builder — llama.cpp Server (Linux)"
-  echo "  Backend: $backend"
+  echo "  Backend: $(backend_label)"
   echo "============================================"
   echo ""
   echo "  1) Qwen3.6-35B-A3B       (port 8080, 256K ctx)"
-  echo "  2) Ministral-3-14B        (port 8081, 128K ctx)"
-  echo "  3) Devstral-Small-2-24B   (port 8082, 128K ctx)"
-  echo "  4) Gemma-4-26B-A4B-it     (port 8083, 128K ctx)"
+  echo "  2) Ministral-3-14B       (port 8081, 128K ctx)"
+  echo "  3) Devstral-Small-2-24B  (port 8082, 128K ctx)"
+  echo "  4) Gemma-4-26B-A4B-it    (port 8083, 128K ctx)"
   echo "  5) Download ALL models"
   echo "  0) Exit"
   echo ""
   echo "  Or run: $0 <qwen35b|ministral|devstral|gemma4|all>"
   echo ""
-  read -rp "Select model [1-5, 0=exit]: " choice
-  case "$choice" in
-    1)    echo "qwen35b" ;;
-    2)    echo "ministral" ;;
-    3)    echo "devstral" ;;
-    4)    echo "gemma4" ;;
-    5)    echo "all" ;;
-    *)    echo "exit" ;;
-  esac
+
+  local choice
+  while true; do
+    read -rp "Select model [1-5, 0=exit]: " choice
+    case "$choice" in
+      1) echo "qwen35b"; return 0 ;;
+      2) echo "ministral"; return 0 ;;
+      3) echo "devstral"; return 0 ;;
+      4) echo "gemma4"; return 0 ;;
+      5) echo "all"; return 0 ;;
+      0) echo "exit"; return 0 ;;
+      *) warn "Invalid choice." ;;
+    esac
+  done
 }
 
 # ---------------------------------------------------------------------------
@@ -433,20 +466,30 @@ main() {
     qwen35b|ministral|devstral|gemma4)
       install_prereqs
       install_llamacpp
-      download_model "$selected"
+      download_model "$selected" || die "Model download failed — aborting."
       start_server "$selected"
       ;;
     all)
       install_prereqs
       install_llamacpp
+      local failed=0 key
       for key in "${MODEL_KEYS[@]}"; do
-        download_model "$key"
+        download_model "$key" || failed=$((failed + 1))
       done
+      if [[ "$failed" -gt 0 ]]; then
+        warn "$failed model download(s) failed."
+      fi
       log "All models downloaded. Use $0 <model> to start a server."
+      [[ "$failed" -eq 0 ]] || exit 1
       ;;
-    exit|*)
+    exit)
       log "Goodbye."
       exit 0
+      ;;
+    *)
+      warn "Unknown model: $selected"
+      log "Valid choices: ${MODEL_KEYS[*]} all"
+      exit 1
       ;;
   esac
 }
