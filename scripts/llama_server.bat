@@ -137,25 +137,32 @@ REM ---------------------------------------------------------------------------
     exit /b 0
   )
 
-  REM Fetch latest tag from GitHub API.
-  set "TMPFILE=%TEMP%\llama_tag.json"
-  curl -fsSL https://api.github.com/repos/ggml-org/llama.cpp/releases/latest -o "%TMPFILE%" 2>nul
+  REM Fetch latest BINARY release tag from GitHub.
+  REM NOTE: /releases/latest must NOT be used - llama.cpp publishes a "v1.0.0"
+  REM latest release that contains no prebuilt binaries. The binaries are
+  REM attached to the dated bNNNNN pre-releases, so scan the release list.
+  set "TMPFILE=%TEMP%\llama_releases.json"
+  curl -fsSL "https://api.github.com/repos/ggml-org/llama.cpp/releases?per_page=15" -o "%TMPFILE%" 2>nul
   if not exist "%TMPFILE%" (
     echo [error]   Could not fetch latest release info from GitHub.
     exit /b 1
   )
 
   set "TAG="
-  REM Preferred: parse JSON with PowerShell.
-  for /f "usebackq delims=" %%T in (`powershell -NoProfile -Command "(Get-Content -Raw '%TMPFILE%' | ConvertFrom-Json).tag_name" 2^>nul`) do set "TAG=%%T"
-  REM Fallback: findstr on the raw JSON.
+  REM Preferred: parse JSON with PowerShell, first tag matching b<digits>.
+  for /f "usebackq delims=" %%T in (`powershell -NoProfile -Command "(Get-Content -Raw '%TMPFILE%' | ConvertFrom-Json | Where-Object { $_.tag_name -match '^b\d+$' } | Select-Object -First 1).tag_name" 2^>nul`) do set "TAG=%%T"
+  REM Fallback: findstr on the raw JSON (list is date-ordered, so the first
+  REM b-tag encountered is the newest).
   if not defined TAG (
     for /f "tokens=2 delims=:," %%T in ('findstr /i /c:"\"tag_name\"" "%TMPFILE%"') do (
       set "TAG=%%T"
       set "TAG=!TAG:"=!"
       set "TAG=!TAG: =!"
+      if "!TAG:~0,1!"=="b" goto :tag_found
+      set "TAG="
     )
   )
+  :tag_found
   del /q "%TMPFILE%" >nul 2>&1
 
   if not defined TAG (
@@ -187,13 +194,18 @@ REM ---------------------------------------------------------------------------
   set "CUDART_URL="
 
   if "!HAS_CUDA!"=="1" (
-    if "!CUDA_VER!"=="13" (
-      set "ARCHIVE_URL=https://github.com/ggml-org/llama.cpp/releases/download/%TAG%/llama-%TAG%-bin-win-cuda-13.5-%BIN_ARCH%.zip"
-      set "CUDART_URL=https://github.com/ggml-org/llama.cpp/releases/download/%TAG%/cudart-llama-bin-win-cuda-13.5-%BIN_ARCH%.zip"
+    if "!BIN_ARCH!"=="arm64" (
+      REM No CUDA 12 arm64 build is published - aarch64 only ships CUDA 13.5,
+      REM which requires a driver new enough for CUDA 13.
+      set "ARCHIVE_URL=https://github.com/ggml-org/llama.cpp/releases/download/%TAG%/llama-%TAG%-bin-win-cuda-13.5-arm64.zip"
+      set "CUDART_URL=https://github.com/ggml-org/llama.cpp/releases/download/%TAG%/cudart-llama-bin-win-cuda-13.5-arm64.zip"
+    ) else if "!CUDA_VER!"=="13" (
+      set "ARCHIVE_URL=https://github.com/ggml-org/llama.cpp/releases/download/%TAG%/llama-%TAG%-bin-win-cuda-13.5-x64.zip"
+      set "CUDART_URL=https://github.com/ggml-org/llama.cpp/releases/download/%TAG%/cudart-llama-bin-win-cuda-13.5-x64.zip"
     ) else (
-      REM CUDA 12 or undetectable — try CUDA 12.
-      set "ARCHIVE_URL=https://github.com/ggml-org/llama.cpp/releases/download/%TAG%/llama-%TAG%-bin-win-cuda-12.4-%BIN_ARCH%.zip"
-      set "CUDART_URL=https://github.com/ggml-org/llama.cpp/releases/download/%TAG%/cudart-llama-bin-win-cuda-12.4-%BIN_ARCH%.zip"
+      REM CUDA 12 or undetectable toolkit on x64 - try CUDA 12.
+      set "ARCHIVE_URL=https://github.com/ggml-org/llama.cpp/releases/download/%TAG%/llama-%TAG%-bin-win-cuda-12.4-x64.zip"
+      set "CUDART_URL=https://github.com/ggml-org/llama.cpp/releases/download/%TAG%/cudart-llama-bin-win-cuda-12.4-x64.zip"
     )
     echo [llama_server] CUDA pre-built selected ^(CUDA !CUDA_VER!, !BIN_ARCH!^).
   ) else (

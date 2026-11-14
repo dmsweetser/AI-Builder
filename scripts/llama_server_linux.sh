@@ -201,11 +201,15 @@ install_prereqs() {
 # ---------------------------------------------------------------------------
 fetch_latest_tag() {
   local tag
-  tag=$(curl -fsSL https://api.github.com/repos/ggml-org/llama.cpp/releases/latest 2>/dev/null \
-    | grep -oP '"tag_name":\s*"\K[^"]+' \
+  # NOTE: /releases/latest must NOT be used — llama.cpp publishes a "v1.0.0"
+  # latest release that contains no prebuilt binaries. The binaries are
+  # attached to the dated bNNNNN pre-releases, so scan the release list and
+  # take the newest tag matching b<digits>.
+  tag=$(curl -fsSL "https://api.github.com/repos/ggml-org/llama.cpp/releases?per_page=15" 2>/dev/null \
+    | grep -oP '"tag_name":\s*"\Kb\d+' \
     | head -n1 || true)
   if [[ -z "$tag" ]]; then
-    die "Could not fetch latest release tag from GitHub. Check your internet connection or pin a tag in this script."
+    die "Could not fetch latest binary release tag from GitHub. Check your internet connection or pin a tag in this script."
   fi
   echo "$tag"
 }
@@ -239,16 +243,14 @@ install_llamacpp() {
         archive_url="https://github.com/ggml-org/llama.cpp/releases/download/$tag/llama-${tag}-bin-ubuntu-cuda-13.5-arm64.tar.gz"
         cudart_url="https://github.com/ggml-org/llama.cpp/releases/download/$tag/cudart-llama-${tag}-bin-ubuntu-cuda-13.5-arm64.tar.gz"
       fi
-    else
-      # CUDA 12 or undetectable toolkit — try CUDA 12 (works with newer drivers too).
-      if [[ "$arch" == "x86_64" ]]; then
-        archive_url="https://github.com/ggml-org/llama.cpp/releases/download/$tag/llama-${tag}-bin-ubuntu-cuda-12.8-x64.tar.gz"
-        cudart_url="https://github.com/ggml-org/llama.cpp/releases/download/$tag/cudart-llama-${tag}-bin-ubuntu-cuda-12.8-x64.tar.gz"
-      elif [[ "$arch" == "aarch64" ]]; then
-        archive_url="https://github.com/ggml-org/llama.cpp/releases/download/$tag/llama-${tag}-bin-ubuntu-cuda-12.8-arm64.tar.gz"
-        cudart_url="https://github.com/ggml-org/llama.cpp/releases/download/$tag/cudart-llama-${tag}-bin-ubuntu-cuda-12.8-arm64.tar.gz"
-      fi
+    elif [[ "$arch" == "x86_64" ]]; then
+      # CUDA 12 or undetectable toolkit on x86_64 — try CUDA 12 (works with newer drivers too).
+      archive_url="https://github.com/ggml-org/llama.cpp/releases/download/$tag/llama-${tag}-bin-ubuntu-cuda-12.8-x64.tar.gz"
+      cudart_url="https://github.com/ggml-org/llama.cpp/releases/download/$tag/cudart-llama-${tag}-bin-ubuntu-cuda-12.8-x64.tar.gz"
     fi
+    # NOTE: no CUDA 12 arm64 build is published — aarch64 only ships CUDA 13.5,
+    # which requires a driver new enough for CUDA 13. On arm64 with an older
+    # (CUDA 12) driver we fall back to CPU below.
 
     if [[ -z "$archive_url" ]]; then
       warn "No CUDA pre-built found for arch=$arch CUDA=${CUDA_LIB_VERSION:-unknown}. Falling back to CPU."

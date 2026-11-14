@@ -127,11 +127,15 @@ check_memory() {
 # ---------------------------------------------------------------------------
 fetch_latest_tag() {
   local tag
-  tag=$(curl -fsSL https://api.github.com/repos/ggml-org/llama.cpp/releases/latest 2>/dev/null \
-    | grep -oP '"tag_name":\s*"\K[^"]+' \
+  # NOTE: /releases/latest must NOT be used — llama.cpp publishes a "v1.0.0"
+  # latest release that contains no prebuilt binaries. The binaries are
+  # attached to the dated bNNNNN pre-releases, so scan the release list and
+  # take the newest tag matching b<digits>.
+  tag=$(curl -fsSL "https://api.github.com/repos/ggml-org/llama.cpp/releases?per_page=15" 2>/dev/null \
+    | grep -oP '"tag_name":\s*"\Kb\d+' \
     | head -n1 || true)
   if [[ -z "$tag" ]]; then
-    die "Could not fetch latest release tag from GitHub. Check your internet connection or pin a tag in this script."
+    die "Could not fetch latest binary release tag from GitHub. Check your internet connection or pin a tag in this script."
   fi
   echo "$tag"
 }
