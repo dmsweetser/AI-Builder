@@ -72,31 +72,6 @@ set "GEMMA_NPREDICT=-1"
 set "GEMMA_PORT=8083"
 
 REM ---------------------------------------------------------------------------
-REM TLS configuration
-REM ---------------------------------------------------------------------------
-REM Certificate errors from curl are almost always caused by one of:
-REM   1. A corporate MITM proxy / SSL-inspection appliance whose root CA is not
-REM      trusted  -> set CA_BUNDLE=C:\path\to\corp-ca.pem before running
-REM   2. A wrong system clock (certs appear "not yet valid" or "expired")
-REM As a last resort only, set INSECURE_TLS=1 to skip verification.
-set "CURL_TLS_ARGS="
-if defined CA_BUNDLE (
-  set "CURL_TLS_ARGS=--cacert "%CA_BUNDLE%""
-  echo [llama_server] Using custom CA bundle: %CA_BUNDLE%
-)
-if "%INSECURE_TLS%"=="1" (
-  echo [warn]    INSECURE_TLS=1 - TLS certificate verification is DISABLED. Use only for testing.
-  set "CURL_TLS_ARGS=!CURL_TLS_ARGS! -k"
-)
-
-:tls_error_hint
-  echo [warn]    If this is a certificate error (curl exit 60/77):
-  echo [warn]      - Corporate proxy/SSL inspection? set CA_BUNDLE=C:\path\to\company-root-ca.pem and retry.
-  echo [warn]      - Check your system clock. Wrong clocks break certificate validation.
-  echo [warn]      - As a last resort only: set INSECURE_TLS=1 before running this script.
-  exit /b 0
-
-REM ---------------------------------------------------------------------------
 REM Jump to main — without this, execution falls through every label below and
 REM runs detection / install / download / start-server with empty arguments.
 REM ---------------------------------------------------------------------------
@@ -215,8 +190,7 @@ REM ---------------------------------------------------------------------------
   mkdir "%TMPDIR%" >nul 2>&1
 
   echo [llama_server] Downloading llama.cpp pre-built release (tag: %TAG%)...
-  curl -fSL !CURL_TLS_ARGS! -o "%TMPDIR%\llama.zip" "%ARCHIVE_URL%" || (
-    call :tls_error_hint
+  curl -fSL -o "%TMPDIR%\llama.zip" "%ARCHIVE_URL%" || (
     echo [error]   Failed to download llama.cpp pre-built.
     rmdir /s /q "%TMPDIR%" >nul 2>&1
     exit /b 1
@@ -249,7 +223,7 @@ REM ---------------------------------------------------------------------------
   REM its root, so also handle the no-subdirectory case.
   if defined CUDART_URL if not "!CUDART_URL!"=="" (
     echo [llama_server] Downloading CUDA runtime libraries...
-    curl -fSL !CURL_TLS_ARGS! -o "%TMPDIR%\cudart.zip" "!CUDART_URL!" 2>nul
+    curl -fSL -o "%TMPDIR%\cudart.zip" "!CUDART_URL!" 2>nul
     if exist "%TMPDIR%\cudart.zip" (
       call :extract_zip "%TMPDIR%\cudart.zip" "%TMPDIR%" >nul 2>&1
       for /d %%D in ("%TMPDIR%\cudart-*") do (
@@ -306,8 +280,7 @@ REM ---------------------------------------------------------------------------
   set "DL_OK=1"
   if not exist "%model_dir%\%model_file%" (
     echo [llama_server] Downloading %display_name% model...
-    curl -fSL -C - !CURL_TLS_ARGS! -o "%model_dir%\%model_file%" "%model_url%" || (
-      call :tls_error_hint
+    curl -fSL -C - -o "%model_dir%\%model_file%" "%model_url%" || (
       echo [error]   Model download failed: %model_file%
       set "DL_OK=0"
     )
@@ -317,8 +290,7 @@ REM ---------------------------------------------------------------------------
 
   if not exist "%model_dir%\%mmproj_file%" (
     echo [llama_server] Downloading %display_name% mmproj...
-    curl -fSL -C - !CURL_TLS_ARGS! -o "%model_dir%\%mmproj_file%" "%mmproj_url%" || (
-      call :tls_error_hint
+    curl -fSL -C - -o "%model_dir%\%mmproj_file%" "%mmproj_url%" || (
       echo [error]   mmproj download failed: %mmproj_file%
       set "DL_OK=0"
     )

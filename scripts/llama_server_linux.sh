@@ -106,33 +106,6 @@ backend_label() {
 }
 
 # ---------------------------------------------------------------------------
-# TLS configuration
-# ---------------------------------------------------------------------------
-# Certificate errors from curl are almost always caused by one of:
-#   1. A corporate MITM proxy / SSL-inspection appliance whose root CA is not
-#      in the system trust store  -> export CA_BUNDLE=/path/to/corp-ca.pem
-#   2. A missing or outdated ca-certificates package (fixed below)
-#   3. A wrong system clock (certs appear "not yet valid" or "expired")
-# As a last resort only, run with ALLOW_INSECURE_TLS=1 to skip verification.
-CURL_EXTRA=()
-if [[ -n "${CA_BUNDLE:-}" ]]; then
-  CURL_EXTRA+=(--cacert "$CA_BUNDLE")
-  log "Using custom CA bundle: $CA_BUNDLE"
-fi
-if [[ "${ALLOW_INSECURE_TLS:-0}" == "1" ]]; then
-  warn "ALLOW_INSECURE_TLS=1 — TLS certificate verification is DISABLED. Use only for testing."
-  CURL_EXTRA+=(-k)
-fi
-fetch() { curl -fSL "${CURL_EXTRA[@]}" "$@"; }
-
-tls_error_hint() {
-  warn "If this is a certificate error (curl exit 60/77):"
-  warn "  - Corporate proxy/SSL inspection? export CA_BUNDLE=/path/to/company-root-ca.pem and retry."
-  warn "  - Check your system clock (date). Wrong clocks break certificate validation."
-  warn "  - As a last resort only: ALLOW_INSECURE_TLS=1 $0 ..."
-}
-
-# ---------------------------------------------------------------------------
 # Platform check
 # ---------------------------------------------------------------------------
 [[ "$(uname -s)" == "Linux" ]] || die "This script targets Linux."
@@ -223,9 +196,6 @@ install_prereqs() {
   log "Checking prerequisites…"
   command -v curl >/dev/null 2>&1 || ensure_pkg curl
   command -v tar  >/dev/null 2>&1 || ensure_pkg tar
-  # Fresh CA certificates — stale/missing trust stores are the most common
-  # cause of curl certificate errors on minimal installs.
-  ensure_pkg ca-certificates
   command -v curl >/dev/null 2>&1 || die "curl is required but not installed."
   command -v tar  >/dev/null 2>&1 || die "tar is required but not installed."
   log "Prerequisites ready."
@@ -295,8 +265,8 @@ install_llamacpp() {
   tmp_dir=$(mktemp -d)
   trap 'rm -rf "$tmp_dir"' RETURN
 
-  fetch -o "$tmp_dir/llama.tar.gz" "$archive_url" \
-    || { tls_error_hint; die "Failed to download llama.cpp pre-built."; }
+  curl -fSL -o "$tmp_dir/llama.tar.gz" "$archive_url" \
+    || die "Failed to download llama.cpp pre-built."
 
   mkdir -p "$LLAMACPP_DIR"
   tar -xzf "$tmp_dir/llama.tar.gz" -C "$tmp_dir"
@@ -317,7 +287,7 @@ install_llamacpp() {
   # Download and extract CUDA runtime libraries if needed
   if [[ -n "$cudart_url" ]]; then
     log "Downloading CUDA runtime libraries…"
-    if fetch -o "$tmp_dir/cudart.tar.gz" "$cudart_url"; then
+    if curl -fSL -o "$tmp_dir/cudart.tar.gz" "$cudart_url"; then
       tar -xzf "$tmp_dir/cudart.tar.gz" -C "$tmp_dir"
       local cudart_dir
       cudart_dir=$(find "$tmp_dir" -maxdepth 1 -type d -name "cudart-*" | head -n1 || true)
@@ -359,16 +329,16 @@ download_model() {
 
   if [[ ! -s "$model_dir/$model_file" ]]; then
     log "Downloading ${MODEL_NAMES[$key]} model…"
-    fetch -C - -o "$model_dir/$model_file" "$model_url" \
-      || { tls_error_hint; warn "Model download failed: $model_file"; return 1; }
+    curl -fSL -C - -o "$model_dir/$model_file" "$model_url" \
+      || { warn "Model download failed: $model_file"; return 1; }
   else
     log "Model already present: $model_file"
   fi
 
   if [[ ! -s "$model_dir/$mmproj_file" ]]; then
     log "Downloading ${MODEL_NAMES[$key]} mmproj…"
-    fetch -C - -o "$model_dir/$mmproj_file" "$mmproj_url" \
-      || { tls_error_hint; warn "mmproj download failed: $mmproj_file"; return 1; }
+    curl -fSL -C - -o "$model_dir/$mmproj_file" "$mmproj_url" \
+      || { warn "mmproj download failed: $mmproj_file"; return 1; }
   else
     log "mmproj already present: $mmproj_file"
   fi
