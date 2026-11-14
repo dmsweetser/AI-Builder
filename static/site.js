@@ -341,11 +341,13 @@ function _doRunProject(projectId, overrideInstruction) {
         else agentBox.appendChild(errEntry);
         agentBox.scrollTop = 0;
         agentRunning = false;
-        liveInjectActive = false;
         resetRunButtons();
         if (stopBtn) stopBtn.style.display = 'none';
-        if (injectInput) { injectInput.disabled = true; injectInput.placeholder = 'Agent error'; }
-        if (injectBtn) { injectBtn.disabled = true; injectBtn.textContent = 'WAITING'; }
+        // Inject stays enabled so user can retry or inject into the error state
+        var injectInputErr = document.getElementById('live-inject-input');
+        var injectBtnErr = document.getElementById('live-inject-btn');
+        if (injectInputErr) { injectInputErr.disabled = false; injectInputErr.placeholder = 'Retry or inject instructions...'; }
+        if (injectBtnErr) { injectBtnErr.disabled = false; injectBtnErr.textContent = 'INJECT'; }
     });
 }
 
@@ -1117,7 +1119,7 @@ function clearPendingApprovalState() {
 
 function stopProject(projectId) {
     agentRunning = false;
-    liveInjectActive = false;
+    liveInjectActive = true;  // Keep inject active so user can continue from stopped state
     if (_pollInterval) { clearInterval(_pollInterval); _pollInterval = null; }
         // Stop the SSE engine job if there is one
     var jobId = currentRunningJobId;
@@ -1126,15 +1128,15 @@ function stopProject(projectId) {
         promises.push(fetch('/api/agent/stop/' + jobId, { method: 'POST' }).catch(function() {}));
     }
     Promise.all(promises).then(function() {
-        // Hide the agent live container and show config section again
+        // Show the agent live container so user can see steps and inject
         var container = document.getElementById('agent-live-container');
-        if (container) container.style.display = 'none';
+        if (container) { container.style.display = 'block'; }
         var configSection = document.getElementById('project-config-section');
         if (configSection) configSection.style.display = 'block';
         var stopBtn = document.getElementById('details-stop-btn');
         if (stopBtn) stopBtn.style.display = 'none';
         var viewLiveBtn = document.getElementById('details-live-btn');
-        if (viewLiveBtn) viewLiveBtn.style.display = 'none';
+        if (viewLiveBtn) viewLiveBtn.style.display = 'inline-block';
         var liveStopBtn = document.getElementById('live-stop-btn');
         if (liveStopBtn) liveStopBtn.style.display = 'none';
         updateRunButtonState(projectId, false);
@@ -1147,7 +1149,7 @@ function stopProject(projectId) {
 function stopCurrentJob() {
     // Stop the currently running job from the VIEW LIVE screen
     agentRunning = false;
-    liveInjectActive = false;
+    liveInjectActive = true;  // Keep inject active so user can continue from stopped state
     if (_pollInterval) { clearInterval(_pollInterval); _pollInterval = null; }
         var jobId = currentRunningJobId;
     var promises = [fetch('/api/queue/running/stop', { method: 'POST' }).catch(function() {})];
@@ -1158,7 +1160,7 @@ function stopCurrentJob() {
         var liveStopBtn = document.getElementById('live-stop-btn');
         if (liveStopBtn) liveStopBtn.style.display = 'none';
         var statusText = document.getElementById('agent-status-text');
-        if (statusText) { statusText.textContent = 'STOPPED'; statusText.style.color = 'var(--danger)'; }
+        if (statusText) { statusText.textContent = 'STOPPED'; statusText.style.color = 'var(--text-muted)'; }
         loadJobs();
         resetRunButtons();
     })
@@ -1227,16 +1229,11 @@ function resetRunButtons() {
     var stopBtn = document.getElementById('details-stop-btn');
     if (runBtn) { runBtn.disabled = false; runBtn.innerHTML = 'RUN AI BUILDER'; }
     if (stopBtn) stopBtn.style.display = 'none';
-    // Restore inject button state based on liveInjectActive flag
-    // (processChunk sets it to WAITING, but handleAgentStatus may have
-    // already set it to INJECT — we need to respect that)
+    // Inject is always enabled — user can inject into any job state
     var injectInput = document.getElementById('live-inject-input');
     var injectBtn = document.getElementById('live-inject-btn');
-    if (liveInjectActive) {
-        // Agent completed or was interrupted — allow injection
-        if (injectInput) { injectInput.disabled = false; injectInput.placeholder = 'Continue with new instructions...'; }
-        if (injectBtn) { injectBtn.disabled = false; injectBtn.textContent = 'INJECT'; }
-    }
+    if (injectInput) { injectInput.disabled = false; injectInput.placeholder = 'Continue with new instructions...'; }
+    if (injectBtn) { injectBtn.disabled = false; injectBtn.textContent = 'INJECT'; }
 }
 
 function updateRunButtonState(projectId, status) {
