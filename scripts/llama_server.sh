@@ -100,6 +100,15 @@ log()  { printf "\033[1;34m[llama_server]\033[0m %s\n" "$*"; }
 warn() { printf "\033[1;33m[warn] \033[0m %s\n" "$*"; }
 die()  { printf "\033[1;31m[error]\033[0m %s\n" "$*" >&2; exit 1; }
 
+# TLS bypass: run with INSECURE_TLS=1 to skip certificate verification
+# (e.g. behind a corporate SSL-inspecting proxy).
+CURL_EXTRA=()
+if [[ "${INSECURE_TLS:-0}" == "1" ]]; then
+  warn "INSECURE_TLS=1 — certificate verification is DISABLED."
+  CURL_EXTRA+=(-k)
+fi
+fetch() { curl -fSL "${CURL_EXTRA[@]}" "$@"; }
+
 # ---------------------------------------------------------------------------
 # Platform check
 # ---------------------------------------------------------------------------
@@ -146,8 +155,8 @@ install_llamacpp() {
   # Always clean up the temp dir, even on early failure.
   trap 'rm -rf "$tmp_dir"' EXIT
 
-  curl -fSL -o "$tmp_dir/llama.tar.gz" "$archive_url" \
-    || die "Failed to download llama.cpp pre-built (macOS arm64)."
+  fetch -o "$tmp_dir/llama.tar.gz" "$archive_url" \
+    || { die "Failed to download llama.cpp pre-built (macOS arm64)."; }
 
   mkdir -p "$LLAMACPP_DIR"
   tar -xzf "$tmp_dir/llama.tar.gz" -C "$tmp_dir"
@@ -196,7 +205,7 @@ download_model() {
 
   if [[ ! -s "$model_dir/$model_file" ]]; then
     log "Downloading ${MODEL_NAMES[$key]} model…"
-    curl -fSL -C - -o "$model_dir/$model_file" "$model_url" \
+    fetch -C - -o "$model_dir/$model_file" "$model_url" \
       || { warn "Model download failed: $model_file"; return 1; }
   else
     log "Model already present: $model_file"
@@ -204,7 +213,7 @@ download_model() {
 
   if [[ ! -s "$model_dir/$mmproj_file" ]]; then
     log "Downloading ${MODEL_NAMES[$key]} mmproj…"
-    curl -fSL -C - -o "$model_dir/$mmproj_file" "$mmproj_url" \
+    fetch -C - -o "$model_dir/$mmproj_file" "$mmproj_url" \
       || { warn "mmproj download failed: $mmproj_file"; return 1; }
   else
     log "mmproj already present: $mmproj_file"

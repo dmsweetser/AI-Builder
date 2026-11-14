@@ -72,6 +72,16 @@ set "GEMMA_NPREDICT=-1"
 set "GEMMA_PORT=8083"
 
 REM ---------------------------------------------------------------------------
+REM TLS bypass: set INSECURE_TLS=1 before running to skip certificate
+REM verification (e.g. behind a corporate SSL-inspecting proxy).
+REM ---------------------------------------------------------------------------
+set "CURL_TLS_ARGS="
+if "%INSECURE_TLS%"=="1" (
+  echo [warn]    INSECURE_TLS=1 - certificate verification is DISABLED.
+  set "CURL_TLS_ARGS=-k"
+)
+
+REM ---------------------------------------------------------------------------
 REM Jump to main — without this, execution falls through every label below and
 REM runs detection / install / download / start-server with empty arguments.
 REM ---------------------------------------------------------------------------
@@ -190,7 +200,7 @@ REM ---------------------------------------------------------------------------
   mkdir "%TMPDIR%" >nul 2>&1
 
   echo [llama_server] Downloading llama.cpp pre-built release (tag: %TAG%)...
-  curl -fSL -o "%TMPDIR%\llama.zip" "%ARCHIVE_URL%" || (
+  curl -fSL !CURL_TLS_ARGS! -o "%TMPDIR%\llama.zip" "%ARCHIVE_URL%" || (
     echo [error]   Failed to download llama.cpp pre-built.
     rmdir /s /q "%TMPDIR%" >nul 2>&1
     exit /b 1
@@ -223,7 +233,7 @@ REM ---------------------------------------------------------------------------
   REM its root, so also handle the no-subdirectory case.
   if defined CUDART_URL if not "!CUDART_URL!"=="" (
     echo [llama_server] Downloading CUDA runtime libraries...
-    curl -fSL -o "%TMPDIR%\cudart.zip" "!CUDART_URL!" 2>nul
+    curl -fSL !CURL_TLS_ARGS! -o "%TMPDIR%\cudart.zip" "!CUDART_URL!" 2>nul
     if exist "%TMPDIR%\cudart.zip" (
       call :extract_zip "%TMPDIR%\cudart.zip" "%TMPDIR%" >nul 2>&1
       for /d %%D in ("%TMPDIR%\cudart-*") do (
@@ -280,7 +290,7 @@ REM ---------------------------------------------------------------------------
   set "DL_OK=1"
   if not exist "%model_dir%\%model_file%" (
     echo [llama_server] Downloading %display_name% model...
-    curl -fSL -C - -o "%model_dir%\%model_file%" "%model_url%" || (
+    curl -fSL -C - !CURL_TLS_ARGS! -o "%model_dir%\%model_file%" "%model_url%" || (
       echo [error]   Model download failed: %model_file%
       set "DL_OK=0"
     )
@@ -290,7 +300,7 @@ REM ---------------------------------------------------------------------------
 
   if not exist "%model_dir%\%mmproj_file%" (
     echo [llama_server] Downloading %display_name% mmproj...
-    curl -fSL -C - -o "%model_dir%\%mmproj_file%" "%mmproj_url%" || (
+    curl -fSL -C - !CURL_TLS_ARGS! -o "%model_dir%\%mmproj_file%" "%mmproj_url%" || (
       echo [error]   mmproj download failed: %mmproj_file%
       set "DL_OK=0"
     )

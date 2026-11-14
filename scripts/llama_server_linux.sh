@@ -105,6 +105,15 @@ backend_label() {
   [[ "$HAS_CUDA_GPU" == true ]] && echo "CUDA" || echo "CPU"
 }
 
+# TLS bypass: run with INSECURE_TLS=1 to skip certificate verification
+# (e.g. behind a corporate SSL-inspecting proxy).
+CURL_EXTRA=()
+if [[ "${INSECURE_TLS:-0}" == "1" ]]; then
+  warn "INSECURE_TLS=1 — certificate verification is DISABLED."
+  CURL_EXTRA+=(-k)
+fi
+fetch() { curl -fSL "${CURL_EXTRA[@]}" "$@"; }
+
 # ---------------------------------------------------------------------------
 # Platform check
 # ---------------------------------------------------------------------------
@@ -196,6 +205,8 @@ install_prereqs() {
   log "Checking prerequisites…"
   command -v curl >/dev/null 2>&1 || ensure_pkg curl
   command -v tar  >/dev/null 2>&1 || ensure_pkg tar
+  # Fresh CA certificates — stale/missing trust stores are the most common
+  # cause of curl certificate errors on minimal installs.
   command -v curl >/dev/null 2>&1 || die "curl is required but not installed."
   command -v tar  >/dev/null 2>&1 || die "tar is required but not installed."
   log "Prerequisites ready."
@@ -265,8 +276,8 @@ install_llamacpp() {
   tmp_dir=$(mktemp -d)
   trap 'rm -rf "$tmp_dir"' RETURN
 
-  curl -fSL -o "$tmp_dir/llama.tar.gz" "$archive_url" \
-    || die "Failed to download llama.cpp pre-built."
+  fetch -o "$tmp_dir/llama.tar.gz" "$archive_url" \
+    || { die "Failed to download llama.cpp pre-built."; }
 
   mkdir -p "$LLAMACPP_DIR"
   tar -xzf "$tmp_dir/llama.tar.gz" -C "$tmp_dir"
@@ -287,7 +298,7 @@ install_llamacpp() {
   # Download and extract CUDA runtime libraries if needed
   if [[ -n "$cudart_url" ]]; then
     log "Downloading CUDA runtime libraries…"
-    if curl -fSL -o "$tmp_dir/cudart.tar.gz" "$cudart_url"; then
+    if fetch -o "$tmp_dir/cudart.tar.gz" "$cudart_url"; then
       tar -xzf "$tmp_dir/cudart.tar.gz" -C "$tmp_dir"
       local cudart_dir
       cudart_dir=$(find "$tmp_dir" -maxdepth 1 -type d -name "cudart-*" | head -n1 || true)
@@ -329,7 +340,7 @@ download_model() {
 
   if [[ ! -s "$model_dir/$model_file" ]]; then
     log "Downloading ${MODEL_NAMES[$key]} model…"
-    curl -fSL -C - -o "$model_dir/$model_file" "$model_url" \
+    fetch -C - -o "$model_dir/$model_file" "$model_url" \
       || { warn "Model download failed: $model_file"; return 1; }
   else
     log "Model already present: $model_file"
@@ -337,7 +348,7 @@ download_model() {
 
   if [[ ! -s "$model_dir/$mmproj_file" ]]; then
     log "Downloading ${MODEL_NAMES[$key]} mmproj…"
-    curl -fSL -C - -o "$model_dir/$mmproj_file" "$mmproj_url" \
+    fetch -C - -o "$model_dir/$mmproj_file" "$mmproj_url" \
       || { warn "mmproj download failed: $mmproj_file"; return 1; }
   else
     log "mmproj already present: $mmproj_file"
