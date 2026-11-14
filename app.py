@@ -85,6 +85,68 @@ _worker_wake = threading.Event()  # Signals the worker to check the queue
 _sse_event_queues: Dict[str, queue.Queue] = {}
 _sse_event_queues_lock = threading.Lock()
 
+# Track which projects currently have an engine running (output_dir → bool).
+# Guards against spawning duplicate engines for the same project via
+# inject, resume, tool-approval, or queue paths.
+_project_engine_active: Dict[str, bool] = {}
+_project_engine_lock = threading.Lock()
+
+
+def _is_engine_active_for_project(pid: str) -> bool:
+    """Return True if any engine (queue, running, or background thread) is
+    active for the given project."""
+    # 1. Check the queue
+    with job_queue_lock:
+        if running_job and running_job["project_id"] == pid:
+            return True
+        for job in job_queue:
+            if job["project_id"] == pid:
+                return True
+    # 2. Check background-engine tracking
+    with _project_engine_lock:
+        # Find this project's output_dir
+        projects = load_projects()
+        for p in projects:
+            if p["id"] == pid:
+                odir = p.get("output_dir", "")
+                if odir and _project_engine_active.get(odir, False):
+                    return True
+                break
+    return False
+
+
+def _mark_engine_start(pid: str) -> bool:
+    """Mark that an engine has started for this project.
+    Returns True if the mark was acquired (no other engine active),
+    False if another engine is already running for this project."""
+    with _project_engine_lock:
+        projects = load_projects()
+        odir = None
+        for p in projects:
+            if p["id"] == pid:
+                odir = p.get("output_dir", "")
+                break
+        if not odir:
+            odir = os.path.join(_AIB_INSTANCE, pid, "output")
+        if _project_engine_active.get(odir, False):
+            return False
+        _project_engine_active[odir] = True
+        return True
+
+
+def _mark_engine_stop(pid: str):
+    """Mark that an engine has stopped for this project."""
+    with _project_engine_lock:
+        projects = load_projects()
+        odir = None
+        for p in projects:
+            if p["id"] == pid:
+                odir = p.get("output_dir", "")
+                break
+        if not odir:
+            odir = os.path.join(_AIB_INSTANCE, pid, "output")
+        _project_engine_active.pop(odir, None)
+
 # --- Settings State ---
 settings_lock = threading.RLock()  # RLock allows re-entrant locking
 settings_cache = {}
@@ -306,6 +368,9 @@ def worker():
             output_dir = os.path.join(_AIB_INSTANCE, pid, "output")
         os.makedirs(output_dir, exist_ok=True)
 
+        # Mark engine active for this project (prevents duplicate engines)
+        _mark_engine_start(pid)
+
         job_history.append({
             "job_id": job_id,
             "project_id": pid,
@@ -346,6 +411,8 @@ def worker():
             save_job_history()
             with job_queue_lock:
                 running_job = None
+        # Mark engine stopped for this project
+        _mark_engine_stop(pid)
 
 
 def run_with_agent_engine(project_config: Dict[str, Any], output_dir: str = None) -> Dict[str, Any]:
@@ -742,6 +809,8 @@ def _kill_job_for_project(pid):
         # Stop running job if it's for this project
         if running_job and running_job["project_id"] == pid:
             running_job = None
+    # Also clear the engine-active tracking so a new run can start
+    _mark_engine_stop(pid)
     start_worker()
 
 
@@ -758,6 +827,11 @@ def api_run_project(pid):
         return jsonify({"error": "Project is already running", "job_id": existing_job_id}), 409
     if is_queued:
         return jsonify({"error": "Project is already queued", "job_id": existing_job_id}), 409
+
+    # Guard: reject if a background engine is already running for this project
+    # (e.g. from a prior inject/resume/approval that hasn't finished yet)
+    if _is_engine_active_for_project(pid):
+        return jsonify({"error": "Project already has an engine running"}), 409
 
     # Use project's persistent output directory: aib_instance/<pid>/output/
     output_dir = project.get("output_dir", os.path.join(_AIB_INSTANCE, pid, "output"))
@@ -791,6 +865,17 @@ def api_agent_run():
         project, projects = get_project(pid)
         if not project:
             return jsonify({"error": "Project not found"}), 404
+
+        # Guard: reject if project is already running or queued
+        is_running, is_queued, existing_job_id = get_concurrent_job_info(pid)
+        if is_running:
+            return jsonify({"error": "Project is already running", "job_id": existing_job_id}), 409
+        if is_queued:
+            return jsonify({"error": "Project is already queued", "job_id": existing_job_id}), 409
+
+        # Guard: reject if a background engine is already running for this project
+        if _is_engine_active_for_project(pid):
+            return jsonify({"error": "Project already has an engine running"}), 409
 
         root_dir = data.get("rootDirectory", project.get("rootDirectory", ""))
         instructions = data.get("instructions", project.get("instructions", ""))
@@ -879,6 +964,10 @@ def api_add_to_queue():
     if is_queued:
         return jsonify({"error": "Project is already queued", "job_id": existing_job_id}), 409
 
+    # Guard: reject if a background engine is already running for this project
+    if _is_engine_active_for_project(pid):
+        return jsonify({"error": "Project already has an engine running"}), 409
+
     # Use project's persistent output directory: aib_instance/<pid>/output/
     output_dir = project.get("output_dir", os.path.join(_AIB_INSTANCE, pid, "output"))
     os.makedirs(output_dir, exist_ok=True)
@@ -910,6 +999,8 @@ def api_stop_running():
     global running_job
     with job_queue_lock:
         job_to_stop = running_job
+        if job_to_stop:
+            _mark_engine_stop(job_to_stop["project_id"])
         running_job = None
 
     start_worker()
@@ -936,6 +1027,8 @@ def api_delete_project(pid):
         job_queue[:] = [j for j in job_queue if j["project_id"] != pid]
         if running_job and running_job["project_id"] == pid:
             running_job = None
+    # Also clear the engine-active tracking
+    _mark_engine_stop(pid)
     start_worker()
 
     delete_project_file(pid)
@@ -1213,99 +1306,116 @@ def api_reload_settings():
 # --- Agent Routes ---
 
 def _run_engine_in_background(project_config, output_dir, step_callback=None, stop_event=None,
-                               prev_step_history=None, continue_from_job=None):
+                               prev_step_history=None, continue_from_job=None, project_id=None):
     """Run the engine in a background thread.
 
     This is a reusable function that creates and runs the engine.
     Used by the tool approval endpoint (for re-invoke).
     Returns a dict with 'result' (engine result) and 'engine' (engine instance).
+
+    Args:
+        project_id: Optional project UUID. When provided, the function marks
+            engine start/stop in the per-project guard so duplicate engines
+            are prevented.
     """
     from agent_engine import AgentEngine
-    engine = AgentEngine(project_config, output_dir=output_dir,
-                         step_callback=step_callback, stop_event=stop_event)
-    engine.reload_approved_tools()
 
-    # If continuing from a previous job, restore conversation history
-    # from step_history so the LLM knows what was already done.
-    # For fresh runs (no prev_step_history), the engine starts clean.
-    if prev_step_history:
-        engine.step_history = prev_step_history
-        engine.step_count = len(prev_step_history)
-        # Reconstruct conversation from step history
-        reconstructed_messages = [engine.messages[0]]  # system prompt
-        # Add tool results from step_history
-        all_tool_names = engine.tools.tool_names()
-        for h in prev_step_history:
-            if h.get("tool") in all_tool_names:
-                res = h.get("result", {})
-                content = res.get("content", "")
-                error = res.get("error", "")
-                summary = res.get("summary", "")
-                if error:
-                    result_display = f"Error: {error}"
-                elif summary:
-                    result_display = summary
-                    if content:
-                        result_display += f"\n\nOutput:\n{content}\n"
-                elif content:
-                    result_display = content
-                else:
-                    result_display = "(no output)"
-                tool_name = h.get("tool", "unknown")
-                reconstructed_messages.append({
-                    "role": "user",
-                    "content": f"[TOOL RESULT for {tool_name}]\n{result_display}\n[END TOOL RESULT]\n\nNow continue with your next action."
-                })
-        # Add the continuation message
-        reconstructed_messages.append({
-            "role": "user",
-            "content": (
-                f"[CONTINUATION] Your previous run completed. "
-                f"The user has new instructions for you. "
-                f"Please continue working on the project with these new instructions:\n\n"
-                f"{project_config.get('instructions', '')}\n\n"
-                f"Review what was already done, then take the next appropriate action.\n\n"
-                f"TOOL FORMAT REMINDER\n"
-                f"=====================\n\n"
-                f"Your ENTIRE response must be EXACTLY ONE of the following:\n\n"
-                f"  OPTION 1 — A tool call:\n"
-                f"    [TOOL_START]\n"
-                f"    [TOOL_NAME]\n"
-                f"    <tool_name>\n"
-                f"    [PARAM_NAME]\n"
-                f"    <param_key_1>\n"
-                f"    [PARAM_VALUE]\n"
-                f"    <param_value_1>\n"
-                f"    [PARAM_NAME]\n"
-                f"    <param_key_2>\n"
-                f"    [PARAM_VALUE]\n"
-                f"    <param_value_2>\n"
-                f"    [TOOL_END]\n\n"
-                f"  OPTION 2 — Signal completion:\n"
-                f"    Use the task_completed tool with a summary:\n"
-                f"    [TOOL_START]\n"
-                f"    [TOOL_NAME]\n"
-                f"    task_completed\n"
-                f"    [PARAM_NAME]\n"
-                f"    summary\n"
-                f"    [PARAM_VALUE]\n"
-                f"    <your summary here>\n"
-                f"    [TOOL_END]\n\n"
-                f"IMPORTANT RULES:\n"
-                f"  • Do NOT write any other text.\n"
-                f"  • Do NOT explain what you will do — just act.\n"
-                f"  • Make EXACTLY ONE tool call per response.\n"
-                f"  • If you include more than one [TOOL_START]...[TOOL_END] block,\n"
-                f"    only the FIRST one will be executed."
-            )
-        })
-        engine.messages = reconstructed_messages
+    # Mark engine active for this project (prevents duplicate engines)
+    _pid = project_id or project_config.get("id")
+    if _pid:
+        _mark_engine_start(_pid)
 
-    # Run the engine
     try:
+        engine = AgentEngine(project_config, output_dir=output_dir,
+                             step_callback=step_callback, stop_event=stop_event)
+        engine.reload_approved_tools()
+
+        # If continuing from a previous job, restore conversation history
+        # from step_history so the LLM knows what was already done.
+        # For fresh runs (no prev_step_history), the engine starts clean.
+        if prev_step_history:
+            engine.step_history = prev_step_history
+            engine.step_count = len(prev_step_history)
+            # Reconstruct conversation from step history
+            reconstructed_messages = [engine.messages[0]]  # system prompt
+            # Add tool results from step_history
+            all_tool_names = engine.tools.tool_names()
+            for h in prev_step_history:
+                if h.get("tool") in all_tool_names:
+                    res = h.get("result", {})
+                    content = res.get("content", "")
+                    error = res.get("error", "")
+                    summary = res.get("summary", "")
+                    if error:
+                        result_display = f"Error: {error}"
+                    elif summary:
+                        result_display = summary
+                        if content:
+                            result_display += f"\n\nOutput:\n{content}\n"
+                    elif content:
+                        result_display = content
+                    else:
+                        result_display = "(no output)"
+                    tool_name = h.get("tool", "unknown")
+                    reconstructed_messages.append({
+                        "role": "user",
+                        "content": f"[TOOL RESULT for {tool_name}]\n{result_display}\n[END TOOL RESULT]\n\nNow continue with your next action."
+                    })
+            # Add the continuation message
+            reconstructed_messages.append({
+                "role": "user",
+                "content": (
+                    f"[CONTINUATION] Your previous run completed. "
+                    f"The user has new instructions for you. "
+                    f"Please continue working on the project with these new instructions:\n\n"
+                    f"{project_config.get('instructions', '')}\n\n"
+                    f"Review what was already done, then take the next appropriate action.\n\n"
+                    f"TOOL FORMAT REMINDER\n"
+                    f"=====================\n\n"
+                    f"Your ENTIRE response must be EXACTLY ONE of the following:\n\n"
+                    f"  OPTION 1 — A tool call:\n"
+                    f"    [TOOL_START]\n"
+                    f"    [TOOL_NAME]\n"
+                    f"    <tool_name>\n"
+                    f"    [PARAM_NAME]\n"
+                    f"    <param_key_1>\n"
+                    f"    [PARAM_VALUE]\n"
+                    f"    <param_value_1>\n"
+                    f"    [PARAM_NAME]\n"
+                    f"    <param_key_2>\n"
+                    f"    [PARAM_VALUE]\n"
+                    f"    <param_value_2>\n"
+                    f"    [TOOL_END]\n\n"
+                    f"  OPTION 2 — Signal completion:\n"
+                    f"    Use the task_completed tool with a summary:\n"
+                    f"    [TOOL_START]\n"
+                    f"    [TOOL_NAME]\n"
+                    f"    task_completed\n"
+                    f"    [PARAM_NAME]\n"
+                    f"    summary\n"
+                    f"    [PARAM_VALUE]\n"
+                    f"    <your summary here>\n"
+                    f"    [TOOL_END]\n\n"
+                    f"IMPORTANT RULES:\n"
+                    f"  • Do NOT write any other text.\n"
+                    f"  • Do NOT explain what you will do — just act.\n"
+                    f"  • Make EXACTLY ONE tool call per response.\n"
+                    f"  • If you include more than one [TOOL_START]...[TOOL_END] block,\n"
+                    f"    only the FIRST one will be executed."
+                )
+            })
+            engine.messages = reconstructed_messages
+
+        # Run the engine
         result = engine.run()
+    except Exception:
+        raise
     finally:
-        engine.close()
+        if 'engine' in dir():
+            engine.close()
+        # Mark engine stopped for this project
+        if _pid:
+            _mark_engine_stop(_pid)
 
     # Persist conversation history
     messages_file = os.path.join(output_dir, "conversation_history.json")
@@ -1446,6 +1556,9 @@ def api_agent_inject():
         prev_step_history = job_record.get("step_history", [])
 
         def _continue_engine():
+            _pid = project_config.get("id")
+            if _pid:
+                _mark_engine_start(_pid)
             try:
                 os.makedirs(output_dir, exist_ok=True)
 
@@ -1578,6 +1691,9 @@ def api_agent_inject():
                 logging.info(f"Engine continuation completed: {result.get('status', 'unknown')}")
             except Exception as e:
                 logging.error(f"Engine continuation failed: {e}", exc_info=True)
+            finally:
+                if _pid:
+                    _mark_engine_stop(_pid)
 
         continue_thread = threading.Thread(target=_continue_engine, daemon=True)
         continue_thread.start()
@@ -1608,6 +1724,9 @@ def api_agent_inject():
         prev_step_history = job_record.get("step_history", [])
 
         def _resume_engine():
+            _pid = project_config.get("id")
+            if _pid:
+                _mark_engine_start(_pid)
             try:
                 from agent_engine import AgentEngine
                 os.makedirs(output_dir, exist_ok=True)
@@ -1690,6 +1809,9 @@ def api_agent_inject():
                 logging.info(f"Engine resumed from pending_user_input: {result.get('status', 'unknown')}")
             except Exception as e:
                 logging.error(f"Engine resume from pending_user_input failed: {e}", exc_info=True)
+            finally:
+                if _pid:
+                    _mark_engine_stop(_pid)
 
         resume_thread = threading.Thread(target=_resume_engine, daemon=True)
         resume_thread.start()
@@ -1820,6 +1942,9 @@ def api_agent_resume():
         prev_step_history = job_record.get("step_history", [])
 
         def _resume_engine():
+            _pid = project_config.get("id")
+            if _pid:
+                _mark_engine_start(_pid)
             try:
                 from agent_engine import AgentEngine
                 os.makedirs(output_dir, exist_ok=True)
@@ -1909,6 +2034,9 @@ def api_agent_resume():
                 logging.info(f"Engine resumed successfully: {result.get('status', 'unknown')}")
             except Exception as e:
                 logging.error(f"Engine resume failed: {e}", exc_info=True)
+            finally:
+                if _pid:
+                    _mark_engine_stop(_pid)
 
         resume_thread = threading.Thread(target=_resume_engine, daemon=True)
         resume_thread.start()
@@ -2297,6 +2425,7 @@ def _find_project_and_resume_engine(project_output_dir, tool_name):
                 step_callback=resume_callback,
                 stop_event=None,
                 prev_step_history=prev_step_history,
+                project_id=project_config.get("id"),
             )
             logging.info(f"Engine resumed successfully after tool approval: {tool_name}")
         except Exception as e:
