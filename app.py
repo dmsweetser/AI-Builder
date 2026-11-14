@@ -1463,6 +1463,17 @@ def api_agent_inject():
                 # Reconstruct conversation history from step history
                 reconstructed_messages = [engine.messages[0]]  # system prompt
 
+                # Add the initial user prompt so the LLM knows the original task.
+                if project_config and project_config.get("instructions"):
+                    from agent_engine.engine import build_user_prompt
+                    reconstructed_messages.append({
+                        "role": "user",
+                        "content": build_user_prompt(
+                            project_config["instructions"],
+                            instance_prefix=engine.instance_prefix,
+                        ),
+                    })
+
                 # Add tool results from step_history
                 all_tool_names = engine.tools.tool_names()
                 for h in prev_step_history:
@@ -1487,7 +1498,15 @@ def api_agent_inject():
                             "content": f"[TOOL RESULT for {tool_name}]\n{result_display}\n[END TOOL RESULT]\n\nNow continue with your next action."
                         })
 
-                # Add the continuation message with the new instruction
+                # Add the continuation message with the new instruction.
+                # Use instance-specific markers so the format reminder matches
+                # what the system prompt expects (not the generic [TOOL_START]).
+                from agent_engine.engine import _marker as _eng_marker
+                m_start = _eng_marker(engine.instance_prefix, "TOOL_START")
+                m_end = _eng_marker(engine.instance_prefix, "TOOL_END")
+                m_name = _eng_marker(engine.instance_prefix, "TOOL_NAME")
+                m_pname = _eng_marker(engine.instance_prefix, "PARAM_NAME")
+                m_pval = _eng_marker(engine.instance_prefix, "PARAM_VALUE")
                 continuation_msg = (
                     f"[CONTINUATION] Your previous run completed. "
                     f"The user has new instructions for you. "
@@ -1498,33 +1517,33 @@ def api_agent_inject():
                     f"=====================\n\n"
                     f"Your ENTIRE response must be EXACTLY ONE of the following:\n\n"
                     f"  OPTION 1 — A tool call:\n"
-                    f"    [TOOL_START]\n"
-                    f"    [TOOL_NAME]\n"
+                    f"    {m_start}\n"
+                    f"    {m_name}\n"
                     f"    <tool_name>\n"
-                    f"    [PARAM_NAME]\n"
+                    f"    {m_pname}\n"
                     f"    <param_key_1>\n"
-                    f"    [PARAM_VALUE]\n"
+                    f"    {m_pval}\n"
                     f"    <param_value_1>\n"
-                    f"    [PARAM_NAME]\n"
+                    f"    {m_pname}\n"
                     f"    <param_key_2>\n"
-                    f"    [PARAM_VALUE]\n"
+                    f"    {m_pval}\n"
                     f"    <param_value_2>\n"
-                    f"    [TOOL_END]\n\n"
+                    f"    {m_end}\n\n"
                     f"  OPTION 2 — Signal completion:\n"
                     f"    Use the task_completed tool with a summary:\n"
-                    f"    [TOOL_START]\n"
-                    f"    [TOOL_NAME]\n"
+                    f"    {m_start}\n"
+                    f"    {m_name}\n"
                     f"    task_completed\n"
-                    f"    [PARAM_NAME]\n"
+                    f"    {m_pname}\n"
                     f"    summary\n"
-                    f"    [PARAM_VALUE]\n"
+                    f"    {m_pval}\n"
                     f"    <your summary here>\n"
-                    f"    [TOOL_END]\n\n"
+                    f"    {m_end}\n\n"
                     f"IMPORTANT RULES:\n"
                     f"  • Do NOT write any other text.\n"
                     f"  • Do NOT explain what you will do — just act.\n"
                     f"  • Make EXACTLY ONE tool call per response.\n"
-                    f"  • If you include more than one [TOOL_START]...[TOOL_END] block,\n"
+                    f"  • If you include more than one {m_start}...{m_end} block,\n"
                     f"    only the FIRST one will be executed."
                 )
                 reconstructed_messages.append({
@@ -1697,6 +1716,20 @@ def api_agent_resume():
 
                 # Reconstruct conversation from step history
                 reconstructed_messages = [engine.messages[0]]  # system prompt
+
+                # Add the initial user prompt so the LLM knows the original task.
+                # Without this, the LLM sees tool results but has no context
+                # about what it was supposed to be doing.
+                if project_config and project_config.get("instructions"):
+                    from agent_engine.engine import build_user_prompt
+                    reconstructed_messages.append({
+                        "role": "user",
+                        "content": build_user_prompt(
+                            project_config["instructions"],
+                            instance_prefix=engine.instance_prefix,
+                        ),
+                    })
+
                 all_tool_names = engine.tools.tool_names()
                 for h in prev_step_history:
                     if h.get("tool") in all_tool_names:
