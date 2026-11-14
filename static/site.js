@@ -2197,6 +2197,14 @@ function _resolveOutputDirAndContinue(jobId, queueData, history, jobRecord, isRu
         _startPolling(jobId, outputDir, agentBox);
     } else {
         // Job is pending, completed, or stopped - load history and show it
+        // Enable inject immediately so the user can always inject regardless of job state
+        agentRunning = false;
+        liveInjectActive = true;
+        var stopBtn = document.getElementById('details-stop-btn');
+        if (stopBtn) stopBtn.style.display = 'inline-block';
+        if (injectInput) { injectInput.disabled = false; injectInput.placeholder = 'Continue with new instructions...'; }
+        if (injectBtn) { injectBtn.disabled = false; injectBtn.textContent = 'INJECT'; }
+
         loadJobHistory(jobId, function() {
             // Always start polling (every 30s) so the feed auto-refreshes
             // even for completed jobs — user can see if a continuation started
@@ -2207,30 +2215,22 @@ function _resolveOutputDirAndContinue(jobId, queueData, history, jobRecord, isRu
             if (isPendingApproval && outputDir) {
                 _showPendingApproval(jobId, outputDir, agentBox);
             }
+            if (isPendingInput) {
+                _showPendingUserInput(statusData, agentBox);
+            }
 
-            // Enable inject if job is pending (user can inject to resume)
-            if (isPendingApproval || isPendingInput) {
-                agentRunning = false;
-                liveInjectActive = true;
-                var stopBtn = document.getElementById('details-stop-btn');
-                if (stopBtn) stopBtn.style.display = 'inline-block';
-                if (injectInput) { injectInput.disabled = false; injectInput.placeholder = 'Type instructions to resume...'; }
-                if (injectBtn) { injectBtn.disabled = false; injectBtn.textContent = 'INJECT'; }
-                var statusText = document.getElementById('agent-status-text');
-                if (statusText) {
+            // Set status text
+            var statusText = document.getElementById('agent-status-text');
+            if (statusText) {
+                if (isPendingApproval || isPendingInput) {
                     statusText.textContent = isPendingApproval ? 'PENDING APPROVAL' : 'AWAITING INPUT';
                     statusText.style.color = 'var(--warning)';
-                }
-            } else if (jobRecord) {
-                // Completed or stopped job - show status
-                var statusText = document.getElementById('agent-status-text');
-                if (statusText) {
+                    statusText.style.fontWeight = 'bold';
+                } else if (jobRecord) {
+                    // Completed or stopped job - show status
                     statusText.textContent = jobRecord.status === 'completed' ? 'COMPLETED' : (jobRecord.status === 'error' ? 'ERROR' : (jobRecord.status === 'stopped' ? 'STOPPED' : jobRecord.status.toUpperCase()));
                     statusText.style.color = jobRecord.status === 'completed' ? 'var(--success)' : (jobRecord.status === 'error' ? 'var(--danger)' : 'var(--text-muted)');
                 }
-                // Enable inject for completed jobs so user can INJECT to resume
-                if (injectInput) { injectInput.disabled = false; injectInput.placeholder = 'Continue with new instructions...'; }
-                if (injectBtn) { injectBtn.disabled = false; injectBtn.textContent = 'INJECT'; }
             }
         });
     }
