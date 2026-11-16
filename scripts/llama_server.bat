@@ -2,12 +2,12 @@
 setlocal enabledelayedexpansion
 
 REM ===========================================================================
-REM AI-Builder — llama.cpp Server (Windows — CUDA or CPU)
+REM AI-Builder -- llama.cpp Server (Windows -- CUDA or CPU)
 REM ===========================================================================
 REM Downloads pre-built llama.cpp release, downloads the requested model(s), and
 REM starts llama-server in the foreground.
 REM
-REM GPU: CUDA (NVIDIA) — auto-detected via CIM/WMI + CUDA toolkit check
+REM GPU: CUDA (NVIDIA) -- auto-detected via CIM/WMI + CUDA toolkit check
 REM CPU: native x86_64 / ARM64 fallback
 REM
 REM Usage:
@@ -18,7 +18,7 @@ REM   llama_server.bat gemma4           :: start Gemma-4-26B-A4B-it
 REM   llama_server.bat all              :: download all models (don't start)
 REM
 REM   set MTP=0 before running to disable MTP speculative decoding
-REM   (only Gemma 4 ships an MTP draft; it is on by default for it —
+REM   (only Gemma 4 ships an MTP draft; it is on by default for it --
 REM   see the GEMMA_MTP note in the model definitions below).
 REM ===========================================================================
 
@@ -71,7 +71,7 @@ set "GEMMA_CTX=262144"
 set "GEMMA_NPREDICT=-1"
 set "GEMMA_PORT=8083"
 REM MTP (multi-token prediction) draft for speculative decoding.
-REM Conditional by construction: only Gemma 4 has these — it is the one
+REM Conditional by construction: only Gemma 4 has these -- it is the one
 REM model whose publisher ships an MTP draft (a separate small GGUF in
 REM the same repo). The two Mistrals ship no MTP head, so they have no
 REM MTP variables and never see the MTP flags.
@@ -89,7 +89,7 @@ if "%INSECURE_TLS%"=="1" (
 )
 
 REM ---------------------------------------------------------------------------
-REM Jump to main — without this, execution falls through every label below and
+REM Jump to main -- without this, execution falls through every label below and
 REM runs detection / install / download / start-server with empty arguments.
 REM ---------------------------------------------------------------------------
 goto :main
@@ -99,14 +99,20 @@ REM GPU detection
 REM ---------------------------------------------------------------------------
 :check_cuda_gpu
   REM WMIC is removed on Windows 11 24H2+; fall back to PowerShell CIM.
+  REM Written sequentially, no && / || blocks: a FOR /F command string
+  REM containing bare | characters breaks cmd's parser when the FOR sits
+  REM inside a parenthesised block (the parser splits the block at the
+  REM pipes) -- that was the "- was unexpected at this time" failure in
+  REM the previous version of this function. The PowerShell one-liner
+  REM below is also pipe-free on purpose (NVIDIA covers RTX/GTX names).
   set "GPU_FOUND="
-  where wmic >nul 2>&1 && (
-    for /f "tokens=*" %%G in ('wmic path win32_VideoController where "adapterram>0" get name 2^>nul ^| findstr /i /c:"NVIDIA" /c:"RTX" /c:"GTX"') do set "GPU_FOUND=Y"
-  ) || (
-    for /f "usebackq delims=" %%G in (`powershell -NoProfile -Command "(Get-CimInstance Win32_VideoController | Where-Object { $_.Name -match 'NVIDIA|RTX|GTX' }).Name" 2^>nul`) do (
-      if not "%%G"=="" set "GPU_FOUND=Y"
-    )
-  )
+  where wmic >nul 2>&1
+  if errorlevel 1 goto :check_gpu_ps
+  for /f "tokens=*" %%G in ('wmic path win32_VideoController where "adapterram>0" get name 2^>nul ^| findstr /i /c:"NVIDIA" /c:"RTX" /c:"GTX"') do set "GPU_FOUND=Y"
+  goto :check_gpu_done
+:check_gpu_ps
+  for /f "usebackq delims=" %%G in (`powershell -NoProfile -Command "if ((Get-CimInstance Win32_VideoController).Name -match 'NVIDIA') { 'Y' }" 2^>nul`) do set "GPU_FOUND=Y"
+:check_gpu_done
   if defined GPU_FOUND (exit /b 0) else (exit /b 1)
 
 :check_cuda_toolkit
@@ -249,7 +255,7 @@ REM ---------------------------------------------------------------------------
       if exist "%TMPDIR%\*.dll" xcopy "%TMPDIR%\*.dll" "%LLAMACPP_DIR%\" /Y >nul 2>&1
       echo [llama_server] CUDA runtime libraries installed.
     ) else (
-      echo [warn]    CUDA runtime download failed — server may fail to start.
+      echo [warn]    CUDA runtime download failed -- server may fail to start.
     )
   )
 
@@ -318,7 +324,7 @@ REM ---------------------------------------------------------------------------
     echo [llama_server] mmproj already present: %mmproj_file%
   )
 
-  REM MTP draft (only when this model ships one — arg 7 non-empty).
+  REM MTP draft (only when this model ships one -- arg 7 non-empty).
   REM Unlike the model/mmproj, a failed MTP download is NOT fatal and
   REM does not touch DL_OK: MTP is a speed bonus, and start_server
   REM falls back to running without it.
@@ -368,7 +374,7 @@ REM ---------------------------------------------------------------------------
   if exist "%model_dir%\%mmproj_file%" (
     set "MM_PROJ_ARG=--mmproj "%model_dir%\%mmproj_file%""
   ) else (
-    echo [llama_server]   mmproj not found — running text-only.
+    echo [llama_server]   mmproj not found -- running text-only.
   )
 
   REM MTP speculative decoding, conditional on the model shipping an MTP
@@ -415,7 +421,7 @@ REM ---------------------------------------------------------------------------
   exit /b
 
 REM ---------------------------------------------------------------------------
-REM Interactive menu — sets SELECTED directly. (Capturing the menu's output via
+REM Interactive menu -- sets SELECTED directly. (Capturing the menu's output via
 REM `for /f` broke because `set /p` cannot read user input inside a for-f
 REM child cmd.)
 REM ---------------------------------------------------------------------------
