@@ -348,6 +348,14 @@ REM ---------------------------------------------------------------------------
 :start_server
   REM Args: alias, model_dir, model_file, mmproj_file, ctx, n_predict, port,
   REM       has_cuda, mtp_file (optional; empty for models without one)
+  REM
+  REM Written block-free (goto-driven) on purpose: the previous version
+  REM built MM_PROJ_ARG / MTP_ARG inside parenthesised blocks (the MTP
+  REM path triple-nested), where the embedded-quote SET lines and the
+  REM parenthesised echo text broke cmd's block parser -- that was the
+  REM "- was unexpected at this time" failure on the Gemma path, right
+  REM after the Context line. Parsed one statement at a time at the top
+  REM level of the subroutine, the same lines are safe.
   set "alias=%~1"
   set "model_dir=%~2"
   set "model_file=%~3"
@@ -358,10 +366,10 @@ REM ---------------------------------------------------------------------------
   set "has_cuda=%~8"
   set "mtp_file=%~9"
 
-  if not exist "%model_dir%\%model_file%" (
-    echo [error]   Model file missing: %model_dir%\%model_file%
-    exit /b 1
-  )
+  if exist "%model_dir%\%model_file%" goto :ss_have_model
+  echo [error]   Model file missing: %model_dir%\%model_file%
+  exit /b 1
+:ss_have_model
 
   set "PATH=%LLAMACPP_DIR%;%PATH%"
 
@@ -371,29 +379,31 @@ REM ---------------------------------------------------------------------------
   echo [llama_server]   Context: %ctx%
 
   set "MM_PROJ_ARG="
-  if exist "%model_dir%\%mmproj_file%" (
-    set "MM_PROJ_ARG=--mmproj "%model_dir%\%mmproj_file%""
-  ) else (
-    echo [llama_server]   mmproj not found -- running text-only.
-  )
+  if not exist "%model_dir%\%mmproj_file%" goto :ss_no_mmproj
+  set "MM_PROJ_ARG=--mmproj "%model_dir%\%mmproj_file%""
+  goto :ss_mtp
+:ss_no_mmproj
+  echo [llama_server]   mmproj not found -- running text-only.
 
+:ss_mtp
   REM MTP speculative decoding, conditional on the model shipping an MTP
   REM draft (arg 9 non-empty) and on MTP not being forced off with
   REM MTP=0. A model with no draft never sees the flags; a missing draft
   REM file (failed download) degrades to a warning, not an abort.
   set "MTP_ARG="
-  if not "%mtp_file%"=="" (
-    if not "%MTP%"=="0" (
-      if exist "%model_dir%\%mtp_file%" (
-        set "MTP_ARG=--spec-type draft-mtp --spec-draft-model "%model_dir%\%mtp_file%""
-        echo [llama_server]   MTP: on (draft-mtp, %mtp_file%)
-      ) else (
-        echo [warn]    MTP draft not present (%mtp_file%) - running without MTP.
-      )
-    )
-  ) else if "%MTP%"=="1" (
-    echo [warn]    MTP requested, but this model ships no MTP draft - running without MTP.
-  )
+  if "%mtp_file%"=="" goto :ss_mtp_none
+  if "%MTP%"=="0" goto :ss_mtp_done
+  if not exist "%model_dir%\%mtp_file%" goto :ss_mtp_missing
+  set "MTP_ARG=--spec-type draft-mtp --spec-draft-model "%model_dir%\%mtp_file%""
+  echo [llama_server]   MTP: on (draft-mtp, %mtp_file%)
+  goto :ss_mtp_done
+:ss_mtp_missing
+  echo [warn]    MTP draft not present (%mtp_file%) - running without MTP.
+  goto :ss_mtp_done
+:ss_mtp_none
+  if not "%MTP%"=="1" goto :ss_mtp_done
+  echo [warn]    MTP requested, but this model ships no MTP draft - running without MTP.
+:ss_mtp_done
 
   set "GPU_ARG="
   if "!has_cuda!"=="1" set "GPU_ARG=--n-gpu-layers 999"
