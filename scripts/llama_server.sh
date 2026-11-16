@@ -9,12 +9,18 @@
 #
 # Usage:
 #   ./scripts/llama_server.sh              # interactive menu
-#   ./scripts/llama_server.sh qwen35b      # start Qwen3.6-35B-A3B
+#   ./scripts/llama_server.sh qwen35b      # start Qwen3.6-35B-A3B (alias: qwen36)
 #   ./scripts/llama_server.sh ministral    # start Ministral-3-14B
 #   ./scripts/llama_server.sh devstral     # start Devstral-Small-2-24B
 #   ./scripts/llama_server.sh gemma4       # start Gemma-4-26B-A4B-it
 #   ./scripts/llama_server.sh all          # download all models (don't start)
+#
+# NOTE: this revision runs on the stock macOS /bin/bash 3.2 — no Homebrew
+# bash required. bash 3.2 has no associative arrays, so the model tables
+# below are `case` lookups instead of `declare -A` maps; behaviour is
+# otherwise identical to the bash >= 4 version.
 # ============================================================================
+
 set -euo pipefail
 
 # ---------------------------------------------------------------------------
@@ -31,67 +37,87 @@ LLAMACPP_TAG="b12387"
 
 # ---------------------------------------------------------------------------
 # Model definitions
+#
+# bash 3.2 stand-ins for the old associative arrays: one `case` lookup per
+# attribute. Adding a model = add its key to MODEL_KEYS and one line to
+# each lookup. Friendly aliases are resolved in resolve_key() below.
 # ---------------------------------------------------------------------------
-declare -a MODEL_KEYS=(qwen35b ministral devstral gemma4)
+MODEL_KEYS="qwen35b ministral devstral gemma4"
 
-declare -A MODEL_NAMES=(
-  [qwen35b]="Qwen3.6-35B-A3B"
-  [ministral]="Ministral-3-14B"
-  [devstral]="Devstral-Small-2-24B"
-  [gemma4]="Gemma-4-26B-A4B"
-)
+model_name() {
+  case "$1" in
+    qwen35b)   echo "Qwen3.6-35B-A3B" ;;
+    ministral) echo "Ministral-3-14B" ;;
+    devstral)  echo "Devstral-Small-2-24B" ;;
+    gemma4)    echo "Gemma-4-26B-A4B" ;;
+  esac
+}
 
-declare -A MODEL_FILES=(
-  [qwen35b]="Qwen3.6-35B-A3B-UD-Q4_K_M.gguf"
-  [ministral]="Ministral-3-14B-Instruct-2512-Q4_K_M.gguf"
-  [devstral]="Devstral-Small-2-24B-Instruct-2512-Q4_K_M.gguf"
-  [gemma4]="gemma-4-26B-A4B-it-UD-Q4_K_M.gguf"
-)
+model_file() {
+  case "$1" in
+    qwen35b)   echo "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf" ;;
+    ministral) echo "Ministral-3-14B-Instruct-2512-Q4_K_M.gguf" ;;
+    devstral)  echo "Devstral-Small-2-24B-Instruct-2512-Q4_K_M.gguf" ;;
+    gemma4)    echo "gemma-4-26B-A4B-it-UD-Q4_K_M.gguf" ;;
+  esac
+}
 
-declare -A MMPROJ_FILES=(
-  [qwen35b]="mmproj-F32.gguf"
-  [ministral]="mmproj-F16.gguf"
-  [devstral]="mmproj-F32.gguf"
-  [gemma4]="mmproj-F32.gguf"
-)
+model_mmproj_file() {
+  case "$1" in
+    qwen35b)   echo "mmproj-F32.gguf" ;;
+    ministral) echo "mmproj-F16.gguf" ;;
+    devstral)  echo "mmproj-F32.gguf" ;;
+    gemma4)    echo "mmproj-F32.gguf" ;;
+  esac
+}
 
-declare -A MODEL_URLS=(
-  [qwen35b]="https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF/resolve/main/Qwen3.6-35B-A3B-UD-Q4_K_M.gguf?download=true"
-  [ministral]="https://huggingface.co/unsloth/Ministral-3-14B-Instruct-2512-GGUF/resolve/main/Ministral-3-14B-Instruct-2512-Q4_K_M.gguf?download=true"
-  [devstral]="https://huggingface.co/unsloth/Devstral-Small-2-24B-Instruct-2512-GGUF/resolve/main/Devstral-Small-2-24B-Instruct-2512-Q4_K_M.gguf?download=true"
-  [gemma4]="https://huggingface.co/unsloth/gemma-4-26B-A4B-it-GGUF/resolve/main/gemma-4-26B-A4B-it-UD-Q4_K_M.gguf?download=true"
-)
+model_url() {
+  case "$1" in
+    qwen35b)   echo "https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF/resolve/main/Qwen3.6-35B-A3B-UD-Q4_K_M.gguf?download=true" ;;
+    ministral) echo "https://huggingface.co/unsloth/Ministral-3-14B-Instruct-2512-GGUF/resolve/main/Ministral-3-14B-Instruct-2512-Q4_K_M.gguf?download=true" ;;
+    devstral)  echo "https://huggingface.co/unsloth/Devstral-Small-2-24B-Instruct-2512-GGUF/resolve/main/Devstral-Small-2-24B-Instruct-2512-Q4_K_M.gguf?download=true" ;;
+    gemma4)    echo "https://huggingface.co/unsloth/gemma-4-26B-A4B-it-GGUF/resolve/main/gemma-4-26B-A4B-it-UD-Q4_K_M.gguf?download=true" ;;
+  esac
+}
 
-declare -A MMPROJ_URLS=(
-  [qwen35b]="https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF/resolve/main/mmproj-F32.gguf?download=true"
-  [ministral]="https://huggingface.co/unsloth/Ministral-3-14B-Instruct-2512-GGUF/resolve/main/mmproj-F16.gguf?download=true"
-  [devstral]="https://huggingface.co/unsloth/Devstral-Small-2-24B-Instruct-2512-GGUF/resolve/main/mmproj-F32.gguf?download=true"
-  [gemma4]="https://huggingface.co/unsloth/gemma-4-26B-A4B-it-GGUF/resolve/main/mmproj-F32.gguf?download=true"
-)
+model_mmproj_url() {
+  case "$1" in
+    qwen35b)   echo "https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF/resolve/main/mmproj-F32.gguf?download=true" ;;
+    ministral) echo "https://huggingface.co/unsloth/Ministral-3-14B-Instruct-2512-GGUF/resolve/main/mmproj-F16.gguf?download=true" ;;
+    devstral)  echo "https://huggingface.co/unsloth/Devstral-Small-2-24B-Instruct-2512-GGUF/resolve/main/mmproj-F32.gguf?download=true" ;;
+    gemma4)    echo "https://huggingface.co/unsloth/gemma-4-26B-A4B-it-GGUF/resolve/main/mmproj-F32.gguf?download=true" ;;
+  esac
+}
 
-declare -A MODEL_CONTEXTS=(
-  [qwen35b]="262144"
-  [ministral]="131072"
-  [devstral]="131072"
-  [gemma4]="131072"
-)
+model_context() {
+  case "$1" in
+    qwen35b)   echo "262144" ;;
+    ministral) echo "131072" ;;
+    devstral)  echo "131072" ;;
+    gemma4)    echo "131072" ;;
+  esac
+}
 
 # n_predict: -1 = unlimited (bounded by context size). The previous values
 # (131072 / 65536) were passed to `-n`, which is tokens-to-generate, not a
 # context window — almost certainly not what was intended.
-declare -A MODEL_NPREDICT=(
-  [qwen35b]="-1"
-  [ministral]="-1"
-  [devstral]="-1"
-  [gemma4]="-1"
-)
+model_npredict() {
+  case "$1" in
+    qwen35b)   echo "-1" ;;
+    ministral) echo "-1" ;;
+    devstral)  echo "-1" ;;
+    gemma4)    echo "-1" ;;
+  esac
+}
 
-declare -A MODEL_PORTS=(
-  [qwen35b]="8080"
-  [ministral]="8081"
-  [devstral]="8082"
-  [gemma4]="8083"
-)
+model_port() {
+  case "$1" in
+    qwen35b)   echo "8080" ;;
+    ministral) echo "8081" ;;
+    devstral)  echo "8082" ;;
+    gemma4)    echo "8083" ;;
+  esac
+}
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -107,7 +133,24 @@ if [[ "${INSECURE_TLS:-0}" == "1" ]]; then
   warn "INSECURE_TLS=1 — certificate verification is DISABLED."
   CURL_EXTRA+=(-k)
 fi
-fetch() { curl -fSL "${CURL_EXTRA[@]}" "$@"; }
+fetch() { curl -fSL ${CURL_EXTRA[@]+"${CURL_EXTRA[@]}"} "$@"; }
+
+# Resolve a user-supplied model key (with aliases) to a canonical key.
+resolve_key() {
+  local raw="$1"
+  # Friendly aliases -> canonical keys (was MODEL_ALIASES).
+  case "$raw" in
+    qwen36) raw="qwen35b" ;;
+  esac
+  local k
+  for k in $MODEL_KEYS; do
+    if [[ "$k" == "$raw" ]]; then
+      printf '%s' "$k"
+      return 0
+    fi
+  done
+  return 1
+}
 
 # ---------------------------------------------------------------------------
 # Platform check
@@ -132,7 +175,7 @@ check_memory() {
     *)        min_gb=16 ;;
   esac
   if [[ "$ram_gb" -gt 0 ]] && [[ "$ram_gb" -lt "$min_gb" ]]; then
-    warn "This Mac reports ${ram_gb} GB unified memory; ${MODEL_NAMES[$key]} at Q4_K_M with a ${MODEL_CONTEXTS[$key]}-token context typically wants >= ${min_gb} GB. Consider a smaller context or quant."
+    warn "This Mac reports ${ram_gb} GB unified memory; $(model_name "$key") at Q4_K_M with a $(model_context "$key")-token context typically wants >= ${min_gb} GB. Consider a smaller context or quant."
   fi
 }
 
@@ -161,18 +204,24 @@ install_llamacpp() {
   mkdir -p "$LLAMACPP_DIR"
   tar -xzf "$tmp_dir/llama.tar.gz" -C "$tmp_dir"
 
-  # Find the extracted payload. Handles both layouts: an archive that extracts
-  # into a "llama-<tag>-bin-macos-arm64/" subdirectory, and one that extracts
-  # bin/ etc. directly into the tar root.
-  local extracted_dir
-  extracted_dir=$(find "$tmp_dir" -maxdepth 1 -type d -name "llama-*" | head -n1 || true)
-  if [[ -n "$extracted_dir" && -e "$extracted_dir/bin/llama-server" ]]; then
-    cp -a "$extracted_dir/." "$LLAMACPP_DIR/"
-  elif [[ -e "$tmp_dir/bin/llama-server" ]]; then
-    cp -a "$tmp_dir/." "$LLAMACPP_DIR/"
-  else
+  # Find llama-server wherever the archive put it. The b12387 macOS tarball
+  # is FLAT — one llama-<tag>/ folder with the binaries and their dylibs side
+  # by side and no bin/ anywhere — so search the whole extracted tree instead
+  # of assuming a layout; a future bin/ subdir or tar-root layout installs
+  # just as well.
+  local server_path
+  server_path=$(find "$tmp_dir" -type f -name "llama-server" | head -n1 || true)
+  if [[ -z "$server_path" ]]; then
     die "Could not locate llama-server in the downloaded archive."
   fi
+  local payload_dir
+  payload_dir="$(dirname "$server_path")"
+  # If the binary sits in a bin/ subdir, install from its parent so the
+  # sibling dylibs land alongside it either way.
+  if [[ "$(basename "$payload_dir")" == "bin" ]]; then
+    payload_dir="$(dirname "$payload_dir")"
+  fi
+  cp -a "$payload_dir/." "$LLAMACPP_DIR/"
 
   # Defensive: strip the quarantine attribute if present, so Gatekeeper does
   # not block the downloaded binaries ("cannot be opened because the developer
@@ -195,16 +244,16 @@ install_llamacpp() {
 # ---------------------------------------------------------------------------
 download_model() {
   local key="$1"
-  local model_dir="$MODEL_BASE_DIR/${MODEL_NAMES[$key]}"
-  local model_file="${MODEL_FILES[$key]}"
-  local mmproj_file="${MMPROJ_FILES[$key]}"
-  local model_url="${MODEL_URLS[$key]}"
-  local mmproj_url="${MMPROJ_URLS[$key]}"
+  local model_dir="$MODEL_BASE_DIR/$(model_name "$key")"
+  local model_file="$(model_file "$key")"
+  local mmproj_file="$(model_mmproj_file "$key")"
+  local model_url="$(model_url "$key")"
+  local mmproj_url="$(model_mmproj_url "$key")"
 
   mkdir -p "$model_dir"
 
   if [[ ! -s "$model_dir/$model_file" ]]; then
-    log "Downloading ${MODEL_NAMES[$key]} model…"
+    log "Downloading $(model_name "$key") model…"
     fetch -C - -o "$model_dir/$model_file" "$model_url" \
       || { warn "Model download failed: $model_file"; return 1; }
   else
@@ -212,7 +261,7 @@ download_model() {
   fi
 
   if [[ ! -s "$model_dir/$mmproj_file" ]]; then
-    log "Downloading ${MODEL_NAMES[$key]} mmproj…"
+    log "Downloading $(model_name "$key") mmproj…"
     fetch -C - -o "$model_dir/$mmproj_file" "$mmproj_url" \
       || { warn "mmproj download failed: $mmproj_file"; return 1; }
   else
@@ -225,9 +274,9 @@ download_model() {
 # ---------------------------------------------------------------------------
 start_server() {
   local key="$1"
-  local model_dir="$MODEL_BASE_DIR/${MODEL_NAMES[$key]}"
-  local model_file="${MODEL_FILES[$key]}"
-  local mmproj_file="${MMPROJ_FILES[$key]}"
+  local model_dir="$MODEL_BASE_DIR/$(model_name "$key")"
+  local model_file="$(model_file "$key")"
+  local mmproj_file="$(model_mmproj_file "$key")"
 
   if [[ ! -s "$model_dir/$model_file" ]]; then
     die "Model file missing: $model_dir/$model_file"
@@ -235,10 +284,10 @@ start_server() {
 
   export PATH="$LLAMACPP_DIR/bin:$LLAMACPP_DIR:$PATH"
 
-  log "Starting llama-server (${MODEL_NAMES[$key]})…"
+  log "Starting llama-server ($(model_name "$key"))…"
   log "  Model: $model_dir/$model_file"
-  log "  Port:  ${MODEL_PORTS[$key]}"
-  log "  Context: ${MODEL_CONTEXTS[$key]}"
+  log "  Port:  $(model_port "$key")"
+  log "  Context: $(model_context "$key")"
   log "  Backend: Metal"
 
   local mmproj_args=()
@@ -251,12 +300,12 @@ start_server() {
   # -n is n_predict; -1 means unlimited (bounded by context size).
   exec llama-server \
     -m "$model_dir/$model_file" \
-    "${mmproj_args[@]}" \
+    ${mmproj_args[@]+"${mmproj_args[@]}"} \
     --alias "$key" \
     --jinja \
     --flash-attn on \
-    -c "${MODEL_CONTEXTS[$key]}" \
-    -n "${MODEL_NPREDICT[$key]}" \
+    -c "$(model_context "$key")" \
+    -n "$(model_npredict "$key")" \
     --cache-type-k q8_0 \
     --cache-type-v q8_0 \
     --batch-size 512 \
@@ -265,28 +314,33 @@ start_server() {
     --top-p 0.8 \
     --top-k 20 \
     --host 0.0.0.0 \
-    --port "${MODEL_PORTS[$key]}" \
+    --port "$(model_port "$key")" \
     --n-gpu-layers 999
 }
 
 # ---------------------------------------------------------------------------
 # Interactive menu
+#
+# The banner goes to stderr and only the chosen key is echoed on stdout:
+# main() captures this function's stdout, and in the bash >= 4 original the
+# banner text was captured along with the selection, so the menu could
+# never actually match a choice. Displayed output is unchanged.
 # ---------------------------------------------------------------------------
 show_menu() {
-  echo ""
-  echo "============================================"
-  echo "  AI-Builder — llama.cpp Server (macOS)"
-  echo "============================================"
-  echo ""
-  echo "  1) Qwen3.6-35B-A3B       (port 8080, 256K ctx)"
-  echo "  2) Ministral-3-14B       (port 8081, 128K ctx)"
-  echo "  3) Devstral-Small-2-24B  (port 8082, 128K ctx)"
-  echo "  4) Gemma-4-26B-A4B-it    (port 8083, 128K ctx)"
-  echo "  5) Download ALL models"
-  echo "  0) Exit"
-  echo ""
-  echo "  Or run: $0 <qwen35b|ministral|devstral|gemma4|all>"
-  echo ""
+  echo "" >&2
+  echo "============================================" >&2
+  echo "  AI-Builder — llama.cpp Server (macOS)" >&2
+  echo "============================================" >&2
+  echo "" >&2
+  echo "  1) Qwen3.6-35B-A3B       (port 8080, 256K ctx)" >&2
+  echo "  2) Ministral-3-14B       (port 8081, 128K ctx)" >&2
+  echo "  3) Devstral-Small-2-24B  (port 8082, 128K ctx)" >&2
+  echo "  4) Gemma-4-26B-A4B-it    (port 8083, 128K ctx)" >&2
+  echo "  5) Download ALL models" >&2
+  echo "  0) Exit" >&2
+  echo "" >&2
+  echo "  Or run: $0 <qwen35b|ministral|devstral|gemma4|all>" >&2
+  echo "" >&2
 
   local choice
   while true; do
@@ -316,16 +370,10 @@ main() {
   fi
 
   case "$selected" in
-    qwen35b|ministral|devstral|gemma4)
-      install_llamacpp
-      download_model "$selected" || die "Model download failed — aborting."
-      check_memory "$selected"
-      start_server "$selected"
-      ;;
     all)
       install_llamacpp
       local failed=0 key
-      for key in "${MODEL_KEYS[@]}"; do
+      for key in $MODEL_KEYS; do
         download_model "$key" || failed=$((failed + 1))
       done
       if [[ "$failed" -gt 0 ]]; then
@@ -339,9 +387,20 @@ main() {
       exit 0
       ;;
     *)
-      warn "Unknown model: $selected"
-      log "Valid choices: ${MODEL_KEYS[*]} all"
-      exit 1
+      # Resolve aliases / validate the key BEFORE touching any lookups, so an
+      # unknown or typo'd name gives a clear error instead of an unbound
+      # variable crash under `set -u`.
+      local key
+      if key=$(resolve_key "$selected"); then
+        install_llamacpp
+        download_model "$key" || die "Model download failed — aborting."
+        check_memory "$key"
+        start_server "$key"
+      else
+        warn "Unknown model: $selected"
+        log "Valid choices: $MODEL_KEYS all"
+        exit 1
+      fi
       ;;
   esac
 }

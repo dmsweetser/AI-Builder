@@ -24,3 +24,5 @@ tests/test_project/java-project/target/
 .venv
 *.spec
 aib_instance*/*
+llama.cpp-bin/*
+models/*
