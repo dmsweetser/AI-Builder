@@ -10,11 +10,14 @@
 #
 # Usage:
 #   ./scripts/llama_server_linux.sh              # interactive menu
-#   ./scripts/llama_server_linux.sh qwen35b      # start Qwen3.6-35B-A3B
 #   ./scripts/llama_server_linux.sh ministral    # start Ministral-3-14B
 #   ./scripts/llama_server_linux.sh devstral     # start Devstral-Small-2-24B
 #   ./scripts/llama_server_linux.sh gemma4       # start Gemma-4-26B-A4B-it
 #   ./scripts/llama_server_linux.sh all          # download all models (don't start)
+#
+#   MTP=0 ./scripts/llama_server_linux.sh gemma4 # start with MTP speculative
+#                                                # decoding disabled (see the
+#                                                # MTP tables below)
 # ============================================================================
 set -euo pipefail
 
@@ -33,62 +36,77 @@ LLAMACPP_TAG="b12387"
 # ---------------------------------------------------------------------------
 # Model definitions
 # ---------------------------------------------------------------------------
-declare -a MODEL_KEYS=(qwen35b ministral devstral gemma4)
+declare -a MODEL_KEYS=(ministral devstral gemma4)
 
 declare -A MODEL_NAMES=(
-  [qwen35b]="Qwen3.6-35B-A3B"
   [ministral]="Ministral-3-14B"
   [devstral]="Devstral-Small-2-24B"
   [gemma4]="Gemma-4-26B-A4B"
 )
 
 declare -A MODEL_FILES=(
-  [qwen35b]="Qwen3.6-35B-A3B-UD-Q4_K_M.gguf"
   [ministral]="Ministral-3-14B-Instruct-2512-Q4_K_M.gguf"
   [devstral]="Devstral-Small-2-24B-Instruct-2512-Q4_K_M.gguf"
   [gemma4]="gemma-4-26B-A4B-it-UD-Q4_K_M.gguf"
 )
 
 declare -A MMPROJ_FILES=(
-  [qwen35b]="mmproj-F32.gguf"
   [ministral]="mmproj-F16.gguf"
   [devstral]="mmproj-F32.gguf"
   [gemma4]="mmproj-F32.gguf"
 )
 
 declare -A MODEL_URLS=(
-  [qwen35b]="https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF/resolve/main/Qwen3.6-35B-A3B-UD-Q4_K_M.gguf?download=true"
   [ministral]="https://huggingface.co/unsloth/Ministral-3-14B-Instruct-2512-GGUF/resolve/main/Ministral-3-14B-Instruct-2512-Q4_K_M.gguf?download=true"
   [devstral]="https://huggingface.co/unsloth/Devstral-Small-2-24B-Instruct-2512-GGUF/resolve/main/Devstral-Small-2-24B-Instruct-2512-Q4_K_M.gguf?download=true"
   [gemma4]="https://huggingface.co/unsloth/gemma-4-26B-A4B-it-GGUF/resolve/main/gemma-4-26B-A4B-it-UD-Q4_K_M.gguf?download=true"
 )
 
 declare -A MMPROJ_URLS=(
-  [qwen35b]="https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF/resolve/main/mmproj-F32.gguf?download=true"
   [ministral]="https://huggingface.co/unsloth/Ministral-3-14B-Instruct-2512-GGUF/resolve/main/mmproj-F16.gguf?download=true"
   [devstral]="https://huggingface.co/unsloth/Devstral-Small-2-24B-Instruct-2512-GGUF/resolve/main/mmproj-F32.gguf?download=true"
   [gemma4]="https://huggingface.co/unsloth/gemma-4-26B-A4B-it-GGUF/resolve/main/mmproj-F32.gguf?download=true"
 )
 
+# MTP (multi-token prediction) draft model, for speculative decoding.
+# Conditional by construction: only models whose publisher ships an MTP
+# draft have an entry — today that is Gemma 4 alone (a separate small
+# GGUF in the same repo). The two Mistrals ship no MTP head, so for them
+# these lookups are empty and no MTP flags are ever passed. Always read
+# these with ${...[$key]:-} so a missing key stays safe under `set -u`.
+# start_server() also honours MTP=0 to force MTP off for a model that
+# has one.
+declare -A MODEL_MTP_FILES=(
+  [gemma4]="mtp-gemma-4-26B-A4B-it.gguf"
+)
+
+declare -A MODEL_MTP_URLS=(
+  [gemma4]="https://huggingface.co/unsloth/gemma-4-26B-A4B-it-GGUF/resolve/main/mtp-gemma-4-26B-A4B-it.gguf?download=true"
+)
+
+# Each model's proper maximum context, from its publisher's config
+# (text_config.max_position_embeddings): Ministral 3 and Gemma 4 are
+# 256K models; Devstral Small 2's config declares 393216 (384K, YaRN
+# factor 48 over an 8192 base) even though it is marketed as 256K.
 declare -A MODEL_CONTEXTS=(
-  [qwen35b]="262144"
-  [ministral]="131072"
-  [devstral]="131072"
-  [gemma4]="131072"
+  [ministral]="262144"
+  [devstral]="393216"
+  [gemma4]="262144"
 )
 
 # n_predict: -1 = unlimited (bounded by context size). The previous values
 # (131072 / 65536) were passed to `-n`, which is tokens-to-generate, not a
 # context window — almost certainly not what was intended.
 declare -A MODEL_NPREDICT=(
-  [qwen35b]="-1"
   [ministral]="-1"
   [devstral]="-1"
   [gemma4]="-1"
 )
 
+# Ports are unchanged from when there were four models (Ministral has
+# always been 8081, etc.) so existing client configs keep working;
+# 8080 is simply unused now.
 declare -A MODEL_PORTS=(
-  [qwen35b]="8080"
   [ministral]="8081"
   [devstral]="8082"
   [gemma4]="8083"
@@ -353,6 +371,20 @@ download_model() {
   else
     log "mmproj already present: $mmproj_file"
   fi
+
+  # MTP draft (only for models that ship one). Unlike the model/mmproj,
+  # a failed MTP download is NOT fatal — MTP is a speed bonus, and
+  # start_server() falls back to running without it.
+  local mtp_file="${MODEL_MTP_FILES[$key]:-}"
+  if [[ -n "$mtp_file" ]]; then
+    if [[ ! -s "$model_dir/$mtp_file" ]]; then
+      log "Downloading ${MODEL_NAMES[$key]} MTP draft…"
+      fetch -C - -o "$model_dir/$mtp_file" "${MODEL_MTP_URLS[$key]}" \
+        || warn "MTP draft download failed: $mtp_file — continuing without MTP."
+    else
+      log "MTP draft already present: $mtp_file"
+    fi
+  fi
 }
 
 # ---------------------------------------------------------------------------
@@ -387,6 +419,23 @@ start_server() {
     log "  mmproj not found — running text-only."
   fi
 
+  # MTP speculative decoding, conditional on the model shipping an MTP
+  # draft (see MODEL_MTP_FILES) and on MTP not being forced off with
+  # MTP=0. A model with no draft never sees the flags; a missing draft
+  # file (failed download) degrades to a warning, not an abort.
+  local mtp_file="${MODEL_MTP_FILES[$key]:-}"
+  local mtp_args=()
+  if [[ "${MTP:-1}" != "0" && -n "$mtp_file" ]]; then
+    if [[ -s "$model_dir/$mtp_file" ]]; then
+      mtp_args=(--spec-type draft-mtp --spec-draft-model "$model_dir/$mtp_file")
+      log "  MTP: on (draft-mtp, $mtp_file)"
+    else
+      warn "MTP draft not present ($mtp_file) — running without MTP."
+    fi
+  elif [[ "${MTP:-}" == "1" && -z "$mtp_file" ]]; then
+    warn "MTP requested, but ${MODEL_NAMES[$key]} ships no MTP draft — running without MTP."
+  fi
+
   # Only offload layers when a CUDA build was selected; the CPU build ignores
   # the flag but it makes the intent explicit to pass it conditionally.
   local gpu_args=()
@@ -398,6 +447,7 @@ start_server() {
   exec llama-server \
     -m "$model_dir/$model_file" \
     "${mmproj_args[@]}" \
+    "${mtp_args[@]}" \
     --alias "$key" \
     --jinja \
     --flash-attn on \
@@ -417,33 +467,37 @@ start_server() {
 
 # ---------------------------------------------------------------------------
 # Interactive menu
+#
+# The banner goes to stderr and only the chosen key is echoed on stdout:
+# main() captures this function's stdout, and previously the banner text
+# was captured along with the selection, so the menu could never
+# actually match a choice (the same bug the macOS script had).
+# Displayed output is unchanged.
 # ---------------------------------------------------------------------------
 show_menu() {
-  echo ""
-  echo "============================================"
-  echo "  AI-Builder — llama.cpp Server (Linux)"
-  echo "  Backend: $(backend_label)"
-  echo "============================================"
-  echo ""
-  echo "  1) Qwen3.6-35B-A3B       (port 8080, 256K ctx)"
-  echo "  2) Ministral-3-14B       (port 8081, 128K ctx)"
-  echo "  3) Devstral-Small-2-24B  (port 8082, 128K ctx)"
-  echo "  4) Gemma-4-26B-A4B-it    (port 8083, 128K ctx)"
-  echo "  5) Download ALL models"
-  echo "  0) Exit"
-  echo ""
-  echo "  Or run: $0 <qwen35b|ministral|devstral|gemma4|all>"
-  echo ""
+  echo "" >&2
+  echo "============================================" >&2
+  echo "  AI-Builder — llama.cpp Server (Linux)" >&2
+  echo "  Backend: $(backend_label)" >&2
+  echo "============================================" >&2
+  echo "" >&2
+  echo "  1) Ministral-3-14B       (port 8081, 256K ctx)" >&2
+  echo "  2) Devstral-Small-2-24B  (port 8082, 384K ctx)" >&2
+  echo "  3) Gemma-4-26B-A4B-it    (port 8083, 256K ctx, MTP)" >&2
+  echo "  4) Download ALL models" >&2
+  echo "  0) Exit" >&2
+  echo "" >&2
+  echo "  Or run: $0 <ministral|devstral|gemma4|all>" >&2
+  echo "" >&2
 
   local choice
   while true; do
-    read -rp "Select model [1-5, 0=exit]: " choice
+    read -rp "Select model [1-4, 0=exit]: " choice
     case "$choice" in
-      1) echo "qwen35b"; return 0 ;;
-      2) echo "ministral"; return 0 ;;
-      3) echo "devstral"; return 0 ;;
-      4) echo "gemma4"; return 0 ;;
-      5) echo "all"; return 0 ;;
+      1) echo "ministral"; return 0 ;;
+      2) echo "devstral"; return 0 ;;
+      3) echo "gemma4"; return 0 ;;
+      4) echo "all"; return 0 ;;
       0) echo "exit"; return 0 ;;
       *) warn "Invalid choice." ;;
     esac
@@ -463,7 +517,7 @@ main() {
   fi
 
   case "$selected" in
-    qwen35b|ministral|devstral|gemma4)
+    ministral|devstral|gemma4)
       install_prereqs
       install_llamacpp
       download_model "$selected" || die "Model download failed — aborting."

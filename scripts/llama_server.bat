@@ -12,11 +12,14 @@ REM CPU: native x86_64 / ARM64 fallback
 REM
 REM Usage:
 REM   llama_server.bat                  :: interactive menu
-REM   llama_server.bat qwen35b          :: start Qwen3.6-35B-A3B
 REM   llama_server.bat ministral        :: start Ministral-3-14B
 REM   llama_server.bat devstral         :: start Devstral-Small-2-24B
 REM   llama_server.bat gemma4           :: start Gemma-4-26B-A4B-it
 REM   llama_server.bat all              :: download all models (don't start)
+REM
+REM   set MTP=0 before running to disable MTP speculative decoding
+REM   (only Gemma 4 ships an MTP draft; it is on by default for it —
+REM   see the GEMMA_MTP note in the model definitions below).
 REM ===========================================================================
 
 cd /d "%~dp0.." || (
@@ -33,23 +36,20 @@ REM upgrade; asset names verified against b12387.
 set "TAG=b12387"
 
 REM ---------------------------------------------------------------------------
-REM Model definitions
+REM Model definitions. Contexts are each model's proper maximum, from its
+REM publisher's config (text_config.max_position_embeddings): Ministral 3
+REM and Gemma 4 are 256K models; Devstral Small 2's config declares
+REM 393216 (384K, YaRN factor 48 over an 8192 base) even though it is
+REM marketed as 256K. Ports are unchanged from when there were four
+REM models (Ministral has always been 8081, etc.) so existing client
+REM configs keep working; 8080 is simply unused now.
 REM ---------------------------------------------------------------------------
-set "QWEN_NAME=Qwen3.6-35B-A3B"
-set "QWEN_FILE=Qwen3.6-35B-A3B-UD-Q4_K_M.gguf"
-set "QWEN_MMPROJ=mmproj-F32.gguf"
-set "QWEN_URL=https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF/resolve/main/Qwen3.6-35B-A3B-UD-Q4_K_M.gguf?download=true"
-set "QWEN_MMURL=https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF/resolve/main/mmproj-F32.gguf?download=true"
-set "QWEN_CTX=262144"
-set "QWEN_NPREDICT=-1"
-set "QWEN_PORT=8080"
-
 set "MIN_NAME=Ministral-3-14B"
 set "MIN_FILE=Ministral-3-14B-Instruct-2512-Q4_K_M.gguf"
 set "MIN_MMPROJ=mmproj-F16.gguf"
 set "MIN_URL=https://huggingface.co/unsloth/Ministral-3-14B-Instruct-2512-GGUF/resolve/main/Ministral-3-14B-Instruct-2512-Q4_K_M.gguf?download=true"
 set "MIN_MMURL=https://huggingface.co/unsloth/Ministral-3-14B-Instruct-2512-GGUF/resolve/main/mmproj-F16.gguf?download=true"
-set "MIN_CTX=131072"
+set "MIN_CTX=262144"
 set "MIN_NPREDICT=-1"
 set "MIN_PORT=8081"
 
@@ -58,7 +58,7 @@ set "DEV_FILE=Devstral-Small-2-24B-Instruct-2512-Q4_K_M.gguf"
 set "DEV_MMPROJ=mmproj-F32.gguf"
 set "DEV_URL=https://huggingface.co/unsloth/Devstral-Small-2-24B-Instruct-2512-GGUF/resolve/main/Devstral-Small-2-24B-Instruct-2512-Q4_K_M.gguf?download=true"
 set "DEV_MMURL=https://huggingface.co/unsloth/Devstral-Small-2-24B-Instruct-2512-GGUF/resolve/main/mmproj-F32.gguf?download=true"
-set "DEV_CTX=131072"
+set "DEV_CTX=393216"
 set "DEV_NPREDICT=-1"
 set "DEV_PORT=8082"
 
@@ -67,9 +67,16 @@ set "GEMMA_FILE=gemma-4-26B-A4B-it-UD-Q4_K_M.gguf"
 set "GEMMA_MMPROJ=mmproj-F32.gguf"
 set "GEMMA_URL=https://huggingface.co/unsloth/gemma-4-26B-A4B-it-GGUF/resolve/main/gemma-4-26B-A4B-it-UD-Q4_K_M.gguf?download=true"
 set "GEMMA_MMURL=https://huggingface.co/unsloth/gemma-4-26B-A4B-it-GGUF/resolve/main/mmproj-F32.gguf?download=true"
-set "GEMMA_CTX=131072"
+set "GEMMA_CTX=262144"
 set "GEMMA_NPREDICT=-1"
 set "GEMMA_PORT=8083"
+REM MTP (multi-token prediction) draft for speculative decoding.
+REM Conditional by construction: only Gemma 4 has these — it is the one
+REM model whose publisher ships an MTP draft (a separate small GGUF in
+REM the same repo). The two Mistrals ship no MTP head, so they have no
+REM MTP variables and never see the MTP flags.
+set "GEMMA_MTP=mtp-gemma-4-26B-A4B-it.gguf"
+set "GEMMA_MTPURL=https://huggingface.co/unsloth/gemma-4-26B-A4B-it-GGUF/resolve/main/mtp-gemma-4-26B-A4B-it.gguf?download=true"
 
 REM ---------------------------------------------------------------------------
 REM TLS bypass: set INSECURE_TLS=1 before running to skip certificate
@@ -274,16 +281,19 @@ REM ---------------------------------------------------------------------------
   exit /b 1
 
 REM ---------------------------------------------------------------------------
-REM Download a model + mmproj
+REM Download a model + mmproj (+ the MTP draft, for models that ship one)
 REM ---------------------------------------------------------------------------
 :download_model
-  REM Args: display_name, model_dir, model_file, mmproj_file, model_url, mmproj_url
+  REM Args: display_name, model_dir, model_file, mmproj_file, model_url,
+  REM       mmproj_url, mtp_file (optional), mtp_url (optional)
   set "display_name=%~1"
   set "model_dir=%~2"
   set "model_file=%~3"
   set "mmproj_file=%~4"
   set "model_url=%~5"
   set "mmproj_url=%~6"
+  set "mtp_file=%~7"
+  set "mtp_url=%~8"
 
   if not exist "%model_dir%" mkdir "%model_dir%"
 
@@ -308,6 +318,21 @@ REM ---------------------------------------------------------------------------
     echo [llama_server] mmproj already present: %mmproj_file%
   )
 
+  REM MTP draft (only when this model ships one — arg 7 non-empty).
+  REM Unlike the model/mmproj, a failed MTP download is NOT fatal and
+  REM does not touch DL_OK: MTP is a speed bonus, and start_server
+  REM falls back to running without it.
+  if not "%mtp_file%"=="" (
+    if not exist "%model_dir%\%mtp_file%" (
+      echo [llama_server] Downloading %display_name% MTP draft...
+      curl -fSL -C - !CURL_TLS_ARGS! -o "%model_dir%\%mtp_file%" "%mtp_url%" || (
+        echo [warn]    MTP draft download failed: %mtp_file% - continuing without MTP.
+      )
+    ) else (
+      echo [llama_server] MTP draft already present: %mtp_file%
+    )
+  )
+
   if "!DL_OK!"=="0" exit /b 1
   exit /b 0
 
@@ -315,7 +340,8 @@ REM ---------------------------------------------------------------------------
 REM Start llama-server
 REM ---------------------------------------------------------------------------
 :start_server
-  REM Args: alias, model_dir, model_file, mmproj_file, ctx, n_predict, port, has_cuda
+  REM Args: alias, model_dir, model_file, mmproj_file, ctx, n_predict, port,
+  REM       has_cuda, mtp_file (optional; empty for models without one)
   set "alias=%~1"
   set "model_dir=%~2"
   set "model_file=%~3"
@@ -324,6 +350,7 @@ REM ---------------------------------------------------------------------------
   set "npredict=%~6"
   set "port=%~7"
   set "has_cuda=%~8"
+  set "mtp_file=%~9"
 
   if not exist "%model_dir%\%model_file%" (
     echo [error]   Model file missing: %model_dir%\%model_file%
@@ -335,12 +362,31 @@ REM ---------------------------------------------------------------------------
   echo [llama_server] Starting llama-server (%alias%)...
   echo [llama_server]   Model: %model_dir%\%model_file%
   echo [llama_server]   Port: %port%
+  echo [llama_server]   Context: %ctx%
 
   set "MM_PROJ_ARG="
   if exist "%model_dir%\%mmproj_file%" (
     set "MM_PROJ_ARG=--mmproj "%model_dir%\%mmproj_file%""
   ) else (
     echo [llama_server]   mmproj not found — running text-only.
+  )
+
+  REM MTP speculative decoding, conditional on the model shipping an MTP
+  REM draft (arg 9 non-empty) and on MTP not being forced off with
+  REM MTP=0. A model with no draft never sees the flags; a missing draft
+  REM file (failed download) degrades to a warning, not an abort.
+  set "MTP_ARG="
+  if not "%mtp_file%"=="" (
+    if not "%MTP%"=="0" (
+      if exist "%model_dir%\%mtp_file%" (
+        set "MTP_ARG=--spec-type draft-mtp --spec-draft-model "%model_dir%\%mtp_file%""
+        echo [llama_server]   MTP: on (draft-mtp, %mtp_file%)
+      ) else (
+        echo [warn]    MTP draft not present (%mtp_file%) - running without MTP.
+      )
+    )
+  ) else if "%MTP%"=="1" (
+    echo [warn]    MTP requested, but this model ships no MTP draft - running without MTP.
   )
 
   set "GPU_ARG="
@@ -350,6 +396,7 @@ REM ---------------------------------------------------------------------------
   llama-server ^
     -m "%model_dir%\%model_file%" ^
     !MM_PROJ_ARG! ^
+    !MTP_ARG! ^
     --alias %alias% ^
     --jinja ^
     --flash-attn on ^
@@ -378,20 +425,18 @@ REM ---------------------------------------------------------------------------
   echo   AI-Builder -- llama.cpp Server (Windows)
   echo ============================================
   echo.
-  echo   1) Qwen3.6-35B-A3B       (port 8080, 256K ctx)
-  echo   2) Ministral-3-14B       (port 8081, 128K ctx)
-  echo   3) Devstral-Small-2-24B  (port 8082, 128K ctx)
-  echo   4) Gemma-4-26B-A4B-it    (port 8083, 128K ctx)
-  echo   5) Download ALL models
+  echo   1) Ministral-3-14B       (port 8081, 256K ctx)
+  echo   2) Devstral-Small-2-24B  (port 8082, 384K ctx)
+  echo   3) Gemma-4-26B-A4B-it    (port 8083, 256K ctx, MTP)
+  echo   4) Download ALL models
   echo   0) Exit
   echo.
   set "selected="
-  set /p "choice=Select model [1-5, 0=exit]: "
-  if "!choice!"=="1" set "selected=qwen35b"
-  if "!choice!"=="2" set "selected=ministral"
-  if "!choice!"=="3" set "selected=devstral"
-  if "!choice!"=="4" set "selected=gemma4"
-  if "!choice!"=="5" set "selected=all"
+  set /p "choice=Select model [1-4, 0=exit]: "
+  if "!choice!"=="1" set "selected=ministral"
+  if "!choice!"=="2" set "selected=devstral"
+  if "!choice!"=="3" set "selected=gemma4"
+  if "!choice!"=="4" set "selected=all"
   if "!choice!"=="0" exit /b 0
   if not defined selected (
     echo [llama_server] Invalid choice.
@@ -403,7 +448,8 @@ REM ---------------------------------------------------------------------------
 REM Per-model driver: install, download, start
 REM ---------------------------------------------------------------------------
 :do_model
-  REM Args: name, model_file, mmproj_file, model_url, mmproj_url, ctx, n_predict, port, key
+  REM Args: name, model_file, mmproj_file, model_url, mmproj_url, ctx,
+  REM       n_predict, port, key
   set "name=%~1"
   set "mfile=%~2"
   set "mmpfile=%~3"
@@ -415,19 +461,26 @@ REM ---------------------------------------------------------------------------
   set "key=%~9"
   set "model_dir=%MODEL_BASE_DIR%\%name%"
 
+  REM Only Gemma 4 ships an MTP draft (see GEMMA_MTP above).
+  set "mtpfile="
+  set "mtpurl="
+  if "%key%"=="gemma4" (
+    set "mtpfile=%GEMMA_MTP%"
+    set "mtpurl=%GEMMA_MTPURL%"
+  )
+
   call :install_prereqs || exit /b 1
   call :install_llamacpp || exit /b 1
-  call :download_model "%name%" "%model_dir%" "%mfile%" "%mmpfile%" "%murl%" "%mmurl%" || exit /b 1
-  call :start_server "%key%" "%model_dir%" "%mfile%" "%mmpfile%" "%ctx%" "%npredict%" "%port%" "!HAS_CUDA!"
+  call :download_model "%name%" "%model_dir%" "%mfile%" "%mmpfile%" "%murl%" "%mmurl%" "!mtpfile!" "!mtpurl!" || exit /b 1
+  call :start_server "%key%" "%model_dir%" "%mfile%" "%mmpfile%" "%ctx%" "%npredict%" "%port%" "!HAS_CUDA!" "!mtpfile!"
 exit /b
 
 :do_all
   call :install_prereqs || exit /b 1
   call :install_llamacpp || exit /b 1
-  call :download_model "%QWEN_NAME%" "%MODEL_BASE_DIR%\%QWEN_NAME%" "%QWEN_FILE%" "%QWEN_MMPROJ%" "%QWEN_URL%" "%QWEN_MMURL%" || exit /b 1
-  call :download_model "%MIN_NAME%" "%MODEL_BASE_DIR%\%MIN_NAME%" "%MIN_FILE%" "%MIN_MMPROJ%" "%MIN_URL%" "%MIN_MMURL%" || exit /b 1
-  call :download_model "%DEV_NAME%" "%MODEL_BASE_DIR%\%DEV_NAME%" "%DEV_FILE%" "%DEV_MMPROJ%" "%DEV_URL%" "%DEV_MMURL%" || exit /b 1
-  call :download_model "%GEMMA_NAME%" "%MODEL_BASE_DIR%\%GEMMA_NAME%" "%GEMMA_FILE%" "%GEMMA_MMPROJ%" "%GEMMA_URL%" "%GEMMA_MMURL%" || exit /b 1
+  call :download_model "%MIN_NAME%" "%MODEL_BASE_DIR%\%MIN_NAME%" "%MIN_FILE%" "%MIN_MMPROJ%" "%MIN_URL%" "%MIN_MMURL%" "" "" || exit /b 1
+  call :download_model "%DEV_NAME%" "%MODEL_BASE_DIR%\%DEV_NAME%" "%DEV_FILE%" "%DEV_MMPROJ%" "%DEV_URL%" "%DEV_MMURL%" "" "" || exit /b 1
+  call :download_model "%GEMMA_NAME%" "%MODEL_BASE_DIR%\%GEMMA_NAME%" "%GEMMA_FILE%" "%GEMMA_MMPROJ%" "%GEMMA_URL%" "%GEMMA_MMURL%" "%GEMMA_MTP%" "%GEMMA_MTPURL%" || exit /b 1
   echo [llama_server] All models downloaded. Use llama_server.bat ^<model^> to start a server.
 exit /b
 
@@ -441,9 +494,7 @@ if "%selected%"=="" (
   call :show_menu
 )
 
-if "!selected!"=="qwen35b" (
-  call :do_model "%QWEN_NAME%" "%QWEN_FILE%" "%QWEN_MMPROJ%" "%QWEN_URL%" "%QWEN_MMURL%" "%QWEN_CTX%" "%QWEN_NPREDICT%" "%QWEN_PORT%" qwen35b
-) else if "!selected!"=="ministral" (
+if "!selected!"=="ministral" (
   call :do_model "%MIN_NAME%" "%MIN_FILE%" "%MIN_MMPROJ%" "%MIN_URL%" "%MIN_MMURL%" "%MIN_CTX%" "%MIN_NPREDICT%" "%MIN_PORT%" ministral
 ) else if "!selected!"=="devstral" (
   call :do_model "%DEV_NAME%" "%DEV_FILE%" "%DEV_MMPROJ%" "%DEV_URL%" "%DEV_MMURL%" "%DEV_CTX%" "%DEV_NPREDICT%" "%DEV_PORT%" devstral

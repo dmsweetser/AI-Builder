@@ -9,11 +9,13 @@
 #
 # Usage:
 #   ./scripts/llama_server.sh              # interactive menu
-#   ./scripts/llama_server.sh qwen35b      # start Qwen3.6-35B-A3B (alias: qwen36)
 #   ./scripts/llama_server.sh ministral    # start Ministral-3-14B
 #   ./scripts/llama_server.sh devstral     # start Devstral-Small-2-24B
 #   ./scripts/llama_server.sh gemma4       # start Gemma-4-26B-A4B-it
 #   ./scripts/llama_server.sh all          # download all models (don't start)
+#
+#   MTP=0 ./scripts/llama_server.sh gemma4 # start with MTP speculative
+#                                          # decoding disabled (see below)
 #
 # NOTE: this revision runs on the stock macOS /bin/bash 3.2 — no Homebrew
 # bash required. bash 3.2 has no associative arrays, so the model tables
@@ -42,11 +44,10 @@ LLAMACPP_TAG="b12387"
 # attribute. Adding a model = add its key to MODEL_KEYS and one line to
 # each lookup. Friendly aliases are resolved in resolve_key() below.
 # ---------------------------------------------------------------------------
-MODEL_KEYS="qwen35b ministral devstral gemma4"
+MODEL_KEYS="ministral devstral gemma4"
 
 model_name() {
   case "$1" in
-    qwen35b)   echo "Qwen3.6-35B-A3B" ;;
     ministral) echo "Ministral-3-14B" ;;
     devstral)  echo "Devstral-Small-2-24B" ;;
     gemma4)    echo "Gemma-4-26B-A4B" ;;
@@ -55,7 +56,6 @@ model_name() {
 
 model_file() {
   case "$1" in
-    qwen35b)   echo "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf" ;;
     ministral) echo "Ministral-3-14B-Instruct-2512-Q4_K_M.gguf" ;;
     devstral)  echo "Devstral-Small-2-24B-Instruct-2512-Q4_K_M.gguf" ;;
     gemma4)    echo "gemma-4-26B-A4B-it-UD-Q4_K_M.gguf" ;;
@@ -64,7 +64,6 @@ model_file() {
 
 model_mmproj_file() {
   case "$1" in
-    qwen35b)   echo "mmproj-F32.gguf" ;;
     ministral) echo "mmproj-F16.gguf" ;;
     devstral)  echo "mmproj-F32.gguf" ;;
     gemma4)    echo "mmproj-F32.gguf" ;;
@@ -73,7 +72,6 @@ model_mmproj_file() {
 
 model_url() {
   case "$1" in
-    qwen35b)   echo "https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF/resolve/main/Qwen3.6-35B-A3B-UD-Q4_K_M.gguf?download=true" ;;
     ministral) echo "https://huggingface.co/unsloth/Ministral-3-14B-Instruct-2512-GGUF/resolve/main/Ministral-3-14B-Instruct-2512-Q4_K_M.gguf?download=true" ;;
     devstral)  echo "https://huggingface.co/unsloth/Devstral-Small-2-24B-Instruct-2512-GGUF/resolve/main/Devstral-Small-2-24B-Instruct-2512-Q4_K_M.gguf?download=true" ;;
     gemma4)    echo "https://huggingface.co/unsloth/gemma-4-26B-A4B-it-GGUF/resolve/main/gemma-4-26B-A4B-it-UD-Q4_K_M.gguf?download=true" ;;
@@ -82,19 +80,41 @@ model_url() {
 
 model_mmproj_url() {
   case "$1" in
-    qwen35b)   echo "https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF/resolve/main/mmproj-F32.gguf?download=true" ;;
     ministral) echo "https://huggingface.co/unsloth/Ministral-3-14B-Instruct-2512-GGUF/resolve/main/mmproj-F16.gguf?download=true" ;;
     devstral)  echo "https://huggingface.co/unsloth/Devstral-Small-2-24B-Instruct-2512-GGUF/resolve/main/mmproj-F32.gguf?download=true" ;;
     gemma4)    echo "https://huggingface.co/unsloth/gemma-4-26B-A4B-it-GGUF/resolve/main/mmproj-F32.gguf?download=true" ;;
   esac
 }
 
+# MTP (multi-token prediction) draft model, for speculative decoding.
+# Conditional by construction: only models whose publisher ships an MTP
+# draft have an entry — today that is Gemma 4 alone (a separate small
+# GGUF in the same repo). The two Mistrals ship no MTP head, so for them
+# these return empty and no MTP flags are ever passed. start_server()
+# also honours MTP=0 to force MTP off for a model that has one.
+model_mtp_file() {
+  case "$1" in
+    gemma4)    echo "mtp-gemma-4-26B-A4B-it.gguf" ;;
+    *)         echo "" ;;
+  esac
+}
+
+model_mtp_url() {
+  case "$1" in
+    gemma4)    echo "https://huggingface.co/unsloth/gemma-4-26B-A4B-it-GGUF/resolve/main/mtp-gemma-4-26B-A4B-it.gguf?download=true" ;;
+    *)         echo "" ;;
+  esac
+}
+
+# Each model's proper maximum context, from its publisher's config
+# (text_config.max_position_embeddings): Ministral 3 and Gemma 4 are
+# 256K models; Devstral Small 2's config declares 393216 (384K, YaRN
+# factor 48 over an 8192 base) even though it is marketed as 256K.
 model_context() {
   case "$1" in
-    qwen35b)   echo "262144" ;;
-    ministral) echo "131072" ;;
-    devstral)  echo "131072" ;;
-    gemma4)    echo "131072" ;;
+    ministral) echo "262144" ;;
+    devstral)  echo "393216" ;;
+    gemma4)    echo "262144" ;;
   esac
 }
 
@@ -103,16 +123,17 @@ model_context() {
 # context window — almost certainly not what was intended.
 model_npredict() {
   case "$1" in
-    qwen35b)   echo "-1" ;;
     ministral) echo "-1" ;;
     devstral)  echo "-1" ;;
     gemma4)    echo "-1" ;;
   esac
 }
 
+# Ports are unchanged from when there were four models (Ministral has
+# always been 8081, etc.) so existing client configs keep working;
+# 8080 is simply unused now.
 model_port() {
   case "$1" in
-    qwen35b)   echo "8080" ;;
     ministral) echo "8081" ;;
     devstral)  echo "8082" ;;
     gemma4)    echo "8083" ;;
@@ -138,10 +159,8 @@ fetch() { curl -fSL ${CURL_EXTRA[@]+"${CURL_EXTRA[@]}"} "$@"; }
 # Resolve a user-supplied model key (with aliases) to a canonical key.
 resolve_key() {
   local raw="$1"
-  # Friendly aliases -> canonical keys (was MODEL_ALIASES).
-  case "$raw" in
-    qwen36) raw="qwen35b" ;;
-  esac
+  # Friendly aliases -> canonical keys would go here as a `case` on $raw
+  # (there are none since Qwen and its qwen36 alias were removed).
   local k
   for k in $MODEL_KEYS; do
     if [[ "$k" == "$raw" ]]; then
@@ -170,9 +189,10 @@ check_memory() {
   ram_gb=$(( $(sysctl -n hw.memsize 2>/dev/null || echo 0) / 1024 / 1024 / 1024 ))
   local min_gb
   case "$key" in
-    qwen35b)  min_gb=32 ;;
-    devstral) min_gb=24 ;;
-    *)        min_gb=16 ;;
+    ministral) min_gb=32 ;;
+    devstral)  min_gb=32 ;;
+    gemma4)    min_gb=24 ;;
+    *)         min_gb=16 ;;
   esac
   if [[ "$ram_gb" -gt 0 ]] && [[ "$ram_gb" -lt "$min_gb" ]]; then
     warn "This Mac reports ${ram_gb} GB unified memory; $(model_name "$key") at Q4_K_M with a $(model_context "$key")-token context typically wants >= ${min_gb} GB. Consider a smaller context or quant."
@@ -267,6 +287,20 @@ download_model() {
   else
     log "mmproj already present: $mmproj_file"
   fi
+
+  # MTP draft (only for models that ship one). Unlike the model/mmproj,
+  # a failed MTP download is NOT fatal — MTP is a speed bonus, and
+  # start_server() falls back to running without it.
+  local mtp_file="$(model_mtp_file "$key")"
+  if [[ -n "$mtp_file" ]]; then
+    if [[ ! -s "$model_dir/$mtp_file" ]]; then
+      log "Downloading $(model_name "$key") MTP draft…"
+      fetch -C - -o "$model_dir/$mtp_file" "$(model_mtp_url "$key")" \
+        || warn "MTP draft download failed: $mtp_file — continuing without MTP."
+    else
+      log "MTP draft already present: $mtp_file"
+    fi
+  fi
 }
 
 # ---------------------------------------------------------------------------
@@ -297,10 +331,28 @@ start_server() {
     log "  mmproj not found — running text-only."
   fi
 
+  # MTP speculative decoding, conditional on the model shipping an MTP
+  # draft (see model_mtp_file) and on MTP not being forced off with
+  # MTP=0. A model with no draft never sees the flags; a missing draft
+  # file (failed download) degrades to a warning, not an abort.
+  local mtp_file="$(model_mtp_file "$key")"
+  local mtp_args=()
+  if [[ "${MTP:-1}" != "0" && -n "$mtp_file" ]]; then
+    if [[ -s "$model_dir/$mtp_file" ]]; then
+      mtp_args=(--spec-type draft-mtp --spec-draft-model "$model_dir/$mtp_file")
+      log "  MTP: on (draft-mtp, $mtp_file)"
+    else
+      warn "MTP draft not present ($mtp_file) — running without MTP."
+    fi
+  elif [[ "${MTP:-}" == "1" && -z "$mtp_file" ]]; then
+    warn "MTP requested, but $(model_name "$key") ships no MTP draft — running without MTP."
+  fi
+
   # -n is n_predict; -1 means unlimited (bounded by context size).
   exec llama-server \
     -m "$model_dir/$model_file" \
     ${mmproj_args[@]+"${mmproj_args[@]}"} \
+    ${mtp_args[@]+"${mtp_args[@]}"} \
     --alias "$key" \
     --jinja \
     --flash-attn on \
@@ -332,25 +384,23 @@ show_menu() {
   echo "  AI-Builder — llama.cpp Server (macOS)" >&2
   echo "============================================" >&2
   echo "" >&2
-  echo "  1) Qwen3.6-35B-A3B       (port 8080, 256K ctx)" >&2
-  echo "  2) Ministral-3-14B       (port 8081, 128K ctx)" >&2
-  echo "  3) Devstral-Small-2-24B  (port 8082, 128K ctx)" >&2
-  echo "  4) Gemma-4-26B-A4B-it    (port 8083, 128K ctx)" >&2
-  echo "  5) Download ALL models" >&2
+  echo "  1) Ministral-3-14B       (port 8081, 256K ctx)" >&2
+  echo "  2) Devstral-Small-2-24B  (port 8082, 384K ctx)" >&2
+  echo "  3) Gemma-4-26B-A4B-it    (port 8083, 256K ctx, MTP)" >&2
+  echo "  4) Download ALL models" >&2
   echo "  0) Exit" >&2
   echo "" >&2
-  echo "  Or run: $0 <qwen35b|ministral|devstral|gemma4|all>" >&2
+  echo "  Or run: $0 <ministral|devstral|gemma4|all>" >&2
   echo "" >&2
 
   local choice
   while true; do
-    read -rp "Select model [1-5, 0=exit]: " choice
+    read -rp "Select model [1-4, 0=exit]: " choice
     case "$choice" in
-      1) echo "qwen35b"; return 0 ;;
-      2) echo "ministral"; return 0 ;;
-      3) echo "devstral"; return 0 ;;
-      4) echo "gemma4"; return 0 ;;
-      5) echo "all"; return 0 ;;
+      1) echo "ministral"; return 0 ;;
+      2) echo "devstral"; return 0 ;;
+      3) echo "gemma4"; return 0 ;;
+      4) echo "all"; return 0 ;;
       0) echo "exit"; return 0 ;;
       *) warn "Invalid choice." ;;
     esac
