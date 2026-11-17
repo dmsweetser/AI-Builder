@@ -17,7 +17,7 @@ let _loadedProjects = [];
 const AVAILABLE_TOOLS = [
     "list_directory", "list_directory_deep", "search_files", "search_files_dir",
     "grep_code", "grep_code_dir", "read_file", "read_file_range",
-    "write_file", "edit_file", "delete_file", "find_symbol",
+    "write_file", "edit_file", "delete_file",
     "decompile_jar", "check_syntax",
     "create_tool", "respond_to_user", "request_user_input", "task_completed"
 ];
@@ -434,6 +434,12 @@ function updateLiveResponse(jobId, agentBox) {
         .then(function(data) {
             if (data.content && data.content.trim()) {
                 container.textContent = data.content;
+                container.style.display = 'block';
+                // Auto-scroll to show latest content
+                container.scrollTop = container.scrollHeight;
+            } else if (agentRunning) {
+                // Job is running but no response yet — show thinking indicator
+                container.textContent = 'Thinking...';
                 container.style.display = 'block';
             } else {
                 container.style.display = 'none';
@@ -1283,7 +1289,7 @@ function updateRunButtonState(projectId, status) {
     if (detailStopBtn && currentProjectId === projectId) {
         detailStopBtn.style.display = (status === 'running' || status === 'pending_approval' || status === 'pending_user_input') ? 'inline-block' : 'none';
     }
-    // Show/hide VIEW LIVE button for running, pending_approval, pending_user_input
+    // Show VIEW LIVE button whenever there's activity for this project
     var liveBtn = document.getElementById('details-live-btn');
     if (liveBtn && currentProjectId === projectId) {
         liveBtn.style.display = 'inline-block';

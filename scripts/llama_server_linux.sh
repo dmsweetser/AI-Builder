@@ -13,6 +13,7 @@
 #   ./scripts/llama_server_linux.sh ministral    # start Ministral-3-14B
 #   ./scripts/llama_server_linux.sh devstral     # start Devstral-Small-2-24B
 #   ./scripts/llama_server_linux.sh gemma4       # start Gemma-4-26B-A4B-it
+#   ./scripts/llama_server_linux.sh gemma4_small # start Gemma-4-E4B-it
 #   ./scripts/llama_server_linux.sh all          # download all models (don't start)
 #
 #   MTP=0 ./scripts/llama_server_linux.sh gemma4 # start with MTP speculative
@@ -42,30 +43,35 @@ declare -A MODEL_NAMES=(
   [ministral]="Ministral-3-14B"
   [devstral]="Devstral-Small-2-24B"
   [gemma4]="Gemma-4-26B-A4B"
+  [gemma4_small]="Gemma-4-E4B-it"
 )
 
 declare -A MODEL_FILES=(
   [ministral]="Ministral-3-14B-Instruct-2512-Q4_K_M.gguf"
   [devstral]="Devstral-Small-2-24B-Instruct-2512-Q4_K_M.gguf"
   [gemma4]="gemma-4-26B-A4B-it-UD-Q4_K_M.gguf"
+  [gemma4_small]="gemma-4-E4B-it-Q4_K_M.gguf"
 )
 
 declare -A MMPROJ_FILES=(
   [ministral]="mmproj-F16.gguf"
   [devstral]="mmproj-F32.gguf"
   [gemma4]="mmproj-F32.gguf"
+  [gemma4_small]="mmproj-F16.gguf"
 )
 
 declare -A MODEL_URLS=(
   [ministral]="https://huggingface.co/unsloth/Ministral-3-14B-Instruct-2512-GGUF/resolve/main/Ministral-3-14B-Instruct-2512-Q4_K_M.gguf?download=true"
   [devstral]="https://huggingface.co/unsloth/Devstral-Small-2-24B-Instruct-2512-GGUF/resolve/main/Devstral-Small-2-24B-Instruct-2512-Q4_K_M.gguf?download=true"
   [gemma4]="https://huggingface.co/unsloth/gemma-4-26B-A4B-it-GGUF/resolve/main/gemma-4-26B-A4B-it-UD-Q4_K_M.gguf?download=true"
+  [gemma4_small]="https://huggingface.co/unsloth/gemma-4-E4B-it-GGUF/resolve/main/gemma-4-E4B-it-Q4_K_M.gguf?download=true"
 )
 
 declare -A MMPROJ_URLS=(
   [ministral]="https://huggingface.co/unsloth/Ministral-3-14B-Instruct-2512-GGUF/resolve/main/mmproj-F16.gguf?download=true"
   [devstral]="https://huggingface.co/unsloth/Devstral-Small-2-24B-Instruct-2512-GGUF/resolve/main/mmproj-F32.gguf?download=true"
   [gemma4]="https://huggingface.co/unsloth/gemma-4-26B-A4B-it-GGUF/resolve/main/mmproj-F32.gguf?download=true"
+  [gemma4_small]="https://huggingface.co/unsloth/gemma-4-E4B-it-GGUF/resolve/main/mmproj-F16.gguf?download=true"
 )
 
 # MTP (multi-token prediction) draft model, for speculative decoding.
@@ -91,6 +97,7 @@ declare -A MODEL_CONTEXTS=(
   [ministral]="262144"
   [devstral]="393216"
   [gemma4]="262144"
+  [gemma4_small]="131072"
 )
 
 # n_predict: -1 = unlimited (bounded by context size). The previous values
@@ -100,6 +107,7 @@ declare -A MODEL_NPREDICT=(
   [ministral]="-1"
   [devstral]="-1"
   [gemma4]="-1"
+  [gemma4_small]="-1"
 )
 
 # Ports are unchanged from when there were four models (Ministral has
@@ -109,6 +117,7 @@ declare -A MODEL_PORTS=(
   [ministral]="8081"
   [devstral]="8082"
   [gemma4]="8083"
+  [gemma4_small]="8084"
 )
 
 # ---------------------------------------------------------------------------
@@ -518,7 +527,7 @@ main() {
   fi
 
   case "$selected" in
-    ministral|devstral|gemma4)
+    ministral|devstral|gemma4|gemma4_small)
       install_prereqs
       install_llamacpp
       download_model "$selected" || die "Model download failed — aborting."

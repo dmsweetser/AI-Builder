@@ -23,7 +23,6 @@ from agent_engine.tools.read_file import ReadFileTool, ReadFileRangeTool
 from agent_engine.tools.write_file import WriteFileTool
 from agent_engine.tools.edit_file import EditFileTool
 from agent_engine.tools.delete_file import DeleteFileTool
-from agent_engine.tools.find_symbol import FindSymbolTool
 from agent_engine.tools.decompile_jar import DecompileJarTool
 from agent_engine.tools.check_syntax import CheckSyntaxTool
 from agent_engine.tools.create_tool import CreateToolTool
@@ -53,7 +52,7 @@ def _init_builtin_classes():
         GrepCodeTool, GrepCodeDirTool,
         ReadFileTool, ReadFileRangeTool,
         WriteFileTool, EditFileTool, DeleteFileTool,
-        FindSymbolTool, DecompileJarTool,
+        DecompileJarTool,
         CheckSyntaxTool,
         CreateToolTool,
         RespondToUserTool, RequestUserInputTool, TaskCompletedTool,

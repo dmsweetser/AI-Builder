@@ -73,12 +73,13 @@ SETTINGS_FILE = os.path.join(_AIB_INSTANCE, "settings.json")
 
 # --- Global State (Thread-Safe) ---
 job_queue = []
-running_job = None
+running_jobs: Dict[str, Dict[str, Any]] = {}  # job_id -> job_info (replaces single running_job)
 job_history = []
 job_queue_lock = threading.Lock()
 stop_event = threading.Event()
-worker_thread = None
-_worker_wake = threading.Event()  # Signals the worker to check the queue
+worker_threads: list = []  # List of worker threads
+_max_workers = int(os.environ.get('AIB_MAX_WORKERS', '3'))  # Default: 3 parallel workers
+_worker_wake = threading.Event()  # Signals workers to check the queue
 
 # Track the active SSE event queue per output_dir so the resume engine
 # can emit events to the UI (e.g., pending_approval for subsequent tools).
@@ -97,7 +98,7 @@ def _is_engine_active_for_project(pid: str) -> bool:
     active for the given project."""
     # 1. Check the queue
     with job_queue_lock:
-        if running_job and running_job["project_id"] == pid:
+        if any(j.get("project_id") == pid for j in running_jobs.values()):
             return True
         for job in job_queue:
             if job["project_id"] == pid:
@@ -346,19 +347,22 @@ def delete_project_file(pid):
 
 # --- Worker Thread ---
 def worker():
-    global running_job
+    """Worker thread that picks jobs from the queue. Multiple workers run in parallel."""
     while not stop_event.is_set():
         _worker_wake.clear()
+        job = None
         with job_queue_lock:
-            if running_job is None and job_queue:
-                running_job = job_queue.pop(0)
+            if job_queue:
+                job = job_queue.pop(0)
             else:
-                # Wait for wake signal or timeout (max 0.5s)
                 _worker_wake.wait(timeout=0.5)
                 continue
 
-        job_id = running_job["job_id"]
-        pid = running_job["project_id"]
+        if job is None:
+            continue
+
+        job_id = job["job_id"]
+        pid = job["project_id"]
         project, _ = get_project(pid)
 
         # Use project's persistent output directory: aib_instance/<pid>/output/
@@ -410,7 +414,7 @@ def worker():
                 save_project(project)
             save_job_history()
             with job_queue_lock:
-                running_job = None
+                running_jobs.pop(job_id, None)
         # Mark engine stopped for this project
         _mark_engine_stop(pid)
 
@@ -480,20 +484,23 @@ def _archive_output_dir(output_dir: str) -> None:
 
 
 def start_worker():
-    global worker_thread
-    if worker_thread and worker_thread.is_alive():
-        # Worker is alive, signal it to check the queue
-        _worker_wake.set()
-        return
-    stop_event.clear()
-    worker_thread = threading.Thread(target=worker, daemon=True)
-    worker_thread.start()
+    """Start worker threads if not already running."""
+    # Ensure we have enough workers
+    while len(worker_threads) < _max_workers:
+        t = threading.Thread(target=worker, daemon=True)
+        worker_threads.append(t)
+        t.start()
+    # Signal all workers to check the queue
+    _worker_wake.set()
 
 def stop_worker():
-    global worker_thread
+    global worker_threads
     stop_event.set()
-    if worker_thread and worker_thread.is_alive():
-        worker_thread.join(timeout=5)
+    _worker_wake.set()
+    for t in worker_threads:
+        if t.is_alive():
+            t.join(timeout=5)
+    worker_threads.clear()
 
 def cleanup():
     stop_worker()
@@ -508,7 +515,7 @@ def get_project(pid):
 
 def is_project_running(pid):
     with job_queue_lock:
-        if running_job and running_job["project_id"] == pid:
+        if any(j.get("project_id") == pid for j in running_jobs.values()):
             return True
         return any(job["project_id"] == pid for job in job_queue)
 
@@ -516,8 +523,8 @@ def is_project_running(pid):
 def get_concurrent_job_info(pid):
     """Return (is_running, is_queued, existing_job_id) for a project."""
     with job_queue_lock:
-        if running_job and running_job["project_id"] == pid:
-            return True, False, running_job["job_id"]
+        if any(j.get("project_id") == pid for j in running_jobs.values()):
+            return True, False, list(running_jobs.values())[0]["job_id"]
         for job in job_queue:
             if job["project_id"] == pid:
                 return False, True, job["job_id"]
@@ -696,13 +703,13 @@ def api_reset_project(pid):
 
 def _kill_job_for_project(pid):
     """Kill a running or queued job for a project."""
-    global running_job
+    global running_jobs
     with job_queue_lock:
         # Remove from queue
         job_queue[:] = [j for j in job_queue if j["project_id"] != pid]
         # Stop running job if it's for this project
-        if running_job and running_job["project_id"] == pid:
-            running_job = None
+        if any(j.get("project_id") == pid for j in running_jobs.values()):
+            running_jobs.clear()
     # Also clear the engine-active tracking so a new run can start
     _mark_engine_stop(pid)
     start_worker()
@@ -823,14 +830,14 @@ def api_get_queue():
         projects = load_projects()
         project_map = {p["id"]: p.get("name", "Unknown") for p in projects}
 
-        running_name = project_map.get(running_job["project_id"], "Unknown") if running_job else None
+        running_name = project_map.get(running_jobs[job_id]["project_id"], "Unknown") if running_jobs else None
         queue_with_names = []
         for j in job_queue:
             queue_with_names.append({**j, "project_name": project_map.get(j["project_id"], "Unknown"), "status": "queued"})
 
     return jsonify({
         "queue": queue_with_names,
-        "running": {**running_job, "project_name": running_name} if running_job else None
+        "running": {**list(running_jobs.values())[0], "project_name": running_name} if running_jobs else None
     })
 
 @app.route("/api/job/<job_id>/actions", methods=["GET"])
@@ -880,22 +887,22 @@ def api_add_to_queue():
 
 @app.route("/api/queue/<job_id>", methods=["DELETE"])
 def api_delete_from_queue(job_id):
-    global running_job
+    global running_jobs
     with job_queue_lock:
         job_queue[:] = [j for j in job_queue if j["job_id"] != job_id]
-        if running_job and running_job["job_id"] == job_id:
-            running_job = None
+        if running_jobs and list(running_jobs.values())[0]["job_id"] == job_id:
+            running_jobs.clear()
     start_worker()
     return jsonify({"status": "deleted"})
 
 @app.route("/api/queue/running/stop", methods=["POST"])
 def api_stop_running():
-    global running_job
+    global running_jobs
     with job_queue_lock:
-        job_to_stop = running_job
+        job_to_stop = list(running_jobs.values())[0] if running_jobs else None
         if job_to_stop:
             _mark_engine_stop(job_to_stop["project_id"])
-        running_job = None
+        running_jobs.clear()
 
     start_worker()
     return jsonify({"status": "stopped"})
@@ -916,11 +923,11 @@ def api_stop_agent(job_id):
 
 @app.route("/api/projects/<pid>", methods=["DELETE"])
 def api_delete_project(pid):
-    global running_job
+    global running_jobs
     with job_queue_lock:
         job_queue[:] = [j for j in job_queue if j["project_id"] != pid]
-        if running_job and running_job["project_id"] == pid:
-            running_job = None
+        if any(j.get("project_id") == pid for j in running_jobs.values()):
+            running_jobs.clear()
     # Also clear the engine-active tracking
     _mark_engine_stop(pid)
     start_worker()
@@ -1155,15 +1162,15 @@ def api_job_status():
     with job_queue_lock:
         active_jobs = {
             job["job_id"]: {
-                "status": "queued" if job["job_id"] != (running_job["job_id"] if running_job else None) else "running",
+                "status": "queued" if job["job_id"] != (list(running_jobs.values())[0]["job_id"] if running_jobs else None) else "running",
                 "projectId": job["project_id"]
             }
             for job in job_queue
         }
-        if running_job:
-            active_jobs[running_job["job_id"]] = {
+        if running_jobs:
+            active_jobs[list(running_jobs.values())[0]["job_id"]] = {
                 "status": "running",
-                "projectId": running_job["project_id"]
+                "projectId": list(running_jobs.values())[0]["project_id"]
             }
     return jsonify({"activeJobs": active_jobs, "runStatus": {}})
 

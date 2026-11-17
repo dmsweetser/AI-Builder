@@ -15,6 +15,7 @@ REM   llama_server.bat                  :: interactive menu
 REM   llama_server.bat ministral        :: start Ministral-3-14B
 REM   llama_server.bat devstral         :: start Devstral-Small-2-24B
 REM   llama_server.bat gemma4           :: start Gemma-4-26B-A4B-it
+REM   llama_server.bat gemma4_small     :: start Gemma-4-E4B-it
 REM   llama_server.bat all              :: download all models (don't start)
 REM
 REM   set MTP=0 before running to disable MTP speculative decoding
@@ -77,6 +78,15 @@ REM the same repo). The two Mistrals ship no MTP head, so they have no
 REM MTP variables and never see the MTP flags.
 set "GEMMA_MTP=mtp-gemma-4-26B-A4B-it.gguf"
 set "GEMMA_MTPURL=https://huggingface.co/unsloth/gemma-4-26B-A4B-it-GGUF/resolve/main/mtp-gemma-4-26B-A4B-it.gguf?download=true"
+
+set "GEMMA4S_NAME=Gemma-4-E4B-it"
+set "GEMMA4S_FILE=gemma-4-E4B-it-Q4_K_M.gguf"
+set "GEMMA4S_MMPROJ=mmproj-F16.gguf"
+set "GEMMA4S_URL=https://huggingface.co/unsloth/gemma-4-E4B-it-GGUF/resolve/main/gemma-4-E4B-it-Q4_K_M.gguf?download=true"
+set "GEMMA4S_MMURL=https://huggingface.co/unsloth/gemma-4-E4B-it-GGUF/resolve/main/mmproj-F16.gguf?download=true"
+set "GEMMA4S_CTX=131072"
+set "GEMMA4S_NPREDICT=-1"
+set "GEMMA4S_PORT=8084"
 
 REM ---------------------------------------------------------------------------
 REM TLS bypass: set INSECURE_TLS=1 before running to skip certificate
@@ -444,7 +454,8 @@ REM ---------------------------------------------------------------------------
   echo   1) Ministral-3-14B       (port 8081, 256K ctx)
   echo   2) Devstral-Small-2-24B  (port 8082, 384K ctx)
   echo   3) Gemma-4-26B-A4B-it    (port 8083, 256K ctx, MTP)
-  echo   4) Download ALL models
+  echo   4) Gemma-4-E4B-it       (port 8084, 128K ctx)
+  echo   5) Download ALL models
   echo   0) Exit
   echo.
   set "selected="
@@ -452,7 +463,8 @@ REM ---------------------------------------------------------------------------
   if "!choice!"=="1" set "selected=ministral"
   if "!choice!"=="2" set "selected=devstral"
   if "!choice!"=="3" set "selected=gemma4"
-  if "!choice!"=="4" set "selected=all"
+  if "!choice!"=="4" set "selected=gemma4_small"
+  if "!choice!"=="5" set "selected=all"
   if "!choice!"=="0" exit /b 0
   if not defined selected (
     echo [llama_server] Invalid choice.
@@ -483,6 +495,9 @@ REM ---------------------------------------------------------------------------
   if "%key%"=="gemma4" (
     set "mtpfile=%GEMMA_MTP%"
     set "mtpurl=%GEMMA_MTPURL%"
+  ) else if "%key%"=="gemma4_small" (
+    set "mtpfile="
+    set "mtpurl="
   )
 
   call :install_prereqs || exit /b 1
@@ -497,6 +512,7 @@ exit /b
   call :download_model "%MIN_NAME%" "%MODEL_BASE_DIR%\%MIN_NAME%" "%MIN_FILE%" "%MIN_MMPROJ%" "%MIN_URL%" "%MIN_MMURL%" "" "" || exit /b 1
   call :download_model "%DEV_NAME%" "%MODEL_BASE_DIR%\%DEV_NAME%" "%DEV_FILE%" "%DEV_MMPROJ%" "%DEV_URL%" "%DEV_MMURL%" "" "" || exit /b 1
   call :download_model "%GEMMA_NAME%" "%MODEL_BASE_DIR%\%GEMMA_NAME%" "%GEMMA_FILE%" "%GEMMA_MMPROJ%" "%GEMMA_URL%" "%GEMMA_MMURL%" "%GEMMA_MTP%" "%GEMMA_MTPURL%" || exit /b 1
+  call :download_model "%GEMMA4S_NAME%" "%MODEL_BASE_DIR%\%GEMMA4S_NAME%" "%GEMMA4S_FILE%" "%GEMMA4S_MMPROJ%" "%GEMMA4S_URL%" "%GEMMA4S_MMURL%" "" "" || exit /b 1
   echo [llama_server] All models downloaded. Use llama_server.bat ^<model^> to start a server.
 exit /b
 
@@ -516,6 +532,8 @@ if "!selected!"=="ministral" (
   call :do_model "%DEV_NAME%" "%DEV_FILE%" "%DEV_MMPROJ%" "%DEV_URL%" "%DEV_MMURL%" "%DEV_CTX%" "%DEV_NPREDICT%" "%DEV_PORT%" devstral
 ) else if "!selected!"=="gemma4" (
   call :do_model "%GEMMA_NAME%" "%GEMMA_FILE%" "%GEMMA_MMPROJ%" "%GEMMA_URL%" "%GEMMA_MMURL%" "%GEMMA_CTX%" "%GEMMA_NPREDICT%" "%GEMMA_PORT%" gemma4
+) else if "!selected!"=="gemma4_small" (
+  call :do_model "%GEMMA4S_NAME%" "%GEMMA4S_FILE%" "%GEMMA4S_MMPROJ%" "%GEMMA4S_URL%" "%GEMMA4S_MMURL%" "%GEMMA4S_CTX%" "%GEMMA4S_NPREDICT%" "%GEMMA4S_PORT%" gemma4_small
 ) else if "!selected!"=="all" (
   call :do_all
 ) else (

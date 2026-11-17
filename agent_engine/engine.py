@@ -384,7 +384,7 @@ AVAILABLE TOOLS:{tool_defs}
 
 WORKFLOW:
 1. EXPLORE: Use list_directory, search_files, and grep_code to understand the project structure.
-2. UNDERSTAND: Use read_file and find_symbol to inspect relevant code.
+2. UNDERSTAND: Use read_file to inspect relevant code.
 3. PLAN: Decide what changes are needed. For large codebases, focus on specific files.
 4. MODIFY: Use write_file (new files), edit_file (targeted changes), or delete_file.
 5. VERIFY: Use check_syntax to validate your changes before moving on.
@@ -402,7 +402,7 @@ COMPLETION (CRITICAL - READ CAREFULLY):
 CRITICAL: You MUST take at least one tool call before using task_completed. You cannot complete the task without using tools.
 
 RULES:
-- ALWAYS use read_file before edit_file to get the exact text to replace.
+- ALWAYS use read_file before edit_file. edit_file now uses line-range replacement: provide line_start and line_end (1-indexed) and a complete new_text to replace those lines. After editing, you MUST read back the affected area (with edge context) to verify the change.
 - ALWAYS include ALL required parameters for every tool call. Missing parameters will cause errors.
 - ALWAYS use check_syntax after editing to verify correctness.
 - If the user asks you to run a tool, you must ALWAYS IMMEDIATELY execute the closest matching existing tool before you create a new one
@@ -960,7 +960,6 @@ class AgentEngine:
         self._step_callback = step_callback
 
         # Context management: manual compression prompt when context is large
-        # Removed auto-compression; user now manually triggers compress_context tool
         self._context_warning_shown = False
 
         # Stop signal from the UI (set by /api/queue/running/stop)
@@ -968,169 +967,6 @@ class AgentEngine:
 
         # Allow user to continue after max_steps
         self._continue_requested = False
-
-    def _deterministic_compress_context(self):
-        """Deterministically compress context by removing low-value items.
-
-        Instead of asking the LLM to summarize, we:
-        1. Identify low-value messages (old list_directory, old file reads)
-        2. Group consecutive low-value items
-        3. Replace each group with a compact summary
-        4. Keep high-value items (recent tool results, important context)
-
-        This preserves key information while freeing up context space.
-        """
-        # Find tool result messages (user messages with [TOOL_RESULT]...)
-        tool_results = []
-        for i, msg in enumerate(self.messages):
-            if msg.get("role") == "user":
-                content = msg.get("content", "")
-                if "[TOOL_RESULT]" in content:
-                    tool_results.append(i)
-
-        if len(tool_results) <= 10:
-            # Not enough tool results to compress
-            return
-
-        # Identify which tool results are "low value" for removal:
-        # - list_directory results (unless very recent)
-        # - read_file results for files that are no longer being edited
-        # - search_files/grep_code results (unless very recent)
-        # We keep the last 10 tool results regardless of type
-
-        low_value_indices = []
-        keep_count = 10  # Always keep the last 10 tool results
-
-        for idx in tool_results:
-            # Extract tool name from the result
-            content = self.messages[idx].get("content", "")
-            try:
-                import json as _json
-                result_data = _json.loads(content)
-                step_data = result_data.get("result", {})
-                if isinstance(step_data, str):
-                    step_data = _json.loads(step_data)
-                tool_name = step_data.get("tool", "")
-                was_truncated = step_data.get("truncated", False)
-            except (json.JSONDecodeError, KeyError, TypeError):
-                tool_name = ""
-                was_truncated = False
-
-            # Determine if this is a low-value tool result
-            is_low_value = False
-            if tool_name in ("list_directory", "list_directory_deep"):
-                is_low_value = True
-            elif tool_name in ("search_files", "search_files_dir", "grep_code", "grep_code_dir"):
-                is_low_value = True
-            elif tool_name == "read_file":
-                # Read results are somewhat valuable, but old ones can be compressed
-                is_low_value = True
-            elif tool_name == "check_syntax":
-                is_low_value = True
-
-            # Never compress if the result was truncated (important context)
-            if was_truncated:
-                is_low_value = False
-
-            # Mark for removal if it's low-value and not in the last 3
-            if is_low_value and len(low_value_indices) < (len(tool_results) - keep_count):
-                low_value_indices.append(idx)
-
-        if not low_value_indices:
-            return
-
-        # Group consecutive low-value indices and replace each group
-        groups = []
-        current_group = [low_value_indices[0]]
-
-        for i in range(1, len(low_value_indices)):
-            if low_value_indices[i] == low_value_indices[i - 1] + 1:
-                current_group.append(low_value_indices[i])
-            else:
-                groups.append(current_group)
-                current_group = [low_value_indices[i]]
-        groups.append(current_group)
-
-        # Replace each group with a compact summary
-        for group in groups:
-            if not group:
-                continue
-
-            first_idx = group[0]
-            last_idx = group[-1]
-
-            # Count how many items were removed
-            removed_count = len(group)
-
-            # Build a summary of what was removed
-            removed_tools = []
-            for idx in group:
-                content = self.messages[idx].get("content", "")
-                try:
-                    import json as _json
-                    result_data = _json.loads(content)
-                    step_data = result_data.get("result", {})
-                    if isinstance(step_data, str):
-                        step_data = _json.loads(step_data)
-                    tool_name = step_data.get("tool", "unknown")
-                    removed_tools.append(tool_name)
-                except (json.JSONDecodeError, KeyError, TypeError):
-                    removed_tools.append("unknown")
-
-            # Count total tokens removed
-            tokens_removed = sum(
-                _estimate_tokens(self.messages[idx].get("content", ""))
-                for idx in group
-            )
-
-            # Create the replacement message
-            # Also remove the corresponding assistant messages (LLM responses)
-            # that precede these tool results
-            assistant_indices_to_remove = []
-            for idx in group:
-                # Look for the assistant message before this tool result
-                for j in range(idx - 1, max(0, idx - 5), -1):
-                    if self.messages[j].get("role") == "assistant":
-                        assistant_indices_to_remove.append(j)
-                        break
-
-            # Remove duplicates and sort
-            assistant_indices_to_remove = sorted(set(assistant_indices_to_remove), reverse=True)
-
-            # Build the summary message
-            tool_counts = {}
-            for t in removed_tools:
-                tool_counts[t] = tool_counts.get(t, 0) + 1
-
-            summary_parts = []
-            for tool_name, count in sorted(tool_counts.items()):
-                summary_parts.append(f"  - {tool_name}: {count} result(s)")
-
-            summary = (
-                f"[COMPRESSED] Removed {removed_count} low-value tool result(s) "
-                f"({tokens_removed} tokens) for brevity:\n"
-                + "\n".join(summary_parts) + f"\n[Removed {removed_count} tool result(s), {tokens_removed} tokens]"
-            )
-
-            # Replace the first tool result with the summary
-            self.messages[first_idx] = {
-                "role": "user",
-                "content": summary,
-            }
-
-            # Remove the rest of the tool results in this group
-            for idx in reversed(group[1:]):
-                self.messages.pop(idx)
-
-            # Remove the corresponding assistant messages
-            for idx in assistant_indices_to_remove:
-                if idx < len(self.messages):
-                    self.messages.pop(idx)
-
-        self.logger.info(
-            f"Deterministic context compression: removed {len(low_value_indices)} "
-            f"low-value items ({tokens_removed} tokens)"
-        )
 
     def reload_approved_tools(self):
         """Reload project-local tools and rebuild system prompt.
@@ -1430,7 +1266,6 @@ class AgentEngine:
                         self._context_warning_shown = True
 
                         # Apply deterministic context compression
-                        self._deterministic_compress_context()
                         self.logger.info(
                             f"Context compression triggered at step {self.step_count}, "
                             f"context at {round(usage_pct * 100, 1)}% of max"

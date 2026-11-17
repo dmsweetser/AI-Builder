@@ -12,6 +12,7 @@
 #   ./scripts/llama_server.sh ministral    # start Ministral-3-14B
 #   ./scripts/llama_server.sh devstral     # start Devstral-Small-2-24B
 #   ./scripts/llama_server.sh gemma4       # start Gemma-4-26B-A4B-it
+#   ./scripts/llama_server.sh gemma4_small # start Gemma-4-E4B-it
 #   ./scripts/llama_server.sh all          # download all models (don't start)
 #
 #   MTP=0 ./scripts/llama_server.sh gemma4 # start with MTP speculative
@@ -200,7 +201,6 @@ check_memory() {
     ministral) min_gb=32 ;;
     devstral)  min_gb=32 ;;
     gemma4)    min_gb=24 ;;
-    gemma4_small) min_gb=24 ;;
     gemma4_small) min_gb=24 ;;
     *)         min_gb=16 ;;
   esac

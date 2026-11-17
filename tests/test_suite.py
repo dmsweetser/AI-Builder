@@ -44,7 +44,6 @@ from agent_engine.tools.search_files import SearchFilesTool
 from agent_engine.tools.grep_code import GrepCodeTool
 from agent_engine.tools.delete_file import DeleteFileTool
 from agent_engine.tools.check_syntax import CheckSyntaxTool
-from agent_engine.tools.find_symbol import FindSymbolTool
 from agent_engine.tools.decompile_jar import DecompileJarTool
 from agent_engine.tools.respond_to_user import RespondToUserTool
 from agent_engine.tools.task_completed import TaskCompletedTool
@@ -1034,8 +1033,9 @@ class TestFileSystemTools(unittest.TestCase):
             tool = EditFileTool(tmpdir)
             r = tool.execute({
                 'path': 'edit_test.py',
-                'original_text': 'y = 2',
-                'new_text': 'y = 3\nz = 4',
+                'line_start': '2',
+                'line_end': '2',
+                'new_text': 'y = 3\nz = 4\n',
             })
             self.assertTrue(r.success)
             with open(test_file, 'r') as f:
@@ -1140,8 +1140,9 @@ class TestFileSystemTools(unittest.TestCase):
             tool = EditFileTool(tmpdir)
             r = tool.execute({
                 'path': 'edit_verify.py',
-                'original_text': 'y = 2',
-                'new_text': 'y = 3\nz = 4',
+                'line_start': '2',
+                'line_end': '2',
+                'new_text': 'y = 3\nz = 4\n',
             })
             self.assertTrue(r.success)
             with open(test_file) as f:
@@ -1161,11 +1162,10 @@ class TestFileSystemTools(unittest.TestCase):
             tool = EditFileTool(tmpdir)
             r = tool.execute({
                 'path': 'edit_fail.py',
-                'original_text': 'y = 2',
                 'new_text': 'y = 3',
             })
             self.assertFalse(r.success)
-            self.assertIn('not found', r.error.lower())
+            self.assertIn('line_start', r.error.lower())
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)
 
@@ -1190,7 +1190,7 @@ class TestToolRegistry(unittest.TestCase):
         expected = [
             'list_directory', 'search_files', 'grep_code',
             'read_file', 'write_file', 'edit_file', 'delete_file',
-            'find_symbol', 'decompile_jar',
+            'decompile_jar',
             'check_syntax', 'create_tool',
             'respond_to_user', 'request_user_input', 'task_completed',
         ]
@@ -1302,7 +1302,7 @@ class TestSingletonRegistry(unittest.TestCase):
         expected_tools = [
             'list_directory', 'list_directory_deep', 'search_files', 'search_files_dir',
             'grep_code', 'grep_code_dir', 'read_file', 'read_file_range',
-            'write_file', 'edit_file', 'delete_file', 'find_symbol',
+            'write_file', 'edit_file', 'delete_file',
             'decompile_jar', 'check_syntax',
             'create_tool',
             'respond_to_user', 'request_user_input', 'task_completed',
@@ -2005,28 +2005,6 @@ class TestDecompileJar(unittest.TestCase):
         self.assertFalse(r.success)
         self.assertIn('not found', r.error.lower())
 
-class TestFindSymbol(unittest.TestCase):
-    def test_find_java_class(self):
-        tool = FindSymbolTool(TEST_PROJECT)
-        r = tool.execute({'symbol': 'Calculator'})
-        self.assertTrue(r.success)
-        results = json.loads(r.content)
-        self.assertGreater(len(results), 0)
-        self.assertTrue(any('Calculator' in r['text'] for r in results))
-
-    def test_find_python_function(self):
-        tool = FindSymbolTool(TEST_PROJECT)
-        r = tool.execute({'symbol': 'greet'})
-        self.assertTrue(r.success)
-        results = json.loads(r.content)
-        self.assertGreater(len(results), 0)
-
-    def test_find_csharp_class(self):
-        tool = FindSymbolTool(TEST_PROJECT)
-        r = tool.execute({'symbol': 'Calculator'})
-        self.assertTrue(r.success)
-        results = json.loads(r.content)
-        self.assertGreater(len(results), 0)
 
 
 # ====================================================================
@@ -2658,36 +2636,6 @@ class TestQueueBehavior(unittest.TestCase):
 # ====================================================================
 
 class TestEditFileStrategies(unittest.TestCase):
-    def test_exact_match(self):
-        tmpdir = tempfile.mkdtemp()
-        try:
-            test_file = os.path.join(tmpdir, 'exact.py')
-            with open(test_file, 'w') as f:
-                f.write('x = 1\ny = 2\nz = 3\n')
-            tool = EditFileTool(tmpdir)
-            r = tool.execute({'path': 'exact.py', 'original_text': 'y = 2', 'new_text': 'y = 10'})
-            self.assertTrue(r.success, f"Exact match failed: {r.error}")
-            with open(test_file) as f:
-                self.assertIn('y = 10', f.read())
-        finally:
-            shutil.rmtree(tmpdir, ignore_errors=True)
-
-    def test_whitespace_insensitive_match(self):
-        tmpdir = tempfile.mkdtemp()
-        try:
-            test_file = os.path.join(tmpdir, 'ws.py')
-            with open(test_file, 'w') as f:
-                f.write('x = 1\n  y  =  2\nz = 3\n')
-            tool = EditFileTool(tmpdir)
-            r = tool.execute({'path': 'ws.py', 'original_text': 'y = 2', 'new_text': 'y = 20'})
-            self.assertTrue(r.success, f"Whitespace match failed: {r.error}")
-            with open(test_file) as f:
-                content = f.read()
-                # The edit replaces the matched text with the new text
-                self.assertIn('y = 20', content)
-        finally:
-            shutil.rmtree(tmpdir, ignore_errors=True)
-
     def test_line_range_replacement(self):
         tmpdir = tempfile.mkdtemp()
         try:
@@ -2695,7 +2643,7 @@ class TestEditFileStrategies(unittest.TestCase):
             with open(test_file, 'w') as f:
                 f.write('line1\nline2\nline3\nline4\n')
             tool = EditFileTool(tmpdir)
-            r = tool.execute({'path': 'range.py', 'original_text': '', 'new_text': 'replaced\n', 'line_start': '2', 'line_end': '3'})
+            r = tool.execute({'path': 'range.py', 'line_start': '2', 'line_end': '3', 'new_text': 'replaced\n'})
             self.assertTrue(r.success, f"Line-range match failed: {r.error}")
             with open(test_file) as f:
                 content = f.read()
@@ -2705,21 +2653,32 @@ class TestEditFileStrategies(unittest.TestCase):
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)
 
-    def test_helpful_error_message(self):
+    def test_line_range_out_of_bounds(self):
         tmpdir = tempfile.mkdtemp()
         try:
-            test_file = os.path.join(tmpdir, 'error.py')
+            test_file = os.path.join(tmpdir, 'oob.py')
             with open(test_file, 'w') as f:
-                f.write('hello world\n')
+                f.write('line1\n')
             tool = EditFileTool(tmpdir)
-            r = tool.execute({'path': 'error.py', 'original_text': 'goodbye world', 'new_text': 'farewell'})
+            r = tool.execute({'path': 'oob.py', 'line_start': '5', 'line_end': '10', 'new_text': 'x'})
             self.assertFalse(r.success)
-            error_lower = r.error.lower()
-            self.assertTrue(
-                'suggestions' in error_lower or 'preview' in error_lower,
-                f"Expected helpful error message, got: {r.error}"
-            )
-            self.assertIn('hello world', r.error)
+            self.assertIn('out of range', r.error)
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+    def test_line_range_multiple_lines(self):
+        tmpdir = tempfile.mkdtemp()
+        try:
+            test_file = os.path.join(tmpdir, 'multi.py')
+            with open(test_file, 'w') as f:
+                f.write('a\nb\nc\nd\n')
+            tool = EditFileTool(tmpdir)
+            r = tool.execute({'path': 'multi.py', 'line_start': '2', 'line_end': '3', 'new_text': 'b\nc\nd\n'})
+            self.assertTrue(r.success)
+            with open(test_file) as f:
+                content = f.read()
+                self.assertIn('a', content)
+                self.assertIn('d', content)
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)
 

@@ -16,7 +16,8 @@ class CheckSyntaxTool(BaseTool):
     description = (
         "Check syntax of a file without executing it. "
         "Language detected from file extension: .py (Python), .java (Java), "
-        ".cs (C#), .js/.ts (JavaScript/TypeScript), .html (HTML), .css (CSS). "
+        ".cs (C#), .js/.ts (JavaScript/TypeScript), .html (HTML), .css (CSS), "
+        ".sh/.bash (Bash/Shell), .bat/.cmd (Windows Batch). "
         "Returns success/failure and any error messages."
     )
     parameters = {"path": "string"}
@@ -45,9 +46,13 @@ class CheckSyntaxTool(BaseTool):
             return self._check_xml(path)
         elif ext in ('.json',):
             return self._check_json(path)
+        elif ext in ('.sh', '.bash'):
+            return self._check_bash(path)
+        elif ext in ('.bat', '.cmd'):
+            return self._check_batch(path)
         else:
             return ToolResult(False, "",
-                              error=f"Unknown file type '{ext}'. Supported: .py, .java, .cs, .js, .ts, .html, .css, .xml, .json")
+                              error=f"Unknown file type '{ext}'. Supported: .py, .java, .cs, .js, .ts, .html, .css, .sh, .bash, .bat, .cmd, .xml, .json")
 
     def _check_python(self, path: str) -> ToolResult:
         try:
@@ -339,6 +344,118 @@ class CheckSyntaxTool(BaseTool):
             return ToolResult(True, "XML syntax OK", summary="XML check passed")
         except ET.ParseError as e:
             return ToolResult(False, f"XML ParseError: {e}", error=str(e))
+        except Exception as e:
+            return ToolResult(False, "", error=str(e))
+
+    def _check_bash(self, path: str) -> ToolResult:
+        """Check bash/shell syntax using bash -n (noexec)."""
+        try:
+            result = subprocess.run(
+                ["bash", "-n", path],
+                capture_output=True, text=True, timeout=30
+            )
+            if result.returncode == 0:
+                return ToolResult(True, f"Bash syntax OK ({path})", summary="Bash syntax check passed")
+            errors = result.stderr.strip().split('\n')
+            return ToolResult(False, "\n".join(e for e in errors if e), error=errors[0] if errors else "Bash syntax error")
+        except FileNotFoundError:
+            # bash not available — do basic brace/paren checking
+            return self._check_bash_fallback(path)
+        except subprocess.TimeoutExpired:
+            return ToolResult(False, "", error="Bash syntax check timed out")
+        except Exception as e:
+            return self._check_bash_fallback(path)
+
+    def _check_bash_fallback(self, path: str) -> ToolResult:
+        """Fallback bash syntax check using brace/paren counting."""
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
+            errors = []
+            brace_depth = 0
+            paren_depth = 0
+            in_single_quote = False
+            in_double_quote = False
+            for i, line in enumerate(lines, 1):
+                stripped = line.strip()
+                # Skip comments
+                if stripped.startswith('#'):
+                    continue
+                # Track quotes (simplified)
+                for j, ch in enumerate(line):
+                    if ch == "'" and not in_double_quote:
+                        in_single_quote = not in_single_quote
+                    elif ch == '"' and not in_single_quote:
+                        in_double_quote = not in_double_quote
+                    elif not in_single_quote and not in_double_quote:
+                        if ch == '{':
+                            brace_depth += 1
+                        elif ch == '}':
+                            brace_depth -= 1
+                            if brace_depth < 0:
+                                errors.append(f"Line {i}: Unmatched closing brace")
+                                break
+                        elif ch == '(':
+                            paren_depth += 1
+                        elif ch == ')':
+                            paren_depth -= 1
+                            if paren_depth < 0:
+                                errors.append(f"Line {i}: Unmatched closing parenthesis")
+                                break
+                if errors:
+                    break
+            if brace_depth != 0:
+                errors.append(f"Unmatched braces: {brace_depth} unclosed")
+            if paren_depth != 0:
+                errors.append(f"Unmatched parentheses: {paren_depth} unclosed")
+            if errors:
+                return ToolResult(False, "\n".join(errors), error=errors[0])
+            return ToolResult(True, f"Bash syntax OK ({path}) [basic check]", summary="Basic bash syntax check passed")
+        except Exception as e:
+            return ToolResult(False, "", error=str(e))
+
+    def _check_batch(self, path: str) -> ToolResult:
+        """Check batch/cmd syntax using basic structural checks.
+        
+        Windows batch files are checked for:
+        - Balanced parentheses in if/for/else blocks
+        - Balanced percent signs in variable references
+        - No unterminated quotes
+        """
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
+            errors = []
+            paren_depth = 0
+            in_quote = False
+            for i, line in enumerate(lines, 1):
+                stripped = line.strip()
+                # Skip comments
+                if stripped.startswith('REM ') or stripped.startswith('::') or stripped.startswith('@REM'):
+                    continue
+                # Skip empty lines
+                if not stripped:
+                    continue
+                # Track quotes (simplified)
+                for ch in stripped:
+                    if ch == '"':
+                        in_quote = not in_quote
+                    elif ch == '(' and not in_quote:
+                        paren_depth += 1
+                    elif ch == ')' and not in_quote:
+                        paren_depth -= 1
+                        if paren_depth < 0:
+                            errors.append(f"Line {i}: Unmatched closing parenthesis")
+                            break
+                if errors:
+                    break
+            if paren_depth != 0:
+                errors.append(f"Unmatched parentheses: {paren_depth} unclosed")
+            if in_quote:
+                errors.append("Unterminated quote somewhere in the file")
+            if errors:
+                return ToolResult(False, "\n".join(errors), error=errors[0])
+            return ToolResult(True, f"Batch syntax OK ({path}) [basic check]", summary="Basic batch syntax check passed")
         except Exception as e:
             return ToolResult(False, "", error=str(e))
 
