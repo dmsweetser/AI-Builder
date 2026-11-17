@@ -477,32 +477,34 @@ start_server() {
 show_menu() {
   echo "" >&2
   echo "============================================" >&2
-  echo "  AI-Builder — llama.cpp Server (Linux)" >&2
-  echo "  Backend: $(backend_label)" >&2
+  echo "  AI-Builder — llama.cpp Server (macOS)" >&2
   echo "============================================" >&2
   echo "" >&2
   echo "  1) Ministral-3-14B       (port 8081, 256K ctx)" >&2
   echo "  2) Devstral-Small-2-24B  (port 8082, 384K ctx)" >&2
   echo "  3) Gemma-4-26B-A4B-it    (port 8083, 256K ctx, MTP)" >&2
-  echo "  4) Download ALL models" >&2
+  echo "  4) Gemma-4-E4B-it       (port 8084, 256K ctx)" >&2
+  echo "  5) Download ALL models" >&2
   echo "  0) Exit" >&2
   echo "" >&2
-  echo "  Or run: $0 <ministral|devstral|gemma4|all>" >&2
+  echo "  Or run: $0 <ministral|devstral|gemma4|gemma4_small|all>" >&2
   echo "" >&2
 
   local choice
   while true; do
-    read -rp "Select model [1-4, 0=exit]: " choice
+    read -rp "Select model [1-5, 0=exit]: " choice
     case "$choice" in
       1) echo "ministral"; return 0 ;;
       2) echo "devstral"; return 0 ;;
       3) echo "gemma4"; return 0 ;;
-      4) echo "all"; return 0 ;;
+      4) echo "gemma4_small"; return 0 ;;
+      5) echo "all"; return 0 ;;
       0) echo "exit"; return 0 ;;
       *) warn "Invalid choice." ;;
     esac
   done
 }
+
 
 # ---------------------------------------------------------------------------
 # Main

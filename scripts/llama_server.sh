@@ -52,6 +52,7 @@ model_name() {
     devstral)  echo "Devstral-Small-2-24B" ;;
     gemma4)    echo "Gemma-4-26B-A4B" ;;
     gemma4_small) echo "Gemma-4-E4B-it" ;;
+    gemma4_small) echo "Gemma-4-E4B-it" ;;
   esac
 }
 
@@ -60,6 +61,7 @@ model_file() {
     ministral) echo "Ministral-3-14B-Instruct-2512-Q4_K_M.gguf" ;;
     devstral)  echo "Devstral-Small-2-24B-Instruct-2512-Q4_K_M.gguf" ;;
     gemma4)    echo "gemma-4-26B-A4B-it-UD-Q4_K_M.gguf" ;;
+    gemma4_small) echo "gemma-4-E4B-it-Q4_K_M.gguf" ;;
     gemma4_small) echo "gemma-4-E4B-it-Q4_K_M.gguf" ;;
   esac
 }
@@ -70,6 +72,7 @@ model_mmproj_file() {
     devstral)  echo "mmproj-F32.gguf" ;;
     gemma4)    echo "mmproj-F32.gguf" ;;
     gemma4_small) echo "mmproj-F16.gguf" ;;
+    gemma4_small) echo "mmproj-F16.gguf" ;;
   esac
 }
 
@@ -79,6 +82,7 @@ model_url() {
     devstral)  echo "https://huggingface.co/unsloth/Devstral-Small-2-24B-Instruct-2512-GGUF/resolve/main/Devstral-Small-2-24B-Instruct-2512-Q4_K_M.gguf?download=true" ;;
     gemma4)    echo "https://huggingface.co/unsloth/gemma-4-26B-A4B-it-GGUF/resolve/main/gemma-4-26B-A4B-it-UD-Q4_K_M.gguf?download=true" ;;
     gemma4_small) echo "https://huggingface.co/unsloth/gemma-4-E4B-it-GGUF/resolve/main/gemma-4-E4B-it-Q4_K_M.gguf?download=true" ;;
+    gemma4_small) echo "https://huggingface.co/unsloth/gemma-4-E4B-it-GGUF/resolve/main/gemma-4-E4B-it-Q4_K_M.gguf?download=true" ;;
   esac
 }
 
@@ -87,6 +91,7 @@ model_mmproj_url() {
     ministral) echo "https://huggingface.co/unsloth/Ministral-3-14B-Instruct-2512-GGUF/resolve/main/mmproj-F16.gguf?download=true" ;;
     devstral)  echo "https://huggingface.co/unsloth/Devstral-Small-2-24B-Instruct-2512-GGUF/resolve/main/mmproj-F32.gguf?download=true" ;;
     gemma4)    echo "https://huggingface.co/unsloth/gemma-4-26B-A4B-it-GGUF/resolve/main/mmproj-F32.gguf?download=true" ;;
+    gemma4_small) echo "https://huggingface.co/unsloth/gemma-4-E4B-it-GGUF/resolve/main/mmproj-F16.gguf?download=true" ;;
     gemma4_small) echo "https://huggingface.co/unsloth/gemma-4-E4B-it-GGUF/resolve/main/mmproj-F16.gguf?download=true" ;;
   esac
 }
@@ -121,6 +126,7 @@ model_context() {
     devstral)  echo "393216" ;;
     gemma4)    echo "262144" ;;
     gemma4_small) echo "262144" ;;
+    gemma4_small) echo "262144" ;;
   esac
 }
 
@@ -133,6 +139,7 @@ model_npredict() {
     devstral)  echo "-1" ;;
     gemma4)    echo "-1" ;;
     gemma4_small) echo "-1" ;;
+    gemma4_small) echo "-1" ;;
   esac
 }
 
@@ -144,6 +151,7 @@ model_port() {
     ministral) echo "8081" ;;
     devstral)  echo "8082" ;;
     gemma4)    echo "8083" ;;
+    gemma4_small) echo "8084" ;;
     gemma4_small) echo "8084" ;;
   esac
 }
@@ -200,6 +208,7 @@ check_memory() {
     ministral) min_gb=32 ;;
     devstral)  min_gb=32 ;;
     gemma4)    min_gb=24 ;;
+    gemma4_small) min_gb=24 ;;
     gemma4_small) min_gb=24 ;;
     *)         min_gb=16 ;;
   esac
@@ -417,6 +426,7 @@ show_menu() {
     esac
   done
 }
+
 
 
 # ---------------------------------------------------------------------------
