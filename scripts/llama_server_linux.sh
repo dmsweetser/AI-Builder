@@ -24,7 +24,7 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
-WORKDIR="$(cd "$(dirname "$0")/.." && pwd)"
+WORKDIR="$(cd "$(dirname "$0")" && pwd)"
 LLAMACPP_DIR="$WORKDIR/llama.cpp-bin"
 MODEL_BASE_DIR="$WORKDIR/models"
 

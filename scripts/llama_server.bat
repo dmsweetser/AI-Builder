@@ -22,8 +22,8 @@ REM   (only Gemma 4 ships an MTP draft; it is on by default for it --
 REM   see the GEMMA_MTP note in the model definitions below).
 REM ===========================================================================
 
-cd /d "%~dp0.." || (
-  echo [error]   Could not cd to script parent directory.
+cd /d "%~dp0" || (
+  echo [error]   Could not cd to script directory.
   exit /b 1
 )
 set "WORKDIR=%CD%"
