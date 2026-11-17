@@ -2464,4 +2464,4 @@ if __name__ == '__main__':
 
     threading.Timer(2.0, _open_browser).start()
 
-    app.run(port=_server_port, debug=True, threaded=True, use_reloader=False)
+    app.run(port=_server_port, debug=False, threaded=True, use_reloader=False)
