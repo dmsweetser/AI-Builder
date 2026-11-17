@@ -41,18 +41,17 @@ rm -rf dist build ai_builder.spec
 # Build single executable
 echo "[INFO] Building executable..."
 # Note: PyInstaller is generally cross-platform, but we ensure the pathing is correct.
-pyinstaller \\
-    --onefile \\
-    --name ai_builder \\
-    --hidden-import=flask \\
-    --hidden-import=dotenv \\
-    --hidden-import=agent_engine \\
-    --hidden-import=agent_engine.tools \\
-    --add-data "agent_engine:agent_engine" \\
-    --add-data "templates:templates" \\
-    --add-data "static:static" \\
+pyinstaller \
+    --onefile \
+    --name ai_builder \
+    --hidden-import=flask \
+    --hidden-import=dotenv \
+    --hidden-import=agent_engine \
+    --hidden-import=agent_engine.tools \
+    --add-data "agent_engine:agent_engine" \
+    --add-data "templates:templates" \
+    --add-data "static:static" \
     "$(dirname "$0")/../app.py"
-
 # Check build success
 if [ -f "dist/ai_builder" ]; then
     echo "[SUCCESS] Packaging complete!"
