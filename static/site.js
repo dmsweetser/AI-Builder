@@ -393,13 +393,11 @@ function _pollOnce(jobId, outputDir, agentBox) {
 
             if (count > 0) {
                 var lastStep = steps[count - 1];
-                // Detect pending user input: last step was request_user_input
                 if (lastStep && lastStep.tool === 'request_user_input') {
                     hasPendingUserInput = true;
                 }
             }
 
-            // Check for pending tools via API (filesystem-based)
             if (outputDir) {
                 fetch('/api/tools/pending', {
                     method: 'POST',
@@ -412,16 +410,37 @@ function _pollOnce(jobId, outputDir, agentBox) {
                         hasPendingTools = true;
                     }
                     _renderAllSteps(jobId, outputDir, agentBox, statusData, hasPendingTools, hasPendingUserInput);
+                    updateLiveResponse(jobId, agentBox);
                 })
                 .catch(function() {
                     _renderAllSteps(jobId, outputDir, agentBox, statusData, hasPendingTools, hasPendingUserInput);
+                    updateLiveResponse(jobId, agentBox);
                 });
             } else {
                 _renderAllSteps(jobId, outputDir, agentBox, statusData, hasPendingTools, hasPendingUserInput);
+                updateLiveResponse(jobId, agentBox);
             }
         })
         .catch(function(err) {
             console.error('Polling error:', err);
+
+function updateLiveResponse(jobId, agentBox) {
+    if (!jobId || !agentBox) return;
+    var container = document.getElementById('live-response-container');
+    if (!container) return;
+
+    fetch('/api/agent/response/' + jobId)
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.content && data.content.trim()) {
+                container.textContent = data.content;
+                container.style.display = 'block';
+            } else {
+                container.style.display = 'none';
+            }
+        })
+        .catch(function(err) { console.error('Failed to fetch live response:', err); });
+}
         });
 }
 
@@ -2357,6 +2376,18 @@ function injectLiveInstruction() {
     btn.disabled = true;
     btn.textContent = 'INJECTING...';
     input.disabled = true;
+
+    // Add visual feedback in the feed immediately
+    var agentBox = document.getElementById('agent-live-box');
+    if (agentBox) {
+        var injectEntry = document.createElement('div');
+        injectEntry.className = 'step-entry';
+        injectEntry.style.borderLeftColor = 'var(--info)';
+        injectEntry.style.background = 'rgba(74, 237, 223, 0.1)';
+        injectEntry.innerHTML = '<div class="step-tool" style="color:var(--info);">📥 USER INJECTION: ' + escapeHtml(instruction) + '</div>';
+        agentBox.appendChild(injectEntry);
+        agentBox.scrollTop = agentBox.scrollHeight;
+    }
 
     // Always use the inject endpoint — it handles all job states:
     //   - Running: appends instruction to conversation via pending_live_instruction

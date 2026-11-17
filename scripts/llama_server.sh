@@ -44,13 +44,14 @@ LLAMACPP_TAG="b12387"
 # attribute. Adding a model = add its key to MODEL_KEYS and one line to
 # each lookup. Friendly aliases are resolved in resolve_key() below.
 # ---------------------------------------------------------------------------
-MODEL_KEYS="ministral devstral gemma4"
+MODEL_KEYS="ministral devstral gemma4 gemma4_small"
 
 model_name() {
   case "$1" in
     ministral) echo "Ministral-3-14B" ;;
     devstral)  echo "Devstral-Small-2-24B" ;;
     gemma4)    echo "Gemma-4-26B-A4B" ;;
+    gemma4_small) echo "Gemma-4-E4B-it" ;;
   esac
 }
 
@@ -59,6 +60,7 @@ model_file() {
     ministral) echo "Ministral-3-14B-Instruct-2512-Q4_K_M.gguf" ;;
     devstral)  echo "Devstral-Small-2-24B-Instruct-2512-Q4_K_M.gguf" ;;
     gemma4)    echo "gemma-4-26B-A4B-it-UD-Q4_K_M.gguf" ;;
+    gemma4_small) echo "gemma-4-E4B-it-Q4_K_M.gguf" ;;
   esac
 }
 
@@ -67,6 +69,7 @@ model_mmproj_file() {
     ministral) echo "mmproj-F16.gguf" ;;
     devstral)  echo "mmproj-F32.gguf" ;;
     gemma4)    echo "mmproj-F32.gguf" ;;
+    gemma4_small) echo "mmproj-F16.gguf" ;;
   esac
 }
 
@@ -75,6 +78,7 @@ model_url() {
     ministral) echo "https://huggingface.co/unsloth/Ministral-3-14B-Instruct-2512-GGUF/resolve/main/Ministral-3-14B-Instruct-2512-Q4_K_M.gguf?download=true" ;;
     devstral)  echo "https://huggingface.co/unsloth/Devstral-Small-2-24B-Instruct-2512-GGUF/resolve/main/Devstral-Small-2-24B-Instruct-2512-Q4_K_M.gguf?download=true" ;;
     gemma4)    echo "https://huggingface.co/unsloth/gemma-4-26B-A4B-it-GGUF/resolve/main/gemma-4-26B-A4B-it-UD-Q4_K_M.gguf?download=true" ;;
+    gemma4_small) echo "https://huggingface.co/unsloth/gemma-4-E4B-it-GGUF/resolve/main/gemma-4-E4B-it-Q4_K_M.gguf?download=true" ;;
   esac
 }
 
@@ -83,6 +87,7 @@ model_mmproj_url() {
     ministral) echo "https://huggingface.co/unsloth/Ministral-3-14B-Instruct-2512-GGUF/resolve/main/mmproj-F16.gguf?download=true" ;;
     devstral)  echo "https://huggingface.co/unsloth/Devstral-Small-2-24B-Instruct-2512-GGUF/resolve/main/mmproj-F32.gguf?download=true" ;;
     gemma4)    echo "https://huggingface.co/unsloth/gemma-4-26B-A4B-it-GGUF/resolve/main/mmproj-F32.gguf?download=true" ;;
+    gemma4_small) echo "https://huggingface.co/unsloth/gemma-4-E4B-it-GGUF/resolve/main/mmproj-F16.gguf?download=true" ;;
   esac
 }
 
@@ -115,6 +120,7 @@ model_context() {
     ministral) echo "262144" ;;
     devstral)  echo "393216" ;;
     gemma4)    echo "262144" ;;
+    gemma4_small) echo "262144" ;;
   esac
 }
 
@@ -126,6 +132,7 @@ model_npredict() {
     ministral) echo "-1" ;;
     devstral)  echo "-1" ;;
     gemma4)    echo "-1" ;;
+    gemma4_small) echo "-1" ;;
   esac
 }
 
@@ -137,6 +144,7 @@ model_port() {
     ministral) echo "8081" ;;
     devstral)  echo "8082" ;;
     gemma4)    echo "8083" ;;
+    gemma4_small) echo "8084" ;;
   esac
 }
 
@@ -192,6 +200,7 @@ check_memory() {
     ministral) min_gb=32 ;;
     devstral)  min_gb=32 ;;
     gemma4)    min_gb=24 ;;
+    gemma4_small) min_gb=24 ;;
     *)         min_gb=16 ;;
   esac
   if [[ "$ram_gb" -gt 0 ]] && [[ "$ram_gb" -lt "$min_gb" ]]; then
@@ -387,25 +396,28 @@ show_menu() {
   echo "  1) Ministral-3-14B       (port 8081, 256K ctx)" >&2
   echo "  2) Devstral-Small-2-24B  (port 8082, 384K ctx)" >&2
   echo "  3) Gemma-4-26B-A4B-it    (port 8083, 256K ctx, MTP)" >&2
-  echo "  4) Download ALL models" >&2
+  echo "  4) Gemma-4-E4B-it       (port 8084, 256K ctx)" >&2
+  echo "  5) Download ALL models" >&2
   echo "  0) Exit" >&2
   echo "" >&2
-  echo "  Or run: $0 <ministral|devstral|gemma4|all>" >&2
+  echo "  Or run: $0 <ministral|devstral|gemma4|gemma4_small|all>" >&2
   echo "" >&2
 
   local choice
   while true; do
-    read -rp "Select model [1-4, 0=exit]: " choice
+    read -rp "Select model [1-5, 0=exit]: " choice
     case "$choice" in
       1) echo "ministral"; return 0 ;;
       2) echo "devstral"; return 0 ;;
       3) echo "gemma4"; return 0 ;;
-      4) echo "all"; return 0 ;;
+      4) echo "gemma4_small"; return 0 ;;
+      5) echo "all"; return 0 ;;
       0) echo "exit"; return 0 ;;
       *) warn "Invalid choice." ;;
     esac
   done
 }
+
 
 # ---------------------------------------------------------------------------
 # Main

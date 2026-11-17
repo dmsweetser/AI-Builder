@@ -2442,31 +2442,27 @@ import webbrowser
 import threading
 
 # --- Start Worker on App Start ---
-init_directories()
-load_job_history()
-load_settings()  # Initialize settings cache
-from agent_engine.config import set_global_settings
-set_global_settings(get_settings())
-start_worker()
-_log_app_event("App started — worker thread launched")
 
-# Determine the port once and use it for both server and browser
-_server_port = _find_available_port()
+if __name__ == '__main__':
+    init_directories()
+    load_job_history()
+    load_settings()  # Initialize settings cache
+    from agent_engine.config import set_global_settings
+    set_global_settings(get_settings())
+    start_worker()
+    _log_app_event("App started — worker thread launched")
 
-# Auto-open browser after a short delay so the server is ready
-def _open_browser():
-    try:
-        webbrowser.open(f"http://127.0.0.1:{_server_port}/")
-    except Exception:
-        pass
+    # Determine the port once and use it for both server and browser
+    _server_port = _find_available_port()
 
-threading.Timer(2.0, _open_browser).start()
+    # Auto-open browser after a short delay so the server is ready
+    def _open_browser():
+        try:
+            webbrowser.open(f"http://127.0.0.1:{_server_port}/")
+        except Exception:
+            pass
 
-@app.route("/api/app-log", methods=["GET"])
-def api_app_log():
-    """Return the system application log."""
-    with _app_log_lock:
-        return jsonify({"log": list(_app_log)})
+    threading.Timer(2.0, _open_browser).start()
 
-if __name__ == "__main__":
+    app.run(port=_server_port, debug=True, threaded=True, use_reloader=False)
     app.run(port=_server_port, debug=True, threaded=True, use_reloader=False)

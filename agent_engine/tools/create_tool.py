@@ -154,11 +154,14 @@ class CreateToolTool(BaseTool):
                         except TypeError:
                             is_sub = False
                         if is_sub:
-                            if getattr(attr, "name", None) == tool_name:
+                            # Check if the class name (case-insensitive, ignoring underscores) matches the tool name
+                            class_name_normalized = attr.__name__.lower().replace('_', '')
+                            tool_name_normalized = tool_name.lower().replace('_', '')
+                            if getattr(attr, "name", None) == tool_name or class_name_normalized == tool_name_normalized:
                                 found_class = True
                                 break
                 if not found_class:
-                    return ToolResult(False, "", error=f"Tool code must define a class named '{tool_name}' that inherits from BaseTool")
+                    return ToolResult(False, "", error=f"Tool code must define a class with name '{tool_name}' or a class name that matches '{tool_name}' (case-insensitive, ignoring underscores) and inherits from BaseTool")
 
                 # Validate that the tool code returns a ToolResult object
                 if "ToolResult" not in tool_code or "return ToolResult" not in tool_code:
