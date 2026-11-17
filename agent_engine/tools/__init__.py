@@ -95,6 +95,12 @@ class ToolRegistry:
         self._project_loaders: Dict[str, ProjectToolLoader] = {}
         # Global enabled/disabled set — empty means "all enabled"
         self._enabled_tools: Set[str] = set()
+        # Shared tools directory (from settings)
+        self._shared_tools_dir: Optional[str] = None
+
+    def set_shared_tools_dir(self, path: str):
+        """Set the global shared tools directory path."""
+        self._shared_tools_dir = path
 
     # ------------------------------------------------------------------
     # Per-project tool loader management
@@ -109,7 +115,8 @@ class ToolRegistry:
         """
         if project_output_dir not in self._project_loaders:
             self._project_loaders[project_output_dir] = ProjectToolLoader(
-                project_output_dir, disabled_tools or set()
+                project_output_dir, disabled_tools or set(),
+                shared_tools_dir=self._shared_tools_dir,
             )
         else:
             # Update disabled_tools on existing loader (idempotent)
@@ -120,7 +127,8 @@ class ToolRegistry:
                              disabled_tools: Optional[Set[str]] = None):
         """Reload project-local tools for a project."""
         self._project_loaders[project_output_dir] = ProjectToolLoader(
-            project_output_dir, disabled_tools or set()
+            project_output_dir, disabled_tools or set(),
+            shared_tools_dir=self._shared_tools_dir,
         )
 
     def reload_approved_tools(self):

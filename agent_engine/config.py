@@ -124,6 +124,10 @@ class EngineConfig:
         return _settings_get("dotnet_cli_path")
 
     @staticmethod
+    def get_shared_tools_dir() -> Optional[str]:
+        return _settings_get("shared_tools_dir")
+
+    @staticmethod
     def get_enabled_tools() -> Optional[list]:
         tools_str = _settings_get("AIB_ENABLED_TOOLS")
         if tools_str:

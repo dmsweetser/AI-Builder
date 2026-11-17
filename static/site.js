@@ -1944,6 +1944,7 @@ function loadSettingsUI() {
             set('set-jd-cli', settings.jd_cli_path || '');
             set('set-java-home', settings.java_home || '');
             set('set-dotnet-cli', settings.dotnet_cli_path || '');
+            set('set-shared-tools-dir', settings.shared_tools_dir || '');
         })
         .catch(function(err) { console.error('Failed to load settings:', err); });
 }
@@ -1973,6 +1974,7 @@ function saveSettings() {
         max_context_tokens: document.getElementById('set-max-context-tokens').value,
         max_output_tokens: document.getElementById('set-max-output-tokens').value,
         max_tool_result_length: document.getElementById('set-max-tool-result-length').value,
+        shared_tools_dir: document.getElementById('set-shared-tools-dir').value,
     };
     fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(settings) })
         .then(function(r) { return r.json(); })

@@ -26,19 +26,27 @@ from agent_engine.security import ensure_under_root, validate_tool_params, Secur
 
 
 class ProjectToolLoader:
-    """Loads project-local tools from a project-level aib_instance/tools/active/ directory."""
+    """Loads project-local tools from a project-level aib_instance/tools/active/ directory.
 
-    def __init__(self, project_output_dir: str, disabled_tools: Optional[Set[str]] = None):
+    Also loads shared tools from a globally configured directory (settings.shared_tools_dir).
+    Shared tools are loaded first; project-local tools can override them by using the same name.
+    """
+
+    def __init__(self, project_output_dir: str, disabled_tools: Optional[Set[str]] = None,
+                 shared_tools_dir: Optional[str] = None):
         """
         Args:
             project_output_dir: The project's output_dir (from project.json).
                 Expected: aib_instance/<project_id>/output/
             disabled_tools: Set of built-in tool names to disable for this project.
+            shared_tools_dir: Optional global directory containing shared tool .py files.
         """
         self.project_output_dir = project_output_dir
         self.disabled_tools = disabled_tools or set()
+        self.shared_tools_dir = shared_tools_dir
         self._dynamic_tools: Dict[str, Type[BaseTool]] = {}
         self._dynamic_tool_sources: Dict[str, str] = {}  # name → source code
+        self._load_shared_tools()
         self._load_active_tools()
 
     def _project_root(self) -> str:
@@ -87,6 +95,25 @@ class ProjectToolLoader:
                 if tool_name in self.disabled_tools:
                     continue
                 tool_path = os.path.join(active_dir, fname)
+                self._load_tool_from_file(tool_path, tool_name)
+
+    def _load_shared_tools(self):
+        """Load tools from the global shared tools directory (if configured).
+
+        Shared tools are loaded first so that project-local tools can override them
+        by using the same tool name.
+        """
+        if not self.shared_tools_dir:
+            return
+        if not os.path.isdir(self.shared_tools_dir):
+            return
+        for fname in os.listdir(self.shared_tools_dir):
+            if fname.endswith(".py") and not fname.startswith("_"):
+                tool_name = fname[:-3]
+                # Skip tools that are disabled for this project
+                if tool_name in self.disabled_tools:
+                    continue
+                tool_path = os.path.join(self.shared_tools_dir, fname)
                 self._load_tool_from_file(tool_path, tool_name)
 
     def _load_tool_from_file(self, tool_path: str, tool_name: str):

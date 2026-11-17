@@ -179,6 +179,7 @@ def _load_settings_unlocked():
     loaded.setdefault('jd_cli_path', "")
     loaded.setdefault('java_home', "")
     loaded.setdefault('dotnet_cli_path', "")
+    loaded.setdefault('shared_tools_dir', "")
 
     return loaded
 
@@ -207,6 +208,17 @@ def save_settings(settings):
             # Sync to engine config
             from agent_engine.config import set_global_settings
             set_global_settings(get_settings())
+            # Sync shared tools dir to the tool registry
+            shared_dir = settings.get('shared_tools_dir', '')
+            try:
+                from agent_engine.tools import get_registry
+                registry = get_registry()
+                if shared_dir:
+                    registry.set_shared_tools_dir(shared_dir)
+                else:
+                    registry.set_shared_tools_dir('')
+            except Exception:
+                pass
         except Exception as e:
             logging.error(f"Failed to save settings: {e}")
 
@@ -2456,6 +2468,15 @@ if __name__ == '__main__':
     load_settings()  # Initialize settings cache
     from agent_engine.config import set_global_settings
     set_global_settings(get_settings())
+    # Sync shared tools dir to the tool registry
+    try:
+        from agent_engine.tools import get_registry
+        registry = get_registry()
+        shared_dir = get_settings().get('shared_tools_dir', '')
+        if shared_dir:
+            registry.set_shared_tools_dir(shared_dir)
+    except Exception:
+        pass
     start_worker()
     _log_app_event("App started — worker thread launched")
 
