@@ -36,7 +36,7 @@ LLAMACPP_TAG="b12387"
 # ---------------------------------------------------------------------------
 # Model definitions
 # ---------------------------------------------------------------------------
-declare -a MODEL_KEYS=(ministral devstral gemma4)
+declare -a MODEL_KEYS=(ministral devstral gemma4 gemma4_small)
 
 declare -A MODEL_NAMES=(
   [ministral]="Ministral-3-14B"
@@ -79,7 +79,6 @@ declare -A MMPROJ_URLS=(
 declare -A MODEL_MTP_FILES=(
   [gemma4]="mtp-gemma-4-26B-A4B-it.gguf"
 )
-
 declare -A MODEL_MTP_URLS=(
   [gemma4]="https://huggingface.co/unsloth/gemma-4-26B-A4B-it-GGUF/resolve/main/mtp-gemma-4-26B-A4B-it.gguf?download=true"
 )
