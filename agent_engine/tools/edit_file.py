@@ -107,8 +107,6 @@ class EditFileTool(BaseTool):
                               summary=f"Replaced section in: {original_path}")
         except OSError as e:
             return ToolResult(False, "", error=f"Cannot write file: {e}")
-        finally:
-            lock.release()
 
     def _whitespace_insensitive_match(self, content: str, original: str,
                                        new_text: str, path: str) -> Optional[ToolResult]:
