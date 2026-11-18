@@ -92,6 +92,22 @@ _sse_event_queues_lock = threading.Lock()
 _project_engine_active: Dict[str, bool] = {}
 _project_engine_lock = threading.Lock()
 
+# Serialize inject/resume calls per project to prevent parallel threads.
+# When the user double-clicks INJECT, only the first request starts a thread;
+# subsequent requests for the same project are rejected until the first one
+# finishes (or a short cooldown expires).
+_inject_locks: Dict[str, threading.Lock] = {}
+_inject_locks_lock = threading.Lock()
+_inject_cooldown: Dict[str, float] = {}  # project_id → last_inject_timestamp
+
+
+def _get_inject_lock(project_id: str) -> threading.Lock:
+    """Return a per-project lock for serializing inject calls."""
+    with _inject_locks_lock:
+        if project_id not in _inject_locks:
+            _inject_locks[project_id] = threading.Lock()
+        return _inject_locks[project_id]
+
 
 def _is_engine_active_for_project(pid: str) -> bool:
     """Return True if any engine (queue, running, or background thread) is
@@ -1467,146 +1483,156 @@ def api_agent_inject():
         # Start a new engine run in the background with the injected instruction
         # as a continuation, using the previous step history for context
         prev_step_history = job_record.get("step_history", [])
+        _pid = project_config.get("id")
+
+        # Serialize continuation threads per project — prevents double-click
+        # on INJECT from spawning parallel engine runs.
+        inject_lock = _get_inject_lock(_pid) if _pid else None
+        if inject_lock:
+            inject_lock.acquire()
 
         def _continue_engine():
-            _pid = project_config.get("id")
-            if _pid:
-                _mark_engine_start(_pid)
             try:
-                os.makedirs(output_dir, exist_ok=True)
+                if _pid:
+                    _mark_engine_start(_pid)
+                try:
+                    os.makedirs(output_dir, exist_ok=True)
 
-                # Build a project config that includes the continuation instruction
-                cont_config = dict(project_config)
-                cont_config["instructions"] = instruction
-                cont_config["output_dir"] = output_dir
+                    # Build a project config that includes the continuation instruction
+                    cont_config = dict(project_config)
+                    cont_config["instructions"] = instruction
+                    cont_config["output_dir"] = output_dir
 
-                # Reconstruct conversation from step history so the LLM knows
-                # what was already done, then append the new instruction.
-                from agent_engine import AgentEngine
-                engine = AgentEngine(cont_config, output_dir=output_dir)
-                engine.step_history = prev_step_history
-                engine.step_count = len(prev_step_history)
+                    # Reconstruct conversation from step history so the LLM knows
+                    # what was already done, then append the new instruction.
+                    from agent_engine import AgentEngine
+                    engine = AgentEngine(cont_config, output_dir=output_dir)
+                    engine.step_history = prev_step_history
+                    engine.step_count = len(prev_step_history)
 
-                # Reconstruct conversation history from step history
-                reconstructed_messages = [engine.messages[0]]  # system prompt
+                    # Reconstruct conversation history from step history
+                    reconstructed_messages = [engine.messages[0]]  # system prompt
 
-                # Add the initial user prompt so the LLM knows the original task.
-                if project_config and project_config.get("instructions"):
-                    from agent_engine.engine import build_user_prompt
-                    reconstructed_messages.append({
-                        "role": "user",
-                        "content": build_user_prompt(
-                            project_config["instructions"],
-                            instance_prefix=engine.instance_prefix,
-                        ),
-                    })
-
-                # Add tool results from step_history
-                all_tool_names = engine.tools.tool_names()
-                for h in prev_step_history:
-                    if h.get("tool") in all_tool_names:
-                        res = h.get("result", {})
-                        content = res.get("content", "")
-                        error = res.get("error", "")
-                        summary = res.get("summary", "")
-                        if error:
-                            result_display = f"Error: {error}"
-                        elif summary:
-                            result_display = summary
-                            if content:
-                                result_display += f"\n\nOutput:\n{content}\n"
-                        elif content:
-                            result_display = content
-                        else:
-                            result_display = "(no output)"
-                        tool_name = h.get("tool", "unknown")
+                    # Add the initial user prompt so the LLM knows the original task.
+                    if project_config and project_config.get("instructions"):
+                        from agent_engine.engine import build_user_prompt
                         reconstructed_messages.append({
                             "role": "user",
-                            "content": f"[TOOL RESULT for {tool_name}]\n{result_display}\n[END TOOL RESULT]\n\nNow continue with your next action."
+                            "content": build_user_prompt(
+                                project_config["instructions"],
+                                instance_prefix=engine.instance_prefix,
+                            ),
                         })
 
-                # Add the continuation message with the new instruction.
-                # Use instance-specific markers so the format reminder matches
-                # what the system prompt expects (not the generic [TOOL_START]).
-                from agent_engine.engine import _marker as _eng_marker
-                m_start = _eng_marker(engine.instance_prefix, "TOOL_START")
-                m_end = _eng_marker(engine.instance_prefix, "TOOL_END")
-                m_name = _eng_marker(engine.instance_prefix, "TOOL_NAME")
-                m_pname = _eng_marker(engine.instance_prefix, "PARAM_NAME")
-                m_pval = _eng_marker(engine.instance_prefix, "PARAM_VALUE")
-                continuation_msg = (
-                    f"[CONTINUATION] Your previous run completed. "
-                    f"The user has new instructions for you. "
-                    f"Please continue working on the project with these new instructions:\n\n"
-                    f"{instruction}\n\n"
-                    f"Review what was already done, then take the next appropriate action.\n\n"
-                    f"TOOL FORMAT REMINDER\n"
-                    f"=====================\n\n"
-                    f"Your ENTIRE response must be EXACTLY ONE of the following:\n\n"
-                    f"  OPTION 1 — A tool call:\n"
-                    f"    {m_start}\n"
-                    f"    {m_name}\n"
-                    f"    <tool_name>\n"
-                    f"    {m_pname}\n"
-                    f"    <param_key_1>\n"
-                    f"    {m_pval}\n"
-                    f"    <param_value_1>\n"
-                    f"    {m_pname}\n"
-                    f"    <param_key_2>\n"
-                    f"    {m_pval}\n"
-                    f"    <param_value_2>\n"
-                    f"    {m_end}\n\n"
-                    f"  OPTION 2 — Signal completion:\n"
-                    f"    Use the task_completed tool with a summary:\n"
-                    f"    {m_start}\n"
-                    f"    {m_name}\n"
-                    f"    task_completed\n"
-                    f"    {m_pname}\n"
-                    f"    summary\n"
-                    f"    {m_pval}\n"
-                    f"    <your summary here>\n"
-                    f"    {m_end}\n\n"
-                    f"IMPORTANT RULES:\n"
-                    f"  • Do NOT write any other text.\n"
-                    f"  • Do NOT explain what you will do — just act.\n"
-                    f"  • Make EXACTLY ONE tool call per response.\n"
-                    f"  • If you include more than one {m_start}...{m_end} block,\n"
-                    f"    only the FIRST one will be executed."
-                )
-                reconstructed_messages.append({
-                    "role": "user",
-                    "content": continuation_msg
-                })
-                engine.messages = reconstructed_messages
+                    # Add tool results from step_history
+                    all_tool_names = engine.tools.tool_names()
+                    for h in prev_step_history:
+                        if h.get("tool") in all_tool_names:
+                            res = h.get("result", {})
+                            content = res.get("content", "")
+                            error = res.get("error", "")
+                            summary = res.get("summary", "")
+                            if error:
+                                result_display = f"Error: {error}"
+                            elif summary:
+                                result_display = summary
+                                if content:
+                                    result_display += f"\n\nOutput:\n{content}\n"
+                            elif content:
+                                result_display = content
+                            else:
+                                result_display = "(no output)"
+                            tool_name = h.get("tool", "unknown")
+                            reconstructed_messages.append({
+                                "role": "user",
+                                "content": f"[TOOL RESULT for {tool_name}]\n{result_display}\n[END TOOL RESULT]\n\nNow continue with your next action."
+                            })
 
-                # Run the engine (close log on exit to free handles)
-                try:
-                    result = engine.run()
-                finally:
-                    engine.close()
+                    # Add the continuation message with the new instruction.
+                    # Use instance-specific markers so the format reminder matches
+                    # what the system prompt expects (not the generic [TOOL_START]).
+                    from agent_engine.engine import _marker as _eng_marker
+                    m_start = _eng_marker(engine.instance_prefix, "TOOL_START")
+                    m_end = _eng_marker(engine.instance_prefix, "TOOL_END")
+                    m_name = _eng_marker(engine.instance_prefix, "TOOL_NAME")
+                    m_pname = _eng_marker(engine.instance_prefix, "PARAM_NAME")
+                    m_pval = _eng_marker(engine.instance_prefix, "PARAM_VALUE")
+                    continuation_msg = (
+                        f"[CONTINUATION] Your previous run completed. "
+                        f"The user has new instructions for you. "
+                        f"Please continue working on the project with these new instructions:\n\n"
+                        f"{instruction}\n\n"
+                        f"Review what was already done, then take the next appropriate action.\n\n"
+                        f"TOOL FORMAT REMINDER\n"
+                        f"=====================\n\n"
+                        f"Your ENTIRE response must be EXACTLY ONE of the following:\n\n"
+                        f"  OPTION 1 — A tool call:\n"
+                        f"    {m_start}\n"
+                        f"    {m_name}\n"
+                        f"    <tool_name>\n"
+                        f"    {m_pname}\n"
+                        f"    <param_key_1>\n"
+                        f"    {m_pval}\n"
+                        f"    <param_value_1>\n"
+                        f"    {m_pname}\n"
+                        f"    <param_key_2>\n"
+                        f"    {m_pval}\n"
+                        f"    <param_value_2>\n"
+                        f"    {m_end}\n\n"
+                        f"  OPTION 2 — Signal completion:\n"
+                        f"    Use the task_completed tool with a summary:\n"
+                        f"    {m_start}\n"
+                        f"    {m_name}\n"
+                        f"    task_completed\n"
+                        f"    {m_pname}\n"
+                        f"    summary\n"
+                        f"    {m_pval}\n"
+                        f"    <your summary here>\n"
+                        f"    {m_end}\n\n"
+                        f"IMPORTANT RULES:\n"
+                        f"  • Do NOT write any other text.\n"
+                        f"  • Do NOT explain what you will do — just act.\n"
+                        f"  • Make EXACTLY ONE tool call per response.\n"
+                        f"  • If you include more than one {m_start}...{m_end} block,\n"
+                        f"    only the FIRST one will be executed."
+                    )
+                    reconstructed_messages.append({
+                        "role": "user",
+                        "content": continuation_msg
+                    })
+                    engine.messages = reconstructed_messages
 
-                # Persist conversation history
-                messages_file = os.path.join(output_dir, "conversation_history.json")
-                try:
-                    with open(messages_file, 'w', encoding='utf-8') as f:
-                        json.dump(engine.messages, f, indent=2, ensure_ascii=False)
-                except Exception:
-                    pass
+                    # Run the engine (close log on exit to free handles)
+                    try:
+                        result = engine.run()
+                    finally:
+                        engine.close()
 
-                # Update the job history entry with the new run's step history
-                if result.get("step_history"):
-                    job_record["step_history"] = result["step_history"]
-                    job_record["status"] = result.get("status", "completed")
-                    job_record["summary"] = result.get("summary", "")
-                    job_record["steps"] = result.get("steps", 0)
-                    save_job_history()
+                    # Persist conversation history
+                    messages_file = os.path.join(output_dir, "conversation_history.json")
+                    try:
+                        with open(messages_file, 'w', encoding='utf-8') as f:
+                            json.dump(engine.messages, f, indent=2, ensure_ascii=False)
+                    except Exception:
+                        pass
 
-                logging.info(f"Engine continuation completed: {result.get('status', 'unknown')}")
-            except Exception as e:
-                logging.error(f"Engine continuation failed: {e}", exc_info=True)
+                    # Update the job history entry with the new run's step history
+                    if result.get("step_history"):
+                        job_record["step_history"] = result["step_history"]
+                        job_record["status"] = result.get("status", "completed")
+                        job_record["summary"] = result.get("summary", "")
+                        job_record["steps"] = result.get("steps", 0)
+                        save_job_history()
+
+                    logging.info(f"Engine continuation completed: {result.get('status', 'unknown')}")
+                except Exception as e:
+                    logging.error(f"Engine continuation failed: {e}", exc_info=True)
             finally:
                 if _pid:
                     _mark_engine_stop(_pid)
+                # Release the inject lock so the next inject can proceed
+                if inject_lock:
+                    inject_lock.release()
 
         continue_thread = threading.Thread(target=_continue_engine, daemon=True)
         continue_thread.start()
@@ -1618,6 +1644,12 @@ def api_agent_inject():
     # state and re-invoke the engine so the injected instruction is picked up
     # immediately instead of the agent hanging on the old question.
     if is_pending_user_input and project_config:
+        # Serialize resume threads per project — same double-click protection
+        _pid = project_config.get("id")
+        inject_lock = _get_inject_lock(_pid) if _pid else None
+        if inject_lock:
+            inject_lock.acquire()
+
         # Clear the pending_user_input state from status.json
         os.makedirs(output_dir, exist_ok=True)
         status_file = os.path.join(output_dir, "status.json")
@@ -1637,94 +1669,97 @@ def api_agent_inject():
         prev_step_history = job_record.get("step_history", [])
 
         def _resume_engine():
-            _pid = project_config.get("id")
-            if _pid:
-                _mark_engine_start(_pid)
             try:
-                from agent_engine import AgentEngine
-                os.makedirs(output_dir, exist_ok=True)
-                engine = AgentEngine(project_config, output_dir=output_dir)
-                engine.step_history = prev_step_history
-                engine.step_count = len(prev_step_history)
+                if _pid:
+                    _mark_engine_start(_pid)
+                try:
+                    from agent_engine import AgentEngine
+                    os.makedirs(output_dir, exist_ok=True)
+                    engine = AgentEngine(project_config, output_dir=output_dir)
+                    engine.step_history = prev_step_history
+                    engine.step_count = len(prev_step_history)
 
-                # Reconstruct conversation from step history
-                reconstructed_messages = [engine.messages[0]]  # system prompt
+                    # Reconstruct conversation from step history
+                    reconstructed_messages = [engine.messages[0]]  # system prompt
 
-                # Add the initial user prompt so the LLM knows the original task.
-                if project_config and project_config.get("instructions"):
-                    from agent_engine.engine import build_user_prompt
-                    reconstructed_messages.append({
-                        "role": "user",
-                        "content": build_user_prompt(
-                            project_config["instructions"],
-                            instance_prefix=engine.instance_prefix,
-                        ),
-                    })
-
-                all_tool_names = engine.tools.tool_names()
-                for h in prev_step_history:
-                    if h.get("tool") in all_tool_names:
-                        res = h.get("result", {})
-                        content = res.get("content", "")
-                        error = res.get("error", "")
-                        summary = res.get("summary", "")
-                        if error:
-                            result_display = f"Error: {error}"
-                        elif summary:
-                            result_display = summary
-                            if content:
-                                result_display += f"\n\nOutput:\n{content}\n"
-                        elif content:
-                            result_display = content
-                        else:
-                            result_display = "(no output)"
-                        tool_name = h.get("tool", "unknown")
+                    # Add the initial user prompt so the LLM knows the original task.
+                    if project_config and project_config.get("instructions"):
+                        from agent_engine.engine import build_user_prompt
                         reconstructed_messages.append({
                             "role": "user",
-                            "content": f"[TOOL RESULT for {tool_name}]\n{result_display}\n[END TOOL RESULT]\n\nNow continue with your next action."
+                            "content": build_user_prompt(
+                                project_config["instructions"],
+                                instance_prefix=engine.instance_prefix,
+                            ),
                         })
 
-                # Append the injected instruction as a new user message
-                reconstructed_messages.append({
-                    "role": "user",
-                    "content": (
-                        f"========== NEW USER INSTRUCTION ==========\n"
-                        f"{instruction}\n"
-                        "========== END NEW INSTRUCTION ==========\n\n"
-                        "Respond with EXACTLY ONE tool call."
-                    )
-                })
+                    all_tool_names = engine.tools.tool_names()
+                    for h in prev_step_history:
+                        if h.get("tool") in all_tool_names:
+                            res = h.get("result", {})
+                            content = res.get("content", "")
+                            error = res.get("error", "")
+                            summary = res.get("summary", "")
+                            if error:
+                                result_display = f"Error: {error}"
+                            elif summary:
+                                result_display = summary
+                                if content:
+                                    result_display += f"\n\nOutput:\n{content}\n"
+                            elif content:
+                                result_display = content
+                            else:
+                                result_display = "(no output)"
+                            tool_name = h.get("tool", "unknown")
+                            reconstructed_messages.append({
+                                "role": "user",
+                                "content": f"[TOOL RESULT for {tool_name}]\n{result_display}\n[END TOOL RESULT]\n\nNow continue with your next action."
+                            })
 
-                engine.messages = reconstructed_messages
+                    # Append the injected instruction as a new user message
+                    reconstructed_messages.append({
+                        "role": "user",
+                        "content": (
+                            f"========== NEW USER INSTRUCTION ==========\n"
+                            f"{instruction}\n"
+                            "========== END NEW INSTRUCTION ==========\n\n"
+                            "Respond with EXACTLY ONE tool call."
+                        )
+                    })
 
-                # Run the engine (close log on exit to free handles)
-                try:
-                    result = engine.run()
-                finally:
-                    engine.close()
+                    engine.messages = reconstructed_messages
 
-                # Persist conversation history
-                messages_file = os.path.join(output_dir, "conversation_history.json")
-                try:
-                    with open(messages_file, 'w', encoding='utf-8') as f:
-                        json.dump(engine.messages, f, indent=2, ensure_ascii=False)
-                except Exception:
-                    pass
+                    # Run the engine (close log on exit to free handles)
+                    try:
+                        result = engine.run()
+                    finally:
+                        engine.close()
 
-                # Update the job history entry
-                if result.get("step_history"):
-                    job_record["step_history"] = result["step_history"]
-                    job_record["status"] = result.get("status", "completed")
-                    job_record["summary"] = result.get("summary", "")
-                    job_record["steps"] = result.get("steps", 0)
-                    save_job_history()
+                    # Persist conversation history
+                    messages_file = os.path.join(output_dir, "conversation_history.json")
+                    try:
+                        with open(messages_file, 'w', encoding='utf-8') as f:
+                            json.dump(engine.messages, f, indent=2, ensure_ascii=False)
+                    except Exception:
+                        pass
 
-                logging.info(f"Engine resumed from pending_user_input: {result.get('status', 'unknown')}")
-            except Exception as e:
-                logging.error(f"Engine resume from pending_user_input failed: {e}", exc_info=True)
+                    # Update the job history entry
+                    if result.get("step_history"):
+                        job_record["step_history"] = result["step_history"]
+                        job_record["status"] = result.get("status", "completed")
+                        job_record["summary"] = result.get("summary", "")
+                        job_record["steps"] = result.get("steps", 0)
+                        save_job_history()
+
+                    logging.info(f"Engine resumed from pending_user_input: {result.get('status', 'unknown')}")
+                except Exception as e:
+                    logging.error(f"Engine resume from pending_user_input failed: {e}", exc_info=True)
             finally:
                 if _pid:
                     _mark_engine_stop(_pid)
+                # Release the inject lock so the next inject can proceed
+                if inject_lock:
+                    inject_lock.release()
 
         resume_thread = threading.Thread(target=_resume_engine, daemon=True)
         resume_thread.start()

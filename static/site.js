@@ -6,12 +6,41 @@ let autoSaveTimeout = null;
 let pendingRootPathChange = null;
 let pendingRootPathElementId = null;
 
-// === Live Agent State ===
-let currentRunningJobId = null;
-let agentRunning = false;
-let liveInjectActive = false;
-let currentRunningProjectId = null;
-let _loadedProjects = [];
+// === Live Agent State (per-project tracking) ===
+let _pollInterval = null;
+let _lastPollTimestamp = 0;
+
+// Map: projectId → { jobId, agentRunning, liveInjectActive, outputDir }
+const _runningProjects = {};
+
+function _getProjectState(projectId) {
+    if (!_runningProjects[projectId]) {
+        _runningProjects[projectId] = {
+            jobId: null,
+            agentRunning: false,
+            liveInjectActive: false,
+            outputDir: null,
+        };
+    }
+    return _runningProjects[projectId];
+}
+
+function _setProjectState(projectId, updates) {
+    const state = _getProjectState(projectId);
+    Object.assign(state, updates);
+    return state;
+}
+
+function _clearProjectState(projectId) {
+    delete _runningProjects[projectId];
+}
+
+// Legacy single-project accessors (for backward compat) — return the most recently
+// active project so old code still "works" for single-project scenarios.
+function _getActiveProjectId() {
+    const keys = Object.keys(_runningProjects);
+    return keys.length ? keys[keys.length - 1] : null;
+}
 
 // === Available Tools ===
 const AVAILABLE_TOOLS = [
@@ -288,9 +317,7 @@ function _doRunProject(projectId, overrideInstruction) {
     // All tools are always available — getEnabledTools() returns the full list.
     var enabledTools = getEnabledTools();
     // Use file-based polling instead of SSE
-    agentRunning = true;
-    liveInjectActive = false;
-    currentRunningProjectId = projectId;
+    _setProjectState(projectId, { agentRunning: true, liveInjectActive: false });
     var configSection = document.getElementById('project-config-section');
     var agentLive = document.getElementById('agent-live-container');
     if (configSection) configSection.style.display = 'none';
@@ -328,9 +355,9 @@ function _doRunProject(projectId, overrideInstruction) {
     })
     .then(function(data) {
         if (data.error) throw new Error(data.error);
-        currentRunningJobId = data.job_id;
+        _setProjectState(projectId, { jobId: data.job_id });
         // Start polling for status and steps
-        _startPolling(data.job_id, data.output_dir, agentBox);
+        _startPolling(data.job_id, data.output_dir, agentBox, projectId);
     })
     .catch(function(err) {
         console.error('Agent run error:', err);
@@ -340,7 +367,7 @@ function _doRunProject(projectId, overrideInstruction) {
         if (agentBox.firstChild) agentBox.insertBefore(errEntry, agentBox.firstChild);
         else agentBox.appendChild(errEntry);
         agentBox.scrollTop = 0;
-        agentRunning = false;
+        _setProjectState(projectId, { agentRunning: false });
         resetRunButtons();
         if (stopBtn) stopBtn.style.display = 'none';
         // Inject stays enabled so user can retry or inject into the error state
@@ -352,24 +379,22 @@ function _doRunProject(projectId, overrideInstruction) {
 }
 
 // === File-Based Polling (replaces SSE) ===
-var _pollInterval = null;
-var _lastPollTimestamp = 0;
 
-function _startPolling(jobId, outputDir, agentBox) {
+function _startPolling(jobId, outputDir, agentBox, projectId) {
     // Clear any existing poll interval
     if (_pollInterval) clearInterval(_pollInterval);
     _lastPollTimestamp = Date.now();
 
     // Initial fetch
-    _pollOnce(jobId, outputDir, agentBox);
+    _pollOnce(jobId, outputDir, agentBox, projectId);
 
     // Poll every 30 seconds
     _pollInterval = setInterval(function() {
-        _pollOnce(jobId, outputDir, agentBox);
+        _pollOnce(jobId, outputDir, agentBox, projectId);
     }, 30000);
 }
 
-function _pollOnce(jobId, outputDir, agentBox) {
+function _pollOnce(jobId, outputDir, agentBox, projectId) {
     // Fetch steps to detect pending states from the data (not status.json)
     var stepsPromise = fetch('/api/job/' + jobId + '/steps')
         .then(function(r) { return r.json(); })
@@ -409,22 +434,22 @@ function _pollOnce(jobId, outputDir, agentBox) {
                     if (pendingTools && pendingTools.length > 0) {
                         hasPendingTools = true;
                     }
-                    _renderAllSteps(jobId, outputDir, agentBox, statusData, hasPendingTools, hasPendingUserInput);
-                    updateLiveResponse(jobId, agentBox);
+                    _renderAllSteps(jobId, outputDir, agentBox, statusData, hasPendingTools, hasPendingUserInput, projectId);
+                    updateLiveResponse(jobId, agentBox, projectId);
                 })
                 .catch(function() {
-                    _renderAllSteps(jobId, outputDir, agentBox, statusData, hasPendingTools, hasPendingUserInput);
-                    updateLiveResponse(jobId, agentBox);
+                    _renderAllSteps(jobId, outputDir, agentBox, statusData, hasPendingTools, hasPendingUserInput, projectId);
+                    updateLiveResponse(jobId, agentBox, projectId);
                 });
             } else {
-                _renderAllSteps(jobId, outputDir, agentBox, statusData, hasPendingTools, hasPendingUserInput);
-                updateLiveResponse(jobId, agentBox);
+                _renderAllSteps(jobId, outputDir, agentBox, statusData, hasPendingTools, hasPendingUserInput, projectId);
+                updateLiveResponse(jobId, agentBox, projectId);
             }
         })
         .catch(function(err) {
             console.error('Polling error:', err);
 
-function updateLiveResponse(jobId, agentBox) {
+function updateLiveResponse(jobId, agentBox, projectId) {
     if (!jobId || !agentBox) return;
     var container = document.getElementById('live-response-container');
     if (!container) return;
@@ -437,12 +462,15 @@ function updateLiveResponse(jobId, agentBox) {
                 container.style.display = 'block';
                 // Auto-scroll to show latest content
                 container.scrollTop = container.scrollHeight;
-            } else if (agentRunning) {
-                // Job is running but no response yet — show thinking indicator
-                container.textContent = 'Thinking...';
-                container.style.display = 'block';
             } else {
-                container.style.display = 'none';
+                // Check per-project running state
+                var state = projectId ? _runningProjects[projectId] : null;
+                if (state && state.agentRunning) {
+                    container.textContent = 'Thinking...';
+                    container.style.display = 'block';
+                } else {
+                    container.style.display = 'none';
+                }
             }
         })
         .catch(function(err) { console.error('Failed to fetch live response:', err); });
@@ -450,7 +478,7 @@ function updateLiveResponse(jobId, agentBox) {
         });
 }
 
-function _renderAllSteps(jobId, outputDir, agentBox, statusData, hasPendingTools, hasPendingUserInput) {
+function _renderAllSteps(jobId, outputDir, agentBox, statusData, hasPendingTools, hasPendingUserInput, projectId) {
     // Guard: if agentBox is null, try to re-resolve it (element may have been recreated)
     if (!agentBox) {
         agentBox = document.getElementById('agent-live-box');
@@ -507,8 +535,7 @@ function _renderAllSteps(jobId, outputDir, agentBox, statusData, hasPendingTools
                     clearInterval(_pollInterval);
                     _pollInterval = null;
                 }
-                agentRunning = false;
-                liveInjectActive = true;
+                _setProjectState(projectId, { agentRunning: false, liveInjectActive: true });
                 resetRunButtons();
                 var stopBtn = document.getElementById('details-stop-btn');
                 if (stopBtn) stopBtn.style.display = 'none';
@@ -1034,17 +1061,21 @@ function handleAgentStep(data, agentBox) {
 }
 // Resend the last request to kick the agent if it stalled
 function resendLastRequest() {
-    if (!currentRunningJobId) {
+    // Resolve from per-project state first, fall back to legacy global
+    var activeProjId = _getActiveProjectId();
+    var state = activeProjId ? _runningProjects[activeProjId] : null;
+    var jobId = state ? state.jobId : currentRunningJobId;
+    if (!jobId) {
         showNotification('No active job to resend', 'warning');
         return;
     }
     var resendBtn = document.getElementById('live-resend-btn');
     if (!resendBtn) return;
-    
+
     // Disable button while resending
     resendBtn.disabled = true;
     resendBtn.textContent = 'RESENDING...';
-    
+
     // Add a visual indicator in the live feed
     var agentBox = document.getElementById('agent-live-box');
     if (agentBox) {
@@ -1056,12 +1087,12 @@ function resendLastRequest() {
         agentBox.appendChild(resendEntry);
         agentBox.scrollTop = agentBox.scrollHeight;
     }
-    
+
     // Call the resend endpoint
     fetch('/api/agent/resend', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ job_id: currentRunningJobId })
+        body: JSON.stringify({ job_id: jobId })
     })
     .then(function(response) {
         if (!response.ok) throw new Error('Failed to resend');
@@ -1150,11 +1181,10 @@ function clearPendingApprovalState() {
 }
 
 function stopProject(projectId) {
-    agentRunning = false;
-    liveInjectActive = true;  // Keep inject active so user can continue from stopped state
+    _setProjectState(projectId, { agentRunning: false, liveInjectActive: true });
     if (_pollInterval) { clearInterval(_pollInterval); _pollInterval = null; }
-        // Stop the SSE engine job if there is one
-    var jobId = currentRunningJobId;
+    var state = _runningProjects[projectId];
+    var jobId = state ? state.jobId : null;
     var promises = [fetch('/api/queue/running/stop', { method: 'POST' }).catch(function() {})];
     if (jobId) {
         promises.push(fetch('/api/agent/stop/' + jobId, { method: 'POST' }).catch(function() {}));
@@ -1180,10 +1210,12 @@ function stopProject(projectId) {
 
 function stopCurrentJob() {
     // Stop the currently running job from the VIEW LIVE screen
-    agentRunning = false;
-    liveInjectActive = true;  // Keep inject active so user can continue from stopped state
+    var activeProjId = _getActiveProjectId();
+    var state = activeProjId ? _runningProjects[activeProjId] : null;
+    var projectId = activeProjId;
+    _setProjectState(projectId, { agentRunning: false, liveInjectActive: true });
     if (_pollInterval) { clearInterval(_pollInterval); _pollInterval = null; }
-        var jobId = currentRunningJobId;
+    var jobId = state ? state.jobId : null;
     var promises = [fetch('/api/queue/running/stop', { method: 'POST' }).catch(function() {})];
     if (jobId) {
         promises.push(fetch('/api/agent/stop/' + jobId, { method: 'POST' }).catch(function() {}));
@@ -1207,10 +1239,7 @@ function continueAgentRunWithInstruction(projectId, prevJobId, newInstruction) {
         _doRunProject(projectId, newInstruction);
         return;
     }
-    agentRunning = true;
-    liveInjectActive = false;
-    currentRunningProjectId = projectId;
-    currentRunningJobId = null;
+    _setProjectState(projectId, { agentRunning: true, liveInjectActive: false });
     var enabledTools = getEnabledTools();
     var runBtn = document.getElementById('details-run-btn');
     var stopBtn = document.getElementById('details-stop-btn');
@@ -1241,14 +1270,13 @@ function continueAgentRunWithInstruction(projectId, prevJobId, newInstruction) {
     })
     .then(function(data) {
         if (data.error) throw new Error(data.error);
-        currentRunningJobId = data.job_id;
-        _startPolling(data.job_id, data.output_dir, agentBox);
+        _setProjectState(projectId, { jobId: data.job_id });
+        _startPolling(data.job_id, data.output_dir, agentBox, projectId);
     })
     .catch(function(err) {
         console.error('Agent run error:', err);
         if (agentBox) { var errEntry = document.createElement('div'); errEntry.className = 'step-entry error'; errEntry.textContent = 'ERROR: ' + err.message; agentBox.appendChild(errEntry); agentBox.scrollTop = agentBox.scrollHeight; }
-        agentRunning = false;
-        liveInjectActive = true;
+        _setProjectState(projectId, { agentRunning: false, liveInjectActive: true });
         var iInput2 = document.getElementById('live-inject-input');
         var iBtn2 = document.getElementById('live-inject-btn');
         if (iInput2) { iInput2.disabled = false; iInput2.placeholder = 'Continue with new instructions...'; }
@@ -1311,7 +1339,6 @@ function loadProjectsCached() {
 
 function selectProject(projectId) {
     currentProjectId = projectId;
-    currentRunningProjectId = projectId;  // Set for inject continuation
     localStorage.setItem('currentProjectId', projectId);
     document.getElementById('projects-panel').classList.remove('active');
     document.getElementById('project-details-panel').classList.add('active');
@@ -1367,7 +1394,7 @@ function selectProject(projectId) {
                         if (liveBtn) liveBtn.style.display = 'inline-block';
                         var stopBtn = document.getElementById('details-stop-btn');
                         if (stopBtn) stopBtn.style.display = 'inline-block';
-                        currentRunningJobId = queueData.running.job_id;
+                        _setProjectState(projectId, { jobId: queueData.running.job_id });
                     } else {
                         // Check job history for any job (running, pending, or completed)
                         fetch('/api/history')
@@ -1379,7 +1406,7 @@ function selectProject(projectId) {
                                     if (liveBtn) liveBtn.style.display = 'inline-block';
                                     var stopBtn = document.getElementById('details-stop-btn');
                                     if (stopBtn) stopBtn.style.display = 'inline-block';
-                                    currentRunningJobId = recentJob.job_id;
+                                    _setProjectState(projectId, { jobId: recentJob.job_id });
                                 }
                             });
                     }
@@ -1402,12 +1429,16 @@ function goBackToProjects() {
 }
 
 function _goBackToProjects() {
-    if (agentRunning) stopProject(currentProjectId);
-    agentRunning = false;
-    liveInjectActive = false;
+    var projToStop = currentProjectId;
+    if (projToStop && _runningProjects[projToStop] && _runningProjects[projToStop].agentRunning) {
+        stopProject(projToStop);
+    }
     if (_pollInterval) { clearInterval(_pollInterval); _pollInterval = null; }
+    // Clear all running project states
+    Object.keys(_runningProjects).forEach(function(pid) {
+        _clearProjectState(pid);
+    });
     currentRunningJobId = null;
-    currentRunningProjectId = null;
     var configSection = document.getElementById('project-config-section');
     var agentLive = document.getElementById('agent-live-container');
     if (configSection) configSection.style.display = 'block';
@@ -2099,7 +2130,7 @@ function showLiveView(project_id) {
                             });
                         });
                         if (sseJob) {
-                            showLiveViewForJob(sseJob.job_id);
+                            showLiveViewForJob(sseJob.job_id, project_id);
                             return;
                         }
                         // Fall through to check pending jobs
@@ -2122,13 +2153,13 @@ function checkPendingJobs(project_id) {
                        (h.status === 'pending_approval' || h.status === 'pending_user_input');
             });
             if (pendingJob) {
-                showLiveViewForJob(pendingJob.job_id);
+                showLiveViewForJob(pendingJob.job_id, project_id);
                 return;
             }
             // Also allow VIEW LIVE for completed/stopped/error jobs so user can review steps
             var lastJob = history.find(function(h) { return h.project_id === project_id; });
             if (lastJob) {
-                showLiveViewForJob(lastJob.job_id);
+                showLiveViewForJob(lastJob.job_id, project_id);
             } else {
                 showNotification('No active job to view', 'warning');
             }
@@ -2136,7 +2167,7 @@ function checkPendingJobs(project_id) {
         .catch(function(err) { console.error('Failed to check job history:', err); showNotification('No active job to view', 'warning'); });
 }
 
-function showLiveViewForJob(jobId) {
+function showLiveViewForJob(jobId, projectId) {
     var container = document.getElementById('agent-live-container');
     if (!container) return;
 
@@ -2150,15 +2181,14 @@ function showLiveViewForJob(jobId) {
     container.style.display = 'block';
     container.scrollIntoView({ behavior: 'smooth' });
     container.dataset.jobId = jobId;
-    currentRunningJobId = jobId;
+    container.dataset.projectId = projectId || '';
 
     // Always clear any stale poll interval and inject state before starting fresh
     if (_pollInterval) { clearInterval(_pollInterval); _pollInterval = null; }
-    
+
     // Show refresh button
     var refreshBtn = document.getElementById('live-refresh-btn');
     if (refreshBtn) refreshBtn.style.display = 'inline-block';
-    // Preserve currentRunningProjectId — don't set to null
 
     // Check if the job is still running/paused in queue OR in history with pending status
     Promise.all([
@@ -2182,35 +2212,38 @@ function showLiveViewForJob(jobId) {
 
         // Resolve the output directory for this job (needed for pending tool checks)
         var outputDir = null;
+        var resolvedProjectId = null;
         if (jobRecord && jobRecord.output_dir) {
             outputDir = jobRecord.output_dir;
-        } else if (currentRunningProjectId) {
+            resolvedProjectId = jobRecord.project_id;
+        } else if (jobRecord && jobRecord.project_id) {
             // Fallback: get output_dir from the project
-            fetch('/api/projects/' + currentRunningProjectId)
+            outputDir = null;
+            resolvedProjectId = jobRecord.project_id;
+            fetch('/api/projects/' + resolvedProjectId)
                 .then(function(r) { return r.json(); })
                 .then(function(proj) {
                     outputDir = proj.output_dir;
-                    _resolveOutputDirAndContinue(jobId, queueData, history, jobRecord, isRunning, isPendingApproval, isPendingInput, outputDir);
+                    _resolveOutputDirAndContinue(jobId, queueData, history, jobRecord, isRunning, isPendingApproval, isPendingInput, outputDir, resolvedProjectId);
                 })
                 .catch(function() {
-                    _resolveOutputDirAndContinue(jobId, queueData, history, jobRecord, isRunning, isPendingApproval, isPendingInput, null);
+                    _resolveOutputDirAndContinue(jobId, queueData, history, jobRecord, isRunning, isPendingApproval, isPendingInput, null, resolvedProjectId);
                 });
         } else {
-            _resolveOutputDirAndContinue(jobId, queueData, history, jobRecord, isRunning, isPendingApproval, isPendingInput, null);
+            _resolveOutputDirAndContinue(jobId, queueData, history, jobRecord, isRunning, isPendingApproval, isPendingInput, null, null);
         }
     })
     .catch(function(err) { console.error('Failed to check job status:', err); });
 }
 
-function _resolveOutputDirAndContinue(jobId, queueData, history, jobRecord, isRunning, isPendingApproval, isPendingInput, outputDir) {
+function _resolveOutputDirAndContinue(jobId, queueData, history, jobRecord, isRunning, isPendingApproval, isPendingInput, outputDir, projectId) {
     var agentBox = document.getElementById('agent-live-box');
     var injectInput = document.getElementById('live-inject-input');
     var injectBtn = document.getElementById('live-inject-btn');
 
     if (isRunning && !isPendingApproval && !isPendingInput) {
         // Job is actively running (not pending) - show the view and start polling
-        agentRunning = true;
-        liveInjectActive = true;
+        if (projectId) _setProjectState(projectId, { agentRunning: true, liveInjectActive: false });
         // Show stop button
         var stopBtn = document.getElementById('details-stop-btn');
         if (stopBtn) stopBtn.style.display = 'inline-block';
@@ -2224,21 +2257,20 @@ function _resolveOutputDirAndContinue(jobId, queueData, history, jobRecord, isRu
         if (injectInput) { injectInput.disabled = false; injectInput.placeholder = 'Type instructions or questions...'; }
         if (injectBtn) { injectBtn.disabled = false; injectBtn.textContent = 'INJECT'; }
         // Start polling for live updates
-        _startPolling(jobId, outputDir, agentBox);
+        _startPolling(jobId, outputDir, agentBox, projectId);
     } else {
         // Job is pending, completed, or stopped - load history and show it
         // Enable inject immediately so the user can always inject regardless of job state
-        agentRunning = false;
-        liveInjectActive = true;
+        if (projectId) _setProjectState(projectId, { agentRunning: false, liveInjectActive: true });
         var stopBtn = document.getElementById('details-stop-btn');
         if (stopBtn) stopBtn.style.display = 'inline-block';
         if (injectInput) { injectInput.disabled = false; injectInput.placeholder = 'Continue with new instructions...'; }
         if (injectBtn) { injectBtn.disabled = false; injectBtn.textContent = 'INJECT'; }
 
-        loadJobHistory(jobId, function() {
+        loadJobHistory(jobId, projectId, function() {
             // Always start polling (every 30s) so the feed auto-refreshes
             // even for completed jobs — user can see if a continuation started
-            _startPolling(jobId, outputDir, agentBox);
+            _startPolling(jobId, outputDir, agentBox, projectId);
 
             // After loading history, check for pending approval tools
             // This handles the case where we re-enter VIEW LIVE for a job that has pending tools
@@ -2246,7 +2278,7 @@ function _resolveOutputDirAndContinue(jobId, queueData, history, jobRecord, isRu
                 _showPendingApproval(jobId, outputDir, agentBox);
             }
             if (isPendingInput) {
-                _showPendingUserInput(statusData, agentBox);
+                _showPendingUserInput(jobRecord, agentBox);
             }
 
             // Set status text
@@ -2266,7 +2298,7 @@ function _resolveOutputDirAndContinue(jobId, queueData, history, jobRecord, isRu
     }
 }
 
-function loadJobHistory(jobId, callback) {
+function loadJobHistory(jobId, projectId, callback) {
     var agentBox = document.getElementById('agent-live-box');
     var statusText = document.getElementById('agent-status-text');
     var container = document.getElementById('agent-live-container');
@@ -2283,9 +2315,10 @@ function loadJobHistory(jobId, callback) {
                     handleAgentStep(step, agentBox);
                 });
                 if (statusText) { statusText.textContent = 'HISTORY'; statusText.style.color = 'var(--text-muted)'; }
-                // Set currentRunningProjectId if available in data
-                if (data.project_id) {
-                    currentRunningProjectId = data.project_id;
+                // Set per-project state if available in data
+                var projId = data.project_id || projectId;
+                if (projId) {
+                    _setProjectState(projId, { jobId: jobId, outputDir: data.output_dir });
                 }
                 // Store outputDir on the container for polling
                 if (data.output_dir && container) {
@@ -2305,10 +2338,6 @@ function loadJobHistory(jobId, callback) {
                                 handleAgentStep(step, agentBox);
                             });
                             if (statusText) { statusText.textContent = 'HISTORY'; statusText.style.color = 'var(--text-muted)'; }
-                            // Set currentRunningProjectId for inject continuation
-                            if (job && job.project_id) {
-                                currentRunningProjectId = job.project_id;
-                            }
                             // Store outputDir on the container for polling
                             if (job.output_dir && container) {
                                 container.dataset.outputDir = job.output_dir;
@@ -2328,14 +2357,14 @@ function loadJobHistory(jobId, callback) {
 function refreshLiveView() {
     var container = document.getElementById('agent-live-container');
     if (!container) return;
-    var jobId = container.dataset.jobId || currentRunningJobId;
+    var jobId = container.dataset.jobId;
     if (!jobId) {
         // No job ID — try to find it from the queue
         fetch('/api/queue')
             .then(function(r) { return r.json(); })
             .then(function(qd) {
                 if (qd.running) {
-                    currentRunningJobId = qd.running.job_id;
+                    container.dataset.jobId = qd.running.job_id;
                     refreshLiveView();
                 } else {
                     showNotification('No active job to refresh.', 'info');
@@ -2369,11 +2398,13 @@ function injectLiveInstruction() {
     var instruction = input.value.trim();
     if (!instruction) return;
 
-    var jobId = currentRunningJobId;
+    // Resolve job ID from container first, then per-project state, then legacy global
+    var container = document.getElementById('agent-live-container');
+    var jobId = container ? container.dataset.jobId : null;
     if (!jobId) {
-        // Try to find the job from the container
-        var container = document.getElementById('agent-live-container');
-        if (container) jobId = container.dataset.jobId;
+        var activeProjId = _getActiveProjectId();
+        var state = activeProjId ? _runningProjects[activeProjId] : null;
+        jobId = state ? state.jobId : currentRunningJobId;
     }
     if (!jobId) {
         showNotification('No active job to inject into', 'warning');
@@ -2429,15 +2460,24 @@ function injectLiveInstruction() {
             // Start polling for the continuation results
             var container = document.getElementById('agent-live-container');
             var outputDir = container ? container.dataset.outputDir : null;
-            if (!outputDir && currentRunningProjectId) {
-                fetch('/api/projects/' + currentRunningProjectId)
+            var injectProjId = null;
+            // Try to find the project ID from the container's dataset or from running projects
+            if (container && container.dataset.projectId) {
+                injectProjId = container.dataset.projectId;
+            } else if (!outputDir && container && container.dataset.jobId) {
+                // Look up project ID from job history
+                fetch('/api/agent/history/' + container.dataset.jobId)
                     .then(function(r) { return r.json(); })
-                    .then(function(proj) {
-                        outputDir = proj.output_dir;
-                        _startPolling(jobId, outputDir, null);
+                    .then(function(hist) {
+                        injectProjId = hist.project_id;
+                        if (hist.output_dir) outputDir = hist.output_dir;
+                        _startPolling(jobId, outputDir, null, injectProjId);
                     });
-            } else {
-                _startPolling(jobId, outputDir, null);
+            }
+            if (injectProjId) {
+                _startPolling(jobId, outputDir, null, injectProjId);
+            } else if (outputDir) {
+                _startPolling(jobId, outputDir, null, null);
             }
 
             showNotification('Continuation started — engine running', 'success');

@@ -107,12 +107,6 @@ body {
     border: 3px solid #8B6914;
     border-radius: 6px 8px 4px 4px;
     box-shadow:
-        /* Back legs (upper) */
-        -28px 24px 0 0 #E6BE8A,
-        -24px 24px 0 0 #E6BE8A,
-        /* Front legs (upper) */
-        24px 24px 0 0 #E6BE8A,
-        28px 24px 0 0 #E6BE8A,
         /* Tail base */
         -40px -6px 0 0 #C5A06D,
         -44px -10px 0 0 #B8860B,

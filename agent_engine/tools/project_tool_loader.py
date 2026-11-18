@@ -178,14 +178,20 @@ class ProjectToolLoader:
         return set(self._dynamic_tools.keys())
 
     def create_tool_instance(self, tool_name: str, root_dir: str,
-                             output_dir: str = "", job_id: str = "") -> Optional[BaseTool]:
-        """Create a tool instance for execution."""
+                             output_dir: str = "", job_id: str = "", **_extra_kwargs) -> Optional[BaseTool]:
+        """Create a tool instance for execution.
+
+        Accepts **_extra_kwargs to absorb any extra parameters passed by the
+        caller (e.g. job_id) so the tool registry's execute() can pass them
+        through without breaking on tools that don't use them.
+        """
         if tool_name in self.disabled_tools:
             return None
         if tool_name in self._dynamic_tools:
             cls = self._dynamic_tools[tool_name]
             try:
-                return cls(root_dir, output_dir=output_dir or self.project_output_dir, job_id=job_id)
+                # Pass all kwargs through to the tool constructor
+                return cls(root_dir, output_dir=output_dir or self.project_output_dir, job_id=job_id, **_extra_kwargs)
             except Exception:
                 return None
         return None

@@ -1,17 +1,15 @@
 """edit_file tool — robust multi-strategy file editing.
 
-Strategies (tried in order based on match_mode):
-  1. Exact match — original_text found verbatim in content
-  2. Whitespace-insensitive match — normalize all whitespace then match
-  3. Case+whitespace-insensitive match — normalize case and whitespace then match
-  4. Context-aware match — original_text found when ignoring leading/trailing whitespace per line
-  5. Fuzzy line match — each line of original_text matched against a sliding window in content
+Strategies (tried in order from most restrictive to most loose):
+  1. Exact match
+  2. Whitespace-insensitive match
+  3. Case+whitespace-insensitive match
+  4. Context-aware match (ignores leading/trailing whitespace per line)
+  5. Fuzzy line match (last resort)
 
-match_mode parameter controls permissiveness:
-  - case_sensitive (default): tries exact → whitespace → context-aware → fuzzy
-  - whitespace_insensitive: normalizes whitespace first, then tries all strategies
-  - case_and_whitespace_insensitive: normalizes case+whitespace, then tries all strategies
-  - fuzzy: skips exact/whitespace, uses context-aware → fuzzy only
+The tool automatically selects the best strategy — the model does NOT need
+to specify a mode. If a "mode" parameter is passed it is silently ignored;
+the tool always uses its own internal strategy selection.
 """
 import os
 import re
@@ -25,11 +23,7 @@ class EditFileTool(BaseTool):
     description = (
         "Make a targeted edit to an existing file. "
         "Requires original_text to specify what to replace and new_text for the replacement. "
-        "match_mode controls matching permissiveness: "
-        "'case_sensitive' (default) = exact, then whitespace-insensitive, context-aware, fuzzy; "
-        "'whitespace_insensitive' = normalizes whitespace first, then tries all strategies; "
-        "'case_and_whitespace_insensitive' = normalizes case+whitespace, then tries all; "
-        "'fuzzy' = skips exact/whitespace, uses context-aware and fuzzy matching. "
+        "The tool automatically tries multiple matching strategies, from exact to fuzzy. "
         "For multi-line edits, include the full lines. "
         "Use read_file first to get the exact original text."
     )
@@ -37,20 +31,18 @@ class EditFileTool(BaseTool):
         "path": "string",
         "original_text": "string",
         "new_text": "string",
-        "match_mode": "string? (case_sensitive, whitespace_insensitive, case_and_whitespace_insensitive, fuzzy)",
+        # "mode" is accepted but IGNORED — the tool auto-detects the best
+        # matching strategy internally.  It exists only so callers that
+        # accidentally pass it do not get a validation error.
+        "mode": "(optional) ignored — strategy is auto-detected",
     }
 
     def execute(self, params: Dict[str, str]) -> ToolResult:
         path = ensure_under_root(params["path"], self.root_dir)
         original = params["original_text"]
         new_text = params["new_text"]
-        match_mode = params.get("match_mode", "case_sensitive").strip().lower()
 
-        # Validate match_mode
-        valid_modes = ("case_sensitive", "whitespace_insensitive", "case_and_whitespace_insensitive", "fuzzy")
-        if match_mode not in valid_modes:
-            return ToolResult(False, "", error=f"Invalid match_mode '{match_mode}'. Valid: {', '.join(valid_modes)}")
-
+        # --- Internal validation before any matching ---
         if not os.path.isfile(path):
             return ToolResult(False, "", error=f"File not found: {params['path']}")
 
@@ -60,12 +52,32 @@ class EditFileTool(BaseTool):
         except (OSError, PermissionError) as e:
             return ToolResult(False, "", error=f"Cannot read file: {e}")
 
-        # --- Determine which strategies to try based on match_mode ---
-        # case_sensitive: exact, whitespace-insensitive, context-aware, fuzzy
-        # whitespace_insensitive: normalize whitespace first, then try all
-        # case_and_whitespace_insensitive: normalize case+whitespace first, then try all
-        # fuzzy: skip exact/whitespace, go straight to fuzzy
-        strategies = self._get_strategies_for_mode(match_mode, content, original, new_text, path)
+        # If original_text is empty, nothing to replace
+        if not original:
+            return ToolResult(False, "", error="original_text is empty — nothing to replace")
+
+        # If original_text is not in the file at all (even after normalization),
+        # give a helpful error immediately instead of trying all strategies.
+        norm_orig = re.sub(r'\s+', ' ', original.strip())
+        norm_content = re.sub(r'\s+', ' ', content)
+        if norm_orig not in norm_content:
+            return ToolResult(False, "", error=self._build_error_message(content, original))
+
+        # Check if the replacement would actually change the file
+        if original in content:
+            would_change = content.replace(original, new_text, 1) != content
+            if not would_change:
+                return ToolResult(False, "", error="new_text is identical to original_text — no change would be made")
+
+        # Automatically try strategies from most restrictive to most loose
+        strategies = [
+            lambda: self._exact_match(content, original, new_text, path),
+            lambda: self._whitespace_insensitive_match(content, original, new_text, path),
+            lambda: self._case_and_whitespace_insensitive_match(content, original, new_text, path),
+            lambda: self._context_aware_match(content, original, new_text, path),
+            lambda: self._fuzzy_line_match(content, original, new_text, path),
+        ]
+
         for strategy in strategies:
             result = strategy()
             if result is not None:
@@ -73,37 +85,6 @@ class EditFileTool(BaseTool):
 
         # --- All strategies failed ---
         return ToolResult(False, "", error=self._build_error_message(content, original))
-
-    def _get_strategies_for_mode(self, mode: str, content: str, original: str,
-                                  new_text: str, path: str) -> list:
-        """Return ordered list of strategy functions based on match_mode."""
-        strategies = []
-
-        if mode == "case_sensitive":
-            strategies.append(lambda: self._exact_match(content, original, new_text, path))
-            strategies.append(lambda: self._whitespace_insensitive_match(content, original, new_text, path))
-            strategies.append(lambda: self._context_aware_match(content, original, new_text, path))
-            strategies.append(lambda: self._fuzzy_line_match(content, original, new_text, path))
-
-        elif mode == "whitespace_insensitive":
-            # First normalize whitespace and try exact match on normalized
-            strategies.append(lambda: self._whitespace_insensitive_match(content, original, new_text, path))
-            strategies.append(lambda: self._exact_match(content, original, new_text, path))
-            strategies.append(lambda: self._context_aware_match(content, original, new_text, path))
-            strategies.append(lambda: self._fuzzy_line_match(content, original, new_text, path))
-
-        elif mode == "case_and_whitespace_insensitive":
-            strategies.append(lambda: self._case_and_whitespace_insensitive_match(content, original, new_text, path))
-            strategies.append(lambda: self._whitespace_insensitive_match(content, original, new_text, path))
-            strategies.append(lambda: self._exact_match(content, original, new_text, path))
-            strategies.append(lambda: self._context_aware_match(content, original, new_text, path))
-            strategies.append(lambda: self._fuzzy_line_match(content, original, new_text, path))
-
-        elif mode == "fuzzy":
-            strategies.append(lambda: self._context_aware_match(content, original, new_text, path))
-            strategies.append(lambda: self._fuzzy_line_match(content, original, new_text, path))
-
-        return strategies
 
     def _exact_match(self, content: str, original: str, new_text: str, path: str) -> Optional[ToolResult]:
         """Exact match strategy."""
@@ -132,7 +113,7 @@ class EditFileTool(BaseTool):
 
     def _write_and_verify(self, path: str, new_content: str, original_path: str) -> ToolResult:
         """Write content and verify it actually changed."""
-        
+
         try:
             with open(path, 'w', encoding='utf-8') as f:
                 f.write(new_content)
@@ -156,7 +137,6 @@ class EditFileTool(BaseTool):
         if norm_orig in norm_content:
             # Found normalized match — build a regex that matches the original
             # text with flexible whitespace between tokens
-            # Split original into non-whitespace tokens, join with \s+
             tokens = re.findall(r'\S+', original)
             if tokens:
                 pattern_str = r'\s+'.join(re.escape(t) for t in tokens)
@@ -200,57 +180,50 @@ class EditFileTool(BaseTool):
 
     def _fuzzy_line_match(self, content: str, original: str,
                            new_text: str, path: str) -> Optional[ToolResult]:
-        """Match original lines against a sliding window, allowing minor whitespace differences."""
-        orig_lines = [l.strip() for l in original.splitlines() if l.strip()]
+        """Match original lines with fuzzy similarity (last resort)."""
+        orig_lines = original.splitlines()
         content_lines = content.splitlines()
 
         if not orig_lines or not content_lines:
             return None
 
+        best_match = None
+        best_score = 0.5  # threshold
+
         for i in range(len(content_lines) - len(orig_lines) + 1):
-            match = True
+            score = 0.0
             for j, orig_line in enumerate(orig_lines):
                 if i + j >= len(content_lines):
-                    match = False
                     break
-                content_line = content_lines[i + j].strip()
-                if orig_line not in content_line and content_line not in orig_line:
-                    if not self._lines_similar(orig_line, content_line):
-                        match = False
-                        break
+                content_line = content_lines[i + j]
+                # Compute similarity using character overlap
+                orig_set = set(orig_line.strip())
+                line_set = set(content_line.strip())
+                if orig_set and line_set:
+                    intersection = orig_set & line_set
+                    union = orig_set | line_set
+                    score += len(intersection) / len(union)
+                elif not orig_line.strip() and not content_line.strip():
+                    score += 1.0  # both empty lines match
 
-            if match:
-                # Found fuzzy match — replace the lines
-                start = sum(len(l) + 1 for l in content_lines[:i])
-                end_line_idx = i + len(orig_lines)
-                end = start
-                for k in range(i, end_line_idx):
-                    end += len(content_lines[k]) + 1
+            if orig_lines:
+                score /= len(orig_lines)
 
-                new_content = content[:start] + new_text + content[end:]
-                return self._write_and_verify(path, new_content, path)
+            if score > best_score:
+                best_score = score
+                best_match = i
+
+        if best_match is not None:
+            start = sum(len(l) + 1 for l in content_lines[:best_match])
+            end_line_idx = best_match + len(orig_lines)
+            end = start
+            for k in range(best_match, end_line_idx):
+                end += len(content_lines[k]) + 1
+
+            new_content = content[:start] + new_text + content[end:]
+            return self._write_and_verify(path, new_content, path)
+
         return None
-
-    @staticmethod
-    def _lines_similar(a: str, b: str) -> bool:
-        """Check if two lines are similar enough to be considered a match."""
-        a_norm = re.sub(r'\s+', ' ', a.strip())
-        b_norm = re.sub(r'\s+', ' ', b.strip())
-        if a_norm == b_norm:
-            return True
-        if len(a_norm) > 0 and len(b_norm) > 0:
-            shorter, longer = (a_norm, b_norm) if len(a_norm) < len(b_norm) else (b_norm, a_norm)
-            if len(shorter) >= 5:
-                matches = 0
-                si = 0
-                for c in shorter:
-                    idx = longer.find(c, si)
-                    if idx >= 0:
-                        matches += 1
-                        si = idx + 1
-                if matches / len(shorter) >= 0.8:
-                    return True
-        return False
 
     def _build_error_message(self, content: str, original: str) -> str:
         """Build a helpful error message showing what was found."""

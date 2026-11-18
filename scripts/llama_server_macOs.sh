@@ -13,10 +13,11 @@
 #   ./scripts/llama_server.sh devstral     # start Devstral-Small-2-24B
 #   ./scripts/llama_server.sh gemma4       # start Gemma-4-26B-A4B-it
 #   ./scripts/llama_server.sh gemma4_small # start Gemma-4-E4B-it
+#   ./scripts/llama_server.sh qwen36       # start Qwen3.6-35B-A3B
 #   ./scripts/llama_server.sh all          # download all models (don't start)
 #
 #   MTP=0 ./scripts/llama_server.sh gemma4 # start with MTP speculative
-#                                          # decoding disabled (see below)
+#                                          # decoding disabled
 #
 # NOTE: this revision runs on the stock macOS /bin/bash 3.2 — no Homebrew
 # bash required. bash 3.2 has no associative arrays, so the model tables
@@ -38,15 +39,22 @@ MODEL_BASE_DIR="$WORKDIR/models"
 # upgrade; asset names verified against b12387.
 LLAMACPP_TAG="b12387"
 
+# Unified port: all models use the same port so client configs need no
+# per-model tweaking. The server is started/stopped by model key, but all
+# traffic flows through a single port.
+UNIFIED_PORT="${LLAMA_SERVER_PORT:-8080}"
+
 # ---------------------------------------------------------------------------
-# Model definitions
-#
-# bash 3.2 stand-ins for the old associative arrays: one `case` lookup per
-# attribute. Adding a model = add its key to MODEL_KEYS and one line to
-# each lookup. Friendly aliases are resolved in resolve_key() below.
+# Model keys
 # ---------------------------------------------------------------------------
 MODEL_KEYS="ministral devstral gemma4 gemma4_small qwen36"
 
+# ---------------------------------------------------------------------------
+# Model attribute lookup functions
+#
+# Each function takes a model key and echoes the attribute value.
+# Adding a model = add its key to MODEL_KEYS and one line to each lookup.
+# ---------------------------------------------------------------------------
 model_name() {
   case "$1" in
     ministral) echo "Ministral-3-14B" ;;
@@ -98,11 +106,7 @@ model_mmproj_url() {
 }
 
 # MTP (multi-token prediction) draft model, for speculative decoding.
-# Conditional by construction: only models whose publisher ships an MTP
-# draft have an entry — today that is Gemma 4 alone (a separate small
-# GGUF in the same repo). The two Mistrals ship no MTP head, so for them
-# these return empty and no MTP flags are ever passed. start_server()
-# also honours MTP=0 to force MTP off for a model that has one.
+# Only models whose publisher ships an MTP draft have an entry.
 model_mtp_file() {
   case "$1" in
     gemma4)    echo "mtp-gemma-4-26B-A4B-it.gguf" ;;
@@ -119,10 +123,7 @@ model_mtp_url() {
   esac
 }
 
-# Each model's proper maximum context, from its publisher's config
-# (text_config.max_position_embeddings): Ministral 3 and Gemma 4 are
-# 256K models; Devstral Small 2's config declares 393216 (384K, YaRN
-# factor 48 over an 8192 base) even though it is marketed as 256K.
+# Context window
 model_context() {
   case "$1" in
     ministral) echo "262144" ;;
@@ -133,9 +134,7 @@ model_context() {
   esac
 }
 
-# n_predict: -1 = unlimited (bounded by context size). The previous values
-# (131072 / 65536) were passed to `-n`, which is tokens-to-generate, not a
-# context window — almost certainly not what was intended.
+# n_predict: -1 = unlimited (bounded by context size).
 model_npredict() {
   case "$1" in
     ministral) echo "-1" ;;
@@ -146,21 +145,17 @@ model_npredict() {
   esac
 }
 
-# Unified port: all models use the same port so client configs need no
-# per-model tweaking. The server is started/stopped by model key, but all
-# traffic flows through a single port.
-UNIFIED_PORT="${LLAMA_SERVER_PORT:-8080}"
 model_port() {
   echo "$UNIFIED_PORT"
 }
 
-# Per-model hyperparameters — each model gets tuned for its architecture.
+# Per-model hyperparameters
 model_cache_type_k() {
   case "$1" in
     ministral) echo "q8_0" ;;
     devstral)  echo "q8_0" ;;
     gemma4)    echo "q8_0" ;;
-    gemma4_small) echo "q4_0" ;;  # small model, less KV cache needed
+    gemma4_small) echo "q4_0" ;;
     qwen36)    echo "q8_0" ;;
   esac
 }
@@ -178,10 +173,10 @@ model_cache_type_v() {
 model_batch_size() {
   case "$1" in
     ministral) echo "512" ;;
-    devstral)  echo "1024" ;;  # larger batch for 24B dense model
-    gemma4)    echo "1024" ;;  # MoE benefits from larger batch
+    devstral)  echo "1024" ;;
+    gemma4)    echo "1024" ;;
     gemma4_small) echo "256" ;;
-    qwen36)    echo "512" ;;  # MoE — 512 balances throughput and memory
+    qwen36)    echo "512" ;;
   esac
 }
 
@@ -201,17 +196,17 @@ model_temp() {
     devstral)  echo "0.7" ;;
     gemma4)    echo "0.7" ;;
     gemma4_small) echo "0.7" ;;
-    qwen36)    echo "0.7" ;;  # Qwen3.6 reference default
+    qwen36)    echo "0.7" ;;
   esac
 }
 
 model_top_p() {
   case "$1" in
     ministral) echo "0.8" ;;
-    devstral)  echo "0.85" ;;  # slightly looser for 24B
-    gemma4)    echo "0.9" ;;  # Gemma 4 benefits from higher top-p
+    devstral)  echo "0.85" ;;
+    gemma4)    echo "0.9" ;;
     gemma4_small) echo "0.8" ;;
-    qwen36)    echo "0.9" ;;  # Qwen3.6 reference: top-p 0.9
+    qwen36)    echo "0.9" ;;
   esac
 }
 
@@ -219,9 +214,9 @@ model_top_k() {
   case "$1" in
     ministral) echo "30" ;;
     devstral)  echo "40" ;;
-    gemma4)    echo "50" ;;  # Gemma 4: moderate top-k
+    gemma4)    echo "50" ;;
     gemma4_small) echo "25" ;;
-    qwen36)    echo "50" ;;  # Qwen3.6: 50 for balanced diversity
+    qwen36)    echo "50" ;;
   esac
 }
 
@@ -233,7 +228,6 @@ warn() { printf "\033[1;33m[warn] \033[0m %s\n" "$*"; }
 die()  { printf "\033[1;31m[error]\033[0m %s\n" "$*" >&2; exit 1; }
 
 # TLS bypass: run with INSECURE_TLS=1 to skip certificate verification
-# (e.g. behind a corporate SSL-inspecting proxy).
 CURL_EXTRA=()
 if [[ "${INSECURE_TLS:-0}" == "1" ]]; then
   warn "INSECURE_TLS=1 — certificate verification is DISABLED."
@@ -241,11 +235,9 @@ if [[ "${INSECURE_TLS:-0}" == "1" ]]; then
 fi
 fetch() { curl -fSL ${CURL_EXTRA[@]+"${CURL_EXTRA[@]}"} "$@"; }
 
-# Resolve a user-supplied model key (with aliases) to a canonical key.
+# Resolve a user-supplied model key to a canonical key.
 resolve_key() {
   local raw="$1"
-  # Friendly aliases -> canonical keys would go here as a `case` on $raw
-  # (there are none since Qwen and its qwen36 alias were removed).
   local k
   for k in $MODEL_KEYS; do
     if [[ "$k" == "$raw" ]]; then
@@ -267,7 +259,6 @@ check_prereqs() {
   command -v tar  >/dev/null 2>&1 || die "tar is required (part of macOS by default)."
 }
 
-# Warn if unified memory looks too small for the chosen model/context.
 check_memory() {
   local key="$1"
   local ram_gb
@@ -278,7 +269,7 @@ check_memory() {
     devstral)  min_gb=32 ;;
     gemma4)    min_gb=24 ;;
     gemma4_small) min_gb=24 ;;
-    qwen36)    min_gb=32 ;;  # 35B MoE at Q4 needs ~20GB weights + KV cache
+    qwen36)    min_gb=32 ;;
     *)         min_gb=16 ;;
   esac
   if [[ "$ram_gb" -gt 0 ]] && [[ "$ram_gb" -lt "$min_gb" ]]; then
@@ -302,7 +293,6 @@ install_llamacpp() {
   local tmp_dir
   tmp_dir=$(mktemp -d)
 
-  # Always clean up the temp dir, even on early failure.
   trap 'rm -rf "$tmp_dir"' EXIT
 
   fetch -o "$tmp_dir/llama.tar.gz" "$archive_url" \
@@ -311,11 +301,6 @@ install_llamacpp() {
   mkdir -p "$LLAMACPP_DIR"
   tar -xzf "$tmp_dir/llama.tar.gz" -C "$tmp_dir"
 
-  # Find llama-server wherever the archive put it. The b12387 macOS tarball
-  # is FLAT — one llama-<tag>/ folder with the binaries and their dylibs side
-  # by side and no bin/ anywhere — so search the whole extracted tree instead
-  # of assuming a layout; a future bin/ subdir or tar-root layout installs
-  # just as well.
   local server_path
   server_path=$(find "$tmp_dir" -type f -name "llama-server" | head -n1 || true)
   if [[ -z "$server_path" ]]; then
@@ -323,16 +308,11 @@ install_llamacpp() {
   fi
   local payload_dir
   payload_dir="$(dirname "$server_path")"
-  # If the binary sits in a bin/ subdir, install from its parent so the
-  # sibling dylibs land alongside it either way.
   if [[ "$(basename "$payload_dir")" == "bin" ]]; then
     payload_dir="$(dirname "$payload_dir")"
   fi
   cp -a "$payload_dir/." "$LLAMACPP_DIR/"
 
-  # Defensive: strip the quarantine attribute if present, so Gatekeeper does
-  # not block the downloaded binaries ("cannot be opened because the developer
-  # cannot be verified").
   xattr -dr com.apple.quarantine "$LLAMACPP_DIR" 2>/dev/null || true
 
   rm -rf "$tmp_dir"
@@ -346,8 +326,7 @@ install_llamacpp() {
 }
 
 # ---------------------------------------------------------------------------
-# Download a single model + mmproj (returns non-zero on failure instead of
-# killing the whole run, so `all` can skip past a broken download)
+# Download a single model + mmproj
 # ---------------------------------------------------------------------------
 download_model() {
   local key="$1"
@@ -375,9 +354,7 @@ download_model() {
     log "mmproj already present: $mmproj_file"
   fi
 
-  # MTP draft (only for models that ship one). Unlike the model/mmproj,
-  # a failed MTP download is NOT fatal — MTP is a speed bonus, and
-  # start_server() falls back to running without it.
+  # MTP draft (only for models that ship one).
   local mtp_file="$(model_mtp_file "$key")"
   if [[ -n "$mtp_file" ]]; then
     if [[ ! -s "$model_dir/$mtp_file" ]]; then
@@ -418,10 +395,7 @@ start_server() {
     log "  mmproj not found — running text-only."
   fi
 
-  # MTP speculative decoding, conditional on the model shipping an MTP
-  # draft (see model_mtp_file) and on MTP not being forced off with
-  # MTP=0. A model with no draft never sees the flags; a missing draft
-  # file (failed download) degrades to a warning, not an abort.
+  # MTP speculative decoding
   local mtp_file="$(model_mtp_file "$key")"
   local mtp_args=()
   if [[ "${MTP:-1}" != "0" && -n "$mtp_file" ]]; then
@@ -435,7 +409,6 @@ start_server() {
     warn "MTP requested, but $(model_name "$key") ships no MTP draft — running without MTP."
   fi
 
-  # -n is n_predict; -1 means unlimited (bounded by context size).
   exec llama-server \
     -m "$model_dir/$model_file" \
     ${mmproj_args[@]+"${mmproj_args[@]}"} \
@@ -459,11 +432,6 @@ start_server() {
 
 # ---------------------------------------------------------------------------
 # Interactive menu
-#
-# The banner goes to stderr and only the chosen key is echoed on stdout:
-# main() captures this function's stdout, and in the bash >= 4 original the
-# banner text was captured along with the selection, so the menu could
-# never actually match a choice. Displayed output is unchanged.
 # ---------------------------------------------------------------------------
 show_menu() {
   echo "" >&2
@@ -474,7 +442,7 @@ show_menu() {
   echo "  1) Ministral-3-14B       (port 8081, 256K ctx)" >&2
   echo "  2) Devstral-Small-2-24B  (port 8082, 384K ctx)" >&2
   echo "  3) Gemma-4-26B-A4B-it    (port 8083, 256K ctx, MTP)" >&2
-  echo "  4) Gemma-4-E4B-it       (port 8084, 256K ctx)" >&2
+  echo "  4) Gemma-4-E4B-it       (port 8084, 128K ctx)" >&2
   echo "  5) Qwen3.6-35B-A3B      (port 8085, 256K ctx, MTP)" >&2
   echo "  6) Download ALL models" >&2
   echo "  0) Exit" >&2
@@ -497,8 +465,6 @@ show_menu() {
     esac
   done
 }
-
-
 
 # ---------------------------------------------------------------------------
 # Main
@@ -530,9 +496,6 @@ main() {
       exit 0
       ;;
     *)
-      # Resolve aliases / validate the key BEFORE touching any lookups, so an
-      # unknown or typo'd name gives a clear error instead of an unbound
-      # variable crash under `set -u`.
       local key
       if key=$(resolve_key "$selected"); then
         install_llamacpp
