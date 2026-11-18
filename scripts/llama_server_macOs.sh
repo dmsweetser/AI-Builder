@@ -119,7 +119,7 @@ model_mtp_url() {
 model_context() {
   case "$1" in
     ministral) echo "262144" ;;
-    devstral)  echo "393216" ;;
+    devstral)  echo "262144" ;;
     gemma4)    echo "262144" ;;
     gemma4_small) echo "131072" ;;
   esac

@@ -59,7 +59,7 @@ set "DEV_FILE=Devstral-Small-2-24B-Instruct-2512-Q4_K_M.gguf"
 set "DEV_MMPROJ=mmproj-F32.gguf"
 set "DEV_URL=https://huggingface.co/unsloth/Devstral-Small-2-24B-Instruct-2512-GGUF/resolve/main/Devstral-Small-2-24B-Instruct-2512-Q4_K_M.gguf?download=true"
 set "DEV_MMURL=https://huggingface.co/unsloth/Devstral-Small-2-24B-Instruct-2512-GGUF/resolve/main/mmproj-F32.gguf?download=true"
-set "DEV_CTX=393216"
+set "DEV_CTX=262144"
 set "DEV_NPREDICT=-1"
 set "DEV_PORT=8082"
 

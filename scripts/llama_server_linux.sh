@@ -95,7 +95,7 @@ declare -A MODEL_MTP_URLS=(
 # factor 48 over an 8192 base) even though it is marketed as 256K.
 declare -A MODEL_CONTEXTS=(
   [ministral]="262144"
-  [devstral]="393216"
+  [devstral]="262144"
   [gemma4]="262144"
   [gemma4_small]="131072"
 )
