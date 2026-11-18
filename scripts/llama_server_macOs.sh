@@ -45,7 +45,7 @@ LLAMACPP_TAG="b12387"
 # attribute. Adding a model = add its key to MODEL_KEYS and one line to
 # each lookup. Friendly aliases are resolved in resolve_key() below.
 # ---------------------------------------------------------------------------
-MODEL_KEYS="ministral devstral gemma4 gemma4_small"
+MODEL_KEYS="ministral devstral gemma4 gemma4_small qwen36"
 
 model_name() {
   case "$1" in
@@ -53,6 +53,7 @@ model_name() {
     devstral)  echo "Devstral-Small-2-24B" ;;
     gemma4)    echo "Gemma-4-26B-A4B" ;;
     gemma4_small) echo "Gemma-4-E4B-it" ;;
+    qwen36)    echo "Qwen3.6-35B-A3B" ;;
   esac
 }
 
@@ -62,6 +63,7 @@ model_file() {
     devstral)  echo "Devstral-Small-2-24B-Instruct-2512-Q4_K_M.gguf" ;;
     gemma4)    echo "gemma-4-26B-A4B-it-UD-Q4_K_M.gguf" ;;
     gemma4_small) echo "gemma-4-E4B-it-Q4_K_M.gguf" ;;
+    qwen36)    echo "Qwen3.6-35B-A3B-UD-IQ4_XS.gguf" ;;
   esac
 }
 
@@ -71,6 +73,7 @@ model_mmproj_file() {
     devstral)  echo "mmproj-F32.gguf" ;;
     gemma4)    echo "mmproj-F32.gguf" ;;
     gemma4_small) echo "mmproj-F16.gguf" ;;
+    qwen36)    echo "mmproj-F32.gguf" ;;
   esac
 }
 
@@ -80,6 +83,7 @@ model_url() {
     devstral)  echo "https://huggingface.co/unsloth/Devstral-Small-2-24B-Instruct-2512-GGUF/resolve/main/Devstral-Small-2-24B-Instruct-2512-Q4_K_M.gguf?download=true" ;;
     gemma4)    echo "https://huggingface.co/unsloth/gemma-4-26B-A4B-it-GGUF/resolve/main/gemma-4-26B-A4B-it-UD-Q4_K_M.gguf?download=true" ;;
     gemma4_small) echo "https://huggingface.co/unsloth/gemma-4-E4B-it-GGUF/resolve/main/gemma-4-E4B-it-Q4_K_M.gguf?download=true" ;;
+    qwen36)    echo "https://huggingface.co/unsloth/Qwen3.6-35B-A3B-MTP-GGUF/resolve/main/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf?download=true" ;;
   esac
 }
 
@@ -89,6 +93,7 @@ model_mmproj_url() {
     devstral)  echo "https://huggingface.co/unsloth/Devstral-Small-2-24B-Instruct-2512-GGUF/resolve/main/mmproj-F32.gguf?download=true" ;;
     gemma4)    echo "https://huggingface.co/unsloth/gemma-4-26B-A4B-it-GGUF/resolve/main/mmproj-F32.gguf?download=true" ;;
     gemma4_small) echo "https://huggingface.co/unsloth/gemma-4-E4B-it-GGUF/resolve/main/mmproj-F16.gguf?download=true" ;;
+    qwen36)    echo "https://huggingface.co/unsloth/Qwen3.6-35B-A3B-MTP-GGUF/resolve/main/mmproj-F32.gguf?download=true" ;;
   esac
 }
 
@@ -101,6 +106,7 @@ model_mmproj_url() {
 model_mtp_file() {
   case "$1" in
     gemma4)    echo "mtp-gemma-4-26B-A4B-it.gguf" ;;
+    qwen36)    echo "Qwen3.6-35B-A3B-MTP-draft.gguf" ;;
     *)         echo "" ;;
   esac
 }
@@ -108,6 +114,7 @@ model_mtp_file() {
 model_mtp_url() {
   case "$1" in
     gemma4)    echo "https://huggingface.co/unsloth/gemma-4-26B-A4B-it-GGUF/resolve/main/mtp-gemma-4-26B-A4B-it.gguf?download=true" ;;
+    qwen36)    echo "https://huggingface.co/unsloth/Qwen3.6-35B-A3B-MTP-GGUF/resolve/main/Qwen3.6-35B-A3B-MTP-draft.gguf?download=true" ;;
     *)         echo "" ;;
   esac
 }
@@ -122,6 +129,7 @@ model_context() {
     devstral)  echo "262144" ;;
     gemma4)    echo "262144" ;;
     gemma4_small) echo "131072" ;;
+    qwen36)    echo "262144" ;;
   esac
 }
 
@@ -134,6 +142,7 @@ model_npredict() {
     devstral)  echo "-1" ;;
     gemma4)    echo "-1" ;;
     gemma4_small) echo "-1" ;;
+    qwen36)    echo "-1" ;;
   esac
 }
 
@@ -146,6 +155,78 @@ model_port() {
     devstral)  echo "8082" ;;
     gemma4)    echo "8083" ;;
     gemma4_small) echo "8084" ;;
+    qwen36)    echo "8085" ;;
+  esac
+}
+
+# Per-model hyperparameters — each model gets tuned for its architecture.
+model_cache_type_k() {
+  case "$1" in
+    ministral) echo "q8_0" ;;
+    devstral)  echo "q8_0" ;;
+    gemma4)    echo "q8_0" ;;
+    gemma4_small) echo "q4_0" ;;  # small model, less KV cache needed
+    qwen36)    echo "q8_0" ;;
+  esac
+}
+
+model_cache_type_v() {
+  case "$1" in
+    ministral) echo "q8_0" ;;
+    devstral)  echo "q8_0" ;;
+    gemma4)    echo "q8_0" ;;
+    gemma4_small) echo "q4_0" ;;
+    qwen36)    echo "q8_0" ;;
+  esac
+}
+
+model_batch_size() {
+  case "$1" in
+    ministral) echo "512" ;;
+    devstral)  echo "1024" ;;  # larger batch for 24B dense model
+    gemma4)    echo "1024" ;;  # MoE benefits from larger batch
+    gemma4_small) echo "256" ;;
+    qwen36)    echo "512" ;;  # MoE — 512 balances throughput and memory
+  esac
+}
+
+model_ubatch_size() {
+  case "$1" in
+    ministral) echo "512" ;;
+    devstral)  echo "1024" ;;
+    gemma4)    echo "1024" ;;
+    gemma4_small) echo "256" ;;
+    qwen36)    echo "512" ;;
+  esac
+}
+
+model_temp() {
+  case "$1" in
+    ministral) echo "0.7" ;;
+    devstral)  echo "0.7" ;;
+    gemma4)    echo "0.7" ;;
+    gemma4_small) echo "0.7" ;;
+    qwen36)    echo "0.7" ;;  # Qwen3.6 reference default
+  esac
+}
+
+model_top_p() {
+  case "$1" in
+    ministral) echo "0.8" ;;
+    devstral)  echo "0.85" ;;  # slightly looser for 24B
+    gemma4)    echo "0.9" ;;  # Gemma 4 benefits from higher top-p
+    gemma4_small) echo "0.8" ;;
+    qwen36)    echo "0.9" ;;  # Qwen3.6 reference: top-p 0.9
+  esac
+}
+
+model_top_k() {
+  case "$1" in
+    ministral) echo "30" ;;
+    devstral)  echo "40" ;;
+    gemma4)    echo "50" ;;  # Gemma 4: moderate top-k
+    gemma4_small) echo "25" ;;
+    qwen36)    echo "50" ;;  # Qwen3.6: 50 for balanced diversity
   esac
 }
 
@@ -202,6 +283,7 @@ check_memory() {
     devstral)  min_gb=32 ;;
     gemma4)    min_gb=24 ;;
     gemma4_small) min_gb=24 ;;
+    qwen36)    min_gb=32 ;;  # 35B MoE at Q4 needs ~20GB weights + KV cache
     *)         min_gb=16 ;;
   esac
   if [[ "$ram_gb" -gt 0 ]] && [[ "$ram_gb" -lt "$min_gb" ]]; then
@@ -368,13 +450,13 @@ start_server() {
     --flash-attn on \
     -c "$(model_context "$key")" \
     -n "$(model_npredict "$key")" \
-    --cache-type-k q8_0 \
-    --cache-type-v q8_0 \
-    --batch-size 512 \
-    --ubatch-size 512 \
-    --temp 0.7 \
-    --top-p 0.8 \
-    --top-k 20 \
+    --cache-type-k "$(model_cache_type_k "$key")" \
+    --cache-type-v "$(model_cache_type_v "$key")" \
+    --batch-size "$(model_batch_size "$key")" \
+    --ubatch-size "$(model_ubatch_size "$key")" \
+    --temp "$(model_temp "$key")" \
+    --top-p "$(model_top_p "$key")" \
+    --top-k "$(model_top_k "$key")" \
     --host 0.0.0.0 \
     --port "$(model_port "$key")" \
     --n-gpu-layers 999
@@ -398,21 +480,23 @@ show_menu() {
   echo "  2) Devstral-Small-2-24B  (port 8082, 384K ctx)" >&2
   echo "  3) Gemma-4-26B-A4B-it    (port 8083, 256K ctx, MTP)" >&2
   echo "  4) Gemma-4-E4B-it       (port 8084, 256K ctx)" >&2
-  echo "  5) Download ALL models" >&2
+  echo "  5) Qwen3.6-35B-A3B      (port 8085, 256K ctx, MTP)" >&2
+  echo "  6) Download ALL models" >&2
   echo "  0) Exit" >&2
   echo "" >&2
-  echo "  Or run: $0 <ministral|devstral|gemma4|gemma4_small|all>" >&2
+  echo "  Or run: $0 <ministral|devstral|gemma4|gemma4_small|qwen36|all>" >&2
   echo "" >&2
 
   local choice
   while true; do
-    read -rp "Select model [1-5, 0=exit]: " choice
+    read -rp "Select model [1-6, 0=exit]: " choice
     case "$choice" in
       1) echo "ministral"; return 0 ;;
       2) echo "devstral"; return 0 ;;
       3) echo "gemma4"; return 0 ;;
       4) echo "gemma4_small"; return 0 ;;
-      5) echo "all"; return 0 ;;
+      5) echo "qwen36"; return 0 ;;
+      6) echo "all"; return 0 ;;
       0) echo "exit"; return 0 ;;
       *) warn "Invalid choice." ;;
     esac

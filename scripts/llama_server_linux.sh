@@ -37,13 +37,14 @@ LLAMACPP_TAG="b12387"
 # ---------------------------------------------------------------------------
 # Model definitions
 # ---------------------------------------------------------------------------
-declare -a MODEL_KEYS=(ministral devstral gemma4 gemma4_small)
+declare -a MODEL_KEYS=(ministral devstral gemma4 gemma4_small qwen36)
 
 declare -A MODEL_NAMES=(
   [ministral]="Ministral-3-14B"
   [devstral]="Devstral-Small-2-24B"
   [gemma4]="Gemma-4-26B-A4B"
   [gemma4_small]="Gemma-4-E4B-it"
+  [qwen36]="Qwen3.6-35B-A3B"
 )
 
 declare -A MODEL_FILES=(
@@ -51,6 +52,7 @@ declare -A MODEL_FILES=(
   [devstral]="Devstral-Small-2-24B-Instruct-2512-Q4_K_M.gguf"
   [gemma4]="gemma-4-26B-A4B-it-UD-Q4_K_M.gguf"
   [gemma4_small]="gemma-4-E4B-it-Q4_K_M.gguf"
+  [qwen36]="Qwen3.6-35B-A3B-UD-IQ4_XS.gguf"
 )
 
 declare -A MMPROJ_FILES=(
@@ -58,6 +60,7 @@ declare -A MMPROJ_FILES=(
   [devstral]="mmproj-F32.gguf"
   [gemma4]="mmproj-F32.gguf"
   [gemma4_small]="mmproj-F16.gguf"
+  [qwen36]="mmproj-F32.gguf"
 )
 
 declare -A MODEL_URLS=(
@@ -65,6 +68,7 @@ declare -A MODEL_URLS=(
   [devstral]="https://huggingface.co/unsloth/Devstral-Small-2-24B-Instruct-2512-GGUF/resolve/main/Devstral-Small-2-24B-Instruct-2512-Q4_K_M.gguf?download=true"
   [gemma4]="https://huggingface.co/unsloth/gemma-4-26B-A4B-it-GGUF/resolve/main/gemma-4-26B-A4B-it-UD-Q4_K_M.gguf?download=true"
   [gemma4_small]="https://huggingface.co/unsloth/gemma-4-E4B-it-GGUF/resolve/main/gemma-4-E4B-it-Q4_K_M.gguf?download=true"
+  [qwen36]="https://huggingface.co/unsloth/Qwen3.6-35B-A3B-MTP-GGUF/resolve/main/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf?download=true"
 )
 
 declare -A MMPROJ_URLS=(
@@ -72,6 +76,7 @@ declare -A MMPROJ_URLS=(
   [devstral]="https://huggingface.co/unsloth/Devstral-Small-2-24B-Instruct-2512-GGUF/resolve/main/mmproj-F32.gguf?download=true"
   [gemma4]="https://huggingface.co/unsloth/gemma-4-26B-A4B-it-GGUF/resolve/main/mmproj-F32.gguf?download=true"
   [gemma4_small]="https://huggingface.co/unsloth/gemma-4-E4B-it-GGUF/resolve/main/mmproj-F16.gguf?download=true"
+  [qwen36]="https://huggingface.co/unsloth/Qwen3.6-35B-A3B-MTP-GGUF/resolve/main/mmproj-F32.gguf?download=true"
 )
 
 # MTP (multi-token prediction) draft model, for speculative decoding.
@@ -84,9 +89,11 @@ declare -A MMPROJ_URLS=(
 # has one.
 declare -A MODEL_MTP_FILES=(
   [gemma4]="mtp-gemma-4-26B-A4B-it.gguf"
+  [qwen36]="Qwen3.6-35B-A3B-MTP-draft.gguf"
 )
 declare -A MODEL_MTP_URLS=(
   [gemma4]="https://huggingface.co/unsloth/gemma-4-26B-A4B-it-GGUF/resolve/main/mtp-gemma-4-26B-A4B-it.gguf?download=true"
+  [qwen36]="https://huggingface.co/unsloth/Qwen3.6-35B-A3B-MTP-GGUF/resolve/main/Qwen3.6-35B-A3B-MTP-draft.gguf?download=true"
 )
 
 # Each model's proper maximum context, from its publisher's config
@@ -98,6 +105,7 @@ declare -A MODEL_CONTEXTS=(
   [devstral]="262144"
   [gemma4]="262144"
   [gemma4_small]="131072"
+  [qwen36]="262144"
 )
 
 # n_predict: -1 = unlimited (bounded by context size). The previous values
@@ -108,6 +116,7 @@ declare -A MODEL_NPREDICT=(
   [devstral]="-1"
   [gemma4]="-1"
   [gemma4_small]="-1"
+  [qwen36]="-1"
 )
 
 # Ports are unchanged from when there were four models (Ministral has
@@ -118,6 +127,58 @@ declare -A MODEL_PORTS=(
   [devstral]="8082"
   [gemma4]="8083"
   [gemma4_small]="8084"
+  [qwen36]="8085"
+)
+
+# Per-model hyperparameters — each model gets tuned for its architecture.
+declare -A MODEL_CACHE_TYPE_K=(
+  [ministral]="q8_0"
+  [devstral]="q8_0"
+  [gemma4]="q8_0"
+  [gemma4_small]="q4_0"  # small model, less KV cache needed
+  [qwen36]="q8_0"
+)
+declare -A MODEL_CACHE_TYPE_V=(
+  [ministral]="q8_0"
+  [devstral]="q8_0"
+  [gemma4]="q8_0"
+  [gemma4_small]="q4_0"
+  [qwen36]="q8_0"
+)
+declare -A MODEL_BATCH_SIZE=(
+  [ministral]="512"
+  [devstral]="1024"  # larger batch for 24B dense model
+  [gemma4]="1024"  # MoE benefits from larger batch
+  [gemma4_small]="256"
+  [qwen36]="512"  # MoE — 512 balances throughput and memory
+)
+declare -A MODEL_UBATCH_SIZE=(
+  [ministral]="512"
+  [devstral]="1024"
+  [gemma4]="1024"
+  [gemma4_small]="256"
+  [qwen36]="512"
+)
+declare -A MODEL_TEMP=(
+  [ministral]="0.7"
+  [devstral]="0.7"
+  [gemma4]="0.7"
+  [gemma4_small]="0.7"
+  [qwen36]="0.7"  # Qwen3.6 reference default
+)
+declare -A MODEL_TOP_P=(
+  [ministral]="0.8"
+  [devstral]="0.85"  # slightly looser for 24B
+  [gemma4]="0.9"  # Gemma 4 benefits from higher top-p
+  [gemma4_small]="0.8"
+  [qwen36]="0.9"  # Qwen3.6 reference: top-p 0.9
+)
+declare -A MODEL_TOP_K=(
+  [ministral]="30"
+  [devstral]="40"
+  [gemma4]="50"  # Gemma 4: moderate top-k
+  [gemma4_small]="25"
+  [qwen36]="50"  # Qwen3.6: 50 for balanced diversity
 )
 
 # ---------------------------------------------------------------------------
@@ -461,13 +522,13 @@ start_server() {
     --flash-attn on \
     -c "${MODEL_CONTEXTS[$key]}" \
     -n "${MODEL_NPREDICT[$key]}" \
-    --cache-type-k q8_0 \
-    --cache-type-v q8_0 \
-    --batch-size 512 \
-    --ubatch-size 512 \
-    --temp 0.7 \
-    --top-p 0.8 \
-    --top-k 20 \
+    --cache-type-k "${MODEL_CACHE_TYPE_K[$key]}" \
+    --cache-type-v "${MODEL_CACHE_TYPE_V[$key]}" \
+    --batch-size "${MODEL_BATCH_SIZE[$key]}" \
+    --ubatch-size "${MODEL_UBATCH_SIZE[$key]}" \
+    --temp "${MODEL_TEMP[$key]}" \
+    --top-p "${MODEL_TOP_P[$key]}" \
+    --top-k "${MODEL_TOP_K[$key]}" \
     --host 0.0.0.0 \
     --port "${MODEL_PORTS[$key]}" \
     "${gpu_args[@]}"
@@ -492,21 +553,23 @@ show_menu() {
   echo "  2) Devstral-Small-2-24B  (port 8082, 384K ctx)" >&2
   echo "  3) Gemma-4-26B-A4B-it    (port 8083, 256K ctx, MTP)" >&2
   echo "  4) Gemma-4-E4B-it       (port 8084, 256K ctx)" >&2
-  echo "  5) Download ALL models" >&2
+  echo "  5) Qwen3.6-35B-A3B      (port 8085, 256K ctx, MTP)" >&2
+  echo "  6) Download ALL models" >&2
   echo "  0) Exit" >&2
   echo "" >&2
-  echo "  Or run: $0 <ministral|devstral|gemma4|gemma4_small|all>" >&2
+  echo "  Or run: $0 <ministral|devstral|gemma4|gemma4_small|qwen36|all>" >&2
   echo "" >&2
 
   local choice
   while true; do
-    read -rp "Select model [1-5, 0=exit]: " choice
+    read -rp "Select model [1-6, 0=exit]: " choice
     case "$choice" in
       1) echo "ministral"; return 0 ;;
       2) echo "devstral"; return 0 ;;
       3) echo "gemma4"; return 0 ;;
       4) echo "gemma4_small"; return 0 ;;
-      5) echo "all"; return 0 ;;
+      5) echo "qwen36"; return 0 ;;
+      6) echo "all"; return 0 ;;
       0) echo "exit"; return 0 ;;
       *) warn "Invalid choice." ;;
     esac
@@ -527,7 +590,7 @@ main() {
   fi
 
   case "$selected" in
-    ministral|devstral|gemma4|gemma4_small)
+    ministral|devstral|gemma4|gemma4_small|qwen36)
       install_prereqs
       install_llamacpp
       download_model "$selected" || die "Model download failed — aborting."

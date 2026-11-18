@@ -53,6 +53,13 @@ set "MIN_MMURL=https://huggingface.co/unsloth/Ministral-3-14B-Instruct-2512-GGUF
 set "MIN_CTX=262144"
 set "MIN_NPREDICT=-1"
 set "MIN_PORT=8081"
+set "MIN_CACHE_K=q8_0"
+set "MIN_CACHE_V=q8_0"
+set "MIN_BATCH=512"
+set "MIN_UBATCH=512"
+set "MIN_TEMP=0.7"
+set "MIN_TOP_P=0.8"
+set "MIN_TOP_K=30"
 
 set "DEV_NAME=Devstral-Small-2-24B"
 set "DEV_FILE=Devstral-Small-2-24B-Instruct-2512-Q4_K_M.gguf"
@@ -62,6 +69,13 @@ set "DEV_MMURL=https://huggingface.co/unsloth/Devstral-Small-2-24B-Instruct-2512
 set "DEV_CTX=262144"
 set "DEV_NPREDICT=-1"
 set "DEV_PORT=8082"
+set "DEV_CACHE_K=q8_0"
+set "DEV_CACHE_V=q8_0"
+set "DEV_BATCH=1024"
+set "DEV_UBATCH=1024"
+set "DEV_TEMP=0.7"
+set "DEV_TOP_P=0.85"
+set "DEV_TOP_K=40"
 
 set "GEMMA_NAME=Gemma-4-26B-A4B"
 set "GEMMA_FILE=gemma-4-26B-A4B-it-UD-Q4_K_M.gguf"
@@ -71,6 +85,13 @@ set "GEMMA_MMURL=https://huggingface.co/unsloth/gemma-4-26B-A4B-it-GGUF/resolve/
 set "GEMMA_CTX=262144"
 set "GEMMA_NPREDICT=-1"
 set "GEMMA_PORT=8083"
+set "GEMMA_CACHE_K=q8_0"
+set "GEMMA_CACHE_V=q8_0"
+set "GEMMA_BATCH=1024"
+set "GEMMA_UBATCH=1024"
+set "GEMMA_TEMP=0.7"
+set "GEMMA_TOP_P=0.9"
+set "GEMMA_TOP_K=50"
 REM MTP (multi-token prediction) draft for speculative decoding.
 REM Conditional by construction: only Gemma 4 has these -- it is the one
 REM model whose publisher ships an MTP draft (a separate small GGUF in
@@ -87,6 +108,32 @@ set "GEMMA4S_MMURL=https://huggingface.co/unsloth/gemma-4-E4B-it-GGUF/resolve/ma
 set "GEMMA4S_CTX=131072"
 set "GEMMA4S_NPREDICT=-1"
 set "GEMMA4S_PORT=8084"
+set "GEMMA4S_CACHE_K=q4_0"
+set "GEMMA4S_CACHE_V=q4_0"
+set "GEMMA4S_BATCH=256"
+set "GEMMA4S_UBATCH=256"
+set "GEMMA4S_TEMP=0.7"
+set "GEMMA4S_TOP_P=0.8"
+set "GEMMA4S_TOP_K=25"
+
+set "QWEN36_NAME=Qwen3.6-35B-A3B"
+set "QWEN36_FILE=Qwen3.6-35B-A3B-UD-IQ4_XS.gguf"
+set "QWEN36_MMPROJ=mmproj-F32.gguf"
+set "QWEN36_URL=https://huggingface.co/unsloth/Qwen3.6-35B-A3B-MTP-GGUF/resolve/main/Qwen3.6-35B-A3B-UD-IQ4_XS.gguf?download=true"
+set "QWEN36_MMURL=https://huggingface.co/unsloth/Qwen3.6-35B-A3B-MTP-GGUF/resolve/main/mmproj-F32.gguf?download=true"
+set "QWEN36_CTX=262144"
+set "QWEN36_NPREDICT=-1"
+set "QWEN36_PORT=8085"
+set "QWEN36_CACHE_K=q8_0"
+set "QWEN36_CACHE_V=q8_0"
+set "QWEN36_BATCH=512"
+set "QWEN36_UBATCH=512"
+set "QWEN36_TEMP=0.7"
+set "QWEN36_TOP_P=0.9"
+set "QWEN36_TOP_K=50"
+REM MTP draft for Qwen3.6 (multi-token prediction for speculative decoding).
+set "QWEN36_MTP=Qwen3.6-35B-A3B-MTP-draft.gguf"
+set "QWEN36_MTPURL=https://huggingface.co/unsloth/Qwen3.6-35B-A3B-MTP-GGUF/resolve/main/Qwen3.6-35B-A3B-MTP-draft.gguf?download=true"
 
 REM ---------------------------------------------------------------------------
 REM TLS bypass: set INSECURE_TLS=1 before running to skip certificate
@@ -357,7 +404,8 @@ REM Start llama-server
 REM ---------------------------------------------------------------------------
 :start_server
   REM Args: alias, model_dir, model_file, mmproj_file, ctx, n_predict, port,
-  REM       has_cuda, mtp_file (optional; empty for models without one)
+  REM       has_cuda, mtp_file (optional; empty for models without one),
+  REM       cache_k, cache_v, batch, ubatch, temp, top_p, top_k
   REM
   REM Written block-free (goto-driven) on purpose: the previous version
   REM built MM_PROJ_ARG / MTP_ARG inside parenthesised blocks (the MTP
@@ -375,6 +423,13 @@ REM ---------------------------------------------------------------------------
   set "port=%~7"
   set "has_cuda=%~8"
   set "mtp_file=%~9"
+  set "cache_k=%~10"
+  set "cache_v=%~11"
+  set "batch=%~12"
+  set "ubatch=%~13"
+  set "temp=%~14"
+  set "top_p=%~15"
+  set "top_k=%~16"
 
   if exist "%model_dir%\%model_file%" goto :ss_have_model
   echo [error]   Model file missing: %model_dir%\%model_file%
@@ -428,13 +483,13 @@ REM ---------------------------------------------------------------------------
     --flash-attn on ^
     -c %ctx% ^
     -n %npredict% ^
-    --cache-type-k q8_0 ^
-    --cache-type-v q8_0 ^
-    --batch-size 512 ^
-    --ubatch-size 512 ^
-    --temp 0.7 ^
-    --top-p 0.8 ^
-    --top-k 20 ^
+    --cache-type-k %cache_k% ^
+    --cache-type-v %cache_v% ^
+    --batch-size %batch% ^
+    --ubatch-size %ubatch% ^
+    --temp %temp% ^
+    --top-p %top_p% ^
+    --top-k %top_k% ^
     --host 0.0.0.0 ^
     --port %port% ^
     !GPU_ARG!
@@ -455,16 +510,18 @@ REM ---------------------------------------------------------------------------
   echo   2) Devstral-Small-2-24B  (port 8082, 384K ctx)
   echo   3) Gemma-4-26B-A4B-it    (port 8083, 256K ctx, MTP)
   echo   4) Gemma-4-E4B-it       (port 8084, 128K ctx)
-  echo   5) Download ALL models
+  echo   5) Qwen3.6-35B-A3B      (port 8085, 256K ctx, MTP)
+  echo   6) Download ALL models
   echo   0) Exit
   echo.
   set "selected="
-  set /p "choice=Select model [1-4, 0=exit]: "
+  set /p "choice=Select model [1-6, 0=exit]: "
   if "!choice!"=="1" set "selected=ministral"
   if "!choice!"=="2" set "selected=devstral"
   if "!choice!"=="3" set "selected=gemma4"
   if "!choice!"=="4" set "selected=gemma4_small"
-  if "!choice!"=="5" set "selected=all"
+  if "!choice!"=="5" set "selected=qwen36"
+  if "!choice!"=="6" set "selected=all"
   if "!choice!"=="0" exit /b 0
   if not defined selected (
     echo [llama_server] Invalid choice.
@@ -477,7 +534,7 @@ REM Per-model driver: install, download, start
 REM ---------------------------------------------------------------------------
 :do_model
   REM Args: name, model_file, mmproj_file, model_url, mmproj_url, ctx,
-  REM       n_predict, port, key
+  REM       n_predict, port, key, cache_k, cache_v, batch, ubatch, temp, top_p, top_k
   set "name=%~1"
   set "mfile=%~2"
   set "mmpfile=%~3"
@@ -487,23 +544,30 @@ REM ---------------------------------------------------------------------------
   set "npredict=%~7"
   set "port=%~8"
   set "key=%~9"
+  set "cache_k=%~10"
+  set "cache_v=%~11"
+  set "batch=%~12"
+  set "ubatch=%~13"
+  set "temp=%~14"
+  set "top_p=%~15"
+  set "top_k=%~16"
   set "model_dir=%MODEL_BASE_DIR%\%name%"
 
-  REM Only Gemma 4 ships an MTP draft (see GEMMA_MTP above).
+  REM MTP draft (only when this model ships one).
   set "mtpfile="
   set "mtpurl="
   if "%key%"=="gemma4" (
     set "mtpfile=%GEMMA_MTP%"
     set "mtpurl=%GEMMA_MTPURL%"
-  ) else if "%key%"=="gemma4_small" (
-    set "mtpfile="
-    set "mtpurl="
+  ) else if "%key%"=="qwen36" (
+    set "mtpfile=%QWEN36_MTP%"
+    set "mtpurl=%QWEN36_MTPURL%"
   )
 
   call :install_prereqs || exit /b 1
   call :install_llamacpp || exit /b 1
   call :download_model "%name%" "%model_dir%" "%mfile%" "%mmpfile%" "%murl%" "%mmurl%" "!mtpfile!" "!mtpurl!" || exit /b 1
-  call :start_server "%key%" "%model_dir%" "%mfile%" "%mmpfile%" "%ctx%" "%npredict%" "%port%" "!HAS_CUDA!" "!mtpfile!"
+  call :start_server "%key%" "%model_dir%" "%mfile%" "%mmpfile%" "%ctx%" "%npredict%" "%port%" "!HAS_CUDA!" "!mtpfile!" "%cache_k%" "%cache_v%" "%batch%" "%ubatch%" "%temp%" "%top_p%" "%top_k%"
 exit /b
 
 :do_all
@@ -513,6 +577,7 @@ exit /b
   call :download_model "%DEV_NAME%" "%MODEL_BASE_DIR%\%DEV_NAME%" "%DEV_FILE%" "%DEV_MMPROJ%" "%DEV_URL%" "%DEV_MMURL%" "" "" || exit /b 1
   call :download_model "%GEMMA_NAME%" "%MODEL_BASE_DIR%\%GEMMA_NAME%" "%GEMMA_FILE%" "%GEMMA_MMPROJ%" "%GEMMA_URL%" "%GEMMA_MMURL%" "%GEMMA_MTP%" "%GEMMA_MTPURL%" || exit /b 1
   call :download_model "%GEMMA4S_NAME%" "%MODEL_BASE_DIR%\%GEMMA4S_NAME%" "%GEMMA4S_FILE%" "%GEMMA4S_MMPROJ%" "%GEMMA4S_URL%" "%GEMMA4S_MMURL%" "" "" || exit /b 1
+  call :download_model "%QWEN36_NAME%" "%MODEL_BASE_DIR%\%QWEN36_NAME%" "%QWEN36_FILE%" "%QWEN36_MMPROJ%" "%QWEN36_URL%" "%QWEN36_MMURL%" "%QWEN36_MTP%" "%QWEN36_MTPURL%" || exit /b 1
   echo [llama_server] All models downloaded. Use llama_server.bat ^<model^> to start a server.
 exit /b
 
@@ -527,13 +592,15 @@ if "%selected%"=="" (
 )
 
 if "!selected!"=="ministral" (
-  call :do_model "%MIN_NAME%" "%MIN_FILE%" "%MIN_MMPROJ%" "%MIN_URL%" "%MIN_MMURL%" "%MIN_CTX%" "%MIN_NPREDICT%" "%MIN_PORT%" ministral
+  call :do_model "%MIN_NAME%" "%MIN_FILE%" "%MIN_MMPROJ%" "%MIN_URL%" "%MIN_MMURL%" "%MIN_CTX%" "%MIN_NPREDICT%" "%MIN_PORT%" ministral "%MIN_CACHE_K%" "%MIN_CACHE_V%" "%MIN_BATCH%" "%MIN_UBATCH%" "%MIN_TEMP%" "%MIN_TOP_P%" "%MIN_TOP_K%"
 ) else if "!selected!"=="devstral" (
-  call :do_model "%DEV_NAME%" "%DEV_FILE%" "%DEV_MMPROJ%" "%DEV_URL%" "%DEV_MMURL%" "%DEV_CTX%" "%DEV_NPREDICT%" "%DEV_PORT%" devstral
+  call :do_model "%DEV_NAME%" "%DEV_FILE%" "%DEV_MMPROJ%" "%DEV_URL%" "%DEV_MMURL%" "%DEV_CTX%" "%DEV_NPREDICT%" "%DEV_PORT%" devstral "%DEV_CACHE_K%" "%DEV_CACHE_V%" "%DEV_BATCH%" "%DEV_UBATCH%" "%DEV_TEMP%" "%DEV_TOP_P%" "%DEV_TOP_K%"
 ) else if "!selected!"=="gemma4" (
-  call :do_model "%GEMMA_NAME%" "%GEMMA_FILE%" "%GEMMA_MMPROJ%" "%GEMMA_URL%" "%GEMMA_MMURL%" "%GEMMA_CTX%" "%GEMMA_NPREDICT%" "%GEMMA_PORT%" gemma4
+  call :do_model "%GEMMA_NAME%" "%GEMMA_FILE%" "%GEMMA_MMPROJ%" "%GEMMA_URL%" "%GEMMA_MMURL%" "%GEMMA_CTX%" "%GEMMA_NPREDICT%" "%GEMMA_PORT%" gemma4 "%GEMMA_CACHE_K%" "%GEMMA_CACHE_V%" "%GEMMA_BATCH%" "%GEMMA_UBATCH%" "%GEMMA_TEMP%" "%GEMMA_TOP_P%" "%GEMMA_TOP_K%"
 ) else if "!selected!"=="gemma4_small" (
-  call :do_model "%GEMMA4S_NAME%" "%GEMMA4S_FILE%" "%GEMMA4S_MMPROJ%" "%GEMMA4S_URL%" "%GEMMA4S_MMURL%" "%GEMMA4S_CTX%" "%GEMMA4S_NPREDICT%" "%GEMMA4S_PORT%" gemma4_small
+  call :do_model "%GEMMA4S_NAME%" "%GEMMA4S_FILE%" "%GEMMA4S_MMPROJ%" "%GEMMA4S_URL%" "%GEMMA4S_MMURL%" "%GEMMA4S_CTX%" "%GEMMA4S_NPREDICT%" "%GEMMA4S_PORT%" gemma4_small "%GEMMA4S_CACHE_K%" "%GEMMA4S_CACHE_V%" "%GEMMA4S_BATCH%" "%GEMMA4S_UBATCH%" "%GEMMA4S_TEMP%" "%GEMMA4S_TOP_P%" "%GEMMA4S_TOP_K%"
+) else if "!selected!"=="qwen36" (
+  call :do_model "%QWEN36_NAME%" "%QWEN36_FILE%" "%QWEN36_MMPROJ%" "%QWEN36_URL%" "%QWEN36_MMURL%" "%QWEN36_CTX%" "%QWEN36_NPREDICT%" "%QWEN36_PORT%" qwen36 "%QWEN36_CACHE_K%" "%QWEN36_CACHE_V%" "%QWEN36_BATCH%" "%QWEN36_UBATCH%" "%QWEN36_TEMP%" "%QWEN36_TOP_P%" "%QWEN36_TOP_K%"
 ) else if "!selected!"=="all" (
   call :do_all
 ) else (
