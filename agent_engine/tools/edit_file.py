@@ -1,15 +1,20 @@
 """edit_file tool — robust multi-strategy file editing.
 
-Strategies (tried in order):
+Strategies (tried in order based on match_mode):
   1. Exact match — original_text found verbatim in content
   2. Whitespace-insensitive match — normalize all whitespace then match
-  3. Line-range replacement — replace lines line_start..line_end (1-indexed)
+  3. Case+whitespace-insensitive match — normalize case and whitespace then match
   4. Context-aware match — original_text found when ignoring leading/trailing whitespace per line
   5. Fuzzy line match — each line of original_text matched against a sliding window in content
+
+match_mode parameter controls permissiveness:
+  - case_sensitive (default): tries exact → whitespace → context-aware → fuzzy
+  - whitespace_insensitive: normalizes whitespace first, then tries all strategies
+  - case_and_whitespace_insensitive: normalizes case+whitespace, then tries all strategies
+  - fuzzy: skips exact/whitespace, uses context-aware → fuzzy only
 """
 import os
 import re
-import time
 from typing import Any, Dict, Optional
 from agent_engine.tools.base import BaseTool, ToolResult
 from agent_engine.security import ensure_under_root
@@ -19,24 +24,32 @@ class EditFileTool(BaseTool):
     name = "edit_file"
     description = (
         "Make a targeted edit to an existing file. "
-        "Specify the exact original text (original_text) and the replacement text (new_text). "
+        "Requires original_text to specify what to replace and new_text for the replacement. "
+        "match_mode controls matching permissiveness: "
+        "'case_sensitive' (default) = exact, then whitespace-insensitive, context-aware, fuzzy; "
+        "'whitespace_insensitive' = normalizes whitespace first, then tries all strategies; "
+        "'case_and_whitespace_insensitive' = normalizes case+whitespace, then tries all; "
+        "'fuzzy' = skips exact/whitespace, uses context-aware and fuzzy matching. "
         "For multi-line edits, include the full lines. "
-        "Use read_file first to get the exact original text. "
-        "Strategies (tried in order): exact match, whitespace-insensitive, "
-        "line-range replacement (line_start/line_end), context-aware, fuzzy line match. "
-        "You can also use line_start and line_end (1-indexed, inclusive) to replace "
-        "specific lines directly."
+        "Use read_file first to get the exact original text."
     )
     parameters = {
         "path": "string",
         "original_text": "string",
         "new_text": "string",
+        "match_mode": "string? (case_sensitive, whitespace_insensitive, case_and_whitespace_insensitive, fuzzy)",
     }
 
     def execute(self, params: Dict[str, str]) -> ToolResult:
         path = ensure_under_root(params["path"], self.root_dir)
         original = params["original_text"]
         new_text = params["new_text"]
+        match_mode = params.get("match_mode", "case_sensitive").strip().lower()
+
+        # Validate match_mode
+        valid_modes = ("case_sensitive", "whitespace_insensitive", "case_and_whitespace_insensitive", "fuzzy")
+        if match_mode not in valid_modes:
+            return ToolResult(False, "", error=f"Invalid match_mode '{match_mode}'. Valid: {', '.join(valid_modes)}")
 
         if not os.path.isfile(path):
             return ToolResult(False, "", error=f"File not found: {params['path']}")
@@ -47,49 +60,75 @@ class EditFileTool(BaseTool):
         except (OSError, PermissionError) as e:
             return ToolResult(False, "", error=f"Cannot read file: {e}")
 
-        # --- Strategy 0: Line-range replacement (if line_start/line_end provided) ---
-        line_start = params.get("line_start", "").strip()
-        line_end = params.get("line_end", "").strip()
-        if line_start and line_end:
-            try:
-                ls = int(line_start) - 1  # convert to 0-indexed
-                le = int(line_end)
-                lines = content.splitlines()
-                if 0 <= ls < le <= len(lines):
-                    # Reconstruct with original line endings
-                    raw_lines = content.splitlines(True)
-                    replacement_lines = new_text.splitlines(True)
-                    # Ensure last replacement line has newline if original did
-                    if raw_lines and raw_lines[-1].endswith('\n') and replacement_lines and not replacement_lines[-1].endswith('\n'):
-                        replacement_lines[-1] += '\n'
-                    new_content = ''.join(raw_lines[:ls]) + ''.join(replacement_lines) + ''.join(raw_lines[le:])
-                    if new_content != content:
-                        return self._write_and_verify(path, new_content, params['path'])
-            except (ValueError, IndexError):
-                pass  # Fall through to other strategies
-
-        # --- Strategy 1: Exact match ---
-        if original in content:
-            new_content = content.replace(original, new_text, 1)
-            return self._write_and_verify(path, new_content, params['path'])
-
-        # --- Strategy 2: Whitespace-insensitive match ---
-        result = self._whitespace_insensitive_match(content, original, new_text, path)
-        if result is not None:
-            return result
-
-        # --- Strategy 3: Context-aware match (ignore leading/trailing whitespace per line) ---
-        result = self._context_aware_match(content, original, new_text, path)
-        if result is not None:
-            return result
-
-        # --- Strategy 4: Fuzzy line match ---
-        result = self._fuzzy_line_match(content, original, new_text, path)
-        if result is not None:
-            return result
+        # --- Determine which strategies to try based on match_mode ---
+        # case_sensitive: exact, whitespace-insensitive, context-aware, fuzzy
+        # whitespace_insensitive: normalize whitespace first, then try all
+        # case_and_whitespace_insensitive: normalize case+whitespace first, then try all
+        # fuzzy: skip exact/whitespace, go straight to fuzzy
+        strategies = self._get_strategies_for_mode(match_mode, content, original, new_text, path)
+        for strategy in strategies:
+            result = strategy()
+            if result is not None:
+                return result
 
         # --- All strategies failed ---
         return ToolResult(False, "", error=self._build_error_message(content, original))
+
+    def _get_strategies_for_mode(self, mode: str, content: str, original: str,
+                                  new_text: str, path: str) -> list:
+        """Return ordered list of strategy functions based on match_mode."""
+        strategies = []
+
+        if mode == "case_sensitive":
+            strategies.append(lambda: self._exact_match(content, original, new_text, path))
+            strategies.append(lambda: self._whitespace_insensitive_match(content, original, new_text, path))
+            strategies.append(lambda: self._context_aware_match(content, original, new_text, path))
+            strategies.append(lambda: self._fuzzy_line_match(content, original, new_text, path))
+
+        elif mode == "whitespace_insensitive":
+            # First normalize whitespace and try exact match on normalized
+            strategies.append(lambda: self._whitespace_insensitive_match(content, original, new_text, path))
+            strategies.append(lambda: self._exact_match(content, original, new_text, path))
+            strategies.append(lambda: self._context_aware_match(content, original, new_text, path))
+            strategies.append(lambda: self._fuzzy_line_match(content, original, new_text, path))
+
+        elif mode == "case_and_whitespace_insensitive":
+            strategies.append(lambda: self._case_and_whitespace_insensitive_match(content, original, new_text, path))
+            strategies.append(lambda: self._whitespace_insensitive_match(content, original, new_text, path))
+            strategies.append(lambda: self._exact_match(content, original, new_text, path))
+            strategies.append(lambda: self._context_aware_match(content, original, new_text, path))
+            strategies.append(lambda: self._fuzzy_line_match(content, original, new_text, path))
+
+        elif mode == "fuzzy":
+            strategies.append(lambda: self._context_aware_match(content, original, new_text, path))
+            strategies.append(lambda: self._fuzzy_line_match(content, original, new_text, path))
+
+        return strategies
+
+    def _exact_match(self, content: str, original: str, new_text: str, path: str) -> Optional[ToolResult]:
+        """Exact match strategy."""
+        if original in content:
+            new_content = content.replace(original, new_text, 1)
+            return self._write_and_verify(path, new_content, path)
+        return None
+
+    def _case_and_whitespace_insensitive_match(self, content: str, original: str,
+                                                new_text: str, path: str) -> Optional[ToolResult]:
+        """Match ignoring both case and whitespace."""
+        norm_orig = re.sub(r'\s+', ' ', original.strip()).lower()
+        norm_content = re.sub(r'\s+', ' ', content).lower()
+
+        if norm_orig in norm_content:
+            # Build regex that matches with flexible whitespace and case-insensitive
+            tokens = re.findall(r'\S+', original)
+            if tokens:
+                pattern_str = r'\s+'.join(re.escape(t) for t in tokens)
+                pattern = re.compile(pattern_str, re.IGNORECASE | re.DOTALL)
+                match = pattern.search(content)
+                if match:
+                    new_content = content[:match.start()] + new_text + content[match.end():]
+                    return self._write_and_verify(path, new_content, path)
+        return None
 
     def _write_and_verify(self, path: str, new_content: str, original_path: str) -> ToolResult:
         """Write content and verify it actually changed."""

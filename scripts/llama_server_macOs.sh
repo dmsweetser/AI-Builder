@@ -146,17 +146,12 @@ model_npredict() {
   esac
 }
 
-# Ports are unchanged from when there were four models (Ministral has
-# always been 8081, etc.) so existing client configs keep working;
-# 8080 is simply unused now.
+# Unified port: all models use the same port so client configs need no
+# per-model tweaking. The server is started/stopped by model key, but all
+# traffic flows through a single port.
+UNIFIED_PORT="${LLAMA_SERVER_PORT:-8080}"
 model_port() {
-  case "$1" in
-    ministral) echo "8081" ;;
-    devstral)  echo "8082" ;;
-    gemma4)    echo "8083" ;;
-    gemma4_small) echo "8084" ;;
-    qwen36)    echo "8085" ;;
-  esac
+  echo "$UNIFIED_PORT"
 }
 
 # Per-model hyperparameters — each model gets tuned for its architecture.

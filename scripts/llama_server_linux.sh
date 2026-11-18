@@ -119,15 +119,16 @@ declare -A MODEL_NPREDICT=(
   [qwen36]="-1"
 )
 
-# Ports are unchanged from when there were four models (Ministral has
-# always been 8081, etc.) so existing client configs keep working;
-# 8080 is simply unused now.
+# Unified port: all models use the same port so client configs need no
+# per-model tweaking. The server is started/stopped by model key, but all
+# traffic flows through a single port.
+UNIFIED_PORT="${LLAMA_SERVER_PORT:-8080}"
 declare -A MODEL_PORTS=(
-  [ministral]="8081"
-  [devstral]="8082"
-  [gemma4]="8083"
-  [gemma4_small]="8084"
-  [qwen36]="8085"
+  [ministral]="$UNIFIED_PORT"
+  [devstral]="$UNIFIED_PORT"
+  [gemma4]="$UNIFIED_PORT"
+  [gemma4_small]="$UNIFIED_PORT"
+  [qwen36]="$UNIFIED_PORT"
 )
 
 # Per-model hyperparameters — each model gets tuned for its architecture.

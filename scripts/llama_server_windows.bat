@@ -36,6 +36,11 @@ REM /releases/latest, which is a source-only "v1.0.0" release). Bump this to
 REM upgrade; asset names verified against b12387.
 set "TAG=b12387"
 
+REM Unified port: all models use the same port so client configs need no
+REM per-model tweaking. Configurable via LLAMA_SERVER_PORT env var.
+set "UNIFIED_PORT=%LLAMA_SERVER_PORT:=%"
+if "%UNIFIED_PORT%"=="" set "UNIFIED_PORT=8080"
+
 REM ---------------------------------------------------------------------------
 REM Model definitions. Contexts are each model's proper maximum, from its
 REM publisher's config (text_config.max_position_embeddings): Ministral 3
@@ -52,7 +57,7 @@ set "MIN_URL=https://huggingface.co/unsloth/Ministral-3-14B-Instruct-2512-GGUF/r
 set "MIN_MMURL=https://huggingface.co/unsloth/Ministral-3-14B-Instruct-2512-GGUF/resolve/main/mmproj-F16.gguf?download=true"
 set "MIN_CTX=262144"
 set "MIN_NPREDICT=-1"
-set "MIN_PORT=8081"
+set "MIN_PORT=%UNIFIED_PORT%"
 set "MIN_CACHE_K=q8_0"
 set "MIN_CACHE_V=q8_0"
 set "MIN_BATCH=512"
@@ -68,7 +73,7 @@ set "DEV_URL=https://huggingface.co/unsloth/Devstral-Small-2-24B-Instruct-2512-G
 set "DEV_MMURL=https://huggingface.co/unsloth/Devstral-Small-2-24B-Instruct-2512-GGUF/resolve/main/mmproj-F32.gguf?download=true"
 set "DEV_CTX=262144"
 set "DEV_NPREDICT=-1"
-set "DEV_PORT=8082"
+set "DEV_PORT=%UNIFIED_PORT%"
 set "DEV_CACHE_K=q8_0"
 set "DEV_CACHE_V=q8_0"
 set "DEV_BATCH=1024"
@@ -84,7 +89,7 @@ set "GEMMA_URL=https://huggingface.co/unsloth/gemma-4-26B-A4B-it-GGUF/resolve/ma
 set "GEMMA_MMURL=https://huggingface.co/unsloth/gemma-4-26B-A4B-it-GGUF/resolve/main/mmproj-F32.gguf?download=true"
 set "GEMMA_CTX=262144"
 set "GEMMA_NPREDICT=-1"
-set "GEMMA_PORT=8083"
+set "GEMMA_PORT=%UNIFIED_PORT%"
 set "GEMMA_CACHE_K=q8_0"
 set "GEMMA_CACHE_V=q8_0"
 set "GEMMA_BATCH=1024"
@@ -107,7 +112,7 @@ set "GEMMA4S_URL=https://huggingface.co/unsloth/gemma-4-E4B-it-GGUF/resolve/main
 set "GEMMA4S_MMURL=https://huggingface.co/unsloth/gemma-4-E4B-it-GGUF/resolve/main/mmproj-F16.gguf?download=true"
 set "GEMMA4S_CTX=131072"
 set "GEMMA4S_NPREDICT=-1"
-set "GEMMA4S_PORT=8084"
+set "GEMMA4S_PORT=%UNIFIED_PORT%"
 set "GEMMA4S_CACHE_K=q4_0"
 set "GEMMA4S_CACHE_V=q4_0"
 set "GEMMA4S_BATCH=256"
@@ -123,7 +128,7 @@ set "QWEN36_URL=https://huggingface.co/unsloth/Qwen3.6-35B-A3B-MTP-GGUF/resolve/
 set "QWEN36_MMURL=https://huggingface.co/unsloth/Qwen3.6-35B-A3B-MTP-GGUF/resolve/main/mmproj-F32.gguf?download=true"
 set "QWEN36_CTX=262144"
 set "QWEN36_NPREDICT=-1"
-set "QWEN36_PORT=8085"
+set "QWEN36_PORT=%UNIFIED_PORT%"
 set "QWEN36_CACHE_K=q8_0"
 set "QWEN36_CACHE_V=q8_0"
 set "QWEN36_BATCH=512"
