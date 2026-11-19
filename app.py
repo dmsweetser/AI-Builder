@@ -853,12 +853,12 @@ def api_agent_run():
 
 
 @app.route("/api/queue", methods=["GET"])
-def api_get_queue(job_id):
+def api_get_queue():
     with job_queue_lock:
         projects = load_projects()
         project_map = {p["id"]: p.get("name", "Unknown") for p in projects}
 
-        running_name = project_map.get(running_jobs[job_id]["project_id"], "Unknown") if running_jobs else None
+        running_name = project_map.get(list(running_jobs.values())[0]["project_id"], "Unknown") if running_jobs else None
         queue_with_names = []
         for j in job_queue:
             queue_with_names.append({**j, "project_name": project_map.get(j["project_id"], "Unknown"), "status": "queued"})

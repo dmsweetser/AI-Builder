@@ -89,11 +89,13 @@ def _write_status_file(output_dir: str, status_data: Dict[str, Any]) -> None:
 
 def _init_status_file(output_dir: str) -> None:
     """Create an initial status.json for a new run."""
-    _write_status_file(output_dir, {
-        "status": "running",
-        "step": 0,
-        "timestamp": time.time(),
-    })
+    status_file = os.path.join(output_dir, "status.json")
+    if not os.path.exists(status_file):
+        _write_status_file(output_dir, {
+            "status": "running",
+            "step": 0,
+            "timestamp": time.time(),
+        })
 
 
 class LLMClient:
