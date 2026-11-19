@@ -42,7 +42,6 @@ pyinstaller ^
     --onefile ^
     --name ai_builder ^
     --hidden-import=flask ^
-    --hidden-import=dotenv ^
     --hidden-import=agent_engine ^
     --hidden-import=agent_engine.tools ^
     --add-data "agent_engine;agent_engine" ^

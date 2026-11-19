@@ -11,7 +11,6 @@ class ReadFileTool(BaseTool):
         "Read the full contents of a file. "
         "Use this to inspect code before modifying it. "
         "For large files, use read_file_range instead to read specific lines. "
-        "You can also use line_range parameter (e.g., '1-50') to read specific lines."
     )
     parameters = {"path": "string"}
 
@@ -65,7 +64,6 @@ class ReadFileRangeTool(BaseTool):
         "Use this for large files to avoid reading everything. "
         "line_range format: 'start-end' (1-indexed, inclusive). "
         "Example: '1-50' reads lines 1 through 50. "
-        "If line_range is omitted, reads the entire file."
     )
     parameters = {"path": "string", "line_range": "string"}
 
@@ -77,17 +75,7 @@ class ReadFileRangeTool(BaseTool):
 
         # Accept 'lines' as an alias for 'line_range'
         line_range = params.get("line_range", params.get("lines", ""))
-
-        # If no line_range provided, read the entire file
-        if not line_range:
-            try:
-                with open(path, 'r', encoding='utf-8', errors='replace') as f:
-                    content = f.read()
-            except (OSError, PermissionError) as e:
-                return ToolResult(False, "", error=f"Cannot read file: {e}")
-            return ToolResult(True, content,
-                              summary=f"{len(content)} chars, {len(content.splitlines())} lines ({os.path.getsize(path)} bytes)")
-
+        
         try:
             with open(path, 'r', encoding='utf-8', errors='replace') as f:
                 all_lines = f.readlines()

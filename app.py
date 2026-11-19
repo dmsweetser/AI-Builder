@@ -853,7 +853,7 @@ def api_agent_run():
 
 
 @app.route("/api/queue", methods=["GET"])
-def api_get_queue():
+def api_get_queue(job_id):
     with job_queue_lock:
         projects = load_projects()
         project_map = {p["id"]: p.get("name", "Unknown") for p in projects}
