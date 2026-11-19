@@ -7,9 +7,7 @@ Strategies (tried in order from most restrictive to most loose):
   4. Context-aware match (ignores leading/trailing whitespace per line)
   5. Fuzzy line match (last resort)
 
-The tool automatically selects the best strategy — the model does NOT need
-to specify a mode. If a "mode" parameter is passed it is silently ignored;
-the tool always uses its own internal strategy selection.
+The tool automatically selects the best strategy.
 """
 import os
 import re
@@ -30,11 +28,7 @@ class EditFileTool(BaseTool):
     parameters = {
         "path": "string",
         "original_text": "string",
-        "new_text": "string",
-        # "mode" is accepted but IGNORED — the tool auto-detects the best
-        # matching strategy internally.  It exists only so callers that
-        # accidentally pass it do not get a validation error.
-        "mode": "(optional) ignored — strategy is auto-detected",
+        "new_text": "string"
     }
 
     def execute(self, params: Dict[str, str]) -> ToolResult:
