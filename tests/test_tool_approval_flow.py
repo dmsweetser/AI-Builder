@@ -12,6 +12,7 @@ import os
 import shutil
 import sys
 import tempfile
+import threading
 import unittest
 import unittest.mock as mock
 from unittest.mock import patch, MagicMock
@@ -381,10 +382,10 @@ class TestAppApprovalFlow(unittest.TestCase):
         tmpdir = tempfile.mkdtemp()
         # Save original state and restore on exit
         original_job_history = list(job_history)
-        original_projects_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                             '..', 'aib_instance', 'projects')
         try:
-            # Create a fake project
+            # Use the app's actual PROJECTS_DIR so load_projects() finds our file
+            from app import PROJECTS_DIR
+            original_projects_dir = PROJECTS_DIR
             project = {
                 "id": "test-project-flow",
                 "name": "Test Project Flow",
@@ -396,9 +397,10 @@ class TestAppApprovalFlow(unittest.TestCase):
                 "disabled_tools": [],
             }
 
-            # Create the project file
+            # Create the project file (load_projects expects project.json inside the pid dir)
             os.makedirs(original_projects_dir, exist_ok=True)
-            project_file = os.path.join(original_projects_dir, "test-project-flow.json")
+            project_file = os.path.join(original_projects_dir, "test-project-flow", "project.json")
+            os.makedirs(os.path.dirname(project_file), exist_ok=True)
             with open(project_file, 'w') as f:
                 json.dump(project, f)
 
@@ -414,9 +416,11 @@ class TestAppApprovalFlow(unittest.TestCase):
 
             # Patch _run_engine_in_background to capture its arguments
             captured_args = {}
+            thread_done = threading.Event()
 
             def capture_run_engine(*args, **kwargs):
                 captured_args.update(kwargs)
+                thread_done.set()
                 # Return a mock result to avoid actually running the engine
                 return {"result": {"status": "completed", "steps": 0},
                         "engine": MagicMock()}
@@ -434,6 +438,8 @@ class TestAppApprovalFlow(unittest.TestCase):
 
             with patch('app._run_engine_in_background', side_effect=capture_run_engine):
                 _find_project_and_resume_engine(tmpdir, "my_tool")
+                # Wait for the background thread to execute the patched function
+                thread_done.wait(timeout=5)
 
             # Verify that prev_step_history was passed
             self.assertIn("prev_step_history", captured_args,
@@ -446,7 +452,7 @@ class TestAppApprovalFlow(unittest.TestCase):
                 f"prev_step_history should contain the create_tool step. Got tools: {tool_names}")
 
             # Cleanup
-            os.remove(project_file)
+            shutil.rmtree(os.path.join(original_projects_dir, "test-project-flow"), ignore_errors=True)
 
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)

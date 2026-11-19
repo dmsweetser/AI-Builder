@@ -452,6 +452,8 @@ function _pollOnce(jobId, outputDir, agentBox, projectId) {
         })
         .catch(function(err) {
             console.error('Polling error:', err);
+        });
+}
 
 function updateLiveResponse(jobId, agentBox, projectId) {
     if (!jobId || !agentBox) return;
@@ -478,8 +480,6 @@ function updateLiveResponse(jobId, agentBox, projectId) {
             }
         })
         .catch(function(err) { console.error('Failed to fetch live response:', err); });
-}
-        });
 }
 
 function _renderAllSteps(jobId, outputDir, agentBox, statusData, hasPendingTools, hasPendingUserInput, projectId) {
@@ -581,6 +581,11 @@ function _renderAllSteps(jobId, outputDir, agentBox, statusData, hasPendingTools
         })
         .catch(function(err) {
             console.error('Failed to load steps:', err);
+            // Always re-enable inject even on error so the user can inject
+            var ii = document.getElementById('live-inject-input');
+            var ib = document.getElementById('live-inject-btn');
+            if (ii) { ii.disabled = false; ii.placeholder = 'Continue with new instructions...'; }
+            if (ib) { ib.disabled = false; ib.textContent = 'INJECT'; }
         });
 }
 
@@ -2357,7 +2362,12 @@ function loadJobHistory(jobId, projectId, callback) {
                     });
             }
         })
-        .catch(function(err) { console.error('Failed to load job history:', err); });
+        .catch(function(err) {
+            console.error('Failed to load job history:', err);
+            agentBox.innerHTML = '<div class="step-entry llm-step">Failed to load history.</div>';
+            if (statusText) { statusText.textContent = 'LOAD ERROR'; statusText.style.color = 'var(--danger)'; }
+            if (callback) callback();
+        });
 }
 
 function refreshLiveView() {

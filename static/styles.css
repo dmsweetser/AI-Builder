@@ -144,6 +144,8 @@ body {
 
 .horse-leg:nth-child(1) { left: 4px; animation: leg-front-1 0.5s ease-in-out infinite; }
 .horse-leg:nth-child(2) { left: 20px; animation: leg-front-2 0.5s ease-in-out infinite; }
+.horse-leg:nth-child(3) { left: 60px; animation: leg-back-1 0.5s ease-in-out infinite; }
+.horse-leg:nth-child(4) { left: 76px; animation: leg-back-2 0.5s ease-in-out infinite; }
 
 /* Horse tail */
 .horse-tail {

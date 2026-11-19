@@ -1033,9 +1033,8 @@ class TestFileSystemTools(unittest.TestCase):
             tool = EditFileTool(tmpdir)
             r = tool.execute({
                 'path': 'edit_test.py',
-                'line_start': '2',
-                'line_end': '2',
-                'new_text': 'y = 3\nz = 4\n',
+                'original_text': 'y = 2',
+                'new_text': 'y = 3\nz = 4',
             })
             self.assertTrue(r.success)
             with open(test_file, 'r') as f:
@@ -1140,9 +1139,8 @@ class TestFileSystemTools(unittest.TestCase):
             tool = EditFileTool(tmpdir)
             r = tool.execute({
                 'path': 'edit_verify.py',
-                'line_start': '2',
-                'line_end': '2',
-                'new_text': 'y = 3\nz = 4\n',
+                'original_text': 'y = 2',
+                'new_text': 'y = 3\nz = 4',
             })
             self.assertTrue(r.success)
             with open(test_file) as f:
@@ -1162,10 +1160,10 @@ class TestFileSystemTools(unittest.TestCase):
             tool = EditFileTool(tmpdir)
             r = tool.execute({
                 'path': 'edit_fail.py',
+                'original_text': 'nonexistent_line',
                 'new_text': 'y = 3',
             })
             self.assertFalse(r.success)
-            self.assertIn('line_start', r.error.lower())
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)
 
@@ -2643,7 +2641,7 @@ class TestEditFileStrategies(unittest.TestCase):
             with open(test_file, 'w') as f:
                 f.write('line1\nline2\nline3\nline4\n')
             tool = EditFileTool(tmpdir)
-            r = tool.execute({'path': 'range.py', 'line_start': '2', 'line_end': '3', 'new_text': 'replaced\n'})
+            r = tool.execute({'path': 'range.py', 'original_text': 'line2\nline3', 'new_text': 'replaced'})
             self.assertTrue(r.success, f"Line-range match failed: {r.error}")
             with open(test_file) as f:
                 content = f.read()
@@ -2660,9 +2658,8 @@ class TestEditFileStrategies(unittest.TestCase):
             with open(test_file, 'w') as f:
                 f.write('line1\n')
             tool = EditFileTool(tmpdir)
-            r = tool.execute({'path': 'oob.py', 'line_start': '5', 'line_end': '10', 'new_text': 'x'})
+            r = tool.execute({'path': 'oob.py', 'original_text': 'nonexistent_line', 'new_text': 'x'})
             self.assertFalse(r.success)
-            self.assertIn('out of range', r.error)
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)
 
@@ -2673,7 +2670,7 @@ class TestEditFileStrategies(unittest.TestCase):
             with open(test_file, 'w') as f:
                 f.write('a\nb\nc\nd\n')
             tool = EditFileTool(tmpdir)
-            r = tool.execute({'path': 'multi.py', 'line_start': '2', 'line_end': '3', 'new_text': 'b\nc\nd\n'})
+            r = tool.execute({'path': 'multi.py', 'original_text': 'b\nc', 'new_text': 'b\nc\nd'})
             self.assertTrue(r.success)
             with open(test_file) as f:
                 content = f.read()

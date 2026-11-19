@@ -197,6 +197,10 @@ class LLMClient:
             "messages": openai_messages,
             "stream": True,
         }
+        # Stop the model from generating after a complete tool call block.
+        # The LLM is told in the system prompt it will be cut off after
+        # [TOOL_END], so it should produce exactly one tool call and stop.
+        payload["stop"] = ["[TOOL_END]", "[END_TOOL_CALL]"]
         if self._max_output_tokens > 0:
             payload["max_tokens"] = self._max_output_tokens
 
@@ -256,6 +260,11 @@ class LLMClient:
                             if response_file and len(content) % 100 == 0:
                                 with open(response_file, 'w', encoding='utf-8') as rf:
                                     rf.write(content)
+                            # Early cutoff: if a complete tool call block is present,
+                            # stop reading the stream — the model has finished its
+                            # response and will be stopped by the `stop` parameter.
+                            if '[TOOL_START]' in content and '[TOOL_END]' in content:
+                                break
                         # Collect reasoning as fallback (only when content is empty)
                         r = delta.get('reasoning_content')
                         if r:
@@ -484,6 +493,8 @@ After each tool result, your ENTIRE response must be exactly one of:
 
 You are NOT allowed to write any text outside of tool call blocks.
 Any text outside these formats will be ignored.
+
+EARLY CUTOFF (CRITICAL): Your response will be AUTOMATICALLY STOPPED as soon as a complete tool call block ([TOOL_START]...[TOOL_END]) is detected. Do NOT write any text after your tool call block — it will be discarded. This means you should put your ENTIRE response as exactly ONE tool call block and nothing else.
 
 CRITICAL: task_completed is the FINAL tool call. Once you call task_completed, the run ends immediately. Do not make any additional tool calls after task_completed.
 

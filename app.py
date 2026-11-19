@@ -858,14 +858,25 @@ def api_get_queue():
         projects = load_projects()
         project_map = {p["id"]: p.get("name", "Unknown") for p in projects}
 
-        running_name = project_map.get(list(running_jobs.values())[0]["project_id"], "Unknown") if running_jobs else None
+        running_info = None
+        running_name = None
+        if running_jobs:
+            # Get the first running job safely using its job_id
+            running_job_id = next(iter(running_jobs))
+            running_info = running_jobs[running_job_id]
+            running_name = project_map.get(running_info["project_id"], "Unknown")
+
         queue_with_names = []
         for j in job_queue:
             queue_with_names.append({**j, "project_name": project_map.get(j["project_id"], "Unknown"), "status": "queued"})
 
+    running_data = None
+    if running_info:
+        running_data = {**running_info, "project_name": running_name}
+
     return jsonify({
         "queue": queue_with_names,
-        "running": {**list(running_jobs.values())[0], "project_name": running_name} if running_jobs else None
+        "running": running_data
     })
 
 @app.route("/api/job/<job_id>/actions", methods=["GET"])
@@ -1474,10 +1485,28 @@ def api_agent_inject():
     if not output_dir:
         return jsonify({"error": "Job not found"}), 404
 
-    # Check job state
+    # Path to status.json for this job
+    status_file = os.path.join(output_dir, "status.json")
+
+    # Check job state — always read status.json as the authoritative source
+    # so we don't get confused when job_history and status.json disagree
     job_record = next((h for h in job_history if h.get("job_id") == job_id), None)
     is_completed = job_record and job_record.get("status") in ("completed", "stopped", "error", "max_steps_reached")
+
+    # Check status.json for pending_user_input (authoritative source)
+    status_is_pending_user_input = False
+    try:
+        with open(status_file, 'r', encoding='utf-8') as f:
+            _status = json.load(f)
+        _pending = _status.get("pending_user_input")
+        if _pending and isinstance(_pending, dict) and "question" in _pending:
+            status_is_pending_user_input = True
+    except Exception:
+        pass
+
     is_pending_user_input = job_record and job_record.get("status") == "pending_user_input"
+    # Treat as pending_user_input if EITHER source says so
+    is_pending_user_input = is_pending_user_input or status_is_pending_user_input
 
     if is_completed and project_config:
         # Start a new engine run in the background with the injected instruction
@@ -1643,20 +1672,15 @@ def api_agent_inject():
     # Job is waiting for user input (request_user_input) — clear the pending
     # state and re-invoke the engine so the injected instruction is picked up
     # immediately instead of the agent hanging on the old question.
-    if is_pending_user_input and project_config:
-        # Serialize resume threads per project — same double-click protection
-        _pid = project_config.get("id")
-        inject_lock = _get_inject_lock(_pid) if _pid else None
-        if inject_lock:
-            inject_lock.acquire()
-
-        # Clear the pending_user_input state from status.json
+    if is_pending_user_input:
+        # Always clear pending_user_input from status.json first
         os.makedirs(output_dir, exist_ok=True)
         status_file = os.path.join(output_dir, "status.json")
         try:
             with open(status_file, 'r', encoding='utf-8') as f:
                 status = json.load(f)
             status.pop("pending_user_input", None)
+            status["status"] = "running"
             tmp_file = status_file + ".tmp"
             with open(tmp_file, 'w', encoding='utf-8') as f:
                 json.dump(status, f, indent=2, ensure_ascii=False)
@@ -1664,7 +1688,14 @@ def api_agent_inject():
                 os.fsync(f.fileno())
             os.replace(tmp_file, status_file)
         except Exception:
-            pass
+            logging.error(f"Failed to clear pending_user_input from status.json for job {job_id}", exc_info=True)
+
+        if project_config:
+            # Serialize resume threads per project — same double-click protection
+            _pid = project_config.get("id")
+            inject_lock = _get_inject_lock(_pid) if _pid else None
+            if inject_lock:
+                inject_lock.acquire()
 
         prev_step_history = job_record.get("step_history", [])
 
