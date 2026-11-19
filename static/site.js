@@ -139,6 +139,10 @@ function copyCodeBlock(id, btn) {
 
 // === Tab Management ===
 function showTab(tabName) {
+    // Save project when switching tabs
+    if (tabName !== 'projects') {
+        saveProjectChanges().catch(function(err) { console.error('Failed to auto-save on tab switch:', err); });
+    }
     document.querySelectorAll('.panel').forEach(function(p) {
         p.classList.remove('active');
     });
@@ -250,8 +254,8 @@ function loadProjects() {
                 var archiveBtn = document.createElement('button');
                 archiveBtn.className = 'btn btn-sm btn-secondary';
                 archiveBtn.textContent = project.isArchived ? '📤' : '📦';
-                archiveBtn.title = 'Archive';
-                archiveBtn.onclick = function(e) { e.stopPropagation(); archiveProject(project.id, e.target); };
+                archiveBtn.title = project.isArchived ? 'Unarchive' : 'Archive';
+                archiveBtn.onclick = function(e) { e.stopPropagation(); archiveProject(project.id, project.isArchived, e.target); };
                 actions.appendChild(archiveBtn);
                 var delBtn = document.createElement('button');
                 delBtn.className = 'btn btn-sm btn-danger';
@@ -1210,9 +1214,10 @@ function stopProject(projectId) {
 
 function stopCurrentJob() {
     // Stop the currently running job from the VIEW LIVE screen
-    var activeProjId = _getActiveProjectId();
-    var state = activeProjId ? _runningProjects[activeProjId] : null;
-    var projectId = activeProjId;
+    // Use the projectId from the live container for proper per-project isolation
+    var container = document.getElementById('agent-live-container');
+    var projectId = container ? container.dataset.projectId : null;
+    var state = projectId ? _runningProjects[projectId] : null;
     _setProjectState(projectId, { agentRunning: false, liveInjectActive: true });
     if (_pollInterval) { clearInterval(_pollInterval); _pollInterval = null; }
     var jobId = state ? state.jobId : null;
@@ -1468,10 +1473,11 @@ function deleteProject(projectId) {
         .catch(function(err) { console.error('Failed to delete project:', err); });
 }
 
-function archiveProject(projectId, btnEl) {
-    fetch('/api/projects/' + projectId + '/archive', { method: 'POST' })
+function archiveProject(projectId, isArchived, btnEl) {
+    var endpoint = isArchived ? 'unarchive' : 'archive';
+    fetch('/api/projects/' + projectId + '/' + endpoint, { method: 'POST' })
         .then(function() { loadProjects(); if (currentProjectId === projectId) selectProject(projectId); })
-        .catch(function(err) { console.error('Failed to archive project:', err); });
+        .catch(function(err) { console.error('Failed to ' + endpoint + ' project:', err); });
 }
 
 function toggleArchived() {
