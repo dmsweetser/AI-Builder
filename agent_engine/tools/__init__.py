@@ -30,6 +30,7 @@ from agent_engine.tools.respond_to_user import RespondToUserTool
 from agent_engine.tools.request_user_input import RequestUserInputTool
 from agent_engine.tools.task_completed import TaskCompletedTool
 from agent_engine.tools.project_tool_loader import ProjectToolLoader
+from agent_engine.tools.bash_tool import BashToolLoader
 
 # ------------------------------------------------------------------
 # Module-level static registry — created exactly once at import.
@@ -93,6 +94,8 @@ class ToolRegistry:
     def __init__(self):
         # Per-project tool loaders: project_output_dir → ProjectToolLoader
         self._project_loaders: Dict[str, ProjectToolLoader] = {}
+        # Per-project bash tool loaders: project_output_dir → BashToolLoader
+        self._bash_loaders: Dict[str, BashToolLoader] = {}
         # Global enabled/disabled set — empty means "all enabled"
         self._enabled_tools: Set[str] = set()
         # Shared tools directory (from settings)
@@ -166,6 +169,37 @@ class ToolRegistry:
         return loader.delete_tool(tool_name)
 
     # ------------------------------------------------------------------
+    # Per-project bash tool operations
+    # ------------------------------------------------------------------
+
+    def _get_or_create_bash_loader(self, project_output_dir: str,
+                                   disabled_tools: Optional[Set[str]] = None) -> BashToolLoader:
+        if project_output_dir not in self._bash_loaders:
+            self._bash_loaders[project_output_dir] = BashToolLoader(
+                project_output_dir, disabled_tools or set(),
+            )
+        else:
+            self._bash_loaders[project_output_dir].disabled_tools = disabled_tools or set()
+        return self._bash_loaders[project_output_dir]
+
+    def get_project_bash_tools(self, project_output_dir: str) -> List[Dict[str, Any]]:
+        """Return all bash tools for a specific project."""
+        loader = self._get_or_create_bash_loader(project_output_dir)
+        return loader.list_bash_tools()
+
+    def create_project_bash_tool(self, project_output_dir: str, name: str,
+                                 description: str, params: List[Dict[str, Any]],
+                                 script_content: str) -> Dict[str, Any]:
+        """Create a new bash tool for a specific project."""
+        loader = self._get_or_create_bash_loader(project_output_dir)
+        return loader.create_bash_tool(name, description, params, script_content)
+
+    def delete_project_bash_tool(self, project_output_dir: str, tool_name: str) -> Dict[str, Any]:
+        """Delete a bash tool for a specific project."""
+        loader = self._get_or_create_bash_loader(project_output_dir)
+        return loader.delete_bash_tool(tool_name)
+
+    # ------------------------------------------------------------------
     # Global enable/disable (built-in tools)
     # ------------------------------------------------------------------
 
@@ -215,7 +249,7 @@ class ToolRegistry:
                               job_id: str = "", output_dir: str = "") -> Optional[BaseTool]:
         """Create a tool instance for execution.
 
-        Checks project-local tools first, then built-in tools.
+        Checks project-local Python tools first, then bash tools, then built-in tools.
         Returns None if the tool is disabled or not found.
         """
         if disabled_tools is None:
@@ -229,13 +263,21 @@ class ToolRegistry:
         if tool_name in disabled_tools:
             return None
 
-        # Check project-local tools first
+        # Check project-local Python tools first
         loader = self._get_or_create_loader(project_output_dir, disabled_tools)
         project_tool = loader.create_tool_instance(tool_name, root_dir,
                                                     output_dir=output_dir or project_output_dir,
                                                     job_id=job_id)
         if project_tool:
             return project_tool
+
+        # Check project-local bash tools
+        bash_loader = self._get_or_create_bash_loader(project_output_dir, disabled_tools)
+        bash_tool = bash_loader.create_tool_instance(tool_name, root_dir,
+                                                      output_dir=output_dir or project_output_dir,
+                                                      job_id=job_id)
+        if bash_tool:
+            return bash_tool
 
         # Built-in tool
         if tool_name in _BUILTIN_TOOL_CLASSES:
@@ -256,7 +298,7 @@ class ToolRegistry:
                    disabled_tools: Optional[Set[str]] = None) -> List[Dict[str, Any]]:
         """Return tool definitions for the LLM prompt.
 
-        Includes both built-in tools and project-local (approved) tools.
+        Includes both built-in tools, project-local (Python) tools, and bash tools.
         """
         defs = []
         disabled = disabled_tools or set()
@@ -266,15 +308,25 @@ class ToolRegistry:
                     defs.append(cls("/tmp").get_definition())
                 except Exception:
                     pass
-        # Append project-local approved tools
+        # Append project-local approved (Python) tools
         if project_output_dir:
             loader = self._get_or_create_loader(project_output_dir, disabled_tools)
             defs.extend(loader.list_tools())
+            # Append bash tools
+            bash_loader = self._get_or_create_bash_loader(project_output_dir, disabled_tools)
+            defs.extend(bash_loader.list_tools())
         return defs
 
     def tool_names(self) -> set:
-        """Return a set of all registered tool names (built-in + dynamic)."""
-        return set(_BUILTIN_TOOL_CLASSES.keys()) | self._get_all_dynamic_names()
+        """Return a set of all registered tool names (built-in + dynamic + bash)."""
+        return set(_BUILTIN_TOOL_CLASSES.keys()) | self._get_all_dynamic_names() | self._get_all_bash_names()
+
+    def _get_all_bash_names(self) -> Set[str]:
+        """Get all bash tool names from all project bash loaders."""
+        names = set()
+        for loader in self._bash_loaders.values():
+            names.update(loader.get_tool_names())
+        return names
 
     def execute(self, tool_name: str, params: Dict[str, Any], root_dir: str,
                 project_output_dir: str = "", disabled_tools: Optional[Set[str]] = None,

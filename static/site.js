@@ -388,18 +388,21 @@ function _doRunProject(projectId, overrideInstruction) {
 
 // === File-Based Polling (replaces SSE) ===
 
-function _startPolling(jobId, outputDir, agentBox, projectId) {
+function _startPolling(jobId, outputDir, agentBox, projectId, fastPoll) {
     // Clear any existing poll interval
     if (_pollInterval) clearInterval(_pollInterval);
     _lastPollTimestamp = Date.now();
 
+    // Use faster polling (5s) when agent is actively running, slower (30s) otherwise
+    var interval = fastPoll ? 5000 : 30000;
+
     // Initial fetch
     _pollOnce(jobId, outputDir, agentBox, projectId);
 
-    // Poll every 30 seconds
+    // Poll at the configured interval
     _pollInterval = setInterval(function() {
         _pollOnce(jobId, outputDir, agentBox, projectId);
-    }, 30000);
+    }, interval);
 }
 
 function _pollOnce(jobId, outputDir, agentBox, projectId) {
@@ -476,6 +479,9 @@ function updateLiveResponse(jobId, agentBox, projectId) {
                 // Check per-project running state
                 var state = projectId ? _runningProjects[projectId] : null;
                 if (state && state.agentRunning) {
+                    // Show "Thinking..." with a subtle indicator so the user knows
+                    // the agent is active, but don't hide the current_response.txt
+                    // container — it will show when content appears
                     container.textContent = 'Thinking...';
                     container.style.display = 'block';
                 } else {
@@ -1186,6 +1192,17 @@ document.addEventListener('click', function(e) {
     });
 });
 
+// === Event delegation for bash tool delete buttons ===
+document.addEventListener('click', function(e) {
+    var delBtn = e.target.closest('[data-delete-bash-tool]');
+    if (!delBtn) return;
+    var pid = delBtn.dataset.projectId;
+    var toolName = delBtn.dataset.toolName;
+    if (pid && toolName) {
+        deleteBashTool(pid, toolName);
+    }
+});
+
 function clearPendingApprovalState() {
     var actions = document.getElementById('pending-approval-actions');
     if (actions) actions.innerHTML = '<div style="color:var(--success);font-size:12px;">✅ Tool action processed. The agent will resume automatically.</div>';
@@ -1395,6 +1412,8 @@ function selectProject(projectId) {
                     console.error('Failed to load project tools:', err);
                     buildToolSelector(project.disabled_tools || [], []);
                 });
+            // Load bash tools for this project
+            loadBashTools(projectId);
             // Check if this project has a running job and show VIEW LIVE button
             fetch('/api/queue')
                 .then(function(r) { return r.json(); })
@@ -2286,6 +2305,49 @@ function _resolveOutputDirAndContinue(jobId, queueData, history, jobRecord, isRu
     var injectInput = document.getElementById('live-inject-input');
     var injectBtn = document.getElementById('live-inject-btn');
 
+    // CRITICAL FIX: Check status.json directly for real-time pending states.
+    // jobRecord.status is often stale (worker updates it after engine returns).
+    // status.json is the authoritative source for the engine's own state.
+    var statusFileUrl = outputDir ? '/api/job/' + jobId + '/status' : null;
+
+    function checkStatusFileAndProceed() {
+        var finalIsPendingApproval = isPendingApproval;
+        var finalIsPendingInput = isPendingInput;
+
+        if (statusFileUrl) {
+            fetch(statusFileUrl)
+                .then(function(r) { return r.json(); })
+                .then(function(statusData) {
+                    var status = statusData.status || 'running';
+                    if (status === 'pending_approval') {
+                        finalIsPendingApproval = true;
+                    }
+                    if (status === 'pending_user_input') {
+                        finalIsPendingInput = true;
+                    }
+                    // If status.json says running but jobRecord says terminal, trust status.json
+                    if (status === 'running') {
+                        isRunning = true;
+                    }
+                    _doShowLiveView(jobId, queueData, history, jobRecord, isRunning, finalIsPendingApproval, finalIsPendingInput, outputDir, projectId);
+                })
+                .catch(function() {
+                    // If we can't fetch status.json, fall back to what we had
+                    _doShowLiveView(jobId, queueData, history, jobRecord, isRunning, isPendingApproval, isPendingInput, outputDir, projectId);
+                });
+        } else {
+            _doShowLiveView(jobId, queueData, history, jobRecord, isRunning, isPendingApproval, isPendingInput, outputDir, projectId);
+        }
+    }
+
+    checkStatusFileAndProceed();
+}
+
+function _doShowLiveView(jobId, queueData, history, jobRecord, isRunning, isPendingApproval, isPendingInput, outputDir, projectId) {
+    var agentBox = document.getElementById('agent-live-box');
+    var injectInput = document.getElementById('live-inject-input');
+    var injectBtn = document.getElementById('live-inject-btn');
+
     if (isRunning && !isPendingApproval && !isPendingInput) {
         // Job is actively running (not pending) - show the view and start polling
         if (projectId) _setProjectState(projectId, { agentRunning: true, liveInjectActive: false });
@@ -2301,8 +2363,8 @@ function _resolveOutputDirAndContinue(jobId, queueData, history, jobRecord, isRu
         if (statusText) { statusText.textContent = 'LIVE'; statusText.style.color = 'var(--success)'; }
         if (injectInput) { injectInput.disabled = false; injectInput.placeholder = 'Type instructions or questions...'; }
         if (injectBtn) { injectBtn.disabled = false; injectBtn.textContent = 'INJECT'; }
-        // Start polling for live updates
-        _startPolling(jobId, outputDir, agentBox, projectId);
+        // Start polling for live updates (faster: every 5s when running)
+        _startPolling(jobId, outputDir, agentBox, projectId, true);
     } else {
         // Job is pending, completed, or stopped - load history and show it
         // Enable inject immediately so the user can always inject regardless of job state
@@ -2313,9 +2375,8 @@ function _resolveOutputDirAndContinue(jobId, queueData, history, jobRecord, isRu
         if (injectBtn) { injectBtn.disabled = false; injectBtn.textContent = 'INJECT'; }
 
         loadJobHistory(jobId, projectId, function() {
-            // Always start polling (every 30s) so the feed auto-refreshes
-            // even for completed jobs — user can see if a continuation started
-            _startPolling(jobId, outputDir, agentBox, projectId);
+            // Always start polling (every 30s for completed jobs)
+            _startPolling(jobId, outputDir, agentBox, projectId, false);
 
             // After loading history, check for pending approval tools
             // This handles the case where we re-enter VIEW LIVE for a job that has pending tools
@@ -2567,6 +2628,149 @@ function injectLiveInstruction() {
 }
 
 // === Init ===
+
+// === Bash Tool Management ===
+function toggleBashToolForm() {
+    var container = document.getElementById('bash-tool-form-container');
+    if (!container) return;
+    var isVisible = container.style.display === 'block';
+    container.style.display = isVisible ? 'none' : 'block';
+    if (!isVisible) {
+        // Clear form
+        var nameEl = document.getElementById('bash-tool-name');
+        var descEl = document.getElementById('bash-tool-desc');
+        var paramsEl = document.getElementById('bash-tool-params');
+        var scriptEl = document.getElementById('bash-tool-script');
+        if (nameEl) nameEl.value = '';
+        if (descEl) descEl.value = '';
+        if (paramsEl) paramsEl.value = '';
+        if (scriptEl) scriptEl.value = '';
+    }
+}
+
+function loadBashTools(pid) {
+    if (!pid) return;
+    fetch('/api/projects/' + pid + '/bash-tools')
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            var list = document.getElementById('bash-tools-list');
+            if (!list) return;
+            var tools = data.bash_tools || [];
+            if (tools.length === 0) {
+                list.innerHTML = '<div style="color:var(--text-muted); font-size:12px; padding:8px;">No bash tools yet. Click "+ NEW BASH TOOL" to create one.</div>';
+                return;
+            }
+            list.innerHTML = '';
+            tools.forEach(function(tool) {
+                var toolEl = document.createElement('div');
+                toolEl.style.cssText = 'background:var(--bg-primary); padding:10px; border-radius:6px; margin-bottom:8px; border:1px solid var(--border);';
+                var headerEl = document.createElement('div');
+                headerEl.style.cssText = 'display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;';
+                var nameEl = document.createElement('span');
+                nameEl.style.cssText = 'font-weight:bold; font-size:13px;';
+                nameEl.textContent = '⚡ ' + tool.name;
+                var delBtn = document.createElement('button');
+                delBtn.className = 'btn btn-xs btn-danger';
+                delBtn.textContent = 'DELETE';
+                delBtn.style.cssText = 'font-size:10px;';
+                delBtn.dataset.deleteBashTool = 'true';
+                delBtn.dataset.projectId = pid;
+                delBtn.dataset.toolName = tool.name;
+                headerEl.appendChild(nameEl);
+                headerEl.appendChild(delBtn);
+                toolEl.appendChild(headerEl);
+                if (tool.description) {
+                    var descEl = document.createElement('div');
+                    descEl.style.cssText = 'color:var(--text-muted); font-size:11px; margin-bottom:4px;';
+                    descEl.textContent = tool.description;
+                    toolEl.appendChild(descEl);
+                }
+                if (tool.params && tool.params.length > 0) {
+                    var paramsEl = document.createElement('div');
+                    paramsEl.style.cssText = 'font-size:10px; color:var(--text-muted);';
+                    paramsEl.textContent = 'Params: ' + tool.params.map(function(p) { return p.name + '(' + (p.required ? 'req' : 'opt') + ')'; }).join(', ');
+                    toolEl.appendChild(paramsEl);
+                }
+                list.appendChild(toolEl);
+            });
+        })
+        .catch(function(err) {
+            console.error('Failed to load bash tools:', err);
+            var list = document.getElementById('bash-tools-list');
+            if (list) list.innerHTML = '<div style="color:var(--danger); font-size:12px;">Failed to load bash tools.</div>';
+        });
+}
+
+function createBashTool() {
+    var name = document.getElementById('bash-tool-name').value.trim();
+    var desc = document.getElementById('bash-tool-desc').value.trim();
+    var paramsText = document.getElementById('bash-tool-params').value.trim();
+    var script = document.getElementById('bash-tool-script').value.trim();
+
+    if (!name) { showNotification('Tool name is required', 'warning'); return; }
+    if (!desc) { showNotification('Description is required', 'warning'); return; }
+    if (!script) { showNotification('Script body is required', 'warning'); return; }
+
+    // Parse params
+    var params = [];
+    if (paramsText) {
+        var lines = paramsText.split('\n');
+        lines.forEach(function(line) {
+            line = line.trim();
+            if (!line) return;
+            var parts = line.split(/\s+/);
+            if (parts.length >= 2) {
+                var p = { name: parts[0], type: parts[1] || 'string', required: false };
+                if (parts.length >= 3 && parts[2].toLowerCase() === 'true') p.required = true;
+                if (parts.length >= 4) p.default = parts[3];
+                params.push(p);
+            }
+        });
+    }
+
+    var pid = document.getElementById('run-project-id') ? document.getElementById('run-project-id').value : null;
+    if (!pid) { showNotification('No project selected', 'warning'); return; }
+
+    fetch('/api/projects/' + pid + '/bash-tools', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({name: name, description: desc, params: params, script_content: script})
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (data.status === 'created') {
+            showNotification('Bash tool "' + name + '" created!', 'success');
+            toggleBashToolForm();
+            loadBashTools(pid);
+        } else {
+            showNotification('Failed: ' + (data.error || 'Unknown error'), 'error');
+        }
+    })
+    .catch(function(err) {
+        console.error('Failed to create bash tool:', err);
+        showNotification('Failed to create bash tool.', 'error');
+    });
+}
+
+function deleteBashTool(pid, toolName) {
+    if (!confirm('Delete bash tool "' + toolName + '"?')) return;
+    fetch('/api/projects/' + pid + '/bash-tools/' + encodeURIComponent(toolName), {
+        method: 'DELETE'
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (data.status === 'deleted') {
+            showNotification('Bash tool "' + toolName + '" deleted.', 'success');
+            loadBashTools(pid);
+        } else {
+            showNotification('Failed: ' + (data.error || 'Unknown error'), 'error');
+        }
+    })
+    .catch(function(err) {
+        console.error('Failed to delete bash tool:', err);
+        showNotification('Failed to delete bash tool.', 'error');
+    });
+}
 
 document.addEventListener('DOMContentLoaded', function() {
     // Fade out loading screen after 2.5s

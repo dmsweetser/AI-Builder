@@ -126,6 +126,39 @@
                             <div id="details-tool-selector"></div>
                         </div>
 
+                        <!-- Bash Tools Section -->
+                        <div class="form-group" style="margin-top:20px; border-top:1px solid var(--border); padding-top:16px;">
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                                <label style="font-size:14px; font-weight:bold;">⚡ BASH TOOLS (project-local scripts)</label>
+                                <button type="button" class="btn btn-sm btn-primary" onclick="toggleBashToolForm()">+ NEW BASH TOOL</button>
+                            </div>
+                            <div id="bash-tools-list" style="margin-bottom:12px;">
+                                <div style="color:var(--text-muted); font-size:12px;">Loading bash tools...</div>
+                            </div>
+                            <div id="bash-tool-form-container" style="display:none; background:var(--muted); padding:12px; border-radius:6px;">
+                                <div style="margin-bottom:8px;">
+                                    <label style="font-size:12px;">Tool Name *</label>
+                                    <input type="text" id="bash-tool-name" placeholder="e.g., run_linter" style="width:100%; padding:6px; background:var(--bg-primary); border:1px solid var(--border); color:var(--text); border-radius:4px;">
+                                </div>
+                                <div style="margin-bottom:8px;">
+                                    <label style="font-size:12px;">Description *</label>
+                                    <input type="text" id="bash-tool-desc" placeholder="What does this tool do?" style="width:100%; padding:6px; background:var(--bg-primary); border:1px solid var(--border); color:var(--text); border-radius:4px;">
+                                </div>
+                                <div style="margin-bottom:8px;">
+                                    <label style="font-size:12px;">Parameters (one per line: name type required default)</label>
+                                    <textarea id="bash-tool-params" rows="3" placeholder="file_path string true&#10;count integer false 10" style="width:100%; padding:6px; background:var(--bg-primary); border:1px solid var(--border); color:var(--text); border-radius:4px; font-family:monospace; font-size:12px;"></textarea>
+                                </div>
+                                <div style="margin-bottom:8px;">
+                                    <label style="font-size:12px;">Script Body *</label>
+                                    <textarea id="bash-tool-script" rows="6" placeholder='echo "Processing $TOOL_FILE_PATH..."' style="width:100%; padding:6px; background:var(--bg-primary); border:1px solid var(--border); color:var(--text); border-radius:4px; font-family:monospace; font-size:12px;"></textarea>
+                                </div>
+                                <div style="display:flex; gap:8px;">
+                                    <button type="button" class="btn btn-sm btn-success" onclick="createBashTool()">CREATE</button>
+                                    <button type="button" class="btn btn-sm btn-secondary" onclick="toggleBashToolForm()">CANCEL</button>
+                                </div>
+                            </div>
+                        </div>
+
                         <div class="form-actions">
                             <button type="button" class="btn btn-primary run-btn" id="details-run-btn" onclick="runProject(currentProjectId)">RUN AI BUILDER</button>
                             <button type="button" class="btn btn-info" id="details-live-btn" onclick="showLiveView(currentProjectId)" style="display:none;">📺 VIEW LIVE</button>

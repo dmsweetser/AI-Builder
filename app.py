@@ -1005,7 +1005,7 @@ def api_get_history():
             if qj["job_id"] not in history_ids:
                 current_job_history.insert(0, qj)
 
-        # Enrich with project run info
+        # Enrich with project run info AND real-time status from status.json
         for h in current_job_history:
             pid = h.get("project_id")
             if pid and pid in project_map:
@@ -1014,6 +1014,28 @@ def api_get_history():
                         h["run_number"] = p.get("run_number", 0)
                         h["output_dir"] = p.get("output_dir", "")
                         break
+
+        # Check status.json for each job to get real-time status
+        # This fixes the stale status problem — status.json is the authoritative source
+        for h in current_job_history:
+            output_dir = h.get("output_dir", "")
+            if not output_dir:
+                continue
+            status_file = os.path.join(output_dir, "status.json")
+            if os.path.exists(status_file):
+                try:
+                    with open(status_file, 'r', encoding='utf-8') as f:
+                        status_data = json.load(f)
+                    current_status = status_data.get("status", "running")
+                    # Only override if the current status is more informative
+                    # (e.g., pending_approval, pending_user_input, or a terminal state)
+                    job_status = h.get("status", "")
+                    if current_status in ("pending_approval", "pending_user_input"):
+                        h["status"] = current_status
+                    elif current_status in ("completed", "error", "stopped", "max_steps_reached") and job_status not in ("pending_approval", "pending_user_input"):
+                        h["status"] = current_status
+                except Exception:
+                    pass
 
         # Strip step_history from the response — it can be stale or from a
         # different job.  The frontend fetches steps via the
@@ -2283,7 +2305,7 @@ def api_job_last_step(job_id):
 # --- Routes: Per-Project Tool Enable/Disable ---
 @app.route("/api/projects/<pid>/tools", methods=["GET"])
 def api_get_project_tools(pid):
-    """Get per-project disabled tools list and available tools."""
+    """Get per-project disabled tools list and available tools (including bash tools)."""
     project, projects = get_project(pid)
     if not project:
         return jsonify({"error": "Project not found"}), 404
@@ -2291,15 +2313,22 @@ def api_get_project_tools(pid):
     # Get custom (approved project-local) tools for this project
     output_dir = project.get("output_dir", "")
     custom_tools = []
+    bash_tools = []
     if output_dir:
         try:
             loader = get_registry()._get_or_create_loader(output_dir)
             custom_tools = sorted(loader.get_tool_names())
         except Exception:
             pass
+        try:
+            bash_loader = get_registry()._get_or_create_bash_loader(output_dir)
+            bash_tools = sorted(bash_loader.get_tool_names())
+        except Exception:
+            pass
     return jsonify({
         "disabled_tools": disabled_tools,
         "custom_tools": custom_tools,
+        "bash_tools": bash_tools,
     })
 
 @app.route("/api/projects/<pid>/tools", methods=["POST"])
@@ -2476,6 +2505,60 @@ def api_delete_approved_tool(tool_name):
 
     registry = get_registry()
     result = registry.delete_project_tool(project_output_dir, tool_name)
+    return jsonify(result)
+
+
+# --- Routes: Bash Tools ---
+
+@app.route("/api/projects/<pid>/bash-tools", methods=["GET"])
+def api_get_bash_tools(pid):
+    """Get all bash tools for a project."""
+    project, _ = get_project(pid)
+    if not project:
+        return jsonify({"error": "Project not found"}), 404
+    output_dir = project.get("output_dir", "")
+    disabled_tools = project.get("disabled_tools", [])
+    registry = get_registry()
+    tools = registry.get_project_bash_tools(output_dir)
+    # Filter out disabled tools
+    filtered = [t for t in tools if t["name"] not in disabled_tools]
+    return jsonify({"bash_tools": filtered})
+
+
+@app.route("/api/projects/<pid>/bash-tools", methods=["POST"])
+def api_create_bash_tool(pid):
+    """Create a new bash tool for a project."""
+    project, _ = get_project(pid)
+    if not project:
+        return jsonify({"error": "Project not found"}), 404
+    data = request.get_json(silent=True) or {}
+    output_dir = project.get("output_dir", "")
+    name = data.get("name", "")
+    description = data.get("description", "")
+    params = data.get("params", [])
+    script_content = data.get("script_content", "")
+    if not name:
+        return jsonify({"error": "Tool name is required"}), 400
+    if not script_content:
+        return jsonify({"error": "Script content is required"}), 400
+
+    registry = get_registry()
+    result = registry.create_project_bash_tool(output_dir, name, description, params, script_content)
+    if result.get("status") == "created":
+        # Reload the project's tools list for the UI
+        pass
+    return jsonify(result)
+
+
+@app.route("/api/projects/<pid>/bash-tools/<tool_name>", methods=["DELETE"])
+def api_delete_bash_tool(pid, tool_name):
+    """Delete a bash tool for a project."""
+    project, _ = get_project(pid)
+    if not project:
+        return jsonify({"error": "Project not found"}), 404
+    output_dir = project.get("output_dir", "")
+    registry = get_registry()
+    result = registry.delete_project_bash_tool(output_dir, tool_name)
     return jsonify(result)
 
 

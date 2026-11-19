@@ -100,13 +100,13 @@ body {
     position: absolute;
     width: 100px;
     height: 48px;
-    background: linear-gradient(180deg, #AAAAAA 0%, #FFFFFF 50%, #777777 100%);
+    background: linear-gradient(180deg, #A0784A 0%, #C5A06D 50%, #8B6914 100%);
     top: 34%;
     left: 55%;
     transform: translateX(-50%);
-    border: 3px solid #00FFFF;
-    border-radius: 6px 8px 4px 4px;
-    animation: horse-bounce 0.5s ease-in-out infinite;
+    border-radius: 8px 10px 6px 6px;
+    box-shadow: 0 8px 15px rgba(0, 0, 0, 0.4);
+    animation: horse-bounce 0.7s cubic-bezier(0.42, 0, 0.58, 1) infinite;
 }
 
 /* Horse head */
