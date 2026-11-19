@@ -100,11 +100,11 @@ body {
     position: absolute;
     width: 100px;
     height: 48px;
-    background: linear-gradient(180deg, #F0D090 0%, #E6BE8A 50%, #D4A855 100%);
+    background: linear-gradient(180deg, #AAAAAA 0%, #FFFFFF 50%, #777777 100%);
     top: 34%;
     left: 55%;
     transform: translateX(-50%);
-    border: 3px solid #8B6914;
+    border: 3px solid #00FFFF;
     border-radius: 6px 8px 4px 4px;
     animation: horse-bounce 0.5s ease-in-out infinite;
 }

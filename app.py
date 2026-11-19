@@ -868,11 +868,19 @@ def api_get_queue():
 
         queue_with_names = []
         for j in job_queue:
-            queue_with_names.append({**j, "project_name": project_map.get(j["project_id"], "Unknown"), "status": "queued"})
+            # Never expose step_history in queue items — it can be stale or
+            # from a different job.  The frontend fetches steps via the
+            # /api/job/<job_id>/steps endpoint when needed.
+            clean = {k: v for k, v in j.items() if k != "step_history"}
+            queue_with_names.append({**clean, "project_name": project_map.get(j["project_id"], "Unknown"), "status": "queued"})
 
     running_data = None
     if running_info:
-        running_data = {**running_info, "project_name": running_name}
+        # Strip step_history from running data — it can be stale or from a
+        # different job.  The frontend fetches steps via the
+        # /api/job/<job_id>/steps endpoint when needed.
+        running_clean = {k: v for k, v in running_info.items() if k != "step_history"}
+        running_data = {**running_clean, "project_name": running_name}
 
     return jsonify({
         "queue": queue_with_names,
@@ -1007,7 +1015,15 @@ def api_get_history():
                         h["output_dir"] = p.get("output_dir", "")
                         break
 
-    return jsonify(current_job_history)
+        # Strip step_history from the response — it can be stale or from a
+        # different job.  The frontend fetches steps via the
+        # /api/job/<job_id>/steps endpoint when needed.
+        clean_history = []
+        for h in current_job_history:
+            clean = {k: v for k, v in h.items() if k != "step_history"}
+            clean_history.append(clean)
+
+        return jsonify(clean_history)
 
 @app.route("/api/history/clear", methods=["POST"])
 def api_clear_history():

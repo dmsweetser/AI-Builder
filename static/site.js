@@ -139,9 +139,13 @@ function copyCodeBlock(id, btn) {
 
 // === Tab Management ===
 function showTab(tabName) {
-    // Save project when switching tabs
+    // Save project when switching tabs (non-blocking — never block tab switch on save)
     if (tabName !== 'projects') {
-        saveProjectChanges().catch(function(err) { console.error('Failed to auto-save on tab switch:', err); });
+        try {
+            saveProjectChanges().catch(function(err) { console.error('Failed to auto-save on tab switch:', err); });
+        } catch (e) {
+            console.warn('Auto-save on tab switch threw:', e);
+        }
     }
     document.querySelectorAll('.panel').forEach(function(p) {
         p.classList.remove('active');
@@ -1662,12 +1666,12 @@ function renderJobs(queueData, history) {
             item.appendChild(sumDiv);
         }
 
-        // Steps
-        var stepsData = (job.step_history && job.step_history.length > 0) ? job.step_history : (job.steps && Array.isArray(job.steps)) ? job.steps : null;
-        if (stepsData) {
+        // Steps — fetch from API on demand (never inline) to avoid stale/cross-contaminated data
+        var stepCount = job.steps || 0;
+        if (stepCount > 0) {
             var stepsBtn = document.createElement('button');
             stepsBtn.className = 'btn btn-xs btn-secondary';
-            stepsBtn.textContent = '▼ SHOW STEPS (' + stepsData.length + ')';
+            stepsBtn.textContent = '▼ SHOW STEPS (' + stepCount + ')';
             stepsBtn.onclick = function(e) { e.stopPropagation(); toggleJobSteps(job.job_id); };
             item.appendChild(stepsBtn);
 
@@ -1675,7 +1679,42 @@ function renderJobs(queueData, history) {
             stepsList.id = 'job-steps-' + job.job_id;
             stepsList.className = 'job-steps-list';
             stepsList.style.display = 'none';
-            stepsData.forEach(function(s) {
+            stepsList.innerHTML = '<div style="padding:8px;color:var(--text-muted);">Loading steps...</div>';
+            item.appendChild(stepsList);
+        } else if (job.step_count !== undefined) {
+            var stepCountDiv = document.createElement('div');
+            stepCountDiv.style.cssText = 'font-size:11px;color:var(--text-muted);margin-top:4px;';
+            stepCountDiv.textContent = 'Completed ' + (job.steps || 0) + ' steps';
+            item.appendChild(stepCountDiv);
+        }
+
+        // Delete button
+        var delBtn = document.createElement('button');
+        delBtn.className = 'btn btn-xs btn-secondary';
+        delBtn.style.cssText = 'margin-top:6px;';
+        delBtn.textContent = 'DELETE';
+        delBtn.onclick = function(e) { e.stopPropagation(); deleteJob(job.job_id); };
+        item.appendChild(delBtn);
+
+        list.appendChild(item);
+    });
+}
+
+// Load and render steps for a job from the API (never trust inline step_history)
+function _loadJobSteps(jobId) {
+    var stepsList = document.getElementById('job-steps-' + jobId);
+    if (!stepsList) return;
+
+    fetch('/api/job/' + jobId + '/steps')
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            var steps = data.steps || [];
+            if (!steps.length) {
+                stepsList.innerHTML = '<div style="padding:8px;color:var(--text-muted);">No steps recorded.</div>';
+                return;
+            }
+            stepsList.innerHTML = '';
+            steps.forEach(function(s) {
                 var stepItem = document.createElement('div');
                 stepItem.className = 'job-step-item';
 
@@ -1736,29 +1775,24 @@ function renderJobs(queueData, history) {
 
                 stepsList.appendChild(stepItem);
             });
-            item.appendChild(stepsList);
-        } else if (job.step_count !== undefined) {
-            var stepCountDiv = document.createElement('div');
-            stepCountDiv.style.cssText = 'font-size:11px;color:var(--text-muted);margin-top:4px;';
-            stepCountDiv.textContent = 'Completed ' + (job.steps || 0) + ' steps';
-            item.appendChild(stepCountDiv);
-        }
-
-        // Delete button
-        var delBtn = document.createElement('button');
-        delBtn.className = 'btn btn-xs btn-secondary';
-        delBtn.style.cssText = 'margin-top:6px;';
-        delBtn.textContent = 'DELETE';
-        delBtn.onclick = function(e) { e.stopPropagation(); deleteJob(job.job_id); };
-        item.appendChild(delBtn);
-
-        list.appendChild(item);
-    });
+        })
+        .catch(function(err) {
+            console.error('Failed to load job steps:', err);
+            stepsList.innerHTML = '<div style="padding:8px;color:var(--mc-nether);">Failed to load steps.</div>';
+        });
 }
 
 function toggleJobSteps(jobId) {
     var el = document.getElementById('job-steps-' + jobId);
-    if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+    if (el) {
+        if (el.style.display === 'none') {
+            el.style.display = 'block';
+            // Fetch fresh steps from the API (never trust inline step_history)
+            _loadJobSteps(jobId);
+        } else {
+            el.style.display = 'none';
+        }
+    }
 }
 
 
