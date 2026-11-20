@@ -19,7 +19,7 @@ from agent_engine.tools.list_directory import ListDirectoryTool
 from agent_engine.tools.list_directory_deep import ListDirectoryDeepTool
 from agent_engine.tools.search_files import SearchFilesTool, SearchFilesDirTool
 from agent_engine.tools.grep_code import GrepCodeTool, GrepCodeDirTool
-from agent_engine.tools.read_file import ReadFileTool, ReadFileRangeTool
+from agent_engine.tools.read_file import ReadFileTool, ReadFileRangeTool, ReadFullFileTool
 from agent_engine.tools.write_file import WriteFileTool
 from agent_engine.tools.edit_file import EditFileTool
 from agent_engine.tools.delete_file import DeleteFileTool
@@ -51,7 +51,7 @@ def _init_builtin_classes():
         ListDirectoryTool, ListDirectoryDeepTool,
         SearchFilesTool, SearchFilesDirTool,
         GrepCodeTool, GrepCodeDirTool,
-        ReadFileTool, ReadFileRangeTool,
+        ReadFileTool, ReadFileRangeTool, ReadFullFileTool,
         WriteFileTool, EditFileTool, DeleteFileTool,
         DecompileJarTool,
         CheckSyntaxTool,

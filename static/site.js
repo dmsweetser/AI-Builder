@@ -45,7 +45,7 @@ function _getActiveProjectId() {
 // === Available Tools ===
 const AVAILABLE_TOOLS = [
     "list_directory", "list_directory_deep", "search_files", "search_files_dir",
-    "grep_code", "grep_code_dir", "read_file", "read_file_range",
+    "grep_code", "grep_code_dir", "read_file", "read_file_range", "read_full_file",
     "write_file", "edit_file", "delete_file",
     "decompile_jar", "check_syntax",
     "create_tool", "respond_to_user", "request_user_input", "task_completed"
@@ -125,14 +125,10 @@ function copyCodeBlock(id, btn) {
     var text = el.textContent || el.innerText || '';
     // Decode HTML entities
     var decoded = text.replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
-    // Strip language label if present (e.g., "python\nprint(...)" -> "print(...)")
+    // Always strip the first line (language identifier or any other metadata)
     var firstLineEnd = decoded.indexOf('\n');
     if (firstLineEnd !== -1) {
-        var firstLine = decoded.substring(0, firstLineEnd).trim().toLowerCase().replace('```','');
-        var langNames = ['python','javascript','js','ts','typescript','java','c','cpp','c++','c#','cs','go','rust','rs','ruby','rb','php','html','css','bash','sh','shell','sql','json','yaml','yml','xml','markdown','md','txt','plaintext'];
-        if (langNames.indexOf(firstLine) !== -1) {
-            decoded = decoded.substring(firstLineEnd + 1);
-        }
+        decoded = decoded.substring(firstLineEnd + 1);
     }
     copyToClipboard(decoded, btn);
 }
@@ -1252,6 +1248,15 @@ function stopCurrentJob() {
         promises.push(fetch('/api/agent/stop/' + jobId, { method: 'POST' }).catch(function() {}));
     }
     Promise.all(promises).then(function() {
+        // Clear the live view state
+        if (container) {
+            container.innerHTML = '';
+            delete container.dataset.jobId;
+            delete container.dataset.projectId;
+            delete container.dataset.outputDir;
+        }
+        var liveResp = document.getElementById('live-response-container');
+        if (liveResp) { liveResp.textContent = ''; liveResp.style.display = 'none'; }
         var liveStopBtn = document.getElementById('live-stop-btn');
         if (liveStopBtn) liveStopBtn.style.display = 'none';
         var statusText = document.getElementById('agent-status-text');
@@ -1472,6 +1477,18 @@ function _goBackToProjects() {
         _clearProjectState(pid);
     });
     currentRunningJobId = null;
+    // Clear the agent live container and its content
+    var container = document.getElementById('agent-live-container');
+    if (container) {
+        container.style.display = 'none';
+        container.innerHTML = '';
+        delete container.dataset.jobId;
+        delete container.dataset.projectId;
+        delete container.dataset.outputDir;
+    }
+    // Clear the live response container
+    var liveResp = document.getElementById('live-response-container');
+    if (liveResp) { liveResp.textContent = ''; liveResp.style.display = 'none'; }
     var configSection = document.getElementById('project-config-section');
     var agentLive = document.getElementById('agent-live-container');
     if (configSection) configSection.style.display = 'block';
@@ -2235,6 +2252,12 @@ function showLiveViewForJob(jobId, projectId) {
     var container = document.getElementById('agent-live-container');
     if (!container) return;
 
+    // Clear any stale state before setting new job
+    var agentBox = document.getElementById('agent-live-box');
+    if (agentBox) agentBox.innerHTML = '';
+    var liveResp = document.getElementById('live-response-container');
+    if (liveResp) { liveResp.textContent = ''; liveResp.style.display = 'none'; }
+
     // Ensure the project-details panel is active so the container is visible
     var detailsPanel = document.getElementById('project-details-panel');
     if (detailsPanel) detailsPanel.classList.add('active');
@@ -2347,6 +2370,7 @@ function _doShowLiveView(jobId, queueData, history, jobRecord, isRunning, isPend
     var agentBox = document.getElementById('agent-live-box');
     var injectInput = document.getElementById('live-inject-input');
     var injectBtn = document.getElementById('live-inject-btn');
+    var container = document.getElementById('agent-live-container');
 
     if (isRunning && !isPendingApproval && !isPendingInput) {
         // Job is actively running (not pending) - show the view and start polling
@@ -2374,32 +2398,85 @@ function _doShowLiveView(jobId, queueData, history, jobRecord, isRunning, isPend
         if (injectInput) { injectInput.disabled = false; injectInput.placeholder = 'Continue with new instructions...'; }
         if (injectBtn) { injectBtn.disabled = false; injectBtn.textContent = 'INJECT'; }
 
-        loadJobHistory(jobId, projectId, function() {
-            // Always start polling (every 30s for completed jobs)
+        // AGGRESSIVE: Immediately fetch the latest job state on arrival
+        // Use a single combined fetch to get steps, status, and response all at once
+        Promise.all([
+            fetch('/api/job/' + jobId + '/steps').then(function(r) { return r.json(); }),
+            fetch('/api/job/' + jobId + '/status').then(function(r) { return r.json(); }),
+            fetch('/api/agent/response/' + jobId).then(function(r) { return r.json(); })
+        ]).then(function(results) {
+            var stepsData = results[0] || { steps: [], count: 0 };
+            var statusData = results[1] || {};
+            var responseData = results[2] || {};
+
+            // Render steps immediately
+            agentBox.innerHTML = '';
+            var steps = stepsData.steps || [];
+            var count = stepsData.count || 0;
+            for (var i = 0; i < count; i++) {
+                var step = steps[i];
+                if (step) {
+                    _renderStep(step, agentBox);
+                }
+            }
+
+            // Update live response immediately
+            if (responseData.content && responseData.content.trim()) {
+                var liveResp = document.getElementById('live-response-container');
+                if (liveResp) {
+                    liveResp.textContent = responseData.content;
+                    liveResp.style.display = 'block';
+                }
+            }
+
+            // Set status text
+            var statusText = document.getElementById('agent-status-text');
+            if (statusText) {
+                var finalStatus = statusData.status || (jobRecord ? jobRecord.status : 'unknown');
+                if (isPendingApproval) {
+                    statusText.textContent = 'PENDING APPROVAL';
+                    statusText.style.color = 'var(--warning)';
+                    statusText.style.fontWeight = 'bold';
+                } else if (isPendingInput) {
+                    statusText.textContent = 'AWAITING INPUT';
+                    statusText.style.color = 'var(--warning)';
+                    statusText.style.fontWeight = 'bold';
+                } else if (finalStatus === 'completed') {
+                    statusText.textContent = 'COMPLETED';
+                    statusText.style.color = 'var(--success)';
+                } else if (finalStatus === 'error') {
+                    statusText.textContent = 'ERROR';
+                    statusText.style.color = 'var(--danger)';
+                } else if (finalStatus === 'stopped') {
+                    statusText.textContent = 'STOPPED';
+                    statusText.style.color = 'var(--text-muted)';
+                } else {
+                    statusText.textContent = finalStatus.toUpperCase();
+                }
+            }
+
+            // Store outputDir on container for future polling
+            if (container) {
+                if (outputDir) container.dataset.outputDir = outputDir;
+                if (projectId) container.dataset.projectId = projectId;
+            }
+
+            // Now start background polling for any updates
             _startPolling(jobId, outputDir, agentBox, projectId, false);
 
-            // After loading history, check for pending approval tools
-            // This handles the case where we re-enter VIEW LIVE for a job that has pending tools
+            // Check for pending approval tools in background
             if (isPendingApproval && outputDir) {
                 _showPendingApproval(jobId, outputDir, agentBox);
             }
             if (isPendingInput) {
                 _showPendingUserInput(jobRecord, agentBox);
             }
-
-            // Set status text
-            var statusText = document.getElementById('agent-status-text');
-            if (statusText) {
-                if (isPendingApproval || isPendingInput) {
-                    statusText.textContent = isPendingApproval ? 'PENDING APPROVAL' : 'AWAITING INPUT';
-                    statusText.style.color = 'var(--warning)';
-                    statusText.style.fontWeight = 'bold';
-                } else if (jobRecord) {
-                    // Completed or stopped job - show status
-                    statusText.textContent = jobRecord.status === 'completed' ? 'COMPLETED' : (jobRecord.status === 'error' ? 'ERROR' : (jobRecord.status === 'stopped' ? 'STOPPED' : jobRecord.status.toUpperCase()));
-                    statusText.style.color = jobRecord.status === 'completed' ? 'var(--success)' : (jobRecord.status === 'error' ? 'var(--danger)' : 'var(--text-muted)');
-                }
-            }
+        }).catch(function(err) {
+            console.error('Failed to aggressively fetch live state:', err);
+            // Fallback: still load history and start polling
+            loadJobHistory(jobId, projectId, function() {
+                _startPolling(jobId, outputDir, agentBox, projectId, false);
+            });
         });
     }
 }

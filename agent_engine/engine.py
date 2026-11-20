@@ -1488,7 +1488,7 @@ class AgentEngine:
                         raw_content = result_dict.get("content", "")
                         if (raw_content
                                 and self.max_tool_result_length > 0
-                                and tool_name not in ("respond_to_user", "request_user_input")):
+                                and tool_name not in ("respond_to_user", "request_user_input", "read_full_file")):
                             truncated, was_truncated = truncate_tool_result(
                                 raw_content, self.max_tool_result_length, tool_name
                             )

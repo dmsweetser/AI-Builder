@@ -95,125 +95,268 @@ body {
     z-index: 1;
 }
 
-/* === Horse body === */
+/* === Horse body — elongated torso with chest, belly, and rump === */
 .horse-body {
     position: absolute;
-    width: 100px;
-    height: 48px;
-    background: linear-gradient(180deg, #A0784A 0%, #C5A06D 50%, #8B6914 100%);
-    top: 34%;
-    left: 55%;
+    width: 120px;
+    height: 52px;
+    background: linear-gradient(180deg, #A0784A 0%, #C5A06D 40%, #8B6914 100%);
+    top: 32%;
+    left: 52%;
     transform: translateX(-50%);
-    border-radius: 8px 10px 6px 6px;
+    border-radius: 14px 18px 8px 8px;
     box-shadow: 0 8px 15px rgba(0, 0, 0, 0.4);
     animation: horse-bounce 0.7s cubic-bezier(0.42, 0, 0.58, 1) infinite;
 }
 
-/* Horse head */
+/* Chest bulge (front of body) */
+.horse-body::before {
+    content: '';
+    position: absolute;
+    width: 30px;
+    height: 34px;
+    background: linear-gradient(180deg, #C5A06D 0%, #A0784A 100%);
+    top: 8px;
+    right: -12px;
+    border-radius: 50%;
+    box-shadow: inset -2px 2px 4px rgba(0,0,0,0.15);
+}
+
+/* Rump bulge (back of body) */
+.horse-body::after {
+    content: '';
+    position: absolute;
+    width: 28px;
+    height: 30px;
+    background: linear-gradient(180deg, #B8935E 0%, #8B6914 100%);
+    top: 10px;
+    left: -8px;
+    border-radius: 50%;
+    box-shadow: inset 2px 2px 4px rgba(0,0,0,0.1);
+}
+
+/* Horse head — longer snout, wider jaw */
 .horse-head {
     position: absolute;
-    width: 56px;
-    height: 32px;
-    background: linear-gradient(180deg, #E6BE8A 0%, #D4A855 100%);
-    top: 16%;
-    left: 66%;
-    border: 3px solid #8B6914;
-    border-radius: 6px 10px 2px 2px;
+    width: 64px;
+    height: 40px;
+    background: linear-gradient(180deg, #D4A855 0%, #C5A06D 50%, #A0784A 100%);
+    top: 10%;
+    left: 64%;
+    border: 3px solid #6B4F10;
+    border-radius: 10px 14px 4px 6px;
     animation: head-bob 0.5s ease-in-out infinite;
     z-index: 2;
 }
 
-/* Horse legs */
+/* Ear */
+.horse-head::before {
+    content: '';
+    position: absolute;
+    width: 10px;
+    height: 18px;
+    background: #B8935E;
+    top: -14px;
+    left: 18px;
+    border: 2px solid #6B4F10;
+    border-radius: 4px 4px 0 0;
+    transform: rotate(-8deg);
+}
+
+/* Inner ear */
+.horse-head::after {
+    content: '';
+    position: absolute;
+    width: 5px;
+    height: 10px;
+    background: #C5A06D;
+    top: -9px;
+    left: 20px;
+    border-radius: 3px 3px 0 0;
+    transform: rotate(-8deg);
+}
+
+/* Eye */
+.horse-head .horse-eye {
+    position: absolute;
+    width: 8px;
+    height: 8px;
+    background: #2A1A0A;
+    top: 10px;
+    left: 36px;
+    border-radius: 50%;
+    animation: eye-blink 4s ease-in-out infinite;
+    z-index: 3;
+}
+
+/* Nostril */
+.horse-head .horse-nostril {
+    position: absolute;
+    width: 6px;
+    height: 4px;
+    background: #6B4F10;
+    top: 24px;
+    left: 54px;
+    border-radius: 50%;
+}
+
+/* Mane — flowing strands */
+.horse-head .horse-mane {
+    position: absolute;
+    width: 20px;
+    height: 36px;
+    background: linear-gradient(180deg, #6B4F10 0%, #4A3510 100%);
+    top: -2px;
+    left: 8px;
+    border-radius: 6px 0 4px 8px;
+    animation: mane-flow 0.6s ease-in-out infinite;
+    transform-origin: top center;
+    z-index: 1;
+}
+
+/* Mane strand 2 */
+.horse-head .horse-mane::before {
+    content: '';
+    position: absolute;
+    width: 14px;
+    height: 30px;
+    background: #4A3510;
+    top: 4px;
+    left: -4px;
+    border-radius: 4px 0 4px 6px;
+    animation: mane-flow 0.7s ease-in-out infinite reverse;
+}
+
+/* Horse legs — connected to body, proper proportions */
 .horse-legs {
     position: absolute;
-    bottom: 6%;
-    left: 55%;
+    bottom: 4%;
+    left: 52%;
     transform: translateX(-50%);
-    width: 100px;
-    height: 40px;
+    width: 110px;
+    height: 50px;
 }
 
 .horse-leg {
     position: absolute;
-    width: 12px;
-    height: 36px;
-    background: linear-gradient(180deg, #E6BE8A 0%, #D4A855 80%, #8B6914 100%);
-    border: 3px solid #8B6914;
-    border-radius: 3px 3px 5px 5px;
+    width: 14px;
+    height: 42px;
+    background: linear-gradient(180deg, #D4A855 0%, #C5A06D 60%, #8B6914 100%);
+    border: 2px solid #6B4F10;
+    border-radius: 3px 3px 4px 4px;
 }
 
-.horse-leg:nth-child(1) { left: 4px; animation: leg-front-1 0.5s ease-in-out infinite; }
-.horse-leg:nth-child(2) { left: 20px; animation: leg-front-2 0.5s ease-in-out infinite; }
-.horse-leg:nth-child(3) { left: 60px; animation: leg-back-1 0.5s ease-in-out infinite; }
-.horse-leg:nth-child(4) { left: 76px; animation: leg-back-2 0.5s ease-in-out infinite; }
+/* Hoof */
+.horse-leg::before {
+    content: '';
+    position: absolute;
+    bottom: -2px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 16px;
+    height: 8px;
+    background: #3A2A10;
+    border-radius: 2px 2px 4px 4px;
+    border: 2px solid #2A1A0A;
+}
 
-/* Horse tail */
+/* Leg joints (subtle darker bands) */
+.horse-leg::after {
+    content: '';
+    position: absolute;
+    bottom: 8px;
+    left: 0;
+    width: 100%;
+    height: 3px;
+    background: rgba(107, 79, 16, 0.4);
+    border-radius: 1px;
+}
+
+.horse-leg:nth-child(1) { left: 8px; animation: leg-front-1 0.5s ease-in-out infinite; }
+.horse-leg:nth-child(2) { left: 26px; animation: leg-front-2 0.5s ease-in-out infinite; }
+.horse-leg:nth-child(3) { left: 68px; animation: leg-back-1 0.5s ease-in-out infinite; }
+.horse-leg:nth-child(4) { left: 86px; animation: leg-back-2 0.5s ease-in-out infinite; }
+
+/* Horse tail — longer, thicker, with tuft */
 .horse-tail {
     position: absolute;
-    width: 12px;
-    height: 44px;
-    background: linear-gradient(180deg, #C5A06D 0%, #8B6914 100%);
-    top: 28%;
-    left: 16%;
-    border-radius: 6px 0 0 6px;
-    animation: tail-wag 0.5s ease-in-out infinite;
+    width: 16px;
+    height: 56px;
+    background: linear-gradient(180deg, #6B4F10 0%, #4A3510 60%, #3A2A10 100%);
+    top: 26%;
+    left: 14%;
+    border-radius: 8px 0 4px 8px;
+    animation: tail-wag 0.6s ease-in-out infinite;
     transform-origin: top center;
     z-index: 0;
+}
+
+/* Tail tuft */
+.horse-tail::after {
+    content: '';
+    position: absolute;
+    bottom: -6px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 12px;
+    height: 10px;
+    background: #2A1A0A;
+    border-radius: 4px 4px 6px 6px;
 }
 
 /* Ground shadow */
 .horse-shadow {
     position: absolute;
     bottom: 0%;
-    left: 55%;
+    left: 52%;
     transform: translateX(-50%);
-    width: 120px;
+    width: 140px;
     height: 14px;
     background: radial-gradient(ellipse, rgba(0, 0, 0, 0.5) 0%, transparent 70%);
     border-radius: 50%;
-    animation: shadow-pulse 0.5s ease-in-out infinite;
+    animation: shadow-pulse 0.7s ease-in-out infinite;
     filter: blur(3px);
 }
 
-/* === Improved Animations === */
+/* === Horse Animations === */
 @keyframes horse-bounce {
     0%, 100% { transform: translateX(-50%) translateY(0); }
-    50% { transform: translateX(-50%) translateY(-6px); }
+    50% { transform: translateX(-50%) translateY(-5px); }
 }
 
 @keyframes head-bob {
     0%, 100% { transform: rotate(0deg) translateY(0); }
-    50% { transform: rotate(-3deg) translateY(-3px); }
+    50% { transform: rotate(-2deg) translateY(-2px); }
 }
 
 @keyframes mane-flow {
     0%, 100% { transform: skewX(0deg); }
-    50% { transform: skewX(8deg); }
+    50% { transform: skewX(6deg); }
 }
 
 @keyframes tail-wag {
-    0%, 100% { transform: rotate(-15deg); }
-    50% { transform: rotate(15deg); }
+    0%, 100% { transform: rotate(-12deg); }
+    50% { transform: rotate(12deg); }
 }
 
 @keyframes leg-front-1 {
-    0%, 100% { transform: rotate(-20deg); height: 32px; }
-    50% { transform: rotate(20deg); height: 28px; }
+    0%, 100% { transform: rotate(-15deg); height: 38px; }
+    50% { transform: rotate(15deg); height: 34px; }
 }
 
 @keyframes leg-front-2 {
-    0%, 100% { transform: rotate(20deg); height: 28px; }
-    50% { transform: rotate(-20deg); height: 32px; }
+    0%, 100% { transform: rotate(15deg); height: 34px; }
+    50% { transform: rotate(-15deg); height: 38px; }
 }
 
 @keyframes leg-back-1 {
-    0%, 100% { transform: rotate(20deg); height: 28px; }
-    50% { transform: rotate(-20deg); height: 32px; }
+    0%, 100% { transform: rotate(15deg); height: 34px; }
+    50% { transform: rotate(-15deg); height: 38px; }
 }
 
 @keyframes leg-back-2 {
-    0%, 100% { transform: rotate(-20deg); height: 32px; }
-    50% { transform: rotate(20deg); height: 28px; }
+    0%, 100% { transform: rotate(-15deg); height: 38px; }
+    50% { transform: rotate(15deg); height: 34px; }
 }
 
 @keyframes shadow-pulse {

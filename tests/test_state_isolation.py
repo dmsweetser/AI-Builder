@@ -57,7 +57,7 @@ class TestBashToolLoader(unittest.TestCase):
                 #     required: false
                 #     default: 10
 
-                echo "Processing $TOOL_FILE_PATH with count $TOOL_COUNT"
+                echo "Processing"
             '''))
         os.chmod(script_path, 0o755)
 
@@ -68,13 +68,12 @@ class TestBashToolLoader(unittest.TestCase):
         names = self.loader.get_tool_names()
         self.assertIn("my_tool", names)
 
-        # Verify tool definition
+        # Verify tool definition — bash tools have NO parameters
         defs = self.loader.list_tools()
         self.assertEqual(len(defs), 1)
         self.assertEqual(defs[0]["name"], "my_tool")
         self.assertIn("A test tool", defs[0]["description"])
-        self.assertIn("file_path", defs[0]["parameters"])
-        self.assertIn("count", defs[0]["parameters"])
+        self.assertEqual(defs[0]["parameters"], {})
 
     def test_bash_tool_execution(self):
         """Bash tools execute and return output."""
@@ -84,12 +83,8 @@ class TestBashToolLoader(unittest.TestCase):
                 #!/bin/bash
                 # TOOL_NAME: echo_tool
                 # TOOL_DESCRIPTION: Echoes back a message
-                # TOOL_PARAMS:
-                #   - name: message
-                #     type: string
-                #     required: true
 
-                echo "Hello $TOOL_MESSAGE"
+                echo "Hello World"
             '''))
         os.chmod(script_path, 0o755)
 
@@ -98,7 +93,7 @@ class TestBashToolLoader(unittest.TestCase):
         # Execute the tool
         tool = self.loader.create_tool_instance("echo_tool", self.project_root)
         assert tool is not None, "Tool should not be None"
-        result = tool.execute({"message": "World"})
+        result = tool.execute({})
         self.assertTrue(result.success)
         self.assertIn("Hello World", result.content)
 

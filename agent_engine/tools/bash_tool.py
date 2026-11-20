@@ -38,16 +38,21 @@ class BashTool(BaseTool):
         self.script_path = script_path
         self.env_prefix = env_prefix
 
+    def get_definition(self) -> Dict[str, Any]:
+        """Return tool definition with NO parameters — bash scripts take none."""
+        return {
+            "name": self.name,
+            "description": self.description,
+            "parameters": {},
+        }
+
     def execute(self, params: Dict[str, str]) -> ToolResult:
         """Run the bash script with params passed as environment variables."""
         if not self.script_path or not os.path.isfile(self.script_path):
             return ToolResult(False, "", error="Script not found")
 
-        # Build environment with TOOL_<PARAM_NAME> vars
+        # Run the script without dynamic parameters, passing only fixed environment variables.
         env = os.environ.copy()
-        for key, value in params.items():
-            env_key = f"{self.env_prefix}_{key.upper().replace('-', '_')}"
-            env[env_key] = str(value) if value is not None else ""
 
         try:
             result = subprocess.run(

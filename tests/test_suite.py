@@ -2601,12 +2601,12 @@ class TestRespondToUserNoTruncation(unittest.TestCase):
     def test_respond_to_user_not_in_truncation_filter(self):
         with open(os.path.join(os.path.dirname(__file__), '..', 'agent_engine', 'engine.py')) as f:
             content = f.read()
-        self.assertIn('tool_name not in ("respond_to_user", "request_user_input")', content)
+        self.assertIn('tool_name not in ("respond_to_user", "request_user_input", "read_full_file")', content)
 
     def test_request_user_input_not_in_truncation_filter(self):
         with open(os.path.join(os.path.dirname(__file__), '..', 'agent_engine', 'engine.py')) as f:
             content = f.read()
-        self.assertIn('tool_name not in ("respond_to_user", "request_user_input")', content)
+        self.assertIn('tool_name not in ("respond_to_user", "request_user_input", "read_full_file")', content)
 
 
 # ====================================================================
