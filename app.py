@@ -78,7 +78,7 @@ job_history = []
 job_queue_lock = threading.Lock()
 stop_event = threading.Event()
 worker_threads: list = []  # List of worker threads
-_max_workers = int(os.environ.get('AIB_MAX_WORKERS', '3'))  # Default: 3 parallel workers
+_max_workers = int(os.environ.get('AIB_MAX_WORKERS', '10'))  # Default: 3 parallel workers
 _worker_wake = threading.Event()  # Signals workers to check the queue
 
 # Track the active SSE event queue per output_dir so the resume engine
