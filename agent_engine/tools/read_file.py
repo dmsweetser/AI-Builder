@@ -1,6 +1,7 @@
-"""read_file tool."""
+"""read_file tool - read file contents."""
 import os
-from typing import Any, Dict
+from typing import Dict
+
 from agent_engine.tools.base import BaseTool, ToolResult
 from agent_engine.security import ensure_under_root
 
@@ -55,69 +56,3 @@ class ReadFileTool(BaseTool):
         content = ''.join(all_lines[start:end])
         return ToolResult(True, content,
                           summary=f"Lines {start + 1}-{end} of {len(all_lines)} lines ({os.path.getsize(path)} bytes)")
-
-
-class ReadFileRangeTool(BaseTool):
-    name = "read_file_range"
-    description = (
-        "Read a specific range of lines from a file. "
-        "Use this for large files to avoid reading everything. "
-        "line_range format: 'start-end' (1-indexed, inclusive). "
-        "Example: '1-50' reads lines 1 through 50. "
-    )
-    parameters = {"path": "string", "line_range": "string"}
-
-    def execute(self, params: Dict[str, str]) -> ToolResult:
-        path = ensure_under_root(params["path"], self.root_dir)
-
-        if not os.path.isfile(path):
-            return ToolResult(False, "", error=f"File not found: {params['path']}")
-
-        # Accept 'lines' as an alias for 'line_range'
-        line_range = params.get("line_range", params.get("lines", ""))
-        
-        try:
-            with open(path, 'r', encoding='utf-8', errors='replace') as f:
-                all_lines = f.readlines()
-        except (OSError, PermissionError) as e:
-            return ToolResult(False, "", error=f"Cannot read file: {e}")
-
-        try:
-            start_str, end_str = line_range.split("-", 1)
-            start = int(start_str.strip()) - 1
-            end = int(end_str.strip())
-        except (ValueError, IndexError):
-            return ToolResult(False, "", error=f"Invalid line_range format: '{line_range}'. Use 'start-end' (1-indexed, inclusive).")
-
-        start = max(0, start)
-        end = min(len(all_lines), end)
-
-        content = ''.join(all_lines[start:end])
-        return ToolResult(True, content,
-                          summary=f"Lines {start + 1}-{end} of {len(all_lines)} lines ({os.path.getsize(path)} bytes)")
-
-
-class ReadFullFileTool(BaseTool):
-    name = "read_full_file"
-    description = (
-        "Read the full contents of a file with NO truncation. "
-        "Use this ONLY when you have determined the file should be read in full "
-        "and you need to see every character. This bypasses the normal tool result "
-        "length limit. Prefer read_file or read_file_range for large files."
-    )
-    parameters = {"path": "string"}
-
-    def execute(self, params: Dict[str, str]) -> ToolResult:
-        path = ensure_under_root(params["path"], self.root_dir)
-
-        if not os.path.isfile(path):
-            return ToolResult(False, "", error=f"File not found: {params['path']}")
-
-        try:
-            with open(path, 'r', encoding='utf-8', errors='replace') as f:
-                content = f.read()
-        except (OSError, PermissionError) as e:
-            return ToolResult(False, "", error=f"Cannot read file: {e}")
-
-        return ToolResult(True, content,
-                          summary=f"{len(content)} chars, {len(content.splitlines())} lines ({os.path.getsize(path)} bytes)")
