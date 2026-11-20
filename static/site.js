@@ -2464,6 +2464,11 @@ function _doShowLiveView(jobId, queueData, history, jobRecord, isRunning, isPend
             // Now start background polling for any updates
             _startPolling(jobId, outputDir, agentBox, projectId, false);
 
+            // Auto-refresh 1s after arrival to ensure fresh data
+            setTimeout(function() {
+                refreshLiveView();
+            }, 1000);
+
             // Check for pending approval tools in background
             if (isPendingApproval && outputDir) {
                 _showPendingApproval(jobId, outputDir, agentBox);
