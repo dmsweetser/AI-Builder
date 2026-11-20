@@ -1151,7 +1151,7 @@ class AgentEngine:
         reminder = (
             f"[PENDING TOOL APPROVAL] There are {len(pending)} tool proposal(s) "
             f"awaiting your review: {tool_names}.\n\n"
-            f"Please review and approve or reject them in the TOOLS tab.\n"
+            f"Please review and approve or reject the tool.\n"
             f"Do NOT attempt to use any of these tools until they are approved.\n"
             f"Use respond_to_user to inform the user about these pending tools.\n"
         )

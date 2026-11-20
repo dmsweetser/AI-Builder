@@ -1866,7 +1866,7 @@ def api_agent_permission():
     """Deprecated: execute_python tool was removed. Use create_tool instead."""
     return jsonify({
         "error": "The execute_python tool has been removed. Use create_tool to propose new tools for approval.",
-        "suggestion": "Use the create_tool tool to propose a new tool, then approve it in the TOOLS tab.",
+        "suggestion": "Use the create_tool tool to propose a new tool, then approve it when requested by the agent.",
     }), 410
 
 
