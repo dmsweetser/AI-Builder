@@ -1792,6 +1792,8 @@ def api_agent_inject():
                             f"========== NEW USER INSTRUCTION ==========\n"
                             f"{instruction}\n"
                             "========== END NEW INSTRUCTION ==========\n\n"
+                            "Review what was already done, then take the next appropriate action "
+                            "to continue working on the project with these new instructions.\n\n"
                             "Respond with EXACTLY ONE tool call."
                         )
                     })
@@ -2527,7 +2529,7 @@ def api_get_bash_tools(pid):
 
 @app.route("/api/projects/<pid>/bash-tools", methods=["POST"])
 def api_create_bash_tool(pid):
-    """Create a new bash tool for a project."""
+    """Create a new bash tool for a project (no parameters)."""
     project, _ = get_project(pid)
     if not project:
         return jsonify({"error": "Project not found"}), 404
@@ -2535,7 +2537,6 @@ def api_create_bash_tool(pid):
     output_dir = project.get("output_dir", "")
     name = data.get("name", "")
     description = data.get("description", "")
-    params = data.get("params", [])
     script_content = data.get("script_content", "")
     if not name:
         return jsonify({"error": "Tool name is required"}), 400
@@ -2543,10 +2544,28 @@ def api_create_bash_tool(pid):
         return jsonify({"error": "Script content is required"}), 400
 
     registry = get_registry()
-    result = registry.create_project_bash_tool(output_dir, name, description, params, script_content)
+    result = registry.create_project_bash_tool(output_dir, name, description, script_content)
     if result.get("status") == "created":
         # Reload the project's tools list for the UI
         pass
+    return jsonify(result)
+
+
+@app.route("/api/projects/<pid>/bash-tools/<tool_name>", methods=["PUT"])
+def api_edit_bash_tool(pid, tool_name):
+    """Edit an existing bash tool for a project."""
+    project, _ = get_project(pid)
+    if not project:
+        return jsonify({"error": "Project not found"}), 404
+    data = request.get_json(silent=True) or {}
+    output_dir = project.get("output_dir", "")
+    description = data.get("description", "")
+    script_content = data.get("script_content", "")
+    if not script_content:
+        return jsonify({"error": "Script content is required"}), 400
+
+    registry = get_registry()
+    result = registry.edit_project_bash_tool(output_dir, tool_name, description, script_content)
     return jsonify(result)
 
 

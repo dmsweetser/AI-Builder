@@ -192,11 +192,16 @@ class ToolRegistry:
         return loader.list_bash_tools()
 
     def create_project_bash_tool(self, project_output_dir: str, name: str,
-                                 description: str, params: List[Dict[str, Any]],
-                                 script_content: str) -> Dict[str, Any]:
-        """Create a new bash tool for a specific project."""
+                                 description: str, script_content: str) -> Dict[str, Any]:
+        """Create a new bash tool for a specific project (no parameters)."""
         loader = self._get_or_create_bash_loader(project_output_dir)
-        return loader.create_bash_tool(name, description, params, script_content)
+        return loader.create_bash_tool(name, description, script_content)
+
+    def edit_project_bash_tool(self, project_output_dir: str, name: str,
+                               description: str, script_content: str) -> Dict[str, Any]:
+        """Edit an existing bash tool for a specific project."""
+        loader = self._get_or_create_bash_loader(project_output_dir)
+        return loader.edit_bash_tool(name, description, script_content)
 
     def delete_project_bash_tool(self, project_output_dir: str, tool_name: str) -> Dict[str, Any]:
         """Delete a bash tool for a specific project."""

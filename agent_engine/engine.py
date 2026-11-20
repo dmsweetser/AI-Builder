@@ -1258,7 +1258,7 @@ class AgentEngine:
                             f"{resume_input}\n"
                             "========== END USER RESPONSE ==========\n\n"
                             "Use this response to continue your task. "
-                            "Respond with EXACTLY ONE tool call."
+                            "Review what was already done, then take the next appropriate action."
                         )
                     })
 
@@ -1275,8 +1275,8 @@ class AgentEngine:
                             f"User has sent new instructions:\n{live_instruction}\n"
                             "========== END NEW INSTRUCTION ==========\n\n"
                             "You must respond with EXACTLY ONE tool call. "
-                            "Do NOT combine this with any previous context. "
-                            "Start fresh with a single tool call to address the new instructions."
+                            "Review what was already done, then take the next appropriate action "
+                            "to continue working on the project with these new instructions."
                         )
                     })
 

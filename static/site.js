@@ -392,12 +392,24 @@ function _startPolling(jobId, outputDir, agentBox, projectId, fastPoll) {
     // Use faster polling (5s) when agent is actively running, slower (30s) otherwise
     var interval = fastPoll ? 5000 : 30000;
 
+    // Store the jobId and projectId that this poller is for
+    var pollJobId = jobId;
+    var pollProjectId = projectId;
+
     // Initial fetch
     _pollOnce(jobId, outputDir, agentBox, projectId);
 
     // Poll at the configured interval
     _pollInterval = setInterval(function() {
-        _pollOnce(jobId, outputDir, agentBox, projectId);
+        // Verify this poller is still the active one for this job/project
+        var activeContainer = document.getElementById('agent-live-container');
+        if (activeContainer && activeContainer.dataset.jobId !== pollJobId) {
+            // A new job is now active — stop polling for this stale job
+            clearInterval(_pollInterval);
+            _pollInterval = null;
+            return;
+        }
+        _pollOnce(pollJobId, outputDir, agentBox, pollProjectId);
     }, interval);
 }
 
@@ -463,6 +475,16 @@ function updateLiveResponse(jobId, agentBox, projectId) {
     var container = document.getElementById('live-response-container');
     if (!container) return;
 
+    // Only update if this is the currently active live view for this job
+    var activeContainer = document.getElementById('agent-live-container');
+    if (activeContainer) {
+        var activeJobId = activeContainer.dataset.jobId;
+        // If there's an active container with a different jobId, skip this update
+        if (activeJobId && activeJobId !== jobId) {
+            return;
+        }
+    }
+
     fetch('/api/agent/response/' + jobId)
         .then(function(r) { return r.json(); })
         .then(function(data) {
@@ -472,9 +494,14 @@ function updateLiveResponse(jobId, agentBox, projectId) {
                 // Auto-scroll to show latest content
                 container.scrollTop = container.scrollHeight;
             } else {
-                // Check per-project running state
+                // Check per-project running state - only show "Thinking" if this is the active job
                 var state = projectId ? _runningProjects[projectId] : null;
-                if (state && state.agentRunning) {
+                var isActive = true;
+                if (activeContainer) {
+                    var activeJobId = activeContainer.dataset.jobId;
+                    isActive = !activeJobId || activeJobId === jobId;
+                }
+                if (state && state.agentRunning && isActive) {
                     // Show "Thinking..." with a subtle indicator so the user knows
                     // the agent is active, but don't hide the current_response.txt
                     // container — it will show when content appears
@@ -1663,9 +1690,16 @@ function renderJobs(queueData, history) {
         item.dataset.jobId = job.job_id;
         item.onclick = function() { toggleJobSteps(job.job_id); };
         var statusClass = 'completed';
-        if (job.status === 'running') statusClass = 'running';
-        else if (job.status === 'error') statusClass = 'error';
-        else if (job.status === 'stopped') statusClass = 'stopped';
+        var statusText = job.status || 'unknown';
+
+        // Map status to CSS class
+        if (statusText === 'running') statusClass = 'running';
+        else if (statusText === 'pending_approval') statusClass = 'queued';
+        else if (statusText === 'pending_user_input') statusClass = 'queued';
+        else if (statusText === 'error') statusClass = 'error';
+        else if (statusText === 'stopped') statusClass = 'stopped';
+        else if (statusText === 'max_steps_reached') statusClass = 'queued';
+        else if (statusText === 'completed') statusClass = 'completed';
 
         // Build header
         var header = document.createElement('div');
@@ -1676,7 +1710,7 @@ function renderJobs(queueData, history) {
         header.appendChild(nameSpan);
         var statusSpan = document.createElement('span');
         statusSpan.className = 'project-item-status ' + statusClass;
-        statusSpan.textContent = job.status || 'unknown';
+        statusSpan.textContent = statusText.toUpperCase().replace('_', ' ');
         header.appendChild(statusSpan);
         item.appendChild(header);
 
@@ -2721,12 +2755,18 @@ function toggleBashToolForm() {
         // Clear form
         var nameEl = document.getElementById('bash-tool-name');
         var descEl = document.getElementById('bash-tool-desc');
-        var paramsEl = document.getElementById('bash-tool-params');
         var scriptEl = document.getElementById('bash-tool-script');
         if (nameEl) nameEl.value = '';
         if (descEl) descEl.value = '';
-        if (paramsEl) paramsEl.value = '';
         if (scriptEl) scriptEl.value = '';
+        // Remove edit mode state
+        container.removeAttribute('data-editing');
+        container.removeAttribute('data-edit-name');
+        var createBtn = container.querySelector('.btn-success');
+        if (createBtn) {
+            createBtn.textContent = 'CREATE';
+            createBtn.onclick = function() { createBashTool(); };
+        }
     }
 }
 
@@ -2751,6 +2791,13 @@ function loadBashTools(pid) {
                 var nameEl = document.createElement('span');
                 nameEl.style.cssText = 'font-weight:bold; font-size:13px;';
                 nameEl.textContent = '⚡ ' + tool.name;
+                var actionsEl = document.createElement('div');
+                actionsEl.style.cssText = 'display:flex; gap:4px;';
+                var editBtn = document.createElement('button');
+                editBtn.className = 'btn btn-xs btn-secondary';
+                editBtn.textContent = 'EDIT';
+                editBtn.style.cssText = 'font-size:10px;';
+                editBtn.onclick = function(e) { e.stopPropagation(); editBashTool(pid, tool); };
                 var delBtn = document.createElement('button');
                 delBtn.className = 'btn btn-xs btn-danger';
                 delBtn.textContent = 'DELETE';
@@ -2758,20 +2805,16 @@ function loadBashTools(pid) {
                 delBtn.dataset.deleteBashTool = 'true';
                 delBtn.dataset.projectId = pid;
                 delBtn.dataset.toolName = tool.name;
+                actionsEl.appendChild(editBtn);
+                actionsEl.appendChild(delBtn);
                 headerEl.appendChild(nameEl);
-                headerEl.appendChild(delBtn);
+                headerEl.appendChild(actionsEl);
                 toolEl.appendChild(headerEl);
                 if (tool.description) {
                     var descEl = document.createElement('div');
                     descEl.style.cssText = 'color:var(--text-muted); font-size:11px; margin-bottom:4px;';
                     descEl.textContent = tool.description;
                     toolEl.appendChild(descEl);
-                }
-                if (tool.params && tool.params.length > 0) {
-                    var paramsEl = document.createElement('div');
-                    paramsEl.style.cssText = 'font-size:10px; color:var(--text-muted);';
-                    paramsEl.textContent = 'Params: ' + tool.params.map(function(p) { return p.name + '(' + (p.required ? 'req' : 'opt') + ')'; }).join(', ');
-                    toolEl.appendChild(paramsEl);
                 }
                 list.appendChild(toolEl);
             });
@@ -2786,29 +2829,11 @@ function loadBashTools(pid) {
 function createBashTool() {
     var name = document.getElementById('bash-tool-name').value.trim();
     var desc = document.getElementById('bash-tool-desc').value.trim();
-    var paramsText = document.getElementById('bash-tool-params').value.trim();
     var script = document.getElementById('bash-tool-script').value.trim();
 
     if (!name) { showNotification('Tool name is required', 'warning'); return; }
     if (!desc) { showNotification('Description is required', 'warning'); return; }
     if (!script) { showNotification('Script body is required', 'warning'); return; }
-
-    // Parse params
-    var params = [];
-    if (paramsText) {
-        var lines = paramsText.split('\n');
-        lines.forEach(function(line) {
-            line = line.trim();
-            if (!line) return;
-            var parts = line.split(/\s+/);
-            if (parts.length >= 2) {
-                var p = { name: parts[0], type: parts[1] || 'string', required: false };
-                if (parts.length >= 3 && parts[2].toLowerCase() === 'true') p.required = true;
-                if (parts.length >= 4) p.default = parts[3];
-                params.push(p);
-            }
-        });
-    }
 
     var pid = document.getElementById('run-project-id') ? document.getElementById('run-project-id').value : null;
     if (!pid) { showNotification('No project selected', 'warning'); return; }
@@ -2816,7 +2841,7 @@ function createBashTool() {
     fetch('/api/projects/' + pid + '/bash-tools', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({name: name, description: desc, params: params, script_content: script})
+        body: JSON.stringify({name: name, description: desc, script_content: script})
     })
     .then(function(r) { return r.json(); })
     .then(function(data) {
@@ -2831,6 +2856,60 @@ function createBashTool() {
     .catch(function(err) {
         console.error('Failed to create bash tool:', err);
         showNotification('Failed to create bash tool.', 'error');
+    });
+}
+
+function editBashTool(pid, tool) {
+    var container = document.getElementById('bash-tool-form-container');
+    if (!container) return;
+
+    // Set edit mode
+    container.setAttribute('data-editing', 'true');
+    container.setAttribute('data-edit-name', tool.name);
+
+    // Populate form
+    var nameEl = document.getElementById('bash-tool-name');
+    var descEl = document.getElementById('bash-tool-desc');
+    var scriptEl = document.getElementById('bash-tool-script');
+    if (nameEl) nameEl.value = tool.name;
+    if (descEl) descEl.value = tool.description;
+    if (scriptEl) scriptEl.value = tool.source || '';
+
+    // Change button to "UPDATE"
+    var createBtn = container.querySelector('.btn-success');
+    if (createBtn) {
+        createBtn.textContent = 'UPDATE';
+        createBtn.onclick = function() { updateBashTool(pid, tool.name); };
+    }
+
+    container.style.display = 'block';
+}
+
+function updateBashTool(pid, oldName) {
+    var desc = document.getElementById('bash-tool-desc').value.trim();
+    var script = document.getElementById('bash-tool-script').value.trim();
+
+    if (!desc) { showNotification('Description is required', 'warning'); return; }
+    if (!script) { showNotification('Script body is required', 'warning'); return; }
+
+    fetch('/api/projects/' + pid + '/bash-tools/' + encodeURIComponent(oldName), {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({description: desc, script_content: script})
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (data.status === 'updated') {
+            showNotification('Bash tool "' + oldName + '" updated!', 'success');
+            toggleBashToolForm();
+            loadBashTools(pid);
+        } else {
+            showNotification('Failed: ' + (data.error || 'Unknown error'), 'error');
+        }
+    })
+    .catch(function(err) {
+        console.error('Failed to update bash tool:', err);
+        showNotification('Failed to update bash tool.', 'error');
     });
 }
 

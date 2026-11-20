@@ -296,9 +296,8 @@ class BashToolLoader:
 
     # --- CRUD operations for bash tools ---
 
-    def create_bash_tool(self, name: str, description: str, params: List[Dict[str, Any]],
-                         script_content: str) -> Dict[str, Any]:
-        """Create a new bash tool script."""
+    def create_bash_tool(self, name: str, description: str, script_content: str) -> Dict[str, Any]:
+        """Create a new bash tool script (no parameters — bash scripts take none)."""
         scripts_dir = self._bash_scripts_dir()
         os.makedirs(scripts_dir, exist_ok=True)
         # Sanitize name for filename
@@ -307,30 +306,15 @@ class BashToolLoader:
         if os.path.exists(script_path):
             return {"status": "error", "error": f"Tool '{name}' already exists"}
 
-        # Build the script with metadata header
+        # Build the script with metadata header (no params for bash tools)
         lines = [
             "#!/bin/bash",
             f"# TOOL_NAME: {safe_name}",
             f"# TOOL_DESCRIPTION: {description}",
+            "",
+            "# --- Script body starts here ---",
+            script_content,
         ]
-        if params:
-            lines.append("# TOOL_PARAMS:")
-            for p in params:
-                pname = p.get("name", "")
-                ptype = p.get("type", "string")
-                preq = p.get("required", False)
-                pdflt = p.get("default")
-                line = f"#   - name: {pname}"
-                if ptype != "string":
-                    line += f"\n#     type: {ptype}"
-                if preq:
-                    line += f"\n#     required: true"
-                if pdflt is not None:
-                    line += f"\n#     default: {pdflt}"
-                lines.append(line)
-        lines.append("")
-        lines.append("# --- Script body starts here ---")
-        lines.append(script_content)
 
         with open(script_path, 'w', encoding='utf-8') as f:
             f.write('\n'.join(lines))
@@ -339,6 +323,31 @@ class BashToolLoader:
         # Reload to pick up the new tool
         self._load_bash_tools()
         return {"status": "created", "tool_name": safe_name}
+
+    def edit_bash_tool(self, name: str, description: str, script_content: str) -> Dict[str, Any]:
+        """Edit an existing bash tool script."""
+        scripts_dir = self._bash_scripts_dir()
+        script_path = os.path.join(scripts_dir, f"{name}.sh")
+        if not os.path.exists(script_path):
+            return {"status": "not_found", "error": f"Tool '{name}' not found"}
+
+        # Build the script with metadata header (no params for bash tools)
+        lines = [
+            "#!/bin/bash",
+            f"# TOOL_NAME: {name}",
+            f"# TOOL_DESCRIPTION: {description}",
+            "",
+            "# --- Script body starts here ---",
+            script_content,
+        ]
+
+        with open(script_path, 'w', encoding='utf-8') as f:
+            f.write('\n'.join(lines))
+        os.chmod(script_path, 0o755)
+
+        # Reload to pick up the changes
+        self._load_bash_tools()
+        return {"status": "updated", "tool_name": name}
 
     def delete_bash_tool(self, name: str) -> Dict[str, Any]:
         scripts_dir = self._bash_scripts_dir()
@@ -351,7 +360,7 @@ class BashToolLoader:
         return {"status": "deleted", "tool_name": name}
 
     def list_bash_tools(self) -> List[Dict[str, Any]]:
-        """List all bash tools with their source code."""
+        """List all bash tools with their source code (no params — bash scripts take none)."""
         tools = []
         scripts_dir = self._bash_scripts_dir()
         if not os.path.isdir(scripts_dir):
@@ -367,11 +376,9 @@ class BashToolLoader:
                 # Parse metadata
                 name_match = _HEADER_RE.search(source)
                 desc_match = _HEADER_DESC_RE.search(source)
-                params_text = _extract_params_text(source)
                 tools.append({
                     "name": name_match.group(1).strip() if name_match else tool_name,
                     "description": desc_match.group(1).strip() if desc_match else "",
-                    "params": _parse_params_text(params_text) if params_text else [],
                     "source": source,
                 })
             except Exception:

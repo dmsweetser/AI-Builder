@@ -93,6 +93,12 @@ body {
     height: 180px;
     margin-bottom: 48px;
     z-index: 1;
+    animation: horse-container-breathe 3s ease-in-out infinite;
+}
+
+@keyframes horse-container-breathe {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.02); }
 }
 
 /* === Horse body — elongated torso with chest, belly, and rump === */
@@ -105,37 +111,11 @@ body {
     left: 52%;
     transform: translateX(-50%);
     border-radius: 14px 18px 8px 8px;
-    box-shadow: 0 8px 15px rgba(0, 0, 0, 0.4);
+    box-shadow: 0 8px 15px rgba(0, 0, 0, 0.4), inset 0 -4px 8px rgba(0,0,0,0.2);
     animation: horse-bounce 0.7s cubic-bezier(0.42, 0, 0.58, 1) infinite;
 }
 
-/* Chest bulge (front of body) */
-.horse-body::before {
-    content: '';
-    position: absolute;
-    width: 30px;
-    height: 34px;
-    background: linear-gradient(180deg, #C5A06D 0%, #A0784A 100%);
-    top: 8px;
-    right: -12px;
-    border-radius: 50%;
-    box-shadow: inset -2px 2px 4px rgba(0,0,0,0.15);
-}
-
-/* Rump bulge (back of body) */
-.horse-body::after {
-    content: '';
-    position: absolute;
-    width: 28px;
-    height: 30px;
-    background: linear-gradient(180deg, #B8935E 0%, #8B6914 100%);
-    top: 10px;
-    left: -8px;
-    border-radius: 50%;
-    box-shadow: inset 2px 2px 4px rgba(0,0,0,0.1);
-}
-
-/* Horse head — longer snout, wider jaw */
+/* Horse head — longer snout, wider jaw, with more detail */
 .horse-head {
     position: absolute;
     width: 64px;
@@ -147,6 +127,7 @@ body {
     border-radius: 10px 14px 4px 6px;
     animation: head-bob 0.5s ease-in-out infinite;
     z-index: 2;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.3);
 }
 
 /* Ear */
@@ -176,7 +157,7 @@ body {
     transform: rotate(-8deg);
 }
 
-/* Eye */
+/* Eye — more expressive with highlight */
 .horse-head .horse-eye {
     position: absolute;
     width: 8px;
@@ -187,6 +168,19 @@ body {
     border-radius: 50%;
     animation: eye-blink 4s ease-in-out infinite;
     z-index: 3;
+    box-shadow: inset -1px -1px 2px rgba(255,255,255,0.3);
+}
+
+/* Eye highlight */
+.horse-head .horse-eye::after {
+    content: '';
+    position: absolute;
+    width: 3px;
+    height: 3px;
+    background: rgba(255,255,255,0.8);
+    top: 1px;
+    left: 1px;
+    border-radius: 50%;
 }
 
 /* Nostril */
@@ -198,9 +192,15 @@ body {
     top: 24px;
     left: 54px;
     border-radius: 50%;
+    animation: nostril-flare 2s ease-in-out infinite;
 }
 
-/* Mane — flowing strands */
+@keyframes nostril-flare {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.2); }
+}
+
+/* Mane — flowing strands with more volume */
 .horse-head .horse-mane {
     position: absolute;
     width: 20px;
@@ -212,6 +212,7 @@ body {
     animation: mane-flow 0.6s ease-in-out infinite;
     transform-origin: top center;
     z-index: 1;
+    box-shadow: 2px 2px 4px rgba(0,0,0,0.2);
 }
 
 /* Mane strand 2 */
@@ -227,7 +228,20 @@ body {
     animation: mane-flow 0.7s ease-in-out infinite reverse;
 }
 
-/* Horse legs — connected to body, proper proportions */
+/* Mane strand 3 */
+.horse-head .horse-mane::after {
+    content: '';
+    position: absolute;
+    width: 12px;
+    height: 24px;
+    background: linear-gradient(180deg, #5A3F10 0%, #3A2510 100%);
+    top: 8px;
+    left: -8px;
+    border-radius: 4px 0 4px 6px;
+    animation: mane-flow 0.8s ease-in-out infinite;
+}
+
+/* Horse legs — connected to body, proper proportions, with joints */
 .horse-legs {
     position: absolute;
     bottom: 4%;
@@ -244,6 +258,7 @@ body {
     background: linear-gradient(180deg, #D4A855 0%, #C5A06D 60%, #8B6914 100%);
     border: 2px solid #6B4F10;
     border-radius: 3px 3px 4px 4px;
+    box-shadow: 2px 2px 4px rgba(0,0,0,0.2);
 }
 
 /* Hoof */
@@ -277,7 +292,7 @@ body {
 .horse-leg:nth-child(3) { left: 68px; animation: leg-back-1 0.5s ease-in-out infinite; }
 .horse-leg:nth-child(4) { left: 86px; animation: leg-back-2 0.5s ease-in-out infinite; }
 
-/* Horse tail — longer, thicker, with tuft */
+/* Horse tail — longer, thicker, with tuft and more flow */
 .horse-tail {
     position: absolute;
     width: 16px;
@@ -289,6 +304,7 @@ body {
     animation: tail-wag 0.6s ease-in-out infinite;
     transform-origin: top center;
     z-index: 0;
+    box-shadow: -2px 2px 4px rgba(0,0,0,0.2);
 }
 
 /* Tail tuft */
@@ -304,7 +320,21 @@ body {
     border-radius: 4px 4px 6px 6px;
 }
 
-/* Ground shadow */
+/* Tail strand 2 */
+.horse-tail::before {
+    content: '';
+    position: absolute;
+    width: 10px;
+    height: 40px;
+    background: linear-gradient(180deg, #5A3F10 0%, #2A1A0A 100%);
+    top: 10px;
+    left: -6px;
+    border-radius: 6px 0 4px 6px;
+    animation: tail-wag 0.8s ease-in-out infinite reverse;
+    transform-origin: top center;
+}
+
+/* Ground shadow — more dynamic */
 .horse-shadow {
     position: absolute;
     bottom: 0%;

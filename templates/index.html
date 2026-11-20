@@ -149,12 +149,8 @@
                                     <input type="text" id="bash-tool-desc" placeholder="What does this tool do?" style="width:100%; padding:6px; background:var(--bg-primary); border:1px solid var(--border); color:var(--text); border-radius:4px;">
                                 </div>
                                 <div style="margin-bottom:8px;">
-                                    <label style="font-size:12px;">Parameters (one per line: name type required default)</label>
-                                    <textarea id="bash-tool-params" rows="3" placeholder="file_path string true&#10;count integer false 10" style="width:100%; padding:6px; background:var(--bg-primary); border:1px solid var(--border); color:var(--text); border-radius:4px; font-family:monospace; font-size:12px;"></textarea>
-                                </div>
-                                <div style="margin-bottom:8px;">
                                     <label style="font-size:12px;">Script Body *</label>
-                                    <textarea id="bash-tool-script" rows="6" placeholder='echo "Processing $TOOL_FILE_PATH..."' style="width:100%; padding:6px; background:var(--bg-primary); border:1px solid var(--border); color:var(--text); border-radius:4px; font-family:monospace; font-size:12px;"></textarea>
+                                    <textarea id="bash-tool-script" rows="6" placeholder='echo "Processing..."' style="width:100%; padding:6px; background:var(--bg-primary); border:1px solid var(--border); color:var(--text); border-radius:4px; font-family:monospace; font-size:12px;"></textarea>
                                 </div>
                                 <div style="display:flex; gap:8px;">
                                     <button type="button" class="btn btn-sm btn-success" onclick="createBashTool()">CREATE</button>
