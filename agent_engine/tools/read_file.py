@@ -9,9 +9,12 @@ from agent_engine.security import ensure_under_root
 class ReadFileTool(BaseTool):
     name = "read_file"
     description = (
-        "Read the full contents of a file. "
-        "Use this to inspect code before modifying it. "
-        "For large files, use read_file_range instead to read specific lines. "
+        "Read a file's contents. Results are truncated as needed by default — "
+        "the response summary includes the total character count, line count, and byte size "
+        "so you know the file's full size. "
+        "For large files, use read_file_range to read specific line ranges. "
+        "For files that must be read entirely (no truncation), use read_full_file. "
+        "Always prefer read_file or read_file_range over read_full_file."
     )
     parameters = {"path": "string"}
 

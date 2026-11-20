@@ -10,9 +10,13 @@ class ReadFullFileTool(BaseTool):
     name = "read_full_file"
     description = (
         "Read the full contents of a file with NO truncation. "
-        "Use this ONLY when you have determined the file should be read in full "
-        "and you need to see every character. This bypasses the normal tool result "
-        "length limit. Prefer read_file or read_file_range for large files."
+        "This bypasses the normal tool result limit and returns "
+        "the ENTIRE file — even very large files. "
+        "WARNING: Using this for large files can cause context overflow and slow the agent. "
+        "Only use this when you have already inspected the file's size via read_file's summary "
+        "and have determined that the full content is genuinely needed. "
+        "For most cases, use read_file (which includes size info in its summary) or "
+        "read_file_range to read specific sections instead."
     )
     parameters = {"path": "string"}
 

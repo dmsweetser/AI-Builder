@@ -414,11 +414,13 @@ CRITICAL: You MUST take at least one tool call before using task_completed. You 
 
 -RULES:
 - ALWAYS use read_file before edit_file. edit_file now uses line-range replacement: provide line_start and line_end (1-indexed) and a complete new_text to replace those lines. After editing, you MUST read back the affected area (with edge context) to verify the change.
+- read_file is your default file reader — it includes size info (chars, lines, bytes) in its summary. If the file is large, its content may be truncated but the summary tells you the full size.
+- For large files, use read_file_range with a line_range parameter to read specific sections. Its summary includes the total line count so you always know the file's full size.
+- NEVER default to read_full_file — it bypasses all truncation and can overflow the context window. Only use it when you've checked read_file's summary and the full content is genuinely required.
 - ALWAYS include ALL required parameters for every tool call. Missing parameters will cause errors.
 - ALWAYS use check_syntax after editing to verify correctness.
 - If the user asks you to run a tool, you must ALWAYS IMMEDIATELY execute the closest matching existing tool before you create a new one
 - Keep edits focused and small - one change at a time.
-- For large files, use read_file_range with a line_range parameter to read specific sections. Do NOT read entire large files.
 - For Java projects with JAR dependencies, use decompile_jar to inspect them.
 - For large codebases, be selective: grep for relevant code, don't read everything.
 - You have a maximum of {EngineConfig.get_max_steps()} steps total. Use them wisely.
@@ -438,8 +440,20 @@ CODE FORMATTING (CRITICAL - READ CAREFULLY):
 - This applies to ALL tool parameters that contain code or file content.
 
 TRUNCATION HANDLING:
-- Tool results may be truncated if they exceed the configured max length (default 5000 chars).
+- Tool results are truncated to 10000 characters by default to prevent context overflow.
 - If a result says [TRUNCATED], the output was cut off. You should retry with more specific parameters.
+- The `read_file` tool includes a summary with total character count, line count, and byte size
+  so you always know the file's full size even when content is truncated.
+
+FILE READING (CRITICAL - READ CAREFULLY):
+- `read_file` is the DEFAULT — use it first for every file. It may truncate content at 10000 chars,
+  but its summary always tells you the total size (chars, lines, bytes).
+- `read_file_range` is for reading specific line ranges from large files.
+  Its summary always includes the file's total line count.
+- `read_full_file` bypasses ALL truncation and returns the ENTIRE file.
+  WARNING: This can return huge amounts of text and cause context overflow.
+  Only use read_full_file when you have checked read_file's summary and determined
+  the full content is genuinely required. NEVER default to read_full_file.
 
 PARAMETER FORMAT (tag-based, NO EXCEPTIONS):
 - Your ENTIRE response MUST be exactly ONE of the following:

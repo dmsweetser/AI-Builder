@@ -11,6 +11,8 @@ class ReadFileRangeTool(BaseTool):
     description = (
         "Read a specific range of lines from a file. "
         "Use this for large files to avoid reading everything. "
+        "The response summary includes the total line count of the file, "
+        "so you always know the file's full size. "
         "line_range format: 'start-end' (1-indexed, inclusive). "
         "Example: '1-50' reads lines 1 through 50. "
     )
