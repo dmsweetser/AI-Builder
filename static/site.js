@@ -7,6 +7,9 @@ let _uiState = {};        // Current state payload from /api/state
 let _pollInterval = null;  // Polling timer handle
 let _activeJobId = null;   // Currently viewed job (for live view)
 let _showArchived = false; // Filter toggle (kept in memory only)
+let currentProjectId = null; // Currently selected project (for inline HTML onclick handlers)
+let chatId = null;         // Currently open chat (for sendChat)
+let AVAILABLE_TOOLS = [];  // All tool names (loaded from backend)
 
 // === Core State Fetch ===
 async function fetchState() {
@@ -27,10 +30,35 @@ async function initUI() {
     // Load initial state
     await fetchState();
     
+    // Load available tools from backend
+    fetch('/api/tools/status')
+        .then(function(r) { return r.json(); })
+        .then(function(toolStatus) {
+            AVAILABLE_TOOLS = Object.keys(toolStatus).sort();
+            // Re-render tool selectors now that we have tool data
+            var detailsSelector = document.getElementById('details-tool-selector');
+            if (detailsSelector) {
+                // Rebuild if form is already open
+                var projectId = document.getElementById('run-project-id')?.value;
+                if (projectId) {
+                    fetch('/api/projects/' + projectId + '/tools')
+                        .then(function(r) { return r.json(); })
+                        .then(function(toolData) {
+                            buildToolSelector(toolData.disabled_tools || [], toolData.custom_tools || []);
+                        }).catch(function() {});
+                }
+            }
+            var addSelector = document.getElementById('add-tool-selector');
+            if (addSelector) {
+                buildToolSelectorForElement('add-tool-selector', []);
+            }
+        })
+        .catch(function(err) { console.warn('Failed to load tools status:', err); });
+    
     // Render everything based on backend state
     renderProjects();
     renderJobs();
-    renderChats();
+    loadChats();
     
     // Start polling for updates
     if (_pollInterval) clearInterval(_pollInterval);
@@ -42,7 +70,7 @@ async function initUI() {
             const panelId = activePanel.id;
             if (panelId === 'projects-panel' || panelId === 'project-details-panel') renderProjects();
             else if (panelId === 'jobs-panel') renderJobs();
-            else if (panelId === 'chat-panel') renderChats();
+            else if (panelId === 'chat-panel') loadChats();
         }
     }, 5000); // Poll every 5 seconds
 }
@@ -68,7 +96,7 @@ function showTab(tabName) {
     });
     if (tabName === 'jobs') renderJobs();
     if (tabName === 'settings') loadSettingsUI();
-    if (tabName === 'chat') renderChats();
+    if (tabName === 'chat') loadChats();
 }
 
 // === Project Form Toggle ===
@@ -81,6 +109,10 @@ function toggleCreateForm() {
 }
 
 // === Project Management (stateless) ===
+function loadProjects() {
+    renderProjects();
+}
+
 function renderProjects() {
     var projectList = document.getElementById('project-list');
     if (!projectList) return;
@@ -165,6 +197,10 @@ function renderProjects() {
         projectItem.appendChild(meta);
         projectList.appendChild(projectItem);
     });
+}
+
+function runAgenticProject() {
+    runProject.apply(null, arguments);
 }
 
 function runProject(projectId) {
@@ -838,7 +874,7 @@ function stopCurrentJob() {
 function continueAgentRunWithInstruction(projectId, prevJobId, newInstruction) {
     if (!projectId) return;
     if (!prevJobId) { _doRunProject(projectId, newInstruction); return; }
-    var enabledTools = AVAILABLE_TOOLS.slice();
+    var enabledTools = (AVAILABLE_TOOLS && AVAILABLE_TOOLS.length > 0) ? AVAILABLE_TOOLS.slice() : [];
     var runBtn = document.getElementById('details-run-btn');
     var stopBtn = document.getElementById('details-stop-btn');
     var liveStopBtn = document.getElementById('live-stop-btn');
@@ -894,6 +930,7 @@ function resetRunButtons() {
 }
 
 function selectProject(projectId) {
+    currentProjectId = projectId;
     document.getElementById('projects-panel').classList.remove('active');
     document.getElementById('project-details-panel').classList.add('active');
     window.scrollTo(0, 0);
@@ -1041,17 +1078,21 @@ function saveProjectChanges() {
 }
 
 // === Tool Selector ===
-function buildToolSelector(disabledTools) {
-    buildToolSelectorForElement('details-tool-selector', disabledTools);
+function buildToolSelector(disabledTools, customTools) {
+    buildToolSelectorForElement('details-tool-selector', disabledTools, customTools);
 }
 function buildToolSelectorForElement(elementId, disabledTools, customTools) {
+    customTools = customTools || [];
     var container = document.getElementById(elementId);
     if (!container) return;
     var html = '';
     html += '<div style="margin-bottom:12px;">';
     html += '<div style="font-size:11px;font-weight:bold;color:var(--text-muted);margin-bottom:4px;">BUILT-IN TOOLS</div>';
     html += '<div class="tool-selector-grid">';
-    var tools = AVAILABLE_TOOLS.slice().sort();
+    var tools = (AVAILABLE_TOOLS && AVAILABLE_TOOLS.length > 0) ? AVAILABLE_TOOLS.slice().sort() : [];
+    if (tools.length === 0) {
+        html += '<div style="color:var(--text-muted);font-size:11px;padding:4px 0;">Loading tools...</div>';
+    }
     tools.forEach(function(toolName) {
         var isChecked = disabledTools && disabledTools.indexOf(toolName) === -1;
         html += '<label class="tool-checkbox" style="display:flex;align-items:center;gap:6px;font-size:12px;padding:4px 8px;background:var(--muted);border-radius:4px;cursor:pointer;min-width:0;">' +
@@ -1076,10 +1117,14 @@ function buildToolSelectorForElement(elementId, disabledTools, customTools) {
 }
 
 function getEnabledTools() {
-    return AVAILABLE_TOOLS.slice();
+    return (AVAILABLE_TOOLS && AVAILABLE_TOOLS.length > 0) ? AVAILABLE_TOOLS.slice() : [];
 }
 
 // === Jobs ===
+function loadJobs() {
+    renderJobs();
+}
+
 function renderJobs() {
     var queueData = _uiState.queue || {};
     var history = _uiState.history || [];
@@ -1270,7 +1315,7 @@ function clearJobHistory() {
 }
 
 // === Chat ===
-function renderChats() {
+function loadChats() {
     fetch('/api/chats')
         .then(function(r) { return r.json(); })
         .then(function(chats) {
@@ -1300,8 +1345,9 @@ function newChat() {
         .catch(function(err) { console.error('Failed to create chat:', err); });
 }
 
-function openChat(chatId) {
-    fetch('/api/chats/' + chatId)
+function openChat(id) {
+    chatId = id;
+    fetch('/api/chats/' + id)
         .then(function(r) { return r.json(); })
         .then(function(chat) {
             var log = document.getElementById('chat-log');
@@ -2103,7 +2149,7 @@ document.addEventListener('DOMContentLoaded', function() {
             var checkboxes = document.querySelectorAll('#add-tool-selector input[type="checkbox"]');
             var disabledTools = [];
             checkboxes.forEach(function(cb) {
-                if (cb.checked) {
+                if (!cb.checked) {
                     disabledTools.push(cb.value);
                 }
             });
