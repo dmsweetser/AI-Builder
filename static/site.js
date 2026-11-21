@@ -944,6 +944,7 @@ function resetRunButtons() {
 }
 
 function selectProject(projectId) {
+    resetRunButtons();
     currentProjectId = projectId;
     document.getElementById('projects-panel').classList.remove('active');
     document.getElementById('project-details-panel').classList.add('active');
