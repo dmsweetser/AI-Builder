@@ -921,7 +921,21 @@ function continueAgentRunWithInstruction(projectId, prevJobId, newInstruction) {
 function resetRunButtons() {
     var runBtn = document.getElementById('details-run-btn');
     var stopBtn = document.getElementById('details-stop-btn');
-    if (runBtn) { runBtn.disabled = false; runBtn.innerHTML = 'RUN AI BUILDER'; }
+    if (runBtn) {
+        runBtn.disabled = false;
+        runBtn.innerHTML = 'RUN AI BUILDER';
+    } else {
+        // Run button not found — likely because the live view is showing
+        // and the config section is hidden. Restore the UI to the config view.
+        var configSection = document.getElementById('project-config-section');
+        var agentLive = document.getElementById('agent-live-container');
+        if (configSection) configSection.style.display = 'block';
+        if (agentLive) {
+            agentLive.style.display = 'none';
+            var statusText = document.getElementById('agent-status-text');
+            if (statusText) { statusText.textContent = 'AGENT READY'; statusText.style.color = ''; }
+        }
+    }
     if (stopBtn) stopBtn.style.display = 'none';
     var injectInput = document.getElementById('live-inject-input');
     var injectBtn = document.getElementById('live-inject-btn');

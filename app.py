@@ -274,6 +274,7 @@ def load_job_history():
             job_history = []
     else:
         job_history = []
+    return job_history
 
 def save_job_history():
     tmp_path = HISTORY_FILE + ".tmp"
@@ -402,6 +403,15 @@ def worker():
 
         # Mark engine active for this project (prevents duplicate engines)
         _mark_engine_start(pid)
+
+        # Track this job as running so the API and UI can see it
+        with job_queue_lock:
+            running_jobs[job_id] = {
+                "job_id": job_id,
+                "project_id": pid,
+                "output_dir": output_dir,
+                "step": 0,
+            }
 
         job_history.append({
             "job_id": job_id,
