@@ -7,9 +7,14 @@ let _uiState = {};        // Current state payload from /api/state
 let _pollInterval = null;  // Polling timer handle
 let _activeJobId = null;   // Currently viewed job (for live view)
 let _showArchived = false; // Filter toggle (kept in memory only)
+let _expandedJobs = new Set(); // Track which job steps are expanded
 let currentProjectId = null; // Currently selected project (for inline HTML onclick handlers)
 let chatId = null;         // Currently open chat (for sendChat)
 let AVAILABLE_TOOLS = [];  // All tool names (loaded from backend)
+
+// === Live View Scroll Tracking ===
+let _liveViewPrevStepCount = 0;  // Last rendered step count for incremental updates
+let _liveViewScrolledToBottom = true; // Whether user was at bottom before last render
 
 // === Core State Fetch ===
 async function fetchState() {
@@ -223,6 +228,9 @@ function _doRunProject(projectId, overrideInstruction) {
     
     var instructions = overrideInstruction || (document.getElementById('details-instructions') ? document.getElementById('details-instructions').value : '');
     
+    // Reset scroll tracking for new run
+    _liveViewPrevStepCount = 0;
+    
     // Show live view
     var configSection = document.getElementById('project-config-section');
     var agentLive = document.getElementById('agent-live-container');
@@ -308,102 +316,106 @@ function _startPolling(jobId, outputDir, agentBox, projectId, fastPoll) {
 }
 
 function _pollOnce(jobId, outputDir, agentBox, projectId) {
-    var stepsPromise = fetch('/api/job/' + jobId + '/steps')
-        .then(function(r) { return r.json(); })
-        .catch(function() { return { steps: [], count: 0 }; });
-    var statusPromise = fetch('/api/job/' + jobId + '/status')
-        .then(function(r) { return r.json(); })
-        .catch(function() { return {}; });
-    var pendingPromise = outputDir
-        ? fetch('/api/tools/pending', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({project_output_dir: outputDir})
-        }).then(function(r) { return r.json(); }).catch(function() { return []; })
-        : Promise.resolve([]);
-    
-    Promise.all([stepsPromise, statusPromise, pendingPromise])
-        .then(function(results) {
-            var stepsData = results[0];
-            var statusData = results[1];
-            var pendingTools = results[2] || [];
-            var steps = stepsData.steps || [];
-            var count = stepsData.count || 0;
-            var hasPendingTools = pendingTools && pendingTools.length > 0;
-            var hasPendingUserInput = count > 0 && steps[count-1] && steps[count-1].tool === 'request_user_input';
-            _renderAllSteps(jobId, outputDir, agentBox, statusData, hasPendingTools, hasPendingUserInput, projectId);
-        })
-        .catch(function(err) { console.error('Polling error:', err); });
+    // Use consolidated live data from /api/state instead of 3+ separate calls
+    var live = (_uiState.live || {})[jobId] || {};
+    var steps = live.job_steps || [];
+    var statusData = live.job_status || {};
+    var pendingTools = live.pending_tools || [];
+    var hasPendingTools = pendingTools && pendingTools.length > 0;
+    var hasPendingUserInput = steps.length > 0 && steps[steps.length-1] && steps[steps.length-1].tool === 'request_user_input';
+    var stepCount = steps.length;
+    var isNewJob = (_uiState._prevStepCount || 0) === 0;
+    _uiState._prevStepCount = stepCount;
+    _renderAllSteps(jobId, outputDir, agentBox, statusData, hasPendingTools, hasPendingUserInput, projectId, stepCount, steps, isNewJob);
 }
 
-function _renderAllSteps(jobId, outputDir, agentBox, statusData, hasPendingTools, hasPendingUserInput, projectId) {
+function _renderAllSteps(jobId, outputDir, agentBox, statusData, hasPendingTools, hasPendingUserInput, projectId, stepsCount, stepsArr, isNewJob) {
     if (!agentBox) {
         agentBox = document.getElementById('agent-live-box');
     }
     if (!agentBox) { console.warn('agent-live-box not found'); return; }
-    
-    fetch('/api/job/' + jobId + '/steps')
-        .then(function(r) { return r.json(); })
-        .then(function(data) {
-            var steps = data.steps || [];
-            var count = data.count || 0;
-            agentBox.innerHTML = '';
-            for (var i = 0; i < count; i++) {
-                var step = steps[i];
-                if (step) _renderStep(step, agentBox);
+
+    // Track scroll position before any DOM changes
+    var scrollPos = agentBox.scrollTop;
+    var scrollHeight = agentBox.scrollHeight;
+    var atBottom = (scrollPos + agentBox.clientHeight >= scrollHeight - 30);
+
+    // Check if we need a full rebuild (first render, or step count shrank = job reset)
+    var needsFullRebuild = isNewJob || _liveViewPrevStepCount > stepsCount;
+
+    if (needsFullRebuild) {
+        // Full render: clear and build all steps from scratch
+        agentBox.innerHTML = '';
+        _liveViewPrevStepCount = 0;
+        var allSteps = stepsArr || [];
+        for (var i = 0; i < stepsCount; i++) {
+            var step = allSteps[i];
+            if (step) _renderStep(step, agentBox, false);
+        }
+    } else {
+        // Incremental: only append new steps
+        var newSteps = stepsCount - _liveViewPrevStepCount;
+        if (newSteps > 0) {
+            var allSteps = stepsArr || [];
+            for (var i = _liveViewPrevStepCount; i < stepsCount; i++) {
+                var step = allSteps[i];
+                if (step) _renderStep(step, agentBox, false);
             }
-            if (hasPendingTools && outputDir) _showPendingApproval(jobId, outputDir, agentBox);
-            if (hasPendingUserInput) _showPendingUserInput(statusData, agentBox);
-            
-            var st = document.getElementById('agent-status-text');
-            if (st) {
-                if (hasPendingTools) {
-                    st.textContent = 'PENDING TOOL APPROVAL';
-                    st.style.color = 'var(--warning)';
-                    st.style.fontWeight = 'bold';
-                } else if (hasPendingUserInput) {
-                    st.textContent = 'AWAITING INPUT';
-                    st.style.color = 'var(--warning)';
-                    st.style.fontWeight = 'bold';
-                }
-            }
-            
-            var status = statusData.status || 'running';
-            if (status !== 'running' && !hasPendingTools && !hasPendingUserInput) {
-                if (_pollInterval) { clearInterval(_pollInterval); _pollInterval = null; }
-                resetRunButtons();
-                var stopBtn = document.getElementById('details-stop-btn');
-                if (stopBtn) stopBtn.style.display = 'none';
-                var liveStopBtn = document.getElementById('live-stop-btn');
-                if (liveStopBtn) liveStopBtn.style.display = 'none';
-                if (st) {
-                    if (status === 'completed') { st.textContent = 'COMPLETED'; st.style.color = 'var(--success)'; }
-                    else if (status === 'error') { st.textContent = 'ERROR'; st.style.color = 'var(--danger)'; }
-                    else if (status === 'stopped') { st.textContent = 'STOPPED'; st.style.color = 'var(--text-muted)'; }
-                    else if (status === 'max_steps_reached') { st.textContent = 'MAX STEPS'; st.style.color = 'var(--warning)'; }
-                    else { st.textContent = status.toUpperCase(); }
-                }
-                var ii = document.getElementById('live-inject-input');
-                var ib = document.getElementById('live-inject-btn');
-                if (ii) { ii.disabled = false; ii.placeholder = 'Continue with new instructions...'; }
-                if (ib) { ib.disabled = false; ib.textContent = 'INJECT'; }
-            } else {
-                var ii = document.getElementById('live-inject-input');
-                var ib = document.getElementById('live-inject-btn');
-                if (ii) { ii.disabled = false; ii.placeholder = 'Continue with new instructions...'; }
-                if (ib) { ib.disabled = false; ib.textContent = 'INJECT'; }
-            }
-        })
-        .catch(function(err) {
-            console.error('Failed to load steps:', err);
-            var ii = document.getElementById('live-inject-input');
-            var ib = document.getElementById('live-inject-btn');
-            if (ii) { ii.disabled = false; ii.placeholder = 'Continue with new instructions...'; }
-            if (ib) { ib.disabled = false; ib.textContent = 'INJECT'; }
-        });
+        }
+    }
+    _liveViewPrevStepCount = stepsCount;
+
+    // Update status text (always, even during incremental render)
+    var st = document.getElementById('agent-status-text');
+    if (st) {
+        if (hasPendingTools) {
+            st.textContent = 'PENDING TOOL APPROVAL';
+            st.style.color = 'var(--warning)';
+            st.style.fontWeight = 'bold';
+        } else if (hasPendingUserInput) {
+            st.textContent = 'AWAITING INPUT';
+            st.style.color = 'var(--warning)';
+            st.style.fontWeight = 'bold';
+        }
+    }
+
+    // Handle job completion
+    var status = statusData.status || 'running';
+    if (status !== 'running' && !hasPendingTools && !hasPendingUserInput) {
+        if (_pollInterval) { clearInterval(_pollInterval); _pollInterval = null; }
+        resetRunButtons();
+        var stopBtn = document.getElementById('details-stop-btn');
+        if (stopBtn) stopBtn.style.display = 'none';
+        var liveStopBtn = document.getElementById('live-stop-btn');
+        if (liveStopBtn) liveStopBtn.style.display = 'none';
+        if (st) {
+            if (status === 'completed') { st.textContent = 'COMPLETED'; st.style.color = 'var(--success)'; }
+            else if (status === 'error') { st.textContent = 'ERROR'; st.style.color = 'var(--danger)'; }
+            else if (status === 'stopped') { st.textContent = 'STOPPED'; st.style.color = 'var(--text-muted)'; }
+            else if (status === 'max_steps_reached') { st.textContent = 'MAX STEPS'; st.style.color = 'var(--warning)'; }
+            else { st.textContent = status.toUpperCase(); }
+        }
+        var ii = document.getElementById('live-inject-input');
+        var ib = document.getElementById('live-inject-btn');
+        if (ii) { ii.disabled = false; ii.placeholder = 'Continue with new instructions...'; }
+        if (ib) { ib.disabled = false; ib.textContent = 'INJECT'; }
+    } else {
+        var ii = document.getElementById('live-inject-input');
+        var ib = document.getElementById('live-inject-btn');
+        if (ii) { ii.disabled = false; ii.placeholder = 'Continue with new instructions...'; }
+        if (ib) { ib.disabled = false; ib.textContent = 'INJECT'; }
+    }
+
+    // Only auto-scroll to bottom if user was already at bottom (they're following along)
+    // If they scrolled up to review, preserve their position
+    var needsScroll = atBottom || (status !== 'running' && !hasPendingTools && !hasPendingUserInput);
+    if (needsScroll) {
+        agentBox.scrollTop = agentBox.scrollHeight;
+    }
 }
 
-function _renderStep(step, agentBox) {
+function _renderStep(step, agentBox, autoScroll) {
+    if (autoScroll === undefined) autoScroll = true;
     if (!agentBox) return;
     var runningEntry = document.getElementById('tool-running-' + step.step);
     if (runningEntry) runningEntry.remove();
@@ -489,9 +501,8 @@ function _renderStep(step, agentBox) {
                                 }
                             }
                         } else {
-                            // Not a valid tool call yet — show raw streaming text
-                            var preview = content.length > 400 ? content.substring(0, 400) + '...' : content;
-                            resultEl.textContent = preview;
+                            // Not a valid tool call yet — show raw streaming text (no truncation)
+                            resultEl.textContent = content;
                         }
                     } else {
                         resultEl.textContent = 'Waiting for response...';
@@ -572,7 +583,9 @@ function _renderStep(step, agentBox) {
         }
     }
     agentBox.appendChild(entry);
-    agentBox.scrollTop = agentBox.scrollHeight;
+    if (autoScroll) {
+        agentBox.scrollTop = agentBox.scrollHeight;
+    }
 }
 
 function _showPendingApproval(jobId, outputDir, agentBox) {
@@ -988,6 +1001,7 @@ function goBackToProjects() {
 function _goBackToProjects() {
     if (_pollInterval) { clearInterval(_pollInterval); _pollInterval = null; }
     _activeJobId = null;
+    _liveViewPrevStepCount = 0;
     var container = document.getElementById('agent-live-container');
     if (container) {
         container.style.display = 'none';
@@ -1207,6 +1221,14 @@ function renderJobsFromData(queueData, history) {
         item.appendChild(delBtn);
         list.appendChild(item);
     });
+    // Re-expand any jobs that were expanded before the re-render
+    _expandedJobs.forEach(function(jobId) {
+        var stepsEl = document.getElementById('job-steps-' + jobId);
+        if (stepsEl && stepsEl.style.display === 'none') {
+            stepsEl.style.display = 'block';
+            _loadJobSteps(jobId);
+        }
+    });
 }
 
 function _loadJobSteps(jobId) {
@@ -1302,9 +1324,11 @@ function toggleJobSteps(jobId) {
     if (el) {
         if (el.style.display === 'none') {
             el.style.display = 'block';
+            _expandedJobs.add(jobId);
             _loadJobSteps(jobId);
         } else {
             el.style.display = 'none';
+            _expandedJobs.delete(jobId);
         }
     }
 }
@@ -1655,6 +1679,8 @@ function showLiveViewForJob(jobId, projectId) {
     if (!container) return;
     var agentBox = document.getElementById('agent-live-box');
     if (agentBox) agentBox.innerHTML = '';
+    // Reset scroll tracking for new job
+    _liveViewPrevStepCount = 0;
     var detailsPanel = document.getElementById('project-details-panel');
     if (detailsPanel) detailsPanel.classList.add('active');
     var configSection = document.getElementById('project-config-section');

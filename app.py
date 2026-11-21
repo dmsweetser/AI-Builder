@@ -2752,7 +2752,64 @@ def api_get_state():
         "active_workers": len([t for t in worker_threads if t.is_alive()]),
         "queue_length": len(job_queue_snapshot),
     }
-    
+
+    # 8. Live-view data: steps, status, pending tools, agent response
+    # Keyed by job_id so the frontend can look up data for any active job
+    live_data = {}
+    for rjid, rinfo in running_jobs_snapshot.items():
+        output_dir = rinfo.get("output_dir", "")
+        job_live = {
+            "job_steps": None,
+            "job_status": None,
+            "pending_tools": None,
+            "agent_response": None,
+        }
+        if output_dir:
+            # Load job steps from the step log
+            step_log = os.path.join(output_dir, "steps.jsonl")
+            if os.path.exists(step_log):
+                steps = []
+                with open(step_log, 'r', encoding='utf-8') as f:
+                    for line in f:
+                        line = line.strip()
+                        if line:
+                            try:
+                                steps.append(json.loads(line))
+                            except json.JSONDecodeError:
+                                pass
+                job_live["job_steps"] = steps
+
+            # Load job status from status.json
+            status_file = os.path.join(output_dir, "status.json")
+            if os.path.exists(status_file):
+                try:
+                    with open(status_file, 'r', encoding='utf-8') as f:
+                        job_live["job_status"] = json.load(f)
+                except Exception:
+                    pass
+
+            # Load pending tools for the running job's project
+            try:
+                from agent_engine import get_registry
+                reg = get_registry()
+                pid = rinfo.get("project_id", "")
+                pending = reg.get_project_pending_tools(pid)
+                if pending:
+                    job_live["pending_tools"] = pending
+            except Exception:
+                pass
+
+            # Load current LLM response
+            response_file = os.path.join(output_dir, "current_response.txt")
+            if os.path.exists(response_file):
+                try:
+                    with open(response_file, 'r', encoding='utf-8') as f:
+                        job_live["agent_response"] = f.read()
+                except Exception:
+                    pass
+
+        live_data[rjid] = job_live
+
     return jsonify({
         "projects": projects,
         "queue": {"running": running_job, "queued": queued_jobs},
@@ -2761,6 +2818,7 @@ def api_get_state():
         "active_jobs": active_jobs,
         "chat_count": chat_count,
         "workers": worker_info,
+        "live": live_data,
         "timestamp": datetime.now().isoformat(),
     })
 
