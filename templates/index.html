@@ -10,21 +10,26 @@
 <body>
     <!-- Minecraft Loading Screen -->
     <div id="loading-screen">
-        <div class="horse-container">
-            <div class="horse-body"></div>
-            <div class="horse-legs">
-                <div class="horse-leg"></div>
-                <div class="horse-leg"></div>
-                <div class="horse-leg"></div>
-                <div class="horse-leg"></div>
+        <div class="camel-container">
+            <div class="camel-body"></div>
+            <div class="camel-humps">
+                <div class="camel-hump camel-hump-1"></div>
+                <div class="camel-hump camel-hump-2"></div>
             </div>
-            <div class="horse-head">
-                <div class="horse-mane"></div>
-                <div class="horse-eye"></div>
-                <div class="horse-nostril"></div>
+            <div class="camel-legs">
+                <div class="camel-leg"></div>
+                <div class="camel-leg"></div>
+                <div class="camel-leg"></div>
+                <div class="camel-leg"></div>
             </div>
-            <div class="horse-tail"></div>
-            <div class="horse-shadow"></div>
+            <div class="camel-head">
+                <div class="camel-ear"></div>
+                <div class="camel-eye"></div>
+                <div class="camel-nostril"></div>
+            </div>
+            <div class="camel-tail"></div>
+            <div class="camel-saddle"></div>
+            <div class="camel-shadow"></div>
         </div>
         <div class="loading-text">LOADING AI BUILDER...</div>
         <div class="loading-bar-container">
@@ -41,9 +46,6 @@
             <nav class="sidebar-nav" role="navigation" aria-label="Main navigation">
                 <button class="tab-btn active" data-tab="projects" aria-selected="true" tabindex="0">
                     <span class="nav-icon">📁</span> Projects
-                </button>
-                <button class="tab-btn" data-tab="jobs" aria-selected="false" tabindex="-1">
-                    <span class="nav-icon">⚙️</span> Jobs
                 </button>
                 <button class="tab-btn" data-tab="chat" aria-selected="false" tabindex="-1">
                     <span class="nav-icon">💬</span> Chat
@@ -161,7 +163,7 @@
 
                         <div class="form-actions">
                             <button type="button" class="btn btn-primary run-btn" id="details-run-btn" onclick="runProject(currentProjectId)">RUN AI BUILDER</button>
-                            <button type="button" class="btn btn-info" id="details-live-btn" onclick="showLiveView(currentProjectId)" style="display:none;">📺 VIEW LIVE</button>
+                            <button type="button" class="btn btn-info" id="details-live-btn" onclick="openViewInNewTab(currentProjectId)" style="display:none;">👁 VIEW</button>
                             <button type="button" class="btn btn-danger" id="details-stop-btn" onclick="stopProject(currentProjectId)" style="display:none;">STOP</button>
                             <button type="button" class="btn btn-secondary" onclick="resetProject(currentProjectId)">RESET</button>
                             <button type="button" class="btn btn-danger" onclick="deleteProject(currentProjectId)">DELETE</button>
@@ -187,20 +189,6 @@
                         <button type="button" class="btn btn-primary" id="live-inject-btn" onclick="injectLiveInstruction()" disabled>INJECT</button>
                         <button type="button" class="btn btn-secondary" id="live-resend-btn" onclick="resendLastRequest()" disabled>RESEND</button>
                     </div>
-                </div>
-            </div>
-
-            <!-- Jobs Panel -->
-            <div id="jobs-panel" class="panel" role="tabpanel">
-                <div class="panel-header">
-                    <h2>Jobs</h2>
-                    <div class="header-actions">
-                        <button class="btn btn-secondary" onclick="loadJobs()">REFRESH</button>
-                        <button class="btn btn-danger" onclick="clearJobHistory()">CLEAR HISTORY</button>
-                    </div>
-                </div>
-                <div id="jobs-list" class="history-list" role="list">
-                    <div class="loading">Loading jobs...</div>
                 </div>
             </div>
 

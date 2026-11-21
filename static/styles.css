@@ -86,8 +86,8 @@ body {
     pointer-events: none;
 }
 
-/* === Minecraft Horse Loading Animation — Blocky Pixel Edition === */
-.horse-container {
+/* === Minecraft Camel Loading Animation — Blocky Pixel Edition === */
+.camel-container {
     position: relative;
     width: 200px;
     height: 180px;
@@ -97,172 +97,180 @@ body {
     image-rendering: pixelated;
 }
 
-/* === Horse body — blocky rectangle, saddle === */
-.horse-body {
+/* Camel body — blocky rectangle */
+.camel-body {
     position: absolute;
-    width: 100px;
-    height: 48px;
-    background: #A0784A;
-    top: 38%;
+    width: 110px;
+    height: 44px;
+    background: #C4A46C;
+    top: 40%;
     left: 50%;
     transform: translateX(-50%);
-    border: 3px solid #6B4F10;
+    border: 3px solid #8B6914;
     border-radius: 0;
-    animation: horse-bounce 0.6s ease-in-out infinite;
-    box-shadow: inset 0 -6px 0 #8B6914, inset 0 6px 0 #B8935E;
+    animation: camel-bounce 0.6s ease-in-out infinite;
+    box-shadow: inset 0 -6px 0 #A08050, inset 0 6px 0 #D4B87C;
 }
 
-/* Saddle blanket — red rectangle on back */
-.horse-body::before {
-    content: '';
+/* Camel humps — two blocky bumps on back */
+.camel-humps {
+    position: absolute;
+    top: 28%;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 90px;
+    height: 30px;
+}
+
+.camel-hump {
+    position: absolute;
+    background: #C4A46C;
+    border: 3px solid #8B6914;
+    border-radius: 0;
+    box-shadow: inset 0 -4px 0 #A08050, inset 0 4px 0 #D4B87C;
+}
+
+.camel-hump-1 {
+    width: 32px;
+    height: 28px;
+    top: 0;
+    left: 10px;
+    border-radius: 0 0 0 0;
+}
+
+.camel-hump-2 {
+    width: 28px;
+    height: 24px;
+    top: 4px;
+    left: 44px;
+    border-radius: 0 0 0 0;
+}
+
+/* Camel head — blocky rectangle */
+.camel-head {
     position: absolute;
     width: 36px;
-    height: 28px;
-    background: #C0392B;
-    top: -1px;
-    left: 50%;
-    transform: translateX(-50%);
-    border: 2px solid #922B21;
+    height: 48px;
+    background: #C4A46C;
+    top: 0;
+    left: 68%;
+    border: 3px solid #8B6914;
     border-radius: 0;
-    box-shadow: inset 0 4px 0 #E74C3C, inset 0 -4px 0 #922B21;
-}
-
-/* Saddle — brown rectangle */
-.horse-body::after {
-    content: '';
-    position: absolute;
-    width: 20px;
-    height: 16px;
-    background: #6B4F10;
-    top: -12px;
-    left: 50%;
-    transform: translateX(-50%);
-    border: 2px solid #4A3510;
-    border-radius: 0;
-}
-
-/* Horse head — blocky square rectangle */
-.horse-head {
-    position: absolute;
-    width: 40px;
-    height: 52px;
-    background: #A0784A;
-    top: 2%;
-    left: 66%;
-    border: 3px solid #6B4F10;
-    border-radius: 0;
-    animation: head-bob 0.4s ease-in-out infinite;
+    animation: camel-head-bob 0.5s ease-in-out infinite;
     z-index: 2;
-    box-shadow: inset 0 -6px 0 #8B6914, inset 0 6px 0 #B8935E;
+    box-shadow: inset 0 -6px 0 #A08050, inset 0 6px 0 #D4B87C;
 }
 
-/* Ear 1 — blocky rectangle */
-.horse-head::before {
-    content: '';
+/* Camel ear — small block */
+.camel-head .camel-ear {
     position: absolute;
     width: 10px;
-    height: 18px;
-    background: #A0784A;
-    top: -16px;
-    left: 8px;
-    border: 2px solid #6B4F10;
+    height: 16px;
+    background: #C4A46C;
+    top: -14px;
+    left: 6px;
+    border: 2px solid #8B6914;
     border-radius: 0;
-    animation: ear-twitch 4s ease-in-out infinite;
-    box-shadow: inset 0 4px 0 #B8935E;
+    animation: camel-ear-twitch 4s ease-in-out infinite;
+    box-shadow: inset 0 4px 0 #D4B87C;
 }
 
-/* Inner ear */
-.horse-head::after {
-    content: '';
-    position: absolute;
-    width: 4px;
-    height: 10px;
-    background: #8B6914;
-    top: -12px;
-    left: 10px;
-    border-radius: 0;
-}
-
-/* Eye — square pixel block */
-.horse-head .horse-eye {
+/* Camel eye — square pixel */
+.camel-head .camel-eye {
     position: absolute;
     width: 8px;
     height: 8px;
     background: #1A0A00;
-    top: 14px;
-    left: 24px;
+    top: 12px;
+    left: 22px;
     border-radius: 0;
-    animation: eye-blink 3.5s ease-in-out infinite;
+    animation: camel-eye-blink 3.5s ease-in-out infinite;
     z-index: 3;
     box-shadow: 2px 2px 0 #2A1A0A;
 }
 
-/* Eye white pixel */
-.horse-head .horse-eye::after {
+/* Camel eye shine */
+.camel-head .camel-eye::after {
     content: '';
     position: absolute;
     width: 3px;
     height: 3px;
     background: #FFFFFF;
-    top: 0px;
+    top: 0;
     left: 1px;
     border-radius: 0;
-    animation: eye-shine 3.5s ease-in-out infinite;
+    animation: camel-eye-shine 3.5s ease-in-out infinite;
 }
 
-/* Nostril — small dark square */
-.horse-head .horse-nostril {
+/* Camel nostril — small dark square */
+.camel-head .camel-nostril {
     position: absolute;
     width: 6px;
     height: 6px;
-    background: #4A3520;
-    top: 34px;
-    left: 30px;
+    background: #5A3A1A;
+    top: 32px;
+    left: 28px;
     border-radius: 0;
-    animation: nostril-flare 1.5s ease-in-out infinite;
+    animation: camel-nostril-flare 1.5s ease-in-out infinite;
 }
 
-/* Mane — blocky pixel stripes */
-.horse-head .horse-mane {
+/* Camel tail — blocky pixel strands */
+.camel-tail {
     position: absolute;
-    width: 16px;
+    width: 12px;
     height: 48px;
-    background: #2A1A0A;
-    top: -2px;
-    left: -2px;
+    background: #8B6914;
+    top: 24%;
+    left: 6%;
     border-radius: 0;
-    animation: mane-flow 0.5s ease-in-out infinite;
-    z-index: 1;
+    animation: camel-tail-wag 0.6s ease-in-out infinite;
+    transform-origin: top center;
+    z-index: 0;
+    border: 2px solid #6B4F10;
     box-shadow:
-        0 8px 0 #3A2510,
-        0 16px 0 #2A1A0A,
-        0 24px 0 #3A2510,
-        0 32px 0 #2A1A0A;
+        0 12px 0 #7A5A10,
+        0 24px 0 #8B6914,
+        0 36px 0 #7A5A10;
 }
 
-/* Horse legs — blocky rectangles */
-.horse-legs {
+/* Camel saddle — brown rectangle on back */
+.camel-saddle {
+    position: absolute;
+    width: 40px;
+    height: 20px;
+    background: #8B4513;
+    top: 30%;
+    left: 48%;
+    transform: translateX(-50%);
+    border: 2px solid #5A2D0C;
+    border-radius: 0;
+    z-index: 1;
+    box-shadow: inset 0 4px 0 #A0522D, inset 0 -4px 0 #6B3410;
+}
+
+/* Camel legs — blocky rectangles */
+.camel-legs {
     position: absolute;
     bottom: 0;
     left: 50%;
     transform: translateX(-50%);
-    width: 120px;
+    width: 130px;
     height: 52px;
 }
 
-.horse-leg {
+.camel-leg {
     position: absolute;
     width: 14px;
     height: 48px;
-    background: #A0784A;
-    border: 2px solid #6B4F10;
+    background: #C4A46C;
+    border: 2px solid #8B6914;
     border-radius: 0;
     transform-origin: top center;
-    box-shadow: inset 0 -8px 0 #8B6914, inset 0 4px 0 #B8935E;
+    box-shadow: inset 0 -8px 0 #A08050, inset 0 4px 0 #D4B87C;
 }
 
-/* Hoof — dark block at bottom */
-.horse-leg::before {
+/* Camel hoof — dark block at bottom */
+.camel-leg::before {
     content: '';
     position: absolute;
     bottom: -2px;
@@ -274,146 +282,97 @@ body {
     border: 2px solid #0A0000;
 }
 
-/* Leg joint line */
-.horse-leg::after {
+/* Camel leg joint line */
+.camel-leg::after {
     content: '';
     position: absolute;
     bottom: 8px;
     left: 0;
     width: 100%;
     height: 3px;
-    background: #6B4F10;
+    background: #8B6914;
     border-radius: 0;
 }
 
-.horse-leg:nth-child(1) { left: 8px; animation: leg-front-1 0.4s ease-in-out infinite; }
-.horse-leg:nth-child(2) { left: 28px; animation: leg-front-2 0.4s ease-in-out infinite 0.1s; }
-.horse-leg:nth-child(3) { left: 74px; animation: leg-back-1 0.4s ease-in-out infinite 0.2s; }
-.horse-leg:nth-child(4) { left: 94px; animation: leg-back-2 0.4s ease-in-out infinite 0.3s; }
+.camel-leg:nth-child(1) { left: 10px; animation: camel-leg-front-1 0.4s ease-in-out infinite; }
+.camel-leg:nth-child(2) { left: 32px; animation: camel-leg-front-2 0.4s ease-in-out infinite 0.1s; }
+.camel-leg:nth-child(3) { left: 76px; animation: camel-leg-back-1 0.4s ease-in-out infinite 0.2s; }
+.camel-leg:nth-child(4) { left: 98px; animation: camel-leg-back-2 0.4s ease-in-out infinite 0.3s; }
 
-/* Horse tail — blocky pixel strands */
-.horse-tail {
-    position: absolute;
-    width: 14px;
-    height: 56px;
-    background: #2A1A0A;
-    top: 26%;
-    left: 8%;
-    border-radius: 0;
-    animation: tail-wag 0.5s ease-in-out infinite;
-    transform-origin: top center;
-    z-index: 0;
-    box-shadow:
-        0 12px 0 #3A2510,
-        0 24px 0 #2A1A0A,
-        0 36px 0 #3A2510;
-}
-
-/* Tail end pixel */
-.horse-tail::after {
-    content: '';
-    position: absolute;
-    bottom: -6px;
-    left: 0;
-    width: 14px;
-    height: 8px;
-    background: #1A0A00;
-    border-radius: 0;
-}
-
-/* Tail side pixel */
-.horse-tail::before {
-    content: '';
-    position: absolute;
-    width: 10px;
-    height: 40px;
-    background: #3A2510;
-    top: 8px;
-    left: -8px;
-    border-radius: 0;
-    animation: tail-wag 0.7s ease-in-out infinite reverse;
-    transform-origin: top center;
-}
-
-/* Ground shadow — blocky, no blur */
-.horse-shadow {
+/* Camel shadow — blocky, no blur */
+.camel-shadow {
     position: absolute;
     bottom: -4px;
     left: 50%;
     transform: translateX(-50%);
-    width: 120px;
+    width: 130px;
     height: 10px;
     background: #1A0A00;
     border-radius: 0;
-    animation: shadow-pulse 0.6s ease-in-out infinite;
+    animation: camel-shadow-pulse 0.6s ease-in-out infinite;
     opacity: 0.3;
 }
 
-/* === Horse Animations === */
-@keyframes horse-bounce {
+/* === Camel Animations === */
+@keyframes camel-bounce {
     0%, 100% { transform: translateX(-50%) translateY(0); }
-    50% { transform: translateX(-50%) translateY(-7px); }
+    50% { transform: translateX(-50%) translateY(-6px); }
 }
 
-@keyframes head-bob {
+@keyframes camel-head-bob {
     0%, 100% { transform: rotate(0deg) translateY(0); }
-    50% { transform: rotate(-3deg) translateY(-3px); }
+    50% { transform: rotate(-2deg) translateY(-2px); }
 }
 
-@keyframes ear-twitch {
-    0%, 70%, 100% { transform: rotate(-10deg); }
-    75% { transform: rotate(-25deg); }
-    80% { transform: rotate(-8deg); }
+@keyframes camel-ear-twitch {
+    0%, 70%, 100% { transform: rotate(-5deg); }
+    75% { transform: rotate(-20deg); }
+    80% { transform: rotate(-5deg); }
 }
 
-@keyframes mane-flow {
-    0%, 100% { transform: skewX(0deg) scaleY(1); }
-    50% { transform: skewX(10deg) scaleY(1.05); }
+@keyframes camel-tail-wag {
+    0%, 100% { transform: rotate(-10deg); }
+    50% { transform: rotate(10deg); }
 }
 
-@keyframes tail-wag {
-    0%, 100% { transform: rotate(-15deg); }
-    50% { transform: rotate(15deg); }
+@keyframes camel-leg-front-1 {
+    0%, 100% { transform: rotate(-15deg) scaleY(1); }
+    50% { transform: rotate(15deg) scaleY(0.92); }
 }
 
-@keyframes leg-front-1 {
-    0%, 100% { transform: rotate(-20deg) scaleY(1); }
-    50% { transform: rotate(20deg) scaleY(0.9); }
+@keyframes camel-leg-front-2 {
+    0%, 100% { transform: rotate(15deg) scaleY(0.92); }
+    50% { transform: rotate(-15deg) scaleY(1); }
 }
 
-@keyframes leg-front-2 {
-    0%, 100% { transform: rotate(20deg) scaleY(0.9); }
-    50% { transform: rotate(-20deg) scaleY(1); }
+@keyframes camel-leg-back-1 {
+    0%, 100% { transform: rotate(15deg) scaleY(0.92); }
+    50% { transform: rotate(-15deg) scaleY(1); }
 }
 
-@keyframes leg-back-1 {
-    0%, 100% { transform: rotate(20deg) scaleY(0.9); }
-    50% { transform: rotate(-20deg) scaleY(1); }
+@keyframes camel-leg-back-2 {
+    0%, 100% { transform: rotate(-15deg) scaleY(1); }
+    50% { transform: rotate(15deg) scaleY(0.92); }
 }
 
-@keyframes leg-back-2 {
-    0%, 100% { transform: rotate(-20deg) scaleY(1); }
-    50% { transform: rotate(20deg) scaleY(0.9); }
-}
-
-@keyframes shadow-pulse {
+@keyframes camel-shadow-pulse {
     0%, 100% { transform: translateX(-50%) scaleX(1); opacity: 0.5; }
-    50% { transform: translateX(-50%) scaleX(0.65); opacity: 0.25; }
+    50% { transform: translateX(-50%) scaleX(0.7); opacity: 0.25; }
 }
 
-@keyframes eye-blink {
+@keyframes camel-eye-blink {
     0%, 80%, 100% { opacity: 1; height: 8px; }
     85% { opacity: 1; height: 1px; }
     87% { opacity: 1; height: 8px; }
 }
 
-@keyframes eye-shine {
+@keyframes camel-eye-shine {
     0%, 80%, 100% { opacity: 1; }
     85% { opacity: 0; }
     87% { opacity: 1; }
 }
 
-@keyframes nostril-flare {
+@keyframes camel-nostril-flare {
     0%, 100% { transform: scale(1); }
     50% { transform: scale(1.3); }
 }

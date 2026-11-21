@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Builder — View</title>
+    <link rel="stylesheet" href="/static/styles.css">
+    <link rel="icon" href="/static/favicon.png" type="image/png">
+    <style>
+        body { margin: 0; padding: 0; }
+        .view-layout { display: flex; flex-direction: column; height: 100vh; }
+        .view-header {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 12px 20px; background: var(--mc-stone-dark);
+            border-bottom: 3px solid #000;
+        }
+        .view-header h2 {
+            font-size: 12px; color: var(--mc-gold);
+            text-shadow: 1px 1px 0 #000; margin: 0;
+        }
+        .view-header .status-badge {
+            font-size: 9px; padding: 4px 10px; border: 2px solid #000;
+            font-weight: bold; text-transform: uppercase;
+        }
+        .status-badge.running { background: var(--mc-emerald); color: #000; }
+        .status-badge.completed { background: var(--mc-diamond); color: #000; }
+        .status-badge.error { background: var(--mc-nether); color: #fff; }
+        .status-badge.stopped { background: var(--mc-stone); color: #fff; }
+        .status-badge.pending { background: var(--mc-gold); color: #000; }
+        .view-body { display: flex; flex: 1; overflow: hidden; }
+        .view-steps {
+            flex: 1; overflow-y: auto; padding: 16px;
+            background: var(--mc-bg);
+        }
+        .view-steps .step-entry {
+            margin-bottom: 8px; padding: 10px 12px;
+            border-left: 3px solid var(--mc-border);
+            background: var(--mc-bg-card);
+            border-radius: 0;
+        }
+        .view-steps .step-entry.success { border-left-color: var(--mc-emerald); }
+        .view-steps .step-entry.error { border-left-color: var(--mc-nether); background: rgba(139,0,0,0.1); }
+        .view-steps .step-entry.llm-step { border-left-color: var(--mc-stone); color: var(--mc-text-dim); }
+        .view-steps .step-entry.pending-approval {
+            border-left-color: var(--mc-gold);
+            background: rgba(252,219,5,0.1);
+        }
+        .view-steps .step-entry.tool-running {
+            border-left-color: var(--mc-gold);
+            background: rgba(252,219,5,0.08);
+        }
+        .view-steps .step-tool {
+            font-weight: bold; color: var(--mc-diamond);
+            margin-bottom: 4px; text-shadow: 1px 1px 0 #000;
+        }
+        .view-steps .step-result {
+            color: var(--mc-text-dim); font-size: 9px;
+            white-space: pre-wrap; word-break: break-word; line-height: 1.5;
+        }
+        .view-steps .step-rationale {
+            color: var(--mc-gold); font-size: 8px; margin-top: 4px;
+            font-style: italic; padding-left: 8px;
+            border-left: 2px solid var(--mc-gold);
+        }
+        .view-steps .step-params {
+            color: var(--mc-text-dim); font-size: 7px; margin-top: 2px;
+        }
+        .view-inject {
+            display: flex; gap: 8px; padding: 12px 16px;
+            background: var(--mc-bg-card); border-top: 3px solid var(--mc-border);
+        }
+        .view-inject input {
+            flex: 1; padding: 10px 12px;
+            background: var(--mc-bg); color: var(--mc-text);
+            border: 3px solid var(--mc-border); border-radius: 0;
+            font-family: 'Press Start 2P', monospace; font-size: 9px;
+        }
+        .view-inject input:focus {
+            outline: none; border-color: var(--mc-diamond);
+        }
+        .no-jobs-msg {
+            text-align: center; padding: 40px; color: var(--mc-text-dim);
+            font-size: 11px;
+        }
+        .no-jobs-msg .big { font-size: 32px; margin-bottom: 12px; display: block; }
+    </style>
+</head>
+<body>
+    <div class="view-layout">
+        <div class="view-header">
+            <h2 id="view-title">Loading...</h2>
+            <span id="view-status" class="status-badge"></span>
+        </div>
+        <div class="view-body">
+            <div id="view-steps" class="view-steps">
+                <div class="no-jobs-msg">Loading...</div>
+            </div>
+        </div>
+        <div class="view-inject">
+            <input type="text" id="view-inject-input" placeholder="Type instructions or questions...">
+            <button class="btn btn-primary" id="view-inject-btn" onclick="viewInject()">INJECT</button>
+        </div>
+    </div>
+
+    <script>
+        let _viewProjectId = null;
+        let _viewJobId = null;
+        let _viewOutputDir = null;
+        let _viewPollInterval = null;
+        let _viewPrevStepCount = 0;
+
+        // Parse URL params
+        (function() {
+            const pathParts = window.location.pathname.split('/');
+            _viewProjectId = pathParts[pathParts.length - 1];
+            const params = new URLSearchParams(window.location.search);
+            _viewJobId = params.get('job') || null;
+            document.getElementById('view-title').textContent = 'Project: ' + _viewProjectId + (_viewJobId ? ' — Job: ' + _viewJobId.substring(0,8) : '');
+        })();
+
+        // Fetch project info to get latest job if none specified
+        async function resolveJobId() {
+            if (_viewJobId) return _viewJobId;
+            try {
+                const resp = await fetch('/api/projects/' + _viewProjectId);
+                if (resp.ok) {
+                    const project = await resp.json();
+                    return project.last_job_id || null;
+                }
+            } catch(e) {}
+            return null;
+        }
+
+        // Fetch job steps
+        async function fetchJobSteps() {
+            try {
+                const resp = await fetch('/api/job/' + _viewJobId + '/steps');
+                if (resp.ok) return await resp.json();
+            } catch(e) {}
+            return { steps: [], count: 0 };
+        }
+
+        // Fetch job status via separate endpoint
+        async function fetchJobStatus() {
+            try {
+                const resp = await fetch('/api/view/' + _viewProjectId + '/status/' + _viewJobId);
+                if (resp.ok) return await resp.json();
+            } catch(e) {}
+            return null;
+        }
+
+        // Render a single step
+        function renderStep(step) {
+            const container = document.getElementById('view-steps');
+            const entry = document.createElement('div');
+            entry.className = 'step-entry';
+
+            if (step.tool === 'task_completed') {
+                entry.classList.add('success');
+                const toolDiv = document.createElement('div');
+                toolDiv.className = 'step-tool';
+                toolDiv.style.cssText = 'color:var(--mc-emerald);font-weight:bold;font-size:12px;';
+                toolDiv.textContent = '✅ TASK COMPLETED';
+                entry.appendChild(toolDiv);
+                const summary = step.result ? (step.result.content || '') : '';
+                const resultDiv = document.createElement('div');
+                resultDiv.className = 'step-result';
+                resultDiv.style.cssText = 'margin-top:6px;padding:8px;background:rgba(23,221,98,0.1);border:1px solid var(--mc-emerald);border-radius:4px;';
+                resultDiv.textContent = summary;
+                entry.appendChild(resultDiv);
+                if (step.rationale) {
+                    const ratDiv = document.createElement('div');
+                    ratDiv.className = 'step-rationale';
+                    ratDiv.textContent = '💡 ' + step.rationale;
+                    entry.appendChild(ratDiv);
+                }
+            } else if (step.tool === 'llm_call') {
+                entry.classList.add('llm-step');
+                const toolDiv = document.createElement('div');
+                toolDiv.className = 'step-tool';
+                toolDiv.textContent = '🤔 AI Generating...';
+                entry.appendChild(toolDiv);
+                const resultDiv = document.createElement('div');
+                resultDiv.className = 'step-result';
+                resultDiv.textContent = step.params ? 'LLM call (' + (step.params.messages || 0) + ' msgs)' : 'LLM call';
+                entry.appendChild(resultDiv);
+            } else if (step.tool === 'respond_to_user') {
+                entry.classList.add('llm-step');
+                const toolDiv = document.createElement('div');
+                toolDiv.className = 'step-tool';
+                toolDiv.style.color = 'var(--mc-diamond)';
+                toolDiv.textContent = '💬 AI Response';
+                entry.appendChild(toolDiv);
+                const resultDiv = document.createElement('div');
+                resultDiv.className = 'step-result';
+                resultDiv.textContent = step.result ? (step.result.content || '') : '';
+                entry.appendChild(resultDiv);
+            } else if (step.tool === 'request_user_input') {
+                entry.classList.add('pending-approval');
+                const toolDiv = document.createElement('div');
+                toolDiv.className = 'step-tool';
+                toolDiv.style.color = 'var(--mc-gold)';
+                toolDiv.textContent = '⏸ REQUEST USER INPUT';
+                entry.appendChild(toolDiv);
+                const resultDiv = document.createElement('div');
+                resultDiv.className = 'step-result';
+                resultDiv.style.cssText = 'color:var(--mc-gold);white-space:pre-wrap;';
+                resultDiv.textContent = step.result ? (step.result.content || 'Waiting for input...') : 'Waiting for input...';
+                entry.appendChild(resultDiv);
+            } else if (step.tool === 'format_retry') {
+                entry.classList.add('llm-step');
+                const toolDiv = document.createElement('div');
+                toolDiv.className = 'step-tool';
+                toolDiv.style.color = 'var(--mc-gold)';
+                toolDiv.textContent = '⚠ Format reminder sent';
+                entry.appendChild(toolDiv);
+                const resultDiv = document.createElement('div');
+                resultDiv.className = 'step-result';
+                resultDiv.style.color = 'var(--mc-gold)';
+                resultDiv.textContent = step.result ? step.result.content : '';
+                entry.appendChild(resultDiv);
+            } else {
+                const ok = step.result && step.result.success !== false;
+                entry.classList.add(ok ? 'success' : 'error');
+                const toolDiv = document.createElement('div');
+                toolDiv.className = 'step-tool';
+                toolDiv.textContent = (ok ? '✓' : '✗') + ' ' + step.tool;
+                entry.appendChild(toolDiv);
+                if (step.rationale) {
+                    const ratDiv = document.createElement('div');
+                    ratDiv.className = 'step-rationale';
+                    ratDiv.textContent = '💡 ' + step.rationale;
+                    entry.appendChild(ratDiv);
+                }
+                if (step.params && Object.keys(step.params).length) {
+                    const paramsDiv = document.createElement('div');
+                    paramsDiv.className = 'step-params';
+                    paramsDiv.textContent = JSON.stringify(step.params);
+                    entry.appendChild(paramsDiv);
+                }
+                const errorMsg = step.result ? (step.result.error || '') : '';
+                if (errorMsg && !ok) {
+                    const errDiv = document.createElement('div');
+                    errDiv.className = 'step-result';
+                    errDiv.style.cssText = 'color:var(--mc-nether);font-weight:bold;margin-top:4px;';
+                    errDiv.textContent = 'ERROR: ' + errorMsg;
+                    entry.appendChild(errDiv);
+                }
+                const resultPreview = step.result ? (step.result.content || '') : '';
+                if (resultPreview) {
+                    const resultDiv = document.createElement('div');
+                    resultDiv.className = 'step-result';
+                    resultDiv.textContent = resultPreview;
+                    entry.appendChild(resultDiv);
+                }
+            }
+            container.appendChild(entry);
+            container.scrollTop = container.scrollHeight;
+        }
+
+        // Update status badge
+        function updateStatus(status) {
+            const badge = document.getElementById('view-status');
+            if (!status) return;
+            badge.className = 'status-badge';
+            if (status === 'running' || status === 'pending_approval' || status === 'pending_user_input') {
+                badge.classList.add('pending');
+                badge.textContent = status.replace('_', ' ').toUpperCase();
+            } else if (status === 'completed') {
+                badge.classList.add('completed');
+                badge.textContent = 'COMPLETED';
+            } else if (status === 'error') {
+                badge.classList.add('error');
+                badge.textContent = 'ERROR';
+            } else if (status === 'stopped') {
+                badge.classList.add('stopped');
+                badge.textContent = 'STOPPED';
+            } else {
+                badge.textContent = status.toUpperCase();
+            }
+        }
+
+        // Poll for updates
+        async function pollView() {
+            const [stepsData, statusData] = await Promise.all([
+                fetchJobSteps(),
+                fetchJobStatus()
+            ]);
+
+            const steps = stepsData.steps || [];
+            const count = stepsData.count || 0;
+
+            // Update status
+            if (statusData) {
+                updateStatus(statusData.status);
+                _viewOutputDir = statusData.output_dir || _viewOutputDir;
+            }
+
+            // Render new steps
+            if (count > _viewPrevStepCount) {
+                const container = document.getElementById('view-steps');
+                // Clear and re-render if step count shrank (reset)
+                if (count < _viewPrevStepCount) {
+                    container.innerHTML = '';
+                    _viewPrevStepCount = 0;
+                }
+                for (let i = _viewPrevStepCount; i < count; i++) {
+                    if (steps[i]) renderStep(steps[i]);
+                }
+                _viewPrevStepCount = count;
+            }
+
+            // Check if job is complete
+            if (statusData && statusData.status && statusData.status !== 'running' && statusData.status !== 'pending_approval' && statusData.status !== 'pending_user_input') {
+                // Stop polling for terminal states, but keep polling for pending states
+                if (statusData.status !== 'completed' && statusData.status !== 'error' && statusData.status !== 'stopped' && statusData.status !== 'max_steps_reached') {
+                    // Still pending, keep polling
+                } else {
+                    // Terminal state — do one final render then stop polling
+                    return;
+                }
+            }
+        }
+
+        // Inject instruction
+        function viewInject() {
+            const input = document.getElementById('view-inject-input');
+            const btn = document.getElementById('view-inject-btn');
+            const instruction = input.value.trim();
+            if (!instruction || !_viewJobId) return;
+
+            btn.disabled = true;
+            btn.textContent = 'INJECTING...';
+            input.disabled = true;
+
+            fetch('/api/agent/inject', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({job_id: _viewJobId, instruction: instruction})
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.error) throw new Error(data.error);
+                input.value = '';
+                if (data.continuation) {
+                    const container = document.getElementById('view-steps');
+                    const entry = document.createElement('div');
+                    entry.className = 'step-entry';
+                    entry.style.borderLeftColor = 'var(--mc-diamond)';
+                    entry.style.background = 'rgba(74,237,223,0.1)';
+                    entry.innerHTML = '<div class="step-tool" style="color:var(--mc-diamond);">🔄 CONTINUING WITH NEW INSTRUCTIONS...</div>';
+                    container.appendChild(entry);
+                    container.scrollTop = container.scrollHeight;
+                    const badge = document.getElementById('view-status');
+                    badge.className = 'status-badge pending';
+                    badge.textContent = 'CONTINUING...';
+                } else {
+                    const container = document.getElementById('view-steps');
+                    const entry = document.createElement('div');
+                    entry.className = 'step-entry';
+                    entry.style.borderLeftColor = 'var(--mc-diamond)';
+                    entry.style.background = 'rgba(74,237,223,0.1)';
+                    entry.innerHTML = '<div class="step-tool" style="color:var(--mc-diamond);">📥 INJECTION SENT</div>';
+                    container.appendChild(entry);
+                    container.scrollTop = container.scrollHeight;
+                }
+                setTimeout(function() {
+                    btn.disabled = false;
+                    btn.textContent = 'INJECT';
+                    input.disabled = false;
+                }, 1000);
+            })
+            .catch(function(err) {
+                console.error('Inject failed:', err);
+                btn.disabled = false;
+                btn.textContent = 'INJECT';
+                input.disabled = false;
+            });
+        }
+
+        // Enter key handler
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                const input = document.getElementById('view-inject-input');
+                if (input && document.activeElement === input) {
+                    e.preventDefault();
+                    viewInject();
+                }
+            }
+        });
+
+        // Load initial steps and start polling
+        (async function init() {
+            const container = document.getElementById('view-steps');
+
+            // Resolve job ID (use latest if none specified)
+            const resolvedJobId = await resolveJobId();
+            if (!resolvedJobId) {
+                container.innerHTML = '<div class="no-jobs-msg"><span class="big">📋</span>No job to view yet.<br>Run the project first to see results here.</div>';
+                document.getElementById('view-status').className = 'status-badge stopped';
+                document.getElementById('view-status').textContent = 'NO JOB';
+                return;
+            }
+            _viewJobId = resolvedJobId;
+            document.getElementById('view-title').textContent = 'Project: ' + _viewProjectId + ' — Job: ' + _viewJobId.substring(0,8);
+
+            // Initial load
+            const [stepsData, statusData] = await Promise.all([
+                fetchJobSteps(),
+                fetchJobStatus()
+            ]);
+
+            const steps = stepsData.steps || [];
+            const count = stepsData.count || 0;
+
+            if (statusData) {
+                updateStatus(statusData.status);
+                _viewOutputDir = statusData.output_dir || _viewOutputDir;
+            }
+
+            if (count === 0) {
+                container.innerHTML = '<div class="no-jobs-msg"><span class="big">⏳</span>No steps recorded yet.<br>Steps will appear here as the agent works.</div>';
+            } else {
+                for (let i = 0; i < count; i++) {
+                    if (steps[i]) renderStep(steps[i]);
+                }
+                _viewPrevStepCount = count;
+            }
+
+            // Poll for updates
+            _viewPollInterval = setInterval(pollView, 3000);
+        })();
+
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', function() {
+            if (_viewPollInterval) clearInterval(_viewPollInterval);
+        });
+    </script>
+</body>
+</html>

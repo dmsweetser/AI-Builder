@@ -2221,6 +2221,7 @@ def api_job_status_by_id(job_id):
                 status_data = json.load(f)
             # Add job_id for convenience
             status_data["job_id"] = job_id
+            status_data["output_dir"] = output_dir
             return jsonify(status_data)
         except Exception as e:
             return jsonify({"error": str(e), "job_id": job_id}), 500
@@ -2233,9 +2234,84 @@ def api_job_status_by_id(job_id):
                 "status": h.get("status", "unknown"),
                 "steps": h.get("steps", 0),
                 "summary": h.get("summary", ""),
+                "output_dir": output_dir,
             })
 
     return jsonify({"error": "Job not found", "job_id": job_id}), 404
+
+
+# --- View Page Route ---
+@app.route("/view/<project_id>", methods=["GET"])
+def view_project(project_id):
+    """Serve the standalone view page for a project."""
+    project, _ = get_project(project_id)
+    if not project:
+        return jsonify({"error": "Project not found"}), 404
+    return render_template("view.html")
+
+
+# --- Separate Status Endpoint for View Page ---
+@app.route("/api/view/<project_id>/status/<job_id>", methods=["GET"])
+def api_view_status(project_id, job_id):
+    """Get status for a job, polled independently from /api/state.
+    
+    This endpoint is used by the view page to poll status without
+    hitting /api/state. It reads directly from status.json and steps.
+    """
+    # Resolve output_dir from project
+    project, _ = get_project(project_id)
+    if not project:
+        return jsonify({"error": "Project not found"}), 404
+
+    output_dir = project.get("output_dir", "")
+
+    # Check if job is currently running
+    is_running = False
+    with job_queue_lock:
+        for jid, jinfo in running_jobs.items():
+            if jinfo.get("project_id") == project_id:
+                is_running = True
+                output_dir = jinfo.get("output_dir", output_dir)
+                break
+
+    # Load status from status.json
+    status_file = os.path.join(output_dir, "status.json")
+    status_data = {"job_id": job_id, "output_dir": output_dir}
+
+    if os.path.exists(status_file):
+        try:
+            with open(status_file, 'r', encoding='utf-8') as f:
+                status_data.update(json.load(f))
+        except Exception:
+            pass
+
+    # If not in status.json, check job_history
+    if "status" not in status_data:
+        for h in job_history:
+            if h.get("job_id") == job_id:
+                status_data["status"] = h.get("status", "unknown")
+                status_data["steps"] = h.get("steps", 0)
+                status_data["summary"] = h.get("summary", "")
+                break
+
+    # If still no status and running, mark as running
+    if "status" not in status_data and is_running:
+        status_data["status"] = "running"
+
+    # Add step count from steps directory
+    steps_dir = os.path.join(output_dir, "steps")
+    if os.path.isdir(steps_dir):
+        step_files = [f for f in os.listdir(steps_dir) if f.endswith(".json")]
+        status_data["step_count"] = len(step_files)
+    else:
+        step_log = os.path.join(output_dir, "steps.jsonl")
+        if os.path.exists(step_log):
+            with open(step_log, 'r') as f:
+                status_data["step_count"] = sum(1 for line in f if line.strip())
+        else:
+            status_data["step_count"] = status_data.get("steps", 0)
+
+    return jsonify(status_data)
 
 
 @app.route("/api/job/<job_id>/steps", methods=["GET"])

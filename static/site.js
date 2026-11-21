@@ -7,7 +7,6 @@ let _uiState = {};        // Current state payload from /api/state
 let _pollInterval = null;  // Polling timer handle
 let _activeJobId = null;   // Currently viewed job (for live view)
 let _showArchived = false; // Filter toggle (kept in memory only)
-let _expandedJobs = new Set(); // Track which job steps are expanded
 let currentProjectId = null; // Currently selected project (for inline HTML onclick handlers)
 let chatId = null;         // Currently open chat (for sendChat)
 let AVAILABLE_TOOLS = [];  // All tool names (loaded from backend)
@@ -62,7 +61,6 @@ async function initUI() {
     
     // Render everything based on backend state
     renderProjects();
-    renderJobs();
     loadChats();
     
     // Start polling for updates
@@ -74,7 +72,6 @@ async function initUI() {
         if (activePanel) {
             const panelId = activePanel.id;
             if (panelId === 'projects-panel' || panelId === 'project-details-panel') renderProjects();
-            else if (panelId === 'jobs-panel') renderJobs();
             else if (panelId === 'chat-panel') loadChats();
         }
     }, 5000); // Poll every 5 seconds
@@ -99,7 +96,6 @@ function showTab(tabName) {
             b.setAttribute('tabindex', '0');
         }
     });
-    if (tabName === 'jobs') renderJobs();
     if (tabName === 'settings') loadSettingsUI();
     if (tabName === 'chat') loadChats();
 }
@@ -162,10 +158,11 @@ function renderProjects() {
         var actions = document.createElement('div');
         actions.className = 'project-item-actions';
         var status = project.status || 'idle';
-        var liveBtn = document.createElement('button');
-        liveBtn.className = 'btn btn-sm btn-info';
-        liveBtn.textContent = '📺 LIVE';
-        liveBtn.onclick = function(e) { e.stopPropagation(); showLiveViewForJob(project.job_id || ''); };
+        // VIEW button always visible
+        var viewBtn = document.createElement('button');
+        viewBtn.className = 'btn btn-sm btn-info';
+        viewBtn.textContent = '👁 VIEW';
+        viewBtn.onclick = function(e) { e.stopPropagation(); openViewInNewTab(project.id, project.last_job_id); };
         var runBtn = document.createElement('button');
         runBtn.className = 'btn btn-sm btn-primary';
         runBtn.textContent = 'RUN';
@@ -175,9 +172,11 @@ function renderProjects() {
         stopBtn.textContent = 'STOP';
         stopBtn.onclick = function(e) { e.stopPropagation(); stopProject(project.id); };
         if (status === 'running') {
-            actions.appendChild(liveBtn);
+            actions.appendChild(viewBtn);
+            actions.appendChild(runBtn);
             actions.appendChild(stopBtn);
         } else {
+            actions.appendChild(viewBtn);
             actions.appendChild(runBtn);
             stopBtn.style.display = 'none';
             actions.appendChild(stopBtn);
@@ -828,7 +827,6 @@ function stopProject(projectId) {
         var liveStopBtn = document.getElementById('live-stop-btn');
         if (liveStopBtn) liveStopBtn.style.display = 'none';
         fetchState();
-        loadJobs();
         resetRunButtons();
     })
     .catch(function(err) { console.error('Failed to stop project:', err); });
@@ -852,7 +850,6 @@ function stopCurrentJob() {
         var statusText = document.getElementById('agent-status-text');
         if (statusText) { statusText.textContent = 'STOPPED'; statusText.style.color = 'var(--text-muted)'; }
         fetchState();
-        loadJobs();
         resetRunButtons();
     })
     .catch(function(err) { console.error('Failed to stop job:', err); });
@@ -1119,233 +1116,6 @@ function buildToolSelectorForElement(elementId, disabledTools, customTools) {
 
 function getEnabledTools() {
     return (AVAILABLE_TOOLS && AVAILABLE_TOOLS.length > 0) ? AVAILABLE_TOOLS.slice() : [];
-}
-
-// === Jobs ===
-function loadJobs() {
-    // Reload state from the consolidated endpoint, then re-render
-    fetchState().then(function() { renderJobs(); });
-}
-
-function renderJobs() {
-    var queueData = _uiState.queue || {};
-    var history = _uiState.history || [];
-    renderJobsFromData(queueData, history);
-}
-
-function renderJobsFromData(queueData, history) {
-    var list = document.getElementById('jobs-list');
-    if (!list) return;
-    list.innerHTML = '';
-    var items = history.slice();
-    var historyIds = {};
-    items.forEach(function(i) { historyIds[i.job_id] = true; });
-    if (queueData.running && !historyIds[queueData.running.job_id]) items.unshift(queueData.running);
-    if (queueData.queued) queueData.queued.forEach(function(j) { if (!historyIds[j.job_id]) items.push(j); });
-    if (!items.length) { list.innerHTML = '<div class="note">NO JOBS FOUND.</div>'; return; }
-    items.forEach(function(job) {
-        var item = document.createElement('div');
-        item.className = 'history-item';
-        item.dataset.jobId = job.job_id;
-        item.onclick = function() { toggleJobSteps(job.job_id); };
-        var statusClass = 'completed';
-        var statusText = job.status || 'unknown';
-        if (statusText === 'running') statusClass = 'running';
-        else if (statusText === 'pending_approval') statusClass = 'queued';
-        else if (statusText === 'pending_user_input') statusClass = 'queued';
-        else if (statusText === 'error') statusClass = 'error';
-        else if (statusText === 'stopped') statusClass = 'stopped';
-        else if (statusText === 'max_steps_reached') statusClass = 'queued';
-        
-        var header = document.createElement('div');
-        header.className = 'history-item-header';
-        var nameSpan = document.createElement('span');
-        nameSpan.className = 'history-item-name';
-        nameSpan.textContent = job.project_name || 'Unknown Project';
-        header.appendChild(nameSpan);
-        var statusSpan = document.createElement('span');
-        statusSpan.className = 'project-item-status ' + statusClass;
-        statusSpan.textContent = statusText.toUpperCase().replace('_', ' ');
-        header.appendChild(statusSpan);
-        item.appendChild(header);
-        
-        var idDiv = document.createElement('div');
-        idDiv.className = 'history-item-id';
-        idDiv.textContent = job.job_id.substring(0, 8) + '...';
-        item.appendChild(idDiv);
-        
-        if (job.error) {
-            var errDiv = document.createElement('div');
-            errDiv.className = 'history-item-error';
-            errDiv.textContent = 'Error: ' + job.error;
-            item.appendChild(errDiv);
-        }
-        if (job.summary) {
-            var sumDiv = document.createElement('div');
-            sumDiv.className = 'history-item-summary';
-            sumDiv.textContent = 'Summary: ' + job.summary.substring(0, 150);
-            item.appendChild(sumDiv);
-        }
-        // Use step_history length from state if available, otherwise fall back
-        // to job.steps or job.step_count from the queue/history payload
-        var stepCount = 0;
-        if (job.step_history && job.step_history.length > 0) {
-            stepCount = job.step_history.length;
-        } else {
-            stepCount = job.steps || 0;
-        }
-        if (stepCount > 0) {
-            var stepsBtn = document.createElement('button');
-            stepsBtn.className = 'btn btn-xs btn-secondary';
-            stepsBtn.textContent = '▼ SHOW STEPS (' + stepCount + ')';
-            stepsBtn.onclick = function(e) { e.stopPropagation(); toggleJobSteps(job.job_id); };
-            item.appendChild(stepsBtn);
-            var stepsList = document.createElement('div');
-            stepsList.id = 'job-steps-' + job.job_id;
-            stepsList.className = 'job-steps-list';
-            stepsList.style.display = 'none';
-            stepsList.innerHTML = '<div style="padding:8px;color:var(--text-muted);">Loading steps...</div>';
-            item.appendChild(stepsList);
-        } else if (job.step_count !== undefined) {
-            var stepCountDiv = document.createElement('div');
-            stepCountDiv.style.cssText = 'font-size:11px;color:var(--text-muted);margin-top:4px;';
-            var displayCount = (job.step_history && job.step_history.length > 0) ? job.step_history.length : (job.steps || 0);
-            stepCountDiv.textContent = 'Completed ' + displayCount + ' steps';
-            item.appendChild(stepCountDiv);
-        }
-        var delBtn = document.createElement('button');
-        delBtn.className = 'btn btn-xs btn-secondary';
-        delBtn.style.cssText = 'margin-top:6px;';
-        delBtn.textContent = 'DELETE';
-        delBtn.onclick = function(e) { e.stopPropagation(); deleteJob(job.job_id); };
-        item.appendChild(delBtn);
-        list.appendChild(item);
-    });
-    // Re-expand any jobs that were expanded before the re-render
-    _expandedJobs.forEach(function(jobId) {
-        var stepsEl = document.getElementById('job-steps-' + jobId);
-        if (stepsEl && stepsEl.style.display === 'none') {
-            stepsEl.style.display = 'block';
-            _loadJobSteps(jobId);
-        }
-    });
-}
-
-function _loadJobSteps(jobId) {
-    var stepsList = document.getElementById('job-steps-' + jobId);
-    if (!stepsList) return;
-    // Try to find step_history from the current state first (avoids extra API call)
-    var historyEntry = (_uiState.history || []).find(function(h) { return h.job_id === jobId; });
-    var steps = historyEntry && historyEntry.step_history && historyEntry.step_history.length > 0
-        ? historyEntry.step_history
-        : null;
-    if (!steps) {
-        // Fallback: fetch from the dedicated steps endpoint
-        fetch('/api/job/' + jobId + '/steps')
-            .then(function(r) { return r.json(); })
-            .then(function(data) {
-                steps = data.steps || [];
-                _renderJobSteps(steps, stepsList);
-            })
-            .catch(function(err) {
-                console.error('Failed to load job steps:', err);
-                stepsList.innerHTML = '<div style="padding:8px;color:var(--mc-nether);">Failed to load steps.</div>';
-            });
-        return;
-    }
-    _renderJobSteps(steps, stepsList);
-}
-
-function _renderJobSteps(steps, stepsList) {
-    if (!steps.length) {
-        stepsList.innerHTML = '<div style="padding:8px;color:var(--text-muted);">No steps recorded.</div>';
-        return;
-    }
-    stepsList.innerHTML = '';
-    steps.forEach(function(s) {
-        var stepItem = document.createElement('div');
-        stepItem.className = 'job-step-item';
-        var stepNum = document.createElement('span');
-        stepNum.className = 'step-num';
-        stepNum.textContent = 'Step ' + s.step;
-        stepItem.appendChild(stepNum);
-        var toolName = document.createElement('span');
-        toolName.className = 'step-tool-name';
-        if (s.tool === 'llm_call') toolName.textContent = '[Thinking]';
-        else if (s.tool === 'request_user_input') toolName.textContent = '[⏸ User Input]';
-        else toolName.textContent = '[' + s.tool + ']';
-        stepItem.appendChild(toolName);
-        var statusSpan = document.createElement('span');
-        var ok = s.result && s.result.success !== false;
-        if (s.tool === 'request_user_input') {
-            statusSpan.className = 'step-status-err';
-            statusSpan.textContent = '⏸';
-        } else {
-            statusSpan.className = 'step-status-' + (ok ? 'ok' : 'err');
-            statusSpan.textContent = ok ? '✓' : '✗';
-        }
-        stepItem.appendChild(statusSpan);
-        if (s.tool === 'llm_call') {
-            var mc = s.params ? s.params.messages : 0;
-            var llmSpan = document.createElement('span');
-            llmSpan.style.color = 'var(--text-muted)';
-            llmSpan.textContent = 'LLM (' + mc + ' msgs)';
-            stepItem.appendChild(llmSpan);
-        } else if (s.params && Object.keys(s.params).length) {
-            var paramsSpan = document.createElement('span');
-            paramsSpan.style.color = 'var(--text-muted)';
-            paramsSpan.textContent = JSON.stringify(s.params);
-            stepItem.appendChild(paramsSpan);
-        } else if (s.tool === 'request_user_input') {
-            var rq = s.result ? (s.result.content || 'User input requested') : 'User input requested';
-            var rqSpan = document.createElement('span');
-            rqSpan.style.color = 'var(--warning)';
-            rqSpan.textContent = rq.substring(0, 150) + (rq.length > 150 ? '...' : '');
-            stepItem.appendChild(rqSpan);
-        } else {
-            var rt = s.result ? (s.result.content || '').substring(0, 200) : 'no result';
-            var rtSpan = document.createElement('span');
-            rtSpan.style.color = 'var(--text-muted)';
-            rtSpan.textContent = rt;
-            stepItem.appendChild(rtSpan);
-        }
-        if (s.rationale) {
-            var ratDiv = document.createElement('div');
-            ratDiv.style.cssText = 'color:var(--mc-gold);font-size:9px;margin-left:16px;font-style:italic;';
-            ratDiv.textContent = '💡 ' + s.rationale;
-            stepItem.appendChild(ratDiv);
-        }
-        stepsList.appendChild(stepItem);
-    });
-}
-
-function toggleJobSteps(jobId) {
-    var el = document.getElementById('job-steps-' + jobId);
-    if (el) {
-        if (el.style.display === 'none') {
-            el.style.display = 'block';
-            _expandedJobs.add(jobId);
-            _loadJobSteps(jobId);
-        } else {
-            el.style.display = 'none';
-            _expandedJobs.delete(jobId);
-        }
-    }
-}
-
-function deleteJob(jobId) {
-    if (!confirm('Delete this job?')) return;
-    fetch('/api/queue/' + jobId, { method: 'DELETE' })
-        .then(function() { fetchState(); })
-        .catch(function(err) { console.error('Failed to delete job:', err); });
-}
-
-function clearJobHistory() {
-    if (!confirm('Are you sure you want to clear all job history?')) return;
-    fetch('/api/history/clear', { method: 'POST' })
-        .then(function(res) { return res.json(); })
-        .then(function(data) { if (data.status === 'cleared') fetchState(); else showNotification('Failed to clear history: ' + (data.error || 'Unknown error'), 'info'); })
-        .catch(function(err) { console.error('Failed to clear history:', err); showNotification('Failed to clear history.', 'info'); });
 }
 
 // === Chat ===
@@ -2110,6 +1880,12 @@ function deleteBashTool(pid, toolName) {
         console.error('Failed to delete bash tool:', err);
         showNotification('Failed to delete bash tool.', 'error');
     });
+}
+
+// === Open View in New Tab ===
+function openViewInNewTab(projectId, jobId) {
+    var url = '/view/' + projectId + (jobId ? '?job=' + jobId : '');
+    window.open(url, '_blank', 'width=900,height=700');
 }
 
 // === Utility Functions ===
