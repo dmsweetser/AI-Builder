@@ -2254,25 +2254,25 @@ def view_project(project_id):
 @app.route("/api/view/<project_id>/status/<job_id>", methods=["GET"])
 def api_view_status(project_id, job_id):
     """Get status for a job, polled independently from /api/state.
-    
+
     This endpoint is used by the view page to poll status without
     hitting /api/state. It reads directly from status.json and steps.
     """
-    # Resolve output_dir from project
-    project, _ = get_project(project_id)
-    if not project:
-        return jsonify({"error": "Project not found"}), 404
+    output_dir = ""
 
-    output_dir = project.get("output_dir", "")
-
-    # Check if job is currently running
+    # Check if job is currently running (fast check)
     is_running = False
     with job_queue_lock:
         for jid, jinfo in running_jobs.items():
             if jinfo.get("project_id") == project_id:
                 is_running = True
-                output_dir = jinfo.get("output_dir", output_dir)
+                output_dir = jinfo.get("output_dir", "")
                 break
+
+    # Only load project if we don't have output_dir from running_jobs
+    if not output_dir:
+        project, _ = get_project(project_id)
+        output_dir = project.get("output_dir", "") if project else ""
 
     # Load status from status.json
     status_file = os.path.join(output_dir, "status.json")

@@ -122,9 +122,10 @@
         async function resolveJobId() {
             if (_viewJobId) return _viewJobId;
             try {
-                const resp = await fetch('/api/projects/' + _viewProjectId);
-                if (resp.ok) {
-                    const project = await resp.json();
+                // Just use the project's last_job_id - fast and reliable
+                const projResp = await fetch('/api/projects/' + _viewProjectId);
+                if (projResp.ok) {
+                    const project = await projResp.json();
                     return project.last_job_id || null;
                 }
             } catch(e) {}
@@ -143,10 +144,23 @@
         // Fetch job status via separate endpoint
         async function fetchJobStatus() {
             try {
-                const resp = await fetch('/api/view/' + _viewProjectId + '/status/' + _viewJobId);
+                // Use the fast /api/job/<job_id>/status endpoint instead of /api/view/<project_id>/status/<job_id>
+                const resp = await fetch('/api/job/' + _viewJobId + '/status');
                 if (resp.ok) return await resp.json();
             } catch(e) {}
             return null;
+        }
+
+        // Resolve output directory for a job
+        async function resolveOutputDir() {
+            try {
+                const resp = await fetch('/api/projects/' + _viewProjectId);
+                if (resp.ok) {
+                    const project = await resp.json();
+                    return project.output_dir || '';
+                }
+            } catch(e) {}
+            return '';
         }
 
         // Render a single step
@@ -392,9 +406,11 @@
         // Load initial steps and start polling
         (async function init() {
             const container = document.getElementById('view-steps');
+            console.log('VIEW DEBUG: init started, container exists:', !!container);
 
             // Resolve job ID (use latest if none specified)
             const resolvedJobId = await resolveJobId();
+            console.log('VIEW DEBUG: resolvedJobId =', resolvedJobId);
             if (!resolvedJobId) {
                 container.innerHTML = '<div class="no-jobs-msg"><span class="big">📋</span>No job to view yet.<br>Run the project first to see results here.</div>';
                 document.getElementById('view-status').className = 'status-badge stopped';
@@ -403,15 +419,24 @@
             }
             _viewJobId = resolvedJobId;
             document.getElementById('view-title').textContent = 'Project: ' + _viewProjectId + ' — Job: ' + _viewJobId.substring(0,8);
+            console.log('VIEW DEBUG: _viewJobId set to', _viewJobId);
+
+            // Resolve output directory first, so both step and status fetches use the same dir
+            _viewOutputDir = await resolveOutputDir();
+            console.log('VIEW DEBUG: _viewOutputDir =', _viewOutputDir);
 
             // Initial load
-            const [stepsData, statusData] = await Promise.all([
-                fetchJobSteps(),
-                fetchJobStatus()
-            ]);
+            console.log('VIEW DEBUG: calling fetchJobSteps...');
+            const stepsData = await fetchJobSteps();
+            console.log('VIEW DEBUG: fetchJobSteps returned:', JSON.stringify(stepsData).substring(0, 200));
+            
+            console.log('VIEW DEBUG: calling fetchJobStatus...');
+            const statusData = await fetchJobStatus();
+            console.log('VIEW DEBUG: fetchJobStatus returned:', JSON.stringify(statusData).substring(0, 200));
 
             const steps = stepsData.steps || [];
             const count = stepsData.count || 0;
+            console.log('VIEW DEBUG: count =', count, 'steps.length =', steps.length);
 
             if (statusData) {
                 updateStatus(statusData.status);
@@ -421,14 +446,19 @@
             if (count === 0) {
                 container.innerHTML = '<div class="no-jobs-msg"><span class="big">⏳</span>No steps recorded yet.<br>Steps will appear here as the agent works.</div>';
             } else {
+                console.log('VIEW DEBUG: rendering', count, 'steps');
+                container.innerHTML = '';  // Clear container before rendering
+                console.log('VIEW DEBUG: after clear, children =', container.children.length);
                 for (let i = 0; i < count; i++) {
                     if (steps[i]) renderStep(steps[i]);
                 }
                 _viewPrevStepCount = count;
+                console.log('VIEW DEBUG: after render, container children =', container.children.length);
             }
 
             // Poll for updates
             _viewPollInterval = setInterval(pollView, 3000);
+            console.log('VIEW DEBUG: init complete, pollInterval set');
         })();
 
         // Cleanup on page unload
