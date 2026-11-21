@@ -332,32 +332,8 @@ function _pollOnce(jobId, outputDir, agentBox, projectId) {
             var hasPendingTools = pendingTools && pendingTools.length > 0;
             var hasPendingUserInput = count > 0 && steps[count-1] && steps[count-1].tool === 'request_user_input';
             _renderAllSteps(jobId, outputDir, agentBox, statusData, hasPendingTools, hasPendingUserInput, projectId);
-            updateLiveResponse(jobId, agentBox, projectId);
         })
         .catch(function(err) { console.error('Polling error:', err); });
-}
-
-function updateLiveResponse(jobId, agentBox, projectId) {
-    if (!jobId || !agentBox) return;
-    var container = document.getElementById('live-response-container');
-    if (!container) return;
-    var activeContainer = document.getElementById('agent-live-container');
-    if (activeContainer) {
-        var activeJobId = activeContainer.dataset.jobId;
-        if (activeJobId && activeJobId !== jobId) return;
-    }
-    fetch('/api/agent/response/' + jobId)
-        .then(function(r) { return r.json(); })
-        .then(function(data) {
-            if (data.content && data.content.trim()) {
-                container.textContent = data.content;
-                container.style.display = 'block';
-                container.scrollTop = container.scrollHeight;
-            } else {
-                container.style.display = 'none';
-            }
-        })
-        .catch(function(err) { console.error('Failed to fetch live response:', err); });
 }
 
 function _renderAllSteps(jobId, outputDir, agentBox, statusData, hasPendingTools, hasPendingUserInput, projectId) {
@@ -474,16 +450,59 @@ function _renderStep(step, agentBox) {
         var rawReq = step.raw_request || '';
         var rawResp = step.raw_response || '';
         var hasRaw = rawReq.length > 0 || rawResp.length > 0;
-        var respContent = step.result ? step.result.content : '';
-        var preview = respContent ? (respContent.length > 200 ? respContent.substring(0, 200) + '...' : respContent) : 'Processing request...';
         var toolDiv3 = document.createElement('div');
         toolDiv3.className = 'step-tool';
-        toolDiv3.textContent = '🤔 Thinking (' + msgCount + ' messages)';
+        toolDiv3.textContent = '🤔 Thinking...';
         entry.appendChild(toolDiv3);
         var resultDiv3 = document.createElement('div');
         resultDiv3.className = 'step-result';
-        resultDiv3.textContent = preview;
+        resultDiv3.textContent = '...';
         entry.appendChild(resultDiv3);
+        // Fetch the live response from current_response.txt
+        (function fetchLiveResponse(container, jobId, resultEl) {
+            fetch('/api/agent/response/' + jobId)
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    var content = data.content || '';
+                    if (content.trim()) {
+                        // Check if it contains a complete tool call block
+                        var toolStart = content.indexOf('[TOOL_START]');
+                        var toolEnd = content.indexOf('[TOOL_END]');
+                        if (toolStart !== -1 && toolEnd !== -1 && toolEnd > toolStart) {
+                            // Valid tool call — parse and display it
+                            var toolBlock = content.substring(toolStart, toolEnd + '[TOOL_END]'.length);
+                            var beforeTool = content.substring(0, toolStart).trim();
+                            var parsed = _parseToolCall(toolBlock);
+                            resultEl.innerHTML = '';
+                            if (beforeTool) {
+                                var prefix = document.createElement('div');
+                                prefix.style.cssText = 'color:var(--text-muted);font-size:8px;margin-bottom:4px;font-style:italic;';
+                                prefix.textContent = beforeTool.substring(0, 300) + (beforeTool.length > 300 ? '...' : '');
+                                resultEl.appendChild(prefix);
+                            }
+                            if (parsed) {
+                                var toolLabel = document.createElement('div');
+                                toolLabel.style.cssText = 'color:var(--mc-gold);font-weight:bold;margin-bottom:2px;';
+                                toolLabel.textContent = '⚙️ ' + (parsed.name || 'unknown') + '(' + (JSON.stringify(parsed.params || {}).substring(0, 120)) + (parsed.params ? (JSON.stringify(parsed.params).length > 120 ? '...' : '') : '') + ')';
+                                resultEl.appendChild(toolLabel);
+                                if (parsed.code) {
+                                    var codePre = document.createElement('pre');
+                                    codePre.style.cssText = 'background:var(--mc-bg);padding:6px;border:1px solid var(--mc-border);font-size:8px;max-height:100px;overflow:auto;margin-top:2px;white-space:pre-wrap;';
+                                    codePre.textContent = parsed.code.substring(0, 500) + (parsed.code.length > 500 ? '...' : '');
+                                    resultEl.appendChild(codePre);
+                                }
+                            }
+                        } else {
+                            // Not a valid tool call yet — show raw streaming text
+                            var preview = content.length > 400 ? content.substring(0, 400) + '...' : content;
+                            resultEl.textContent = preview;
+                        }
+                    } else {
+                        resultEl.textContent = 'Waiting for response...';
+                    }
+                })
+                .catch(function() { resultEl.textContent = 'Response unavailable'; });
+        })(entry, _activeJobId || '', resultDiv3);
         if (hasRaw) {
             var rawDiv = document.createElement('div');
             rawDiv.style.cssText = 'margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;';
@@ -858,8 +877,6 @@ function stopCurrentJob() {
             delete container.dataset.projectId;
             delete container.dataset.outputDir;
         }
-        var liveResp = document.getElementById('live-response-container');
-        if (liveResp) { liveResp.textContent = ''; liveResp.style.display = 'none'; }
         var liveStopBtn = document.getElementById('live-stop-btn');
         if (liveStopBtn) liveStopBtn.style.display = 'none';
         var statusText = document.getElementById('agent-status-text');
@@ -1022,8 +1039,6 @@ function _goBackToProjects() {
         delete container.dataset.projectId;
         delete container.dataset.outputDir;
     }
-    var liveResp = document.getElementById('live-response-container');
-    if (liveResp) { liveResp.textContent = ''; liveResp.style.display = 'none'; }
     var configSection = document.getElementById('project-config-section');
     var agentLive = document.getElementById('agent-live-container');
     if (configSection) configSection.style.display = 'block';
@@ -1683,8 +1698,6 @@ function showLiveViewForJob(jobId, projectId) {
     if (!container) return;
     var agentBox = document.getElementById('agent-live-box');
     if (agentBox) agentBox.innerHTML = '';
-    var liveResp = document.getElementById('live-response-container');
-    if (liveResp) { liveResp.textContent = ''; liveResp.style.display = 'none'; }
     var detailsPanel = document.getElementById('project-details-panel');
     if (detailsPanel) detailsPanel.classList.add('active');
     var configSection = document.getElementById('project-config-section');
