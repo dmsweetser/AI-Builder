@@ -1471,8 +1471,23 @@ def api_agent_history(job_id):
 @app.route("/api/agent/response/<job_id>", methods=["GET"])
 def api_agent_response(job_id):
     """Get the current LLM response for a running agent run."""
-    response_file = os.path.join(get_exe_dir(),
-                                 "aib_instance", "output", job_id, "current_response.txt")
+    # Resolve the output directory for this job
+    output_dir = None
+    for h in job_history:
+        if h.get("job_id") == job_id:
+            pid = h.get("project_id")
+            if pid:
+                projects = load_projects()
+                for p in projects:
+                    if p["id"] == pid:
+                        output_dir = p.get("output_dir")
+                        break
+            break
+
+    if not output_dir:
+        output_dir = os.path.join(_AIB_INSTANCE, job_id, "output")
+
+    response_file = os.path.join(output_dir, "current_response.txt")
     if os.path.exists(response_file):
         with open(response_file, 'r', encoding='utf-8') as f:
             content = f.read()
@@ -2682,8 +2697,33 @@ def api_get_state():
             "status": "queued",
         })
     
-    # 3. Job History
+    # 3. Job History (with step_history included for inline display)
     history = load_job_history()
+    # Include step_history in history entries so the UI can show full step
+    # history inline without making additional API calls
+    for entry in history:
+        if "step_history" not in entry and entry.get("step_count", 0) > 0:
+            # Try to load step_history from the job's output directory
+            pid = entry.get("project_id")
+            if pid:
+                projects = load_projects()
+                for p in projects:
+                    if p["id"] == pid:
+                        output_dir = p.get("output_dir")
+                        if output_dir:
+                            step_log = os.path.join(output_dir, "steps.jsonl")
+                            if os.path.exists(step_log):
+                                steps = []
+                                with open(step_log, 'r', encoding='utf-8') as f:
+                                    for line in f:
+                                        line = line.strip()
+                                        if line:
+                                            try:
+                                                steps.append(json.loads(line))
+                                            except json.JSONDecodeError:
+                                                pass
+                                entry["step_history"] = steps
+                        break
     
     # 4. Settings
     settings = get_settings()

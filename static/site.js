@@ -1136,7 +1136,8 @@ function getEnabledTools() {
 
 // === Jobs ===
 function loadJobs() {
-    renderJobs();
+    // Reload state from the consolidated endpoint, then re-render
+    fetchState().then(function() { renderJobs(); });
 }
 
 function renderJobs() {
@@ -1198,7 +1199,14 @@ function renderJobsFromData(queueData, history) {
             sumDiv.textContent = 'Summary: ' + job.summary.substring(0, 150);
             item.appendChild(sumDiv);
         }
-        var stepCount = job.steps || 0;
+        // Use step_history length from state if available, otherwise fall back
+        // to job.steps or job.step_count from the queue/history payload
+        var stepCount = 0;
+        if (job.step_history && job.step_history.length > 0) {
+            stepCount = job.step_history.length;
+        } else {
+            stepCount = job.steps || 0;
+        }
         if (stepCount > 0) {
             var stepsBtn = document.createElement('button');
             stepsBtn.className = 'btn btn-xs btn-secondary';
@@ -1214,7 +1222,8 @@ function renderJobsFromData(queueData, history) {
         } else if (job.step_count !== undefined) {
             var stepCountDiv = document.createElement('div');
             stepCountDiv.style.cssText = 'font-size:11px;color:var(--text-muted);margin-top:4px;';
-            stepCountDiv.textContent = 'Completed ' + (job.steps || 0) + ' steps';
+            var displayCount = (job.step_history && job.step_history.length > 0) ? job.step_history.length : (job.steps || 0);
+            stepCountDiv.textContent = 'Completed ' + displayCount + ' steps';
             item.appendChild(stepCountDiv);
         }
         var delBtn = document.createElement('button');
@@ -1230,75 +1239,89 @@ function renderJobsFromData(queueData, history) {
 function _loadJobSteps(jobId) {
     var stepsList = document.getElementById('job-steps-' + jobId);
     if (!stepsList) return;
-    fetch('/api/job/' + jobId + '/steps')
-        .then(function(r) { return r.json(); })
-        .then(function(data) {
-            var steps = data.steps || [];
-            if (!steps.length) {
-                stepsList.innerHTML = '<div style="padding:8px;color:var(--text-muted);">No steps recorded.</div>';
-                return;
-            }
-            stepsList.innerHTML = '';
-            steps.forEach(function(s) {
-                var stepItem = document.createElement('div');
-                stepItem.className = 'job-step-item';
-                var stepNum = document.createElement('span');
-                stepNum.className = 'step-num';
-                stepNum.textContent = 'Step ' + s.step;
-                stepItem.appendChild(stepNum);
-                var toolName = document.createElement('span');
-                toolName.className = 'step-tool-name';
-                if (s.tool === 'llm_call') toolName.textContent = '[Thinking]';
-                else if (s.tool === 'request_user_input') toolName.textContent = '[⏸ User Input]';
-                else toolName.textContent = '[' + s.tool + ']';
-                stepItem.appendChild(toolName);
-                var statusSpan = document.createElement('span');
-                var ok = s.result && s.result.success !== false;
-                if (s.tool === 'request_user_input') {
-                    statusSpan.className = 'step-status-err';
-                    statusSpan.textContent = '⏸';
-                } else {
-                    statusSpan.className = 'step-status-' + (ok ? 'ok' : 'err');
-                    statusSpan.textContent = ok ? '✓' : '✗';
-                }
-                stepItem.appendChild(statusSpan);
-                if (s.tool === 'llm_call') {
-                    var mc = s.params ? s.params.messages : 0;
-                    var llmSpan = document.createElement('span');
-                    llmSpan.style.color = 'var(--text-muted)';
-                    llmSpan.textContent = 'LLM (' + mc + ' msgs)';
-                    stepItem.appendChild(llmSpan);
-                } else if (s.params && Object.keys(s.params).length) {
-                    var paramsSpan = document.createElement('span');
-                    paramsSpan.style.color = 'var(--text-muted)';
-                    paramsSpan.textContent = JSON.stringify(s.params);
-                    stepItem.appendChild(paramsSpan);
-                } else if (s.tool === 'request_user_input') {
-                    var rq = s.result ? (s.result.content || 'User input requested') : 'User input requested';
-                    var rqSpan = document.createElement('span');
-                    rqSpan.style.color = 'var(--warning)';
-                    rqSpan.textContent = rq.substring(0, 150) + (rq.length > 150 ? '...' : '');
-                    stepItem.appendChild(rqSpan);
-                } else {
-                    var rt = s.result ? (s.result.content || '').substring(0, 200) : 'no result';
-                    var rtSpan = document.createElement('span');
-                    rtSpan.style.color = 'var(--text-muted)';
-                    rtSpan.textContent = rt;
-                    stepItem.appendChild(rtSpan);
-                }
-                if (s.rationale) {
-                    var ratDiv = document.createElement('div');
-                    ratDiv.style.cssText = 'color:var(--mc-gold);font-size:9px;margin-left:16px;font-style:italic;';
-                    ratDiv.textContent = '💡 ' + s.rationale;
-                    stepItem.appendChild(ratDiv);
-                }
-                stepsList.appendChild(stepItem);
+    // Try to find step_history from the current state first (avoids extra API call)
+    var historyEntry = (_uiState.history || []).find(function(h) { return h.job_id === jobId; });
+    var steps = historyEntry && historyEntry.step_history && historyEntry.step_history.length > 0
+        ? historyEntry.step_history
+        : null;
+    if (!steps) {
+        // Fallback: fetch from the dedicated steps endpoint
+        fetch('/api/job/' + jobId + '/steps')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                steps = data.steps || [];
+                _renderJobSteps(steps, stepsList);
+            })
+            .catch(function(err) {
+                console.error('Failed to load job steps:', err);
+                stepsList.innerHTML = '<div style="padding:8px;color:var(--mc-nether);">Failed to load steps.</div>';
             });
-        })
-        .catch(function(err) {
-            console.error('Failed to load job steps:', err);
-            stepsList.innerHTML = '<div style="padding:8px;color:var(--mc-nether);">Failed to load steps.</div>';
-        });
+        return;
+    }
+    _renderJobSteps(steps, stepsList);
+}
+
+function _renderJobSteps(steps, stepsList) {
+    if (!steps.length) {
+        stepsList.innerHTML = '<div style="padding:8px;color:var(--text-muted);">No steps recorded.</div>';
+        return;
+    }
+    stepsList.innerHTML = '';
+    steps.forEach(function(s) {
+        var stepItem = document.createElement('div');
+        stepItem.className = 'job-step-item';
+        var stepNum = document.createElement('span');
+        stepNum.className = 'step-num';
+        stepNum.textContent = 'Step ' + s.step;
+        stepItem.appendChild(stepNum);
+        var toolName = document.createElement('span');
+        toolName.className = 'step-tool-name';
+        if (s.tool === 'llm_call') toolName.textContent = '[Thinking]';
+        else if (s.tool === 'request_user_input') toolName.textContent = '[⏸ User Input]';
+        else toolName.textContent = '[' + s.tool + ']';
+        stepItem.appendChild(toolName);
+        var statusSpan = document.createElement('span');
+        var ok = s.result && s.result.success !== false;
+        if (s.tool === 'request_user_input') {
+            statusSpan.className = 'step-status-err';
+            statusSpan.textContent = '⏸';
+        } else {
+            statusSpan.className = 'step-status-' + (ok ? 'ok' : 'err');
+            statusSpan.textContent = ok ? '✓' : '✗';
+        }
+        stepItem.appendChild(statusSpan);
+        if (s.tool === 'llm_call') {
+            var mc = s.params ? s.params.messages : 0;
+            var llmSpan = document.createElement('span');
+            llmSpan.style.color = 'var(--text-muted)';
+            llmSpan.textContent = 'LLM (' + mc + ' msgs)';
+            stepItem.appendChild(llmSpan);
+        } else if (s.params && Object.keys(s.params).length) {
+            var paramsSpan = document.createElement('span');
+            paramsSpan.style.color = 'var(--text-muted)';
+            paramsSpan.textContent = JSON.stringify(s.params);
+            stepItem.appendChild(paramsSpan);
+        } else if (s.tool === 'request_user_input') {
+            var rq = s.result ? (s.result.content || 'User input requested') : 'User input requested';
+            var rqSpan = document.createElement('span');
+            rqSpan.style.color = 'var(--warning)';
+            rqSpan.textContent = rq.substring(0, 150) + (rq.length > 150 ? '...' : '');
+            stepItem.appendChild(rqSpan);
+        } else {
+            var rt = s.result ? (s.result.content || '').substring(0, 200) : 'no result';
+            var rtSpan = document.createElement('span');
+            rtSpan.style.color = 'var(--text-muted)';
+            rtSpan.textContent = rt;
+            stepItem.appendChild(rtSpan);
+        }
+        if (s.rationale) {
+            var ratDiv = document.createElement('div');
+            ratDiv.style.cssText = 'color:var(--mc-gold);font-size:9px;margin-left:16px;font-style:italic;';
+            ratDiv.textContent = '💡 ' + s.rationale;
+            stepItem.appendChild(ratDiv);
+        }
+        stepsList.appendChild(stepItem);
+    });
 }
 
 function toggleJobSteps(jobId) {
@@ -1330,25 +1353,28 @@ function clearJobHistory() {
 
 // === Chat ===
 function loadChats() {
-    fetch('/api/chats')
-        .then(function(r) { return r.json(); })
-        .then(function(chats) {
-            var list = document.getElementById('chat-list');
-            if (!list) return;
-            list.innerHTML = '';
-            if (!chats.length) { list.innerHTML = '<div class="note">NO CHATS FOUND.</div>'; return; }
-            chats.forEach(function(chat) {
-                var item = document.createElement('div');
-                item.className = 'chat-item';
-                var nameSpan = document.createElement('span');
-                nameSpan.className = 'chat-item-name';
-                nameSpan.textContent = chat.title || 'New Chat';
-                item.appendChild(nameSpan);
-                item.onclick = function() { openChat(chat.id); };
-                list.appendChild(item);
-            });
-        })
-        .catch(function(err) { console.error('Failed to load chats:', err); });
+    // Reload state from the consolidated endpoint first
+    fetchState().then(function() {
+        fetch('/api/chats')
+            .then(function(r) { return r.json(); })
+            .then(function(chats) {
+                var list = document.getElementById('chat-list');
+                if (!list) return;
+                list.innerHTML = '';
+                if (!chats.length) { list.innerHTML = '<div class="note">NO CHATS FOUND.</div>'; return; }
+                chats.forEach(function(chat) {
+                    var item = document.createElement('div');
+                    item.className = 'chat-item';
+                    var nameSpan = document.createElement('span');
+                    nameSpan.className = 'chat-item-name';
+                    nameSpan.textContent = chat.title || 'New Chat';
+                    item.appendChild(nameSpan);
+                    item.onclick = function() { openChat(chat.id); };
+                    list.appendChild(item);
+                });
+            })
+            .catch(function(err) { console.error('Failed to load chats:', err); });
+    });
 }
 
 function newChat() {
@@ -1669,26 +1695,30 @@ function showLiveViewForJob(jobId, projectId) {
     _activeJobId = jobId;
     var refreshBtn = document.getElementById('live-refresh-btn');
     if (refreshBtn) refreshBtn.style.display = 'inline-block';
-    
-    // Fetch job details
-    Promise.all([
-        fetch('/api/queue').then(function(r) { return r.json(); }),
-        fetch('/api/history').then(function(r) { return r.json(); }),
-        fetch('/api/job/' + jobId + '/status').catch(function() { return Promise.resolve({}); }),
-        fetch('/api/agent/history/' + jobId).catch(function() { return Promise.resolve({}); }),
-    ]).then(function(results) {
-        var queueData = results[0];
-        var history = results[1];
-        var statusData = results[2];
-        var historyData = results[3];
+
+    // Reload full state from /api/state as the single source of truth
+    fetchState().then(function() {
+        var queueData = _uiState.queue || {};
+        var history = _uiState.history || [];
         var jobRecord = history.find(function(h) { return h.job_id === jobId; });
         var isRunning = queueData.running && queueData.running.job_id === jobId;
-        var isPendingApproval = statusData.status === 'pending_approval' || (jobRecord && jobRecord.status === 'pending_approval');
-        var isPendingInput = statusData.status === 'pending_user_input' || (jobRecord && jobRecord.status === 'pending_user_input');
-        var outputDir = jobRecord ? jobRecord.output_dir : (historyData.output_dir || null);
-        var resolvedProjectId = jobRecord ? jobRecord.project_id : projectId;
-        _doShowLiveView(jobId, queueData, history, jobRecord, isRunning, isPendingApproval, isPendingInput, outputDir, resolvedProjectId);
-    }).catch(function(err) { console.error('Failed to check job status:', err); });
+
+        // Check for pending states via the status endpoint (authoritative)
+        fetch('/api/job/' + jobId + '/status')
+            .then(function(r) { return r.json(); })
+            .catch(function() { return {}; })
+            .then(function(statusData) {
+                var isPendingApproval = statusData.status === 'pending_approval' ||
+                    (jobRecord && jobRecord.status === 'pending_approval');
+                var isPendingInput = statusData.status === 'pending_user_input' ||
+                    (jobRecord && jobRecord.status === 'pending_user_input');
+                var outputDir = jobRecord ? jobRecord.output_dir : (queueData.running ? queueData.running.output_dir : null);
+                var resolvedProjectId = jobRecord ? jobRecord.project_id : projectId;
+
+                _doShowLiveView(jobId, queueData, history, jobRecord, isRunning,
+                    isPendingApproval, isPendingInput, outputDir, resolvedProjectId);
+            });
+    });
 }
 
 function _doShowLiveView(jobId, queueData, history, jobRecord, isRunning, isPendingApproval, isPendingInput, outputDir, projectId) {
@@ -1713,8 +1743,17 @@ function _doShowLiveView(jobId, queueData, history, jobRecord, isRunning, isPend
         if (stopBtn) stopBtn.style.display = 'inline-block';
         if (injectInput) { injectInput.disabled = false; injectInput.placeholder = 'Continue with new instructions...'; }
         if (injectBtn) { injectBtn.disabled = false; injectBtn.textContent = 'INJECT'; }
+
+        // For non-running jobs, use step_history from state if available
+        var steps = jobRecord && jobRecord.step_history && jobRecord.step_history.length > 0
+            ? jobRecord.step_history : null;
+
+        var stepsPromise = steps
+            ? Promise.resolve({ steps: steps, count: steps.length })
+            : fetch('/api/job/' + jobId + '/steps').then(function(r) { return r.json(); });
+
         Promise.all([
-            fetch('/api/job/' + jobId + '/steps').then(function(r) { return r.json(); }),
+            stepsPromise,
             fetch('/api/job/' + jobId + '/status').then(function(r) { return r.json(); }),
             fetch('/api/agent/response/' + jobId).then(function(r) { return r.json(); })
         ]).then(function(results) {
@@ -1722,10 +1761,10 @@ function _doShowLiveView(jobId, queueData, history, jobRecord, isRunning, isPend
             var statusData = results[1] || {};
             var responseData = results[2] || {};
             agentBox.innerHTML = '';
-            var steps = stepsData.steps || [];
+            var allSteps = stepsData.steps || [];
             var count = stepsData.count || 0;
             for (var i = 0; i < count; i++) {
-                var step = steps[i];
+                var step = allSteps[i];
                 if (step) _renderStep(step, agentBox);
             }
             if (responseData.content && responseData.content.trim()) {
@@ -1770,27 +1809,70 @@ function refreshLiveView() {
         }
         return;
     }
-    var agentBox = document.getElementById('agent-live-box');
-    if (agentBox) agentBox.innerHTML = '<div class="step-entry llm-step">🔄 Refreshing...</div>';
-    fetch('/api/agent/history/' + jobId)
-        .then(function(r) { return r.json(); })
-        .then(function(data) {
-            if (data.steps && data.steps.length > 0) {
-                agentBox.innerHTML = '';
-                data.steps.forEach(function(step) { _renderStep(step, agentBox); });
-            }
-            var agentBox2 = document.getElementById('agent-live-box');
-            if (agentBox2) {
-                var refreshMsg = document.createElement('div');
-                refreshMsg.className = 'step-entry';
-                refreshMsg.style.borderLeftColor = 'var(--mc-diamond)';
-                refreshMsg.style.background = 'rgba(74, 237, 223, 0.1)';
-                refreshMsg.innerHTML = '<div class="step-tool" style="color:var(--mc-diamond);">✅ Feed refreshed</div>';
-                agentBox2.appendChild(refreshMsg);
-                agentBox2.scrollTop = agentBox2.scrollHeight;
-            }
-        })
-        .catch(function(err) { console.error('Failed to refresh:', err); });
+
+    // Reload full state from /api/state so we have the latest data
+    fetchState().then(function() {
+        var agentBox = document.getElementById('agent-live-box');
+        if (agentBox) agentBox.innerHTML = '<div class="step-entry llm-step">🔄 Refreshing...</div>';
+
+        // Try to find the job's steps from state first
+        var jobRecord = (_uiState.history || []).find(function(h) { return h.job_id === jobId; });
+        var steps = jobRecord && jobRecord.step_history && jobRecord.step_history.length > 0
+            ? jobRecord.step_history : null;
+
+        // If not in state, fetch from the dedicated endpoint
+        if (!steps) {
+            fetch('/api/job/' + jobId + '/steps')
+                .then(function(r) { return r.json(); })
+                .then(function(data) { steps = data.steps || []; })
+                .catch(function() { steps = []; });
+        }
+
+        // Also fetch the latest response content
+        fetch('/api/agent/response/' + jobId)
+            .then(function(r) { return r.json(); })
+            .then(function(respData) {
+                if (!steps || steps.length === 0) {
+                    // No steps — just show refresh confirmation
+                    var ab = document.getElementById('agent-live-box');
+                    if (ab) {
+                        var refreshMsg = document.createElement('div');
+                        refreshMsg.className = 'step-entry';
+                        refreshMsg.style.borderLeftColor = 'var(--mc-diamond)';
+                        refreshMsg.style.background = 'rgba(74, 237, 223, 0.1)';
+                        refreshMsg.innerHTML = '<div class="step-tool" style="color:var(--mc-diamond);">✅ Feed refreshed</div>';
+                        ab.appendChild(refreshMsg);
+                        ab.scrollTop = ab.scrollHeight;
+                    }
+                    return;
+                }
+
+                // Render all steps
+                var ab = document.getElementById('agent-live-box');
+                if (ab) {
+                    ab.innerHTML = '';
+                    steps.forEach(function(step) { _renderStep(step, ab); });
+                    // Refresh confirmation at the bottom
+                    var refreshMsg = document.createElement('div');
+                    refreshMsg.className = 'step-entry';
+                    refreshMsg.style.borderLeftColor = 'var(--mc-diamond)';
+                    refreshMsg.style.background = 'rgba(74, 237, 223, 0.1)';
+                    refreshMsg.innerHTML = '<div class="step-tool" style="color:var(--mc-diamond);">✅ Feed refreshed</div>';
+                    ab.appendChild(refreshMsg);
+                    ab.scrollTop = ab.scrollHeight;
+                }
+
+                // Show current response if available
+                if (respData && respData.content && respData.content.trim()) {
+                    var liveResp = document.getElementById('live-response-container');
+                    if (liveResp) {
+                        liveResp.textContent = respData.content;
+                        liveResp.style.display = 'block';
+                    }
+                }
+            })
+            .catch(function(err) { console.error('Failed to refresh:', err); });
+    });
 }
 
 // === Inject Live Instruction ===
