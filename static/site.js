@@ -1,148 +1,54 @@
-// === State ===
-let currentProjectId = localStorage.getItem('currentProjectId') || null;
-let currentChatId = localStorage.getItem('currentChatId') || null;
-let showArchived = false;
-let autoSaveTimeout = null;
-let pendingRootPathChange = null;
-let pendingRootPathElementId = null;
+// === Stateless UI — All state comes from /api/state ===
+// The UI is purely presentational. It fetches everything from the backend
+// and renders accordingly. No localStorage, no client-side caching,
+// no per-project tracking objects.
 
-// === Live Agent State (per-project tracking) ===
-let _pollInterval = null;
-let _lastPollTimestamp = 0;
+let _uiState = {};        // Current state payload from /api/state
+let _pollInterval = null;  // Polling timer handle
+let _activeJobId = null;   // Currently viewed job (for live view)
+let _showArchived = false; // Filter toggle (kept in memory only)
 
-// Map: projectId → { jobId, agentRunning, liveInjectActive, outputDir }
-const _runningProjects = {};
-
-function _getProjectState(projectId) {
-    if (!_runningProjects[projectId]) {
-        _runningProjects[projectId] = {
-            jobId: null,
-            agentRunning: false,
-            liveInjectActive: false,
-            outputDir: null,
-        };
-    }
-    return _runningProjects[projectId];
-}
-
-function _setProjectState(projectId, updates) {
-    const state = _getProjectState(projectId);
-    Object.assign(state, updates);
-    return state;
-}
-
-function _clearProjectState(projectId) {
-    delete _runningProjects[projectId];
-}
-
-// Legacy single-project accessors (for backward compat) — return the most recently
-// active project so old code still "works" for single-project scenarios.
-function _getActiveProjectId() {
-    const keys = Object.keys(_runningProjects);
-    return keys.length ? keys[keys.length - 1] : null;
-}
-
-// === Available Tools ===
-const AVAILABLE_TOOLS = [
-    "list_directory", "list_directory_deep", "search_files", "search_files_dir",
-    "grep_code", "grep_code_dir", "read_file", "read_file_range", "read_full_file",
-    "write_file", "edit_file", "delete_file",
-    "decompile_jar", "check_syntax",
-    "create_tool", "respond_to_user", "request_user_input", "task_completed"
-];
-
-// === Utility Functions ===
-function escapeHtml(str) {
-    if (!str) return '';
-    return String(str)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;');
-}
-
-function copyToClipboard(text, buttonEl) {
-    if (!text) return;
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(text).then(function() {
-            if (buttonEl) {
-                var original = buttonEl.textContent;
-                buttonEl.textContent = 'COPIED!';
-                setTimeout(function() { buttonEl.textContent = original; }, 1500);
-            }
-        }).catch(function(err) { console.error('Copy failed:', err); });
-    } else {
-        var textarea = document.createElement('textarea');
-        textarea.value = text;
-        textarea.style.position = 'fixed';
-        textarea.style.opacity = '0';
-        document.body.appendChild(textarea);
-        textarea.select();
-        try {
-            document.execCommand('copy');
-            if (buttonEl) {
-                var original = buttonEl.textContent;
-                buttonEl.textContent = 'COPIED!';
-                setTimeout(function() { buttonEl.textContent = original; }, 1500);
-            }
-        } catch (e) { console.error('Copy failed:', e); }
-        document.body.removeChild(textarea);
-    }
-}
-
-function getChatMessageText(msgElement) {
-    var body = msgElement.querySelector('.chat-msg-body');
-    if (!body) return '';
-    return body.textContent || '';
-}
-
-function markdownToHtml(md) {
-    if (!md) return '';
-    var html = md;
-    var codeBlocks = [];
-    html = html.replace(/```([\s\S]*?)```/g, function(match, code) {
-        var uniqueId = 'code-block-' + Math.random().toString(36).substr(2, 9);
-        codeBlocks.push({ id: uniqueId, content: code.trim() });
-        return '%%CODEBLOCK_' + uniqueId + '%%';
-    });
-    html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
-    html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-    html = html.replace(/\b\*(.+?)\*\b/g, '<em>$1</em>');
-    html = html.replace(/^- (.+)$/gm, '<div style="margin-left:12px;">• $1</div>');
-    html = html.replace(/\n\n/g, '<br><br>');
-    html = html.replace(/\n/g, '<br>');
-    codeBlocks.forEach(function(block) {
-        var escaped = block.content.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-        html = html.replace('%%CODEBLOCK_' + block.id + '%%',
-            '<div style="position:relative;margin:4px 0;"><button class="pre-copy-btn" onclick="copyCodeBlock(\'' + block.id + '\', this)" style="position:absolute;bottom:4px;right:4px;background:var(--wood);border:1px solid #000;padding:3px 8px;cursor:pointer;font-size:8px;color:#fff;z-index:10;border-radius:3px;font-family:\'Press Start 2P\',monospace;">COPY</button><pre style="background:#111;padding:8px;border-radius:4px;overflow-x:auto;margin:0;"><code id="' + block.id + '" style="white-space:pre-wrap;">' + escaped + '</code></pre></div>');
-    });
-    return html;
-}
-
-function copyCodeBlock(id, btn) {
-    var el = document.getElementById(id);
-    if (!el) return;
-    var text = el.textContent || el.innerText || '';
-    // Decode HTML entities
-    var decoded = text.replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
-    // Always strip the first line (language identifier or any other metadata)
-    var firstLineEnd = decoded.indexOf('\n');
-    if (firstLineEnd !== -1) {
-        decoded = decoded.substring(firstLineEnd + 1);
-    }
-    copyToClipboard(decoded, btn);
-}
-
-// === Tab Management ===
-function showTab(tabName) {
-    // Save project when switching tabs (non-blocking — never block tab switch on save)
-    if (tabName !== 'projects') {
-        try {
-            saveProjectChanges().catch(function(err) { console.error('Failed to auto-save on tab switch:', err); });
-        } catch (e) {
-            console.warn('Auto-save on tab switch threw:', e);
+// === Core State Fetch ===
+async function fetchState() {
+    try {
+        const resp = await fetch('/api/state' + (_showArchived ? '?archived=true' : ''));
+        if (resp.ok) {
+            _uiState = await resp.json();
+            return _uiState;
         }
+    } catch (e) {
+        console.error('State fetch failed:', e);
     }
+    return _uiState;
+}
+
+// === Init — Load everything from backend ===
+async function initUI() {
+    // Load initial state
+    await fetchState();
+    
+    // Render everything based on backend state
+    renderProjects();
+    renderJobs();
+    renderChats();
+    
+    // Start polling for updates
+    if (_pollInterval) clearInterval(_pollInterval);
+    _pollInterval = setInterval(async () => {
+        await fetchState();
+        // Re-render the currently active panel
+        const activePanel = document.querySelector('.panel.active');
+        if (activePanel) {
+            const panelId = activePanel.id;
+            if (panelId === 'projects-panel' || panelId === 'project-details-panel') renderProjects();
+            else if (panelId === 'jobs-panel') renderJobs();
+            else if (panelId === 'chat-panel') renderChats();
+        }
+    }, 5000); // Poll every 5 seconds
+}
+
+// === Tab Management (stateless) ===
+function showTab(tabName) {
     document.querySelectorAll('.panel').forEach(function(p) {
         p.classList.remove('active');
     });
@@ -160,9 +66,9 @@ function showTab(tabName) {
             b.setAttribute('tabindex', '0');
         }
     });
-    if (tabName === 'jobs') loadJobs();
+    if (tabName === 'jobs') renderJobs();
     if (tabName === 'settings') loadSettingsUI();
-    if (tabName === 'chat') loadChats();
+    if (tabName === 'chat') renderChats();
 }
 
 // === Project Form Toggle ===
@@ -174,121 +80,97 @@ function toggleCreateForm() {
     }
 }
 
-// === Project Management ===
-function loadProjects() {
-    fetch('/api/projects')
-        .then(function(response) { return response.json(); })
-        .then(function(data) {
-            var projectList = document.getElementById('project-list');
-            if (!projectList) return;
-            projectList.innerHTML = '';
-            if (!data || data.length === 0) {
-                projectList.innerHTML = '<div class="note">NO PROJECTS FOUND. ADD ONE BELOW.</div>';
-                return;
-            }
-            var filteredProjects = showArchived ? data : data.filter(function(p) { return !p.isArchived; });
-            if (filteredProjects.length === 0) {
-                projectList.innerHTML = '<div class="note">NO PROJECTS FOUND. ADD ONE BELOW.</div>';
-                return;
-            }
-            filteredProjects.forEach(function(project) {
-                var projectItem = document.createElement('div');
-                projectItem.className = 'project-item';
-                projectItem.id = 'proj-' + project.id;
-                projectItem.onclick = function() {
-                    selectProject(project.id);
-                };
+// === Project Management (stateless) ===
+function renderProjects() {
+    var projectList = document.getElementById('project-list');
+    if (!projectList) return;
+    projectList.innerHTML = '';
+    var projects = _uiState.projects || [];
+    
+    if (projects.length === 0) {
+        projectList.innerHTML = '<div class="note">NO PROJECTS FOUND. ADD ONE BELOW.</div>';
+        return;
+    }
+    
+    projects.forEach(function(project) {
+        var projectItem = document.createElement('div');
+        projectItem.className = 'project-item';
+        projectItem.id = 'proj-' + project.id;
+        projectItem.onclick = function() { selectProject(project.id); };
 
-                // Build header
-                var header = document.createElement('div');
-                header.className = 'project-item-header';
-                var nameSpan = document.createElement('span');
-                nameSpan.className = 'project-item-name';
-                nameSpan.textContent = project.name || 'Untitled';
-                header.appendChild(nameSpan);
-                if (project.run_number > 0) {
-                    var runSpan = document.createElement('span');
-                    runSpan.style.cssText = 'color:var(--text-muted);font-size:11px;';
-                    runSpan.textContent = 'Run #' + project.run_number;
-                    header.appendChild(runSpan);
-                }
-                projectItem.appendChild(header);
+        // Build header
+        var header = document.createElement('div');
+        header.className = 'project-item-header';
+        var nameSpan = document.createElement('span');
+        nameSpan.className = 'project-item-name';
+        nameSpan.textContent = project.name || 'Untitled';
+        header.appendChild(nameSpan);
+        if (project.run_number > 0) {
+            var runSpan = document.createElement('span');
+            runSpan.style.cssText = 'color:var(--text-muted);font-size:11px;';
+            runSpan.textContent = 'Run #' + project.run_number;
+            header.appendChild(runSpan);
+        }
+        projectItem.appendChild(header);
 
-                // Build meta
-                var meta = document.createElement('div');
-                meta.className = 'project-item-meta';
-                var pathSpan = document.createElement('span');
-                pathSpan.className = 'project-item-path';
-                pathSpan.textContent = project.rootDirectory || '';
-                meta.appendChild(pathSpan);
+        // Build meta
+        var meta = document.createElement('div');
+        meta.className = 'project-item-meta';
+        var pathSpan = document.createElement('span');
+        pathSpan.className = 'project-item-path';
+        pathSpan.textContent = project.rootDirectory || '';
+        meta.appendChild(pathSpan);
 
-                // Actions
-                var actions = document.createElement('div');
-                actions.className = 'project-item-actions';
-                var isRunning = project.status === 'running';
-                var liveBtn = document.createElement('button');
-                liveBtn.className = 'btn btn-sm btn-info';
-                liveBtn.textContent = '📺 LIVE';
-                liveBtn.onclick = function(e) { e.stopPropagation(); showLiveViewForJob(project.id); };
-                var runBtn = document.createElement('button');
-                runBtn.className = 'btn btn-sm btn-primary';
-                runBtn.textContent = 'RUN';
-                runBtn.onclick = function(e) { e.stopPropagation(); runProject(project.id); };
-                var stopBtn = document.createElement('button');
-                stopBtn.className = 'btn btn-sm btn-danger';
-                stopBtn.textContent = 'STOP';
-                stopBtn.onclick = function(e) { e.stopPropagation(); stopProject(project.id); };
-                if (isRunning) {
-                    actions.appendChild(liveBtn);
-                    actions.appendChild(stopBtn);
-                } else {
-                    actions.appendChild(runBtn);
-                    stopBtn.style.display = 'none';
-                    actions.appendChild(stopBtn);
-                }
-                var resetBtn = document.createElement('button');
-                resetBtn.className = 'btn btn-sm btn-secondary';
-                resetBtn.textContent = 'RESET';
-                resetBtn.onclick = function(e) { e.stopPropagation(); resetProject(project.id); };
-                actions.appendChild(resetBtn);
-                var archiveBtn = document.createElement('button');
-                archiveBtn.className = 'btn btn-sm btn-secondary';
-                archiveBtn.textContent = project.isArchived ? '📤' : '📦';
-                archiveBtn.title = project.isArchived ? 'Unarchive' : 'Archive';
-                archiveBtn.onclick = function(e) { e.stopPropagation(); archiveProject(project.id, project.isArchived, e.target); };
-                actions.appendChild(archiveBtn);
-                var delBtn = document.createElement('button');
-                delBtn.className = 'btn btn-sm btn-danger';
-                delBtn.textContent = 'DEL';
-                delBtn.onclick = function(e) { e.stopPropagation(); deleteProject(project.id); };
-                actions.appendChild(delBtn);
-                meta.appendChild(actions);
-                projectItem.appendChild(meta);
-                projectList.appendChild(projectItem);
-            });
-        })
-        .catch(function(err) { console.error('Failed to load projects:', err); });
+        // Actions
+        var actions = document.createElement('div');
+        actions.className = 'project-item-actions';
+        var status = project.status || 'idle';
+        var liveBtn = document.createElement('button');
+        liveBtn.className = 'btn btn-sm btn-info';
+        liveBtn.textContent = '📺 LIVE';
+        liveBtn.onclick = function(e) { e.stopPropagation(); showLiveViewForJob(project.job_id || ''); };
+        var runBtn = document.createElement('button');
+        runBtn.className = 'btn btn-sm btn-primary';
+        runBtn.textContent = 'RUN';
+        runBtn.onclick = function(e) { e.stopPropagation(); runProject(project.id); };
+        var stopBtn = document.createElement('button');
+        stopBtn.className = 'btn btn-sm btn-danger';
+        stopBtn.textContent = 'STOP';
+        stopBtn.onclick = function(e) { e.stopPropagation(); stopProject(project.id); };
+        if (status === 'running') {
+            actions.appendChild(liveBtn);
+            actions.appendChild(stopBtn);
+        } else {
+            actions.appendChild(runBtn);
+            stopBtn.style.display = 'none';
+            actions.appendChild(stopBtn);
+        }
+        var resetBtn = document.createElement('button');
+        resetBtn.className = 'btn btn-sm btn-secondary';
+        resetBtn.textContent = 'RESET';
+        resetBtn.onclick = function(e) { e.stopPropagation(); resetProject(project.id); };
+        actions.appendChild(resetBtn);
+        var archiveBtn = document.createElement('button');
+        archiveBtn.className = 'btn btn-sm btn-secondary';
+        archiveBtn.textContent = project.isArchived ? '📤' : '📦';
+        archiveBtn.title = project.isArchived ? 'Unarchive' : 'Archive';
+        archiveBtn.onclick = function(e) { e.stopPropagation(); archiveProject(project.id, project.isArchived, e.target); };
+        actions.appendChild(archiveBtn);
+        var delBtn = document.createElement('button');
+        delBtn.className = 'btn btn-sm btn-danger';
+        delBtn.textContent = 'DEL';
+        delBtn.onclick = function(e) { e.stopPropagation(); deleteProject(project.id); };
+        actions.appendChild(delBtn);
+        meta.appendChild(actions);
+        projectItem.appendChild(meta);
+        projectList.appendChild(projectItem);
+    });
 }
 
 function runProject(projectId) {
-    // Save project first (name, rootDirectory, instructions, tools)
+    // Save project first, then run
     saveProjectChanges()
-        .then(function() {
-            var project = getProjectById(projectId);
-            if (!project) {
-                fetch('/api/projects/' + projectId)
-                    .then(function(r) { return r.json(); })
-                    .then(function(data) {
-                        if (data.error) { showNotification('Project not found', 'error'); return; }
-                        _loadedProjects = _loadedProjects || [];
-                        if (!_loadedProjects.find(function(p) { return p.id === projectId; })) _loadedProjects.push(data);
-                        _doRunProject(projectId);
-                    })
-                    .catch(function(err) { console.error('Failed to fetch project:', err); showNotification('Failed to load project details', 'info'); });
-                return;
-            }
-            _doRunProject(projectId);
-        })
+        .then(function() { _doRunProject(projectId); })
         .catch(function(err) {
             console.error('Failed to save project:', err);
             showNotification('Failed to save project changes. Please try again.', 'info');
@@ -296,32 +178,16 @@ function runProject(projectId) {
 }
 
 function _doRunProject(projectId, overrideInstruction) {
-    // Try to get rootDir from the details form (if open), fall back to project data
     var rootDir = document.getElementById('details-root-dir') ? document.getElementById('details-root-dir').value : '';
     if (!rootDir) {
-        // Details panel not open — look up the project's stored rootDirectory
-        var project = getProjectById(projectId);
-        if (!project) {
-            // Not in cache — fetch it
-            fetch('/api/projects/' + projectId)
-                .then(function(r) { return r.json(); })
-                .then(function(data) {
-                    if (data.error) { showNotification('Project not found', 'info'); return; }
-                    _loadedProjects = _loadedProjects || [];
-                    if (!_loadedProjects.find(function(p) { return p.id === projectId; })) _loadedProjects.push(data);
-                    _doRunProject(projectId, overrideInstruction);
-                })
-                .catch(function(err) { console.error('Failed to fetch project:', err); showNotification('Failed to load project details', 'info'); });
-            return;
-        }
-        rootDir = project.rootDirectory || '';
+        var project = (_uiState.projects || []).find(function(p) { return p.id === projectId; });
+        if (project) rootDir = project.rootDirectory || '';
     }
     if (!rootDir) { showNotification('Please set a root directory first.', 'info'); return; }
+    
     var instructions = overrideInstruction || (document.getElementById('details-instructions') ? document.getElementById('details-instructions').value : '');
-    // All tools are always available — getEnabledTools() returns the full list.
-    var enabledTools = getEnabledTools();
-    // Use file-based polling instead of SSE
-    _setProjectState(projectId, { agentRunning: true, liveInjectActive: false });
+    
+    // Show live view
     var configSection = document.getElementById('project-config-section');
     var agentLive = document.getElementById('agent-live-container');
     if (configSection) configSection.style.display = 'none';
@@ -338,16 +204,15 @@ function _doRunProject(projectId, overrideInstruction) {
     if (stopBtn) stopBtn.style.display = 'inline-block';
     if (liveStopBtn) liveStopBtn.style.display = 'inline-block';
     if (refreshBtn) refreshBtn.style.display = 'inline-block';
-    // Keep inject button enabled so user can inject at will
     var injectInput = document.getElementById('live-inject-input');
     var injectBtn = document.getElementById('live-inject-btn');
     if (injectInput) { injectInput.disabled = false; injectInput.placeholder = 'Type instructions or questions...'; }
     if (injectBtn) { injectBtn.disabled = false; injectBtn.textContent = 'INJECT'; }
-    // Scroll to agent live box
+    
     if (agentLive) {
         setTimeout(function() { agentLive.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 100);
     }
-    // Start the agent run via POST (non-streaming)
+    
     fetch('/api/agent/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -359,9 +224,15 @@ function _doRunProject(projectId, overrideInstruction) {
     })
     .then(function(data) {
         if (data.error) throw new Error(data.error);
-        _setProjectState(projectId, { jobId: data.job_id });
-        // Start polling for status and steps
+        _activeJobId = data.job_id;
+        if (agentLive) {
+            agentLive.dataset.jobId = data.job_id;
+            agentLive.dataset.projectId = projectId;
+            agentLive.dataset.outputDir = data.output_dir;
+        }
         _startPolling(data.job_id, data.output_dir, agentBox, projectId);
+        // Refresh state to pick up new running job
+        fetchState();
     })
     .catch(function(err) {
         console.error('Agent run error:', err);
@@ -371,10 +242,8 @@ function _doRunProject(projectId, overrideInstruction) {
         if (agentBox.firstChild) agentBox.insertBefore(errEntry, agentBox.firstChild);
         else agentBox.appendChild(errEntry);
         agentBox.scrollTop = 0;
-        _setProjectState(projectId, { agentRunning: false });
         resetRunButtons();
         if (stopBtn) stopBtn.style.display = 'none';
-        // Inject stays enabled so user can retry or inject into the error state
         var injectInputErr = document.getElementById('live-inject-input');
         var injectBtnErr = document.getElementById('live-inject-btn');
         if (injectInputErr) { injectInputErr.disabled = false; injectInputErr.placeholder = 'Retry or inject instructions...'; }
@@ -382,29 +251,18 @@ function _doRunProject(projectId, overrideInstruction) {
     });
 }
 
-// === File-Based Polling (replaces SSE) ===
-
+// === File-Based Polling ===
 function _startPolling(jobId, outputDir, agentBox, projectId, fastPoll) {
-    // Clear any existing poll interval
     if (_pollInterval) clearInterval(_pollInterval);
-    _lastPollTimestamp = Date.now();
-
-    // Use faster polling (5s) when agent is actively running, slower (30s) otherwise
     var interval = fastPoll ? 5000 : 30000;
-
-    // Store the jobId and projectId that this poller is for
     var pollJobId = jobId;
     var pollProjectId = projectId;
-
-    // Initial fetch
+    
     _pollOnce(jobId, outputDir, agentBox, projectId);
-
-    // Poll at the configured interval
+    
     _pollInterval = setInterval(function() {
-        // Verify this poller is still the active one for this job/project
         var activeContainer = document.getElementById('agent-live-container');
         if (activeContainer && activeContainer.dataset.jobId !== pollJobId) {
-            // A new job is now active — stop polling for this stale job
             clearInterval(_pollInterval);
             _pollInterval = null;
             return;
@@ -414,144 +272,77 @@ function _startPolling(jobId, outputDir, agentBox, projectId, fastPoll) {
 }
 
 function _pollOnce(jobId, outputDir, agentBox, projectId) {
-    // Fetch steps to detect pending states from the data (not status.json)
     var stepsPromise = fetch('/api/job/' + jobId + '/steps')
         .then(function(r) { return r.json(); })
         .catch(function() { return { steps: [], count: 0 }; });
-
-    // Fetch status for terminal states (completed, error, etc.)
     var statusPromise = fetch('/api/job/' + jobId + '/status')
         .then(function(r) { return r.json(); })
         .catch(function() { return {}; });
-
-    Promise.all([stepsPromise, statusPromise])
+    var pendingPromise = outputDir
+        ? fetch('/api/tools/pending', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({project_output_dir: outputDir})
+        }).then(function(r) { return r.json(); }).catch(function() { return []; })
+        : Promise.resolve([]);
+    
+    Promise.all([stepsPromise, statusPromise, pendingPromise])
         .then(function(results) {
             var stepsData = results[0];
             var statusData = results[1];
+            var pendingTools = results[2] || [];
             var steps = stepsData.steps || [];
             var count = stepsData.count || 0;
-
-            // Detect pending states from the steps data
-            var hasPendingTools = false;
-            var hasPendingUserInput = false;
-
-            if (count > 0) {
-                var lastStep = steps[count - 1];
-                if (lastStep && lastStep.tool === 'request_user_input') {
-                    hasPendingUserInput = true;
-                }
-            }
-
-            if (outputDir) {
-                fetch('/api/tools/pending', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({project_output_dir: outputDir})
-                })
-                .then(function(r) { return r.json(); })
-                .then(function(pendingTools) {
-                    if (pendingTools && pendingTools.length > 0) {
-                        hasPendingTools = true;
-                    }
-                    _renderAllSteps(jobId, outputDir, agentBox, statusData, hasPendingTools, hasPendingUserInput, projectId);
-                    updateLiveResponse(jobId, agentBox, projectId);
-                })
-                .catch(function() {
-                    _renderAllSteps(jobId, outputDir, agentBox, statusData, hasPendingTools, hasPendingUserInput, projectId);
-                    updateLiveResponse(jobId, agentBox, projectId);
-                });
-            } else {
-                _renderAllSteps(jobId, outputDir, agentBox, statusData, hasPendingTools, hasPendingUserInput, projectId);
-                updateLiveResponse(jobId, agentBox, projectId);
-            }
+            var hasPendingTools = pendingTools && pendingTools.length > 0;
+            var hasPendingUserInput = count > 0 && steps[count-1] && steps[count-1].tool === 'request_user_input';
+            _renderAllSteps(jobId, outputDir, agentBox, statusData, hasPendingTools, hasPendingUserInput, projectId);
+            updateLiveResponse(jobId, agentBox, projectId);
         })
-        .catch(function(err) {
-            console.error('Polling error:', err);
-        });
+        .catch(function(err) { console.error('Polling error:', err); });
 }
 
 function updateLiveResponse(jobId, agentBox, projectId) {
     if (!jobId || !agentBox) return;
     var container = document.getElementById('live-response-container');
     if (!container) return;
-
-    // Only update if this is the currently active live view for this job
     var activeContainer = document.getElementById('agent-live-container');
     if (activeContainer) {
         var activeJobId = activeContainer.dataset.jobId;
-        // If there's an active container with a different jobId, skip this update
-        if (activeJobId && activeJobId !== jobId) {
-            return;
-        }
+        if (activeJobId && activeJobId !== jobId) return;
     }
-
     fetch('/api/agent/response/' + jobId)
         .then(function(r) { return r.json(); })
         .then(function(data) {
             if (data.content && data.content.trim()) {
                 container.textContent = data.content;
                 container.style.display = 'block';
-                // Auto-scroll to show latest content
                 container.scrollTop = container.scrollHeight;
             } else {
-                // Check per-project running state - only show "Thinking" if this is the active job
-                var state = projectId ? _runningProjects[projectId] : null;
-                var isActive = true;
-                if (activeContainer) {
-                    var activeJobId = activeContainer.dataset.jobId;
-                    isActive = !activeJobId || activeJobId === jobId;
-                }
-                if (state && state.agentRunning && isActive) {
-                    // Show "Thinking..." with a subtle indicator so the user knows
-                    // the agent is active, but don't hide the current_response.txt
-                    // container — it will show when content appears
-                    container.textContent = 'Thinking...';
-                    container.style.display = 'block';
-                } else {
-                    container.style.display = 'none';
-                }
+                container.style.display = 'none';
             }
         })
         .catch(function(err) { console.error('Failed to fetch live response:', err); });
 }
 
 function _renderAllSteps(jobId, outputDir, agentBox, statusData, hasPendingTools, hasPendingUserInput, projectId) {
-    // Guard: if agentBox is null, try to re-resolve it (element may have been recreated)
     if (!agentBox) {
         agentBox = document.getElementById('agent-live-box');
     }
-    if (!agentBox) {
-        console.warn('agent-live-box not found, skipping step render');
-        return;
-    }
-
+    if (!agentBox) { console.warn('agent-live-box not found'); return; }
+    
     fetch('/api/job/' + jobId + '/steps')
         .then(function(r) { return r.json(); })
         .then(function(data) {
             var steps = data.steps || [];
             var count = data.count || 0;
-
-            // Always re-render all steps from scratch
             agentBox.innerHTML = '';
-
             for (var i = 0; i < count; i++) {
                 var step = steps[i];
-                if (step) {
-                    _renderStep(step, agentBox);
-                }
+                if (step) _renderStep(step, agentBox);
             }
-
-            // Show pending approval banner if detected from filesystem
-            if (hasPendingTools && outputDir) {
-                _showPendingApproval(jobId, outputDir, agentBox);
-            }
-
-            // Show pending user input banner if detected from steps
-            if (hasPendingUserInput) {
-                _showPendingUserInput(statusData, agentBox);
-            }
-
-            // Update status text for pending states
+            if (hasPendingTools && outputDir) _showPendingApproval(jobId, outputDir, agentBox);
+            if (hasPendingUserInput) _showPendingUserInput(statusData, agentBox);
+            
             var st = document.getElementById('agent-status-text');
             if (st) {
                 if (hasPendingTools) {
@@ -564,48 +355,27 @@ function _renderAllSteps(jobId, outputDir, agentBox, statusData, hasPendingTools
                     st.style.fontWeight = 'bold';
                 }
             }
-
-            // If terminal state (not pending), stop polling
+            
             var status = statusData.status || 'running';
             if (status !== 'running' && !hasPendingTools && !hasPendingUserInput) {
-                if (_pollInterval) {
-                    clearInterval(_pollInterval);
-                    _pollInterval = null;
-                }
-                _setProjectState(projectId, { agentRunning: false, liveInjectActive: true });
+                if (_pollInterval) { clearInterval(_pollInterval); _pollInterval = null; }
                 resetRunButtons();
                 var stopBtn = document.getElementById('details-stop-btn');
                 if (stopBtn) stopBtn.style.display = 'none';
                 var liveStopBtn = document.getElementById('live-stop-btn');
                 if (liveStopBtn) liveStopBtn.style.display = 'none';
-
-                // Update status text
                 if (st) {
-                    if (status === 'completed') {
-                        st.textContent = 'COMPLETED';
-                        st.style.color = 'var(--success)';
-                    } else if (status === 'error') {
-                        st.textContent = 'ERROR';
-                        st.style.color = 'var(--danger)';
-                    } else if (status === 'stopped') {
-                        st.textContent = 'STOPPED';
-                        st.style.color = 'var(--text-muted)';
-                    } else if (status === 'max_steps_reached') {
-                        st.textContent = 'MAX STEPS';
-                        st.style.color = 'var(--warning)';
-                    } else {
-                        st.textContent = status.toUpperCase();
-                    }
+                    if (status === 'completed') { st.textContent = 'COMPLETED'; st.style.color = 'var(--success)'; }
+                    else if (status === 'error') { st.textContent = 'ERROR'; st.style.color = 'var(--danger)'; }
+                    else if (status === 'stopped') { st.textContent = 'STOPPED'; st.style.color = 'var(--text-muted)'; }
+                    else if (status === 'max_steps_reached') { st.textContent = 'MAX STEPS'; st.style.color = 'var(--warning)'; }
+                    else { st.textContent = status.toUpperCase(); }
                 }
-
-                // Enable inject
                 var ii = document.getElementById('live-inject-input');
                 var ib = document.getElementById('live-inject-btn');
                 if (ii) { ii.disabled = false; ii.placeholder = 'Continue with new instructions...'; }
                 if (ib) { ib.disabled = false; ib.textContent = 'INJECT'; }
             } else {
-                // Non-terminal state (running, pending, error, stopped, etc.)
-                // Always enable inject so the user can inject into any job state
                 var ii = document.getElementById('live-inject-input');
                 var ib = document.getElementById('live-inject-btn');
                 if (ii) { ii.disabled = false; ii.placeholder = 'Continue with new instructions...'; }
@@ -614,7 +384,6 @@ function _renderAllSteps(jobId, outputDir, agentBox, statusData, hasPendingTools
         })
         .catch(function(err) {
             console.error('Failed to load steps:', err);
-            // Always re-enable inject even on error so the user can inject
             var ii = document.getElementById('live-inject-input');
             var ib = document.getElementById('live-inject-btn');
             if (ii) { ii.disabled = false; ii.placeholder = 'Continue with new instructions...'; }
@@ -624,17 +393,14 @@ function _renderAllSteps(jobId, outputDir, agentBox, statusData, hasPendingTools
 
 function _renderStep(step, agentBox) {
     if (!agentBox) return;
-
-    // Remove the "tool running" indicator for this step
     var runningEntry = document.getElementById('tool-running-' + step.step);
     if (runningEntry) runningEntry.remove();
-
     var stepCount = document.getElementById('agent-step-count');
     if (stepCount) stepCount.textContent = 'Step ' + step.step;
-
+    
     var entry = document.createElement('div');
     entry.className = 'step-entry';
-
+    
     if (step.tool === 'respond_to_user') {
         entry.classList.add('llm-step');
         entry.style.borderLeftColor = 'var(--info)';
@@ -779,7 +545,6 @@ function _renderStep(step, agentBox) {
             paramsDiv2.textContent = JSON.stringify(step.params);
             entry.appendChild(paramsDiv2);
         }
-        // Show error details prominently when a tool fails
         if (errorMsg && !ok) {
             var errDiv = document.createElement('div');
             errDiv.className = 'step-result step-result-error';
@@ -794,16 +559,13 @@ function _renderStep(step, agentBox) {
             entry.appendChild(resultDiv6);
         }
     }
-
     agentBox.appendChild(entry);
     agentBox.scrollTop = agentBox.scrollHeight;
 }
 
 function _showPendingApproval(jobId, outputDir, agentBox) {
-    // Idempotent: if already showing, just refresh the tool list (in case new tools were added)
     var existingEntry = document.getElementById('pending-approval-entry');
     if (existingEntry) {
-        // Refresh the tool list inside the existing entry
         var actionsDiv = document.getElementById('pending-approval-actions');
         if (actionsDiv) {
             actionsDiv.innerHTML = '';
@@ -811,7 +573,6 @@ function _showPendingApproval(jobId, outputDir, agentBox) {
         }
         return;
     }
-
     var entry = document.createElement('div');
     entry.className = 'step-entry pending-approval';
     entry.id = 'pending-approval-entry';
@@ -827,13 +588,10 @@ function _showPendingApproval(jobId, outputDir, agentBox) {
     actionsDiv.id = 'pending-approval-actions';
     actionsDiv.style.cssText = 'margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;';
     entry.appendChild(actionsDiv);
-
     agentBox.appendChild(entry);
     agentBox.scrollTop = agentBox.scrollHeight;
-
     var statusText = document.getElementById('agent-status-text');
     if (statusText) { statusText.textContent = 'PENDING TOOL APPROVAL'; statusText.style.color = 'var(--warning)'; statusText.style.fontWeight = 'bold'; }
-
     _loadPendingTools(actionsDiv, outputDir, jobId);
 }
 
@@ -852,27 +610,22 @@ function _loadPendingTools(actionsDiv, outputDir, jobId) {
         pendingTools.forEach(function(tool) {
             var toolEntry = document.createElement('div');
             toolEntry.style.cssText = 'background:var(--muted);padding:12px;border-radius:6px;margin-top:8px;width:100%;';
-
             var nameDiv = document.createElement('div');
             nameDiv.style.cssText = 'font-weight:bold;margin-bottom:4px;';
             nameDiv.textContent = '📦 ' + tool.name;
             toolEntry.appendChild(nameDiv);
-
             var descDiv = document.createElement('div');
             descDiv.style.cssText = 'font-size:12px;color:var(--text-muted);margin-bottom:4px;';
             descDiv.textContent = tool.description || '';
             toolEntry.appendChild(descDiv);
-
             if (tool.code) {
                 var codePre = document.createElement('pre');
                 codePre.style.cssText = 'background:var(--bg-primary);padding:8px;border-radius:4px;max-height:200px;overflow:auto;font-size:11px;margin:8px 0;white-space:pre-wrap;';
                 codePre.textContent = tool.code;
                 toolEntry.appendChild(codePre);
             }
-
             var btnRow = document.createElement('div');
             btnRow.style.cssText = 'display:flex;gap:8px;margin-top:8px;';
-
             var approveBtn = document.createElement('button');
             approveBtn.className = 'btn btn-success btn-sm';
             approveBtn.textContent = '✅ APPROVE';
@@ -880,28 +633,22 @@ function _loadPendingTools(actionsDiv, outputDir, jobId) {
             approveBtn.dataset.outputDir = outputDir;
             approveBtn.dataset.jobId = jobId;
             btnRow.appendChild(approveBtn);
-
             var rejectBtn = document.createElement('button');
             rejectBtn.className = 'btn btn-danger btn-sm';
             rejectBtn.textContent = '❌ REJECT';
             rejectBtn.dataset.url = '/api/tools/pending/' + encodeURIComponent(tool.name) + '/reject';
             rejectBtn.dataset.outputDir = outputDir;
             btnRow.appendChild(rejectBtn);
-
             toolEntry.appendChild(btnRow);
             actionsDiv.appendChild(toolEntry);
         });
     })
-    .catch(function(err) {
-        console.error('Failed to load pending tools:', err);
-    });
+    .catch(function(err) { console.error('Failed to load pending tools:', err); });
 }
 
 function _showPendingUserInput(statusData, agentBox) {
     if (!agentBox) return;
-    // Idempotent: if already showing, nothing to do
     if (document.getElementById('pending-user-input-entry')) return;
-
     var entry = document.createElement('div');
     entry.className = 'step-entry pending-approval';
     entry.id = 'pending-user-input-entry';
@@ -927,198 +674,14 @@ function _showPendingUserInput(statusData, agentBox) {
     if (statusText) { statusText.textContent = 'AWAITING INPUT'; statusText.style.color = 'var(--warning)'; }
 }
 
-
-
-function handleAgentStep(data, agentBox) {
-    if (!agentBox) return;
-    // Remove the "tool running" indicator for this step
-    var runningEntry = document.getElementById('tool-running-' + data.step);
-    if (runningEntry) runningEntry.remove();
-    var stepCount = document.getElementById('agent-step-count');
-    if (stepCount) stepCount.textContent = 'Step ' + data.step;
-    var entry = document.createElement('div');
-    entry.className = 'step-entry';
-    if (data.tool === 'respond_to_user') {
-        entry.classList.add('llm-step');
-        entry.style.borderLeftColor = 'var(--info)';
-        var toolDiv = document.createElement('div');
-        toolDiv.className = 'step-tool';
-        toolDiv.style.color = 'var(--info)';
-        toolDiv.textContent = '💬 AI Response';
-        entry.appendChild(toolDiv);
-        var respContent = data.result ? (data.result.content || '') : '';
-        var resultDiv = document.createElement('div');
-        resultDiv.className = 'step-result';
-        resultDiv.textContent = respContent;
-        entry.appendChild(resultDiv);
-    } else if (data.tool === 'request_user_input') {
-        entry.classList.add('pending-approval');
-        var toolDiv2 = document.createElement('div');
-        toolDiv2.className = 'step-tool';
-        toolDiv2.style.color = 'var(--warning)';
-        toolDiv2.textContent = '⏸ REQUEST USER INPUT';
-        entry.appendChild(toolDiv2);
-        var reqQuestion = data.result ? (data.result.content || 'The agent is waiting for your input.') : 'The agent is waiting for your input.';
-        var resultDiv2 = document.createElement('div');
-        resultDiv2.className = 'step-result';
-        resultDiv2.style.cssText = 'color:var(--warning);white-space:pre-wrap;';
-        resultDiv2.textContent = reqQuestion;
-        entry.appendChild(resultDiv2);
-        var hintDiv = document.createElement('div');
-        hintDiv.className = 'step-result';
-        hintDiv.style.cssText = 'color:var(--text-muted);font-size:11px;margin-top:6px;';
-        hintDiv.textContent = '👉 The agent is waiting for your response. Type instructions below and click INJECT or RUN to continue';
-        entry.appendChild(hintDiv);
-    } else if (data.tool === 'llm_call') {
-        var msgCount = data.params ? data.params.messages : 0;
-        entry.classList.add('llm-step');
-        var rawReq = data.raw_request || '';
-        var rawResp = data.raw_response || '';
-        var hasRaw = rawReq.length > 0 || rawResp.length > 0;
-        var respContent = data.result ? data.result.content : '';
-        var preview = respContent ? (respContent.length > 200 ? respContent.substring(0, 200) + '...' : respContent) : 'Processing request...';
-        var toolDiv3 = document.createElement('div');
-        toolDiv3.className = 'step-tool';
-        toolDiv3.textContent = '🤔 Thinking (' + msgCount + ' messages)';
-        entry.appendChild(toolDiv3);
-        var resultDiv3 = document.createElement('div');
-        resultDiv3.className = 'step-result';
-        resultDiv3.textContent = preview;
-        entry.appendChild(resultDiv3);
-        if (hasRaw) {
-            var rawDiv = document.createElement('div');
-            rawDiv.style.cssText = 'margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;';
-            if (rawReq.length > 0) {
-                var details1 = document.createElement('details');
-                details1.className = 'raw-data-block';
-                var summary1 = document.createElement('summary');
-                summary1.className = 'raw-summary';
-                summary1.textContent = '📤 Raw Request (' + rawReq.length + ' chars)';
-                details1.appendChild(summary1);
-                var contentDiv1 = document.createElement('div');
-                contentDiv1.className = 'raw-content';
-                var pre1 = document.createElement('pre');
-                var code1 = document.createElement('code');
-                code1.textContent = rawReq;
-                pre1.appendChild(code1);
-                contentDiv1.appendChild(pre1);
-                details1.appendChild(contentDiv1);
-                rawDiv.appendChild(details1);
-            }
-            if (rawResp.length > 0) {
-                var details2 = document.createElement('details');
-                details2.className = 'raw-data-block';
-                var summary2 = document.createElement('summary');
-                summary2.className = 'raw-summary';
-                summary2.textContent = '📥 Raw Response (' + rawResp.length + ' chars)';
-                details2.appendChild(summary2);
-                var contentDiv2 = document.createElement('div');
-                contentDiv2.className = 'raw-content';
-                var pre2 = document.createElement('pre');
-                var code2 = document.createElement('code');
-                code2.textContent = rawResp;
-                pre2.appendChild(code2);
-                contentDiv2.appendChild(pre2);
-                details2.appendChild(contentDiv2);
-                rawDiv.appendChild(details2);
-            }
-            entry.appendChild(rawDiv);
-        }
-    } else if (data.tool === 'format_retry') {
-        entry.classList.add('llm-step');
-        var toolDiv4 = document.createElement('div');
-        toolDiv4.className = 'step-tool';
-        toolDiv4.style.color = 'var(--warning)';
-        toolDiv4.textContent = '⚠ Format reminder sent';
-        entry.appendChild(toolDiv4);
-        var resultDiv4 = document.createElement('div');
-        resultDiv4.className = 'step-result';
-        resultDiv4.style.color = 'var(--warning)';
-        resultDiv4.textContent = data.result ? data.result.content : '';
-        entry.appendChild(resultDiv4);
-    } else if (data.tool === 'task_completed') {
-        // Celebration entry for task completion
-        var summary = data.result ? (data.result.content || '') : '';
-        var toolDiv5 = document.createElement('div');
-        toolDiv5.className = 'step-tool';
-        toolDiv5.style.cssText = 'color:var(--success);font-weight:bold;font-size:16px;';
-        toolDiv5.textContent = '🎉 TASK COMPLETED';
-        entry.appendChild(toolDiv5);
-        if (data.rationale) {
-            var rationaleDiv = document.createElement('div');
-            rationaleDiv.className = 'step-rationale';
-            rationaleDiv.innerText = '💡 ' + data.rationale;
-            entry.appendChild(rationaleDiv);
-        }
-        var resultDiv5 = document.createElement('div');
-        resultDiv5.className = 'step-result';
-        resultDiv5.style.cssText = 'margin-top:6px;padding:8px;background:rgba(46,204,113,0.1);border:1px solid var(--success);border-radius:4px;';
-        resultDiv5.textContent = summary;
-        entry.appendChild(resultDiv5);
-        if (data.params && data.params.summary) {
-            var paramsDiv = document.createElement('div');
-            paramsDiv.className = 'step-result';
-            paramsDiv.style.cssText = 'margin-top:6px;font-style:italic;color:var(--text-muted);';
-            paramsDiv.textContent = 'Summary: ' + data.params.summary;
-            entry.appendChild(paramsDiv);
-        }
-    } else {
-        var ok = data.result && data.result.success !== false;
-        var resultPreview = data.result ? (data.result.content || '') : 'no result';
-        var errorMsg = data.result ? (data.result.error || '') : '';
-        entry.classList.add(ok ? 'success' : 'error');
-        var toolDiv6 = document.createElement('div');
-        toolDiv6.className = 'step-tool';
-        toolDiv6.textContent = (ok ? '✓' : '✗') + ' ' + data.tool;
-        entry.appendChild(toolDiv6);
-        if (data.rationale) {
-            var rationaleDiv2 = document.createElement('div');
-            rationaleDiv2.className = 'step-rationale';
-            rationaleDiv2.innerText = '💡 ' + data.rationale;
-            entry.appendChild(rationaleDiv2);
-        }
-        if (data.params && Object.keys(data.params).length) {
-            var paramsDiv2 = document.createElement('div');
-            paramsDiv2.className = 'step-params';
-            paramsDiv2.textContent = JSON.stringify(data.params);
-            entry.appendChild(paramsDiv2);
-        }
-        // Show error details prominently when a tool fails
-        if (errorMsg && !ok) {
-            var errDiv = document.createElement('div');
-            errDiv.className = 'step-result step-result-error';
-            errDiv.style.cssText = 'color:var(--mc-nether);font-weight:bold;margin-top:4px;';
-            errDiv.textContent = 'ERROR: ' + errorMsg;
-            entry.appendChild(errDiv);
-        }
-        if (resultPreview) {
-            var resultDiv6 = document.createElement('div');
-            resultDiv6.className = 'step-result';
-            resultDiv6.textContent = resultPreview;
-            entry.appendChild(resultDiv6);
-        }
-    }
-    agentBox.appendChild(entry);
-    agentBox.scrollTop = agentBox.scrollHeight;
-}
-// Resend the last request to kick the agent if it stalled
+// Resend the last request
 function resendLastRequest() {
-    // Resolve from per-project state first, fall back to legacy global
-    var activeProjId = _getActiveProjectId();
-    var state = activeProjId ? _runningProjects[activeProjId] : null;
-    var jobId = state ? state.jobId : currentRunningJobId;
-    if (!jobId) {
-        showNotification('No active job to resend', 'warning');
-        return;
-    }
+    var jobId = _activeJobId;
+    if (!jobId) { showNotification('No active job to resend', 'warning'); return; }
     var resendBtn = document.getElementById('live-resend-btn');
     if (!resendBtn) return;
-
-    // Disable button while resending
     resendBtn.disabled = true;
     resendBtn.textContent = 'RESENDING...';
-
-    // Add a visual indicator in the live feed
     var agentBox = document.getElementById('agent-live-box');
     if (agentBox) {
         var resendEntry = document.createElement('div');
@@ -1129,8 +692,6 @@ function resendLastRequest() {
         agentBox.appendChild(resendEntry);
         agentBox.scrollTop = agentBox.scrollHeight;
     }
-
-    // Call the resend endpoint
     fetch('/api/agent/resend', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1147,7 +708,7 @@ function resendLastRequest() {
         }
         var statusText = document.getElementById('agent-status-text');
         if (statusText) { statusText.textContent = 'RESENT'; statusText.style.color = 'var(--success)'; }
-        // Re-enable the button after a delay
+        fetchState();
         setTimeout(function() {
             resendBtn.disabled = false;
             resendBtn.textContent = 'RESEND';
@@ -1164,7 +725,6 @@ function resendLastRequest() {
     });
 }
 
-
 // Agent inject enter key handler
 document.addEventListener('keydown', function(e) {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -1177,7 +737,7 @@ document.addEventListener('keydown', function(e) {
     }
 });
 
-// === Event delegation for approve/reject buttons in pending approval section ===
+// Event delegation for approve/reject buttons
 document.addEventListener('click', function(e) {
     var btn = e.target.closest('[data-url]');
     if (!btn) return;
@@ -1185,11 +745,8 @@ document.addEventListener('click', function(e) {
     var outputDir = btn.dataset.outputDir || '';
     var jobId = btn.dataset.jobId || '';
     var isApprove = url.indexOf('/approve') !== -1;
-
-    // Disable button to prevent double-clicks
     btn.disabled = true;
     btn.textContent = isApprove ? '⏳ APPROVING...' : '⏳ REJECTING...';
-
     fetch(url, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
@@ -1206,24 +763,22 @@ document.addEventListener('click', function(e) {
         } else {
             showNotification('Failed: ' + (data.error || 'Unknown error', 'info'));
         }
+        fetchState();
     })
     .catch(function(err) { console.error('Failed:', err); showNotification('Failed to process tool action.', 'info'); })
     .finally(function() {
-        // Re-enable button on failure so user can retry
         btn.disabled = false;
         btn.textContent = isApprove ? '✅ APPROVE' : '❌ REJECT';
     });
 });
 
-// === Event delegation for bash tool delete buttons ===
+// Event delegation for bash tool delete buttons
 document.addEventListener('click', function(e) {
     var delBtn = e.target.closest('[data-delete-bash-tool]');
     if (!delBtn) return;
     var pid = delBtn.dataset.projectId;
     var toolName = delBtn.dataset.toolName;
-    if (pid && toolName) {
-        deleteBashTool(pid, toolName);
-    }
+    if (pid && toolName) deleteBashTool(pid, toolName);
 });
 
 function clearPendingApprovalState() {
@@ -1234,16 +789,9 @@ function clearPendingApprovalState() {
 }
 
 function stopProject(projectId) {
-    _setProjectState(projectId, { agentRunning: false, liveInjectActive: true });
     if (_pollInterval) { clearInterval(_pollInterval); _pollInterval = null; }
-    var state = _runningProjects[projectId];
-    var jobId = state ? state.jobId : null;
     var promises = [fetch('/api/queue/running/stop', { method: 'POST' }).catch(function() {})];
-    if (jobId) {
-        promises.push(fetch('/api/agent/stop/' + jobId, { method: 'POST' }).catch(function() {}));
-    }
     Promise.all(promises).then(function() {
-        // Show the agent live container so user can see steps and inject
         var container = document.getElementById('agent-live-container');
         if (container) { container.style.display = 'block'; }
         var configSection = document.getElementById('project-config-section');
@@ -1254,7 +802,7 @@ function stopProject(projectId) {
         if (viewLiveBtn) viewLiveBtn.style.display = 'inline-block';
         var liveStopBtn = document.getElementById('live-stop-btn');
         if (liveStopBtn) liveStopBtn.style.display = 'none';
-        updateRunButtonState(projectId, false);
+        fetchState();
         loadJobs();
         resetRunButtons();
     })
@@ -1262,20 +810,12 @@ function stopProject(projectId) {
 }
 
 function stopCurrentJob() {
-    // Stop the currently running job from the VIEW LIVE screen
-    // Use the projectId from the live container for proper per-project isolation
     var container = document.getElementById('agent-live-container');
-    var projectId = container ? container.dataset.projectId : null;
-    var state = projectId ? _runningProjects[projectId] : null;
-    _setProjectState(projectId, { agentRunning: false, liveInjectActive: true });
+    var jobId = container ? container.dataset.jobId : null;
     if (_pollInterval) { clearInterval(_pollInterval); _pollInterval = null; }
-    var jobId = state ? state.jobId : null;
     var promises = [fetch('/api/queue/running/stop', { method: 'POST' }).catch(function() {})];
-    if (jobId) {
-        promises.push(fetch('/api/agent/stop/' + jobId, { method: 'POST' }).catch(function() {}));
-    }
+    if (jobId) promises.push(fetch('/api/agent/stop/' + jobId, { method: 'POST' }).catch(function() {}));
     Promise.all(promises).then(function() {
-        // Clear the live view state
         if (container) {
             container.innerHTML = '';
             delete container.dataset.jobId;
@@ -1288,6 +828,7 @@ function stopCurrentJob() {
         if (liveStopBtn) liveStopBtn.style.display = 'none';
         var statusText = document.getElementById('agent-status-text');
         if (statusText) { statusText.textContent = 'STOPPED'; statusText.style.color = 'var(--text-muted)'; }
+        fetchState();
         loadJobs();
         resetRunButtons();
     })
@@ -1296,14 +837,8 @@ function stopCurrentJob() {
 
 function continueAgentRunWithInstruction(projectId, prevJobId, newInstruction) {
     if (!projectId) return;
-    // If no prevJobId, we'll start a new run for the project
-    if (!prevJobId) {
-        // Start a fresh run with the new instruction
-        _doRunProject(projectId, newInstruction);
-        return;
-    }
-    _setProjectState(projectId, { agentRunning: true, liveInjectActive: false });
-    var enabledTools = getEnabledTools();
+    if (!prevJobId) { _doRunProject(projectId, newInstruction); return; }
+    var enabledTools = AVAILABLE_TOOLS.slice();
     var runBtn = document.getElementById('details-run-btn');
     var stopBtn = document.getElementById('details-stop-btn');
     var liveStopBtn = document.getElementById('live-stop-btn');
@@ -1333,13 +868,13 @@ function continueAgentRunWithInstruction(projectId, prevJobId, newInstruction) {
     })
     .then(function(data) {
         if (data.error) throw new Error(data.error);
-        _setProjectState(projectId, { jobId: data.job_id });
+        _activeJobId = data.job_id;
         _startPolling(data.job_id, data.output_dir, agentBox, projectId);
+        fetchState();
     })
     .catch(function(err) {
         console.error('Agent run error:', err);
         if (agentBox) { var errEntry = document.createElement('div'); errEntry.className = 'step-entry error'; errEntry.textContent = 'ERROR: ' + err.message; agentBox.appendChild(errEntry); agentBox.scrollTop = agentBox.scrollHeight; }
-        _setProjectState(projectId, { agentRunning: false, liveInjectActive: true });
         var iInput2 = document.getElementById('live-inject-input');
         var iBtn2 = document.getElementById('live-inject-btn');
         if (iInput2) { iInput2.disabled = false; iInput2.placeholder = 'Continue with new instructions...'; }
@@ -1352,159 +887,81 @@ function resetRunButtons() {
     var stopBtn = document.getElementById('details-stop-btn');
     if (runBtn) { runBtn.disabled = false; runBtn.innerHTML = 'RUN AI BUILDER'; }
     if (stopBtn) stopBtn.style.display = 'none';
-    // Inject is always enabled — user can inject into any job state
     var injectInput = document.getElementById('live-inject-input');
     var injectBtn = document.getElementById('live-inject-btn');
     if (injectInput) { injectInput.disabled = false; injectInput.placeholder = 'Continue with new instructions...'; }
     if (injectBtn) { injectBtn.disabled = false; injectBtn.textContent = 'INJECT'; }
 }
 
-function updateRunButtonState(projectId, status) {
-    var listBtn = document.getElementById('run-btn-' + projectId);
-    var stopListBtn = document.getElementById('stop-btn-' + projectId);
-    var detailBtn = document.getElementById('details-run-btn');
-    var detailStopBtn = document.getElementById('details-stop-btn');
-    if (listBtn) {
-        listBtn.disabled = status === 'running';
-        if (status === 'running') listBtn.innerHTML = '<span class="run-spinner"></span> RUNNING';
-        else if (status === 'queued') listBtn.innerHTML = '<span class="run-spinner"></span> QUEUED';
-        else listBtn.innerHTML = 'RUN';
-    }
-    if (stopListBtn) stopListBtn.style.display = (status === 'running' || status === 'pending_approval' || status === 'pending_user_input') ? 'inline-block' : 'none';
-    if (detailBtn && currentProjectId === projectId) {
-        detailBtn.disabled = (status === 'running' || status === 'pending_approval' || status === 'pending_user_input');
-        if (status === 'running') detailBtn.innerHTML = '<span class="run-spinner"></span> RUNNING...';
-        else if (status === 'queued') detailBtn.innerHTML = '<span class="run-spinner"></span> QUEUED';
-        else detailBtn.innerHTML = 'RUN AI BUILDER';
-    }
-    if (detailStopBtn && currentProjectId === projectId) {
-        detailStopBtn.style.display = (status === 'running' || status === 'pending_approval' || status === 'pending_user_input') ? 'inline-block' : 'none';
-    }
-    // Show VIEW LIVE button whenever there's activity for this project
-    var liveBtn = document.getElementById('details-live-btn');
-    if (liveBtn && currentProjectId === projectId) {
-        liveBtn.style.display = 'inline-block';
-    }
-}
-
-function getProjectById(projectId) {
-    for (var i = 0; i < _loadedProjects.length; i++) {
-        if (_loadedProjects[i].id === projectId) return _loadedProjects[i];
-    }
-    return null;
-}
-
-function loadProjectsCached() {
-    return fetch('/api/projects')
-        .then(function(r) { return r.json(); })
-        .then(function(data) { _loadedProjects = data; loadProjects(); return data; });
-}
-
 function selectProject(projectId) {
-    currentProjectId = projectId;
-    localStorage.setItem('currentProjectId', projectId);
     document.getElementById('projects-panel').classList.remove('active');
     document.getElementById('project-details-panel').classList.add('active');
-    // Scroll to top so user can see the run button
     window.scrollTo(0, 0);
     var configSection = document.getElementById('project-config-section');
     var agentLive = document.getElementById('agent-live-container');
     if (configSection) configSection.style.display = 'block';
     if (agentLive) agentLive.style.display = 'none';
-    fetch('/api/projects/' + projectId)
-        .then(function(response) { return response.json(); })
-        .then(function(project) {
-            if (!_loadedProjects) _loadedProjects = [];
-            var idx = -1;
-            for (var i = 0; i < _loadedProjects.length; i++) { if (_loadedProjects[i].id === projectId) { idx = i; break; } }
-            if (idx === -1) _loadedProjects.push(project); else _loadedProjects[idx] = project;
-            var safeSet = function(id, val) { var el = document.getElementById(id); if (el) el.value = val; };
-            safeSet('run-project-id', project.id);
-            var nameEl = document.getElementById('details-project-name');
-            if (nameEl) {
-                nameEl.textContent = project.name || 'Untitled';
-                if (project.run_number > 0) {
-                    var runSpan = document.createElement('span');
-                    runSpan.style.cssText = 'font-size:12px;color:var(--text-muted);';
-                    runSpan.textContent = '(Run #' + project.run_number + ')';
-                    nameEl.appendChild(document.createTextNode(' '));
-                    nameEl.appendChild(runSpan);
-                }
-            }
-            safeSet('details-project-name-form', project.name || '');
-            safeSet('details-root-dir', project.rootDirectory || '');
-            safeSet('details-instructions', project.instructions || '');
-            // Fetch custom tools for this project
-            fetch('/api/projects/' + projectId + '/tools')
-                .then(function(r) { return r.json(); })
-                .then(function(toolData) {
-                    buildToolSelector(toolData.disabled_tools || [], toolData.custom_tools || []);
-                })
-                .catch(function(err) {
-                    console.error('Failed to load project tools:', err);
-                    buildToolSelector(project.disabled_tools || [], []);
-                });
-            // Load bash tools for this project
-            loadBashTools(projectId);
-            // Check if this project has a running job and show VIEW LIVE button
-            fetch('/api/queue')
-                .then(function(r) { return r.json(); })
-                .then(function(queueData) {
-                    var isRunning = queueData.running && queueData.running.project_id === projectId;
-                    var isQueued = queueData.queue && queueData.queue.some(function(j) { return j.project_id === projectId; });
-                    updateRunButtonState(projectId, isRunning ? 'running' : (isQueued ? 'queued' : null));
-                    // Show VIEW LIVE button if project is running, pending, or has completed jobs
-                    if (isRunning) {
-                        var liveBtn = document.getElementById('details-live-btn');
-                        if (liveBtn) liveBtn.style.display = 'inline-block';
-                        var stopBtn = document.getElementById('details-stop-btn');
-                        if (stopBtn) stopBtn.style.display = 'inline-block';
-                        _setProjectState(projectId, { jobId: queueData.running.job_id });
-                    } else {
-                        // Check job history for any job (running, pending, or completed)
-                        fetch('/api/history')
-                            .then(function(r) { return r.json(); })
-                            .then(function(history) {
-                                var recentJob = history.find(function(h) { return h.project_id === projectId; });
-                                if (recentJob) {
-                                    var liveBtn = document.getElementById('details-live-btn');
-                                    if (liveBtn) liveBtn.style.display = 'inline-block';
-                                    var stopBtn = document.getElementById('details-stop-btn');
-                                    if (stopBtn) stopBtn.style.display = 'inline-block';
-                                    _setProjectState(projectId, { jobId: recentJob.job_id });
-                                }
-                            });
-                    }
-                });
+    
+    // Get project from state or fetch
+    var project = (_uiState.projects || []).find(function(p) { return p.id === projectId; });
+    if (!project) {
+        fetch('/api/projects/' + projectId)
+            .then(function(r) { return r.json(); })
+            .then(function(proj) {
+                _populateProjectForm(proj);
+            })
+            .catch(function(err) { console.error('Failed to load project details:', err); });
+    } else {
+        _populateProjectForm(project);
+    }
+}
+
+function _populateProjectForm(project) {
+    var safeSet = function(id, val) { var el = document.getElementById(id); if (el) el.value = val; };
+    safeSet('run-project-id', project.id);
+    var nameEl = document.getElementById('details-project-name');
+    if (nameEl) {
+        nameEl.textContent = project.name || 'Untitled';
+        if (project.run_number > 0) {
+            var runSpan = document.createElement('span');
+            runSpan.style.cssText = 'font-size:12px;color:var(--text-muted);';
+            runSpan.textContent = '(Run #' + project.run_number + ')';
+            nameEl.appendChild(document.createTextNode(' '));
+            nameEl.appendChild(runSpan);
+        }
+    }
+    safeSet('details-project-name-form', project.name || '');
+    safeSet('details-root-dir', project.rootDirectory || '');
+    safeSet('details-instructions', project.instructions || '');
+    fetch('/api/projects/' + project.id + '/tools')
+        .then(function(r) { return r.json(); })
+        .then(function(toolData) {
+            buildToolSelector(toolData.disabled_tools || [], toolData.custom_tools || []);
         })
-        .catch(function(err) { console.error('Failed to load project details:', err); });
+        .catch(function(err) {
+            console.error('Failed to load project tools:', err);
+            buildToolSelector(project.disabled_tools || [], []);
+        });
+    loadBashTools(project.id);
+    // Check for running job
+    var activeJob = (_uiState.active_jobs || {})[project.id];
+    if (activeJob) {
+        var liveBtn = document.getElementById('details-live-btn');
+        var stopBtn = document.getElementById('details-stop-btn');
+        if (liveBtn) liveBtn.style.display = 'inline-block';
+        if (stopBtn) stopBtn.style.display = 'inline-block';
+    }
 }
 
 function goBackToProjects() {
-    // Save project first (name, rootDirectory, instructions, tools)
-    saveProjectChanges()
-        .then(function() {
-        _goBackToProjects();
-    })
-    .catch(function(err) {
-        console.error('Failed to save project:', err);
-        // Still allow going back even if save fails
+    saveProjectChanges().finally(function() {
         _goBackToProjects();
     });
 }
 
 function _goBackToProjects() {
-    var projToStop = currentProjectId;
-    if (projToStop && _runningProjects[projToStop] && _runningProjects[projToStop].agentRunning) {
-        stopProject(projToStop);
-    }
     if (_pollInterval) { clearInterval(_pollInterval); _pollInterval = null; }
-    // Clear all running project states
-    Object.keys(_runningProjects).forEach(function(pid) {
-        _clearProjectState(pid);
-    });
-    currentRunningJobId = null;
-    // Clear the agent live container and its content
+    _activeJobId = null;
     var container = document.getElementById('agent-live-container');
     if (container) {
         container.style.display = 'none';
@@ -1513,7 +970,6 @@ function _goBackToProjects() {
         delete container.dataset.projectId;
         delete container.dataset.outputDir;
     }
-    // Clear the live response container
     var liveResp = document.getElementById('live-response-container');
     if (liveResp) { liveResp.textContent = ''; liveResp.style.display = 'none'; }
     var configSection = document.getElementById('project-config-section');
@@ -1522,9 +978,7 @@ function _goBackToProjects() {
     if (agentLive) agentLive.style.display = 'none';
     document.getElementById('project-details-panel').classList.remove('active');
     document.getElementById('projects-panel').classList.add('active');
-    localStorage.removeItem('currentProjectId');
-    currentProjectId = null;
-    loadProjects();
+    fetchState();
 }
 
 function resetProject(projectId) {
@@ -1532,8 +986,8 @@ function resetProject(projectId) {
     fetch('/api/projects/' + projectId + '/reset', { method: 'POST' })
         .then(function(r) { return r.json(); })
         .then(function(data) {
-            if (data.status === 'reset') { loadProjects(); showNotification('Project reset successfully!', 'info'); }
-            else showNotification('Failed to reset project: ' + (data.error || 'Unknown error', 'info'));
+            if (data.status === 'reset') { fetchState(); showNotification('Project reset successfully!', 'info'); }
+            else showNotification('Failed to reset project: ' + (data.error || 'Unknown error'), 'info');
         })
         .catch(function(err) { console.error('Failed to reset project:', err); showNotification('Failed to reset project.', 'info'); });
 }
@@ -1541,83 +995,70 @@ function resetProject(projectId) {
 function deleteProject(projectId) {
     if (!confirm('Are you sure you want to delete this project?')) return;
     fetch('/api/projects/' + projectId, { method: 'DELETE' })
-        .then(function() { if (currentProjectId === projectId) goBackToProjects(); else loadProjects(); })
+        .then(function() { fetchState(); })
         .catch(function(err) { console.error('Failed to delete project:', err); });
 }
 
 function archiveProject(projectId, isArchived, btnEl) {
     var endpoint = isArchived ? 'unarchive' : 'archive';
     fetch('/api/projects/' + projectId + '/' + endpoint, { method: 'POST' })
-        .then(function() { loadProjects(); if (currentProjectId === projectId) selectProject(projectId); })
+        .then(function() { fetchState(); })
         .catch(function(err) { console.error('Failed to ' + endpoint + ' project:', err); });
 }
 
 function toggleArchived() {
-    showArchived = !showArchived;
+    _showArchived = !_showArchived;
     var btn = document.getElementById('show-archived-btn');
-    if (btn) btn.textContent = showArchived ? 'HIDE ARCHIVED' : 'SHOW ARCHIVED';
-    loadProjects();
+    if (btn) btn.textContent = _showArchived ? 'HIDE ARCHIVED' : 'SHOW ARCHIVED';
+    fetchState();
 }
 
 function autoSaveProject() {
-    clearTimeout(autoSaveTimeout);
-    autoSaveTimeout = setTimeout(function() { saveProjectChanges(); }, 2000);
+    saveProjectChanges();
 }
 
 function saveProjectChanges() {
     var projectId = document.getElementById('run-project-id') ? document.getElementById('run-project-id').value : null;
-    if (!projectId) return;
+    if (!projectId) return Promise.resolve();
     var formData = new FormData(document.getElementById('project-details-form'));
-    // Collect disabled_tools: unchecked boxes = disabled
     var unchecked = document.querySelectorAll('#details-tool-selector input[type="checkbox"]:not(:checked)');
     var disabledTools = [];
     unchecked.forEach(function(cb) { disabledTools.push(cb.value); });
-    // Save disabled_tools via dedicated endpoint
+    // Save disabled_tools
     fetch('/api/projects/' + projectId + '/tools', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({disabled_tools: disabledTools})
-    })
-    .then(function(res) { return res.json(); })
-    .then(function(data) {
-        if (data.status === 'updated') console.log('Project tools updated');
-    })
-    .catch(function(err) { console.error('Failed to save project tools:', err); });
-    // Also save other project fields
+    }).catch(function(err) { console.error('Failed to save project tools:', err); });
+    // Save other fields
     return fetch('/api/projects/' + projectId, { method: 'POST', body: formData })
         .then(function(res) { return res.json(); })
         .then(function(data) {
-            if (data.status === 'saved') console.log('Project saved');
+            if (data.status === 'saved') fetchState();
             return data;
         })
         .catch(function(err) { console.error('Failed to save project:', err); throw err; });
 }
 
 // === Tool Selector ===
-function buildToolSelector(enabledTools) {
-    buildToolSelectorForElement('details-tool-selector', enabledTools);
+function buildToolSelector(disabledTools) {
+    buildToolSelectorForElement('details-tool-selector', disabledTools);
 }
-// Generic tool selector builder for any element ID
 function buildToolSelectorForElement(elementId, disabledTools, customTools) {
     var container = document.getElementById(elementId);
     if (!container) return;
     var html = '';
-
-    // Built-in tools section
     html += '<div style="margin-bottom:12px;">';
     html += '<div style="font-size:11px;font-weight:bold;color:var(--text-muted);margin-bottom:4px;">BUILT-IN TOOLS</div>';
     html += '<div class="tool-selector-grid">';
     var tools = AVAILABLE_TOOLS.slice().sort();
     tools.forEach(function(toolName) {
-        // All tools checked by default; unchecked = disabled
         var isChecked = disabledTools && disabledTools.indexOf(toolName) === -1;
         html += '<label class="tool-checkbox" style="display:flex;align-items:center;gap:6px;font-size:12px;padding:4px 8px;background:var(--muted);border-radius:4px;cursor:pointer;min-width:0;">' +
             '<input type="checkbox" class="tool-cb" data-toolname="' + escapeHtml(toolName) + '" value="' + toolName + '" ' + (isChecked ? 'checked' : '') + '>' +
             '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;">' + escapeHtml(toolName) + '</span></label>';
     });
     html += '</div></div>';
-
-    // Custom tools section
     if (customTools && customTools.length > 0) {
         html += '<div style="margin-bottom:12px;">';
         html += '<div style="font-size:11px;font-weight:bold;color:var(--text-muted);margin-bottom:4px;">CUSTOM TOOLS (project-local)</div>';
@@ -1630,51 +1071,22 @@ function buildToolSelectorForElement(elementId, disabledTools, customTools) {
         });
         html += '</div></div>';
     }
-
     html += '<div style="color:var(--text-muted);font-size:11px;padding:4px 0;">Checked = enabled. Uncheck to disable.</div>';
     container.innerHTML = html;
 }
 
-function buildToolSelector(disabledTools, customTools) {
-    buildToolSelectorForElement('details-tool-selector', disabledTools, customTools);
-}
-
-
 function getEnabledTools() {
-    // Per-project disabled_tools is now handled via the project form UI.
-    // This function is kept for backward compatibility but no longer used.
     return AVAILABLE_TOOLS.slice();
 }
 
 // === Jobs ===
-function loadJobs() {
-    Promise.all([
-        fetch('/api/queue').then(function(r) { return r.json(); }),
-        fetch('/api/history').then(function(r) { return r.json(); })
-    ])
-    .then(function(data) {
-        var queueData = data[0];
-        var history = data[1];
-        renderJobs(queueData, history);
-        if (currentProjectId) {
-            var currentStatus = null;
-            if (queueData.running && queueData.running.project_id === currentProjectId) currentStatus = 'running';
-            else if (queueData.queue && queueData.queue.some(function(j) { return j.project_id === currentProjectId; })) currentStatus = 'queued';
-            // Also check for pending_approval or pending_user_input in history
-            if (!currentStatus) {
-                var pendingJob = history.find(function(h) {
-                    return h.project_id === currentProjectId &&
-                           (h.status === 'pending_approval' || h.status === 'pending_user_input');
-                });
-                if (pendingJob) currentStatus = pendingJob.status;
-            }
-            updateRunButtonState(currentProjectId, currentStatus);
-        }
-    })
-    .catch(function(err) { console.error('Failed to load jobs:', err); var list = document.getElementById('jobs-list'); if (list) list.innerHTML = '<div class="note warning">Failed to load jobs.</div>'; });
+function renderJobs() {
+    var queueData = _uiState.queue || {};
+    var history = _uiState.history || [];
+    renderJobsFromData(queueData, history);
 }
 
-function renderJobs(queueData, history) {
+function renderJobsFromData(queueData, history) {
     var list = document.getElementById('jobs-list');
     if (!list) return;
     list.innerHTML = '';
@@ -1682,7 +1094,7 @@ function renderJobs(queueData, history) {
     var historyIds = {};
     items.forEach(function(i) { historyIds[i.job_id] = true; });
     if (queueData.running && !historyIds[queueData.running.job_id]) items.unshift(queueData.running);
-    if (queueData.queue) queueData.queue.forEach(function(j) { if (!historyIds[j.job_id]) items.push(j); });
+    if (queueData.queued) queueData.queued.forEach(function(j) { if (!historyIds[j.job_id]) items.push(j); });
     if (!items.length) { list.innerHTML = '<div class="note">NO JOBS FOUND.</div>'; return; }
     items.forEach(function(job) {
         var item = document.createElement('div');
@@ -1691,17 +1103,13 @@ function renderJobs(queueData, history) {
         item.onclick = function() { toggleJobSteps(job.job_id); };
         var statusClass = 'completed';
         var statusText = job.status || 'unknown';
-
-        // Map status to CSS class
         if (statusText === 'running') statusClass = 'running';
         else if (statusText === 'pending_approval') statusClass = 'queued';
         else if (statusText === 'pending_user_input') statusClass = 'queued';
         else if (statusText === 'error') statusClass = 'error';
         else if (statusText === 'stopped') statusClass = 'stopped';
         else if (statusText === 'max_steps_reached') statusClass = 'queued';
-        else if (statusText === 'completed') statusClass = 'completed';
-
-        // Build header
+        
         var header = document.createElement('div');
         header.className = 'history-item-header';
         var nameSpan = document.createElement('span');
@@ -1713,30 +1121,24 @@ function renderJobs(queueData, history) {
         statusSpan.textContent = statusText.toUpperCase().replace('_', ' ');
         header.appendChild(statusSpan);
         item.appendChild(header);
-
-        // Job ID
+        
         var idDiv = document.createElement('div');
         idDiv.className = 'history-item-id';
         idDiv.textContent = job.job_id.substring(0, 8) + '...';
         item.appendChild(idDiv);
-
-        // Error
+        
         if (job.error) {
             var errDiv = document.createElement('div');
             errDiv.className = 'history-item-error';
             errDiv.textContent = 'Error: ' + job.error;
             item.appendChild(errDiv);
         }
-
-        // Summary
         if (job.summary) {
             var sumDiv = document.createElement('div');
             sumDiv.className = 'history-item-summary';
             sumDiv.textContent = 'Summary: ' + job.summary.substring(0, 150);
             item.appendChild(sumDiv);
         }
-
-        // Steps — fetch from API on demand (never inline) to avoid stale/cross-contaminated data
         var stepCount = job.steps || 0;
         if (stepCount > 0) {
             var stepsBtn = document.createElement('button');
@@ -1744,7 +1146,6 @@ function renderJobs(queueData, history) {
             stepsBtn.textContent = '▼ SHOW STEPS (' + stepCount + ')';
             stepsBtn.onclick = function(e) { e.stopPropagation(); toggleJobSteps(job.job_id); };
             item.appendChild(stepsBtn);
-
             var stepsList = document.createElement('div');
             stepsList.id = 'job-steps-' + job.job_id;
             stepsList.className = 'job-steps-list';
@@ -1757,24 +1158,19 @@ function renderJobs(queueData, history) {
             stepCountDiv.textContent = 'Completed ' + (job.steps || 0) + ' steps';
             item.appendChild(stepCountDiv);
         }
-
-        // Delete button
         var delBtn = document.createElement('button');
         delBtn.className = 'btn btn-xs btn-secondary';
         delBtn.style.cssText = 'margin-top:6px;';
         delBtn.textContent = 'DELETE';
         delBtn.onclick = function(e) { e.stopPropagation(); deleteJob(job.job_id); };
         item.appendChild(delBtn);
-
         list.appendChild(item);
     });
 }
 
-// Load and render steps for a job from the API (never trust inline step_history)
 function _loadJobSteps(jobId) {
     var stepsList = document.getElementById('job-steps-' + jobId);
     if (!stepsList) return;
-
     fetch('/api/job/' + jobId + '/steps')
         .then(function(r) { return r.json(); })
         .then(function(data) {
@@ -1787,23 +1183,16 @@ function _loadJobSteps(jobId) {
             steps.forEach(function(s) {
                 var stepItem = document.createElement('div');
                 stepItem.className = 'job-step-item';
-
                 var stepNum = document.createElement('span');
                 stepNum.className = 'step-num';
                 stepNum.textContent = 'Step ' + s.step;
                 stepItem.appendChild(stepNum);
-
                 var toolName = document.createElement('span');
                 toolName.className = 'step-tool-name';
-                if (s.tool === 'llm_call') {
-                    toolName.textContent = '[Thinking]';
-                } else if (s.tool === 'request_user_input') {
-                    toolName.textContent = '[⏸ User Input]';
-                } else {
-                    toolName.textContent = '[' + s.tool + ']';
-                }
+                if (s.tool === 'llm_call') toolName.textContent = '[Thinking]';
+                else if (s.tool === 'request_user_input') toolName.textContent = '[⏸ User Input]';
+                else toolName.textContent = '[' + s.tool + ']';
                 stepItem.appendChild(toolName);
-
                 var statusSpan = document.createElement('span');
                 var ok = s.result && s.result.success !== false;
                 if (s.tool === 'request_user_input') {
@@ -1814,13 +1203,17 @@ function _loadJobSteps(jobId) {
                     statusSpan.textContent = ok ? '✓' : '✗';
                 }
                 stepItem.appendChild(statusSpan);
-
                 if (s.tool === 'llm_call') {
                     var mc = s.params ? s.params.messages : 0;
                     var llmSpan = document.createElement('span');
                     llmSpan.style.color = 'var(--text-muted)';
                     llmSpan.textContent = 'LLM (' + mc + ' msgs)';
                     stepItem.appendChild(llmSpan);
+                } else if (s.params && Object.keys(s.params).length) {
+                    var paramsSpan = document.createElement('span');
+                    paramsSpan.style.color = 'var(--text-muted)';
+                    paramsSpan.textContent = JSON.stringify(s.params);
+                    stepItem.appendChild(paramsSpan);
                 } else if (s.tool === 'request_user_input') {
                     var rq = s.result ? (s.result.content || 'User input requested') : 'User input requested';
                     var rqSpan = document.createElement('span');
@@ -1834,15 +1227,12 @@ function _loadJobSteps(jobId) {
                     rtSpan.textContent = rt;
                     stepItem.appendChild(rtSpan);
                 }
-
-                // Rationale
                 if (s.rationale) {
                     var ratDiv = document.createElement('div');
                     ratDiv.style.cssText = 'color:var(--mc-gold);font-size:9px;margin-left:16px;font-style:italic;';
                     ratDiv.textContent = '💡 ' + s.rationale;
                     stepItem.appendChild(ratDiv);
                 }
-
                 stepsList.appendChild(stepItem);
             });
         })
@@ -1857,7 +1247,6 @@ function toggleJobSteps(jobId) {
     if (el) {
         if (el.style.display === 'none') {
             el.style.display = 'block';
-            // Fetch fresh steps from the API (never trust inline step_history)
             _loadJobSteps(jobId);
         } else {
             el.style.display = 'none';
@@ -1865,12 +1254,10 @@ function toggleJobSteps(jobId) {
     }
 }
 
-
-
 function deleteJob(jobId) {
     if (!confirm('Delete this job?')) return;
     fetch('/api/queue/' + jobId, { method: 'DELETE' })
-        .then(function() { loadJobs(); })
+        .then(function() { fetchState(); })
         .catch(function(err) { console.error('Failed to delete job:', err); });
 }
 
@@ -1878,13 +1265,12 @@ function clearJobHistory() {
     if (!confirm('Are you sure you want to clear all job history?')) return;
     fetch('/api/history/clear', { method: 'POST' })
         .then(function(res) { return res.json(); })
-        .then(function(data) { if (data.status === 'cleared') loadJobs(); else showNotification('Failed to clear history: ' + (data.error || 'Unknown error', 'info')); })
+        .then(function(data) { if (data.status === 'cleared') fetchState(); else showNotification('Failed to clear history: ' + (data.error || 'Unknown error'), 'info'); })
         .catch(function(err) { console.error('Failed to clear history:', err); showNotification('Failed to clear history.', 'info'); });
 }
 
-
 // === Chat ===
-function loadChats() {
+function renderChats() {
     fetch('/api/chats')
         .then(function(r) { return r.json(); })
         .then(function(chats) {
@@ -1894,7 +1280,7 @@ function loadChats() {
             if (!chats.length) { list.innerHTML = '<div class="note">NO CHATS FOUND.</div>'; return; }
             chats.forEach(function(chat) {
                 var item = document.createElement('div');
-                item.className = 'chat-item' + (chat.id === currentChatId ? ' active' : '');
+                item.className = 'chat-item';
                 var nameSpan = document.createElement('span');
                 nameSpan.className = 'chat-item-name';
                 nameSpan.textContent = chat.title || 'New Chat';
@@ -1907,7 +1293,6 @@ function loadChats() {
 }
 
 function newChat() {
-    // Switch to chat tab first
     showTab('chat');
     fetch('/api/chats', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ timestamp: new Date().toISOString() }) })
         .then(function(r) { return r.json(); })
@@ -1916,8 +1301,6 @@ function newChat() {
 }
 
 function openChat(chatId) {
-    currentChatId = chatId;
-    localStorage.setItem('currentChatId', chatId);
     fetch('/api/chats/' + chatId)
         .then(function(r) { return r.json(); })
         .then(function(chat) {
@@ -1935,18 +1318,14 @@ function openChat(chatId) {
                     var bodyDiv = document.createElement('div');
                     bodyDiv.className = 'chat-msg-body';
                     bodyDiv.innerHTML = markdownToHtml(msg.content);
-
                     var headerDiv = document.createElement('div');
                     headerDiv.className = 'chat-msg-header';
                     var roleSpan = document.createElement('span');
                     roleSpan.className = 'chat-msg-role';
                     roleSpan.textContent = roleLabel;
                     headerDiv.appendChild(roleSpan);
-
                     div.appendChild(headerDiv);
                     div.appendChild(bodyDiv);
-
-                    // Copy button at bottom-right of the message body
                     var copyBtn = document.createElement('button');
                     copyBtn.className = 'copy-btn';
                     copyBtn.textContent = 'COPY';
@@ -1960,7 +1339,6 @@ function openChat(chatId) {
                 });
                 log.scrollTop = log.scrollHeight;
             }
-            // Show the chat view container
             var chatView = document.getElementById('chat-view');
             if (chatView) chatView.style.display = 'flex';
             if (controls) controls.style.display = 'flex';
@@ -1979,7 +1357,6 @@ function sendChat() {
     var sendBtn = document.getElementById('send-chat-btn');
     sendBtn.disabled = true;
     input.disabled = true;
-
     var userDiv = document.createElement('div');
     userDiv.className = 'chat-msg user';
     var userBody = document.createElement('div');
@@ -1992,8 +1369,6 @@ function sendChat() {
     userRole.textContent = 'YOU';
     userHeader.appendChild(userRole);
     userDiv.appendChild(userHeader);
-
-    // Copy button at bottom-right of the message body
     var userCopyBtn = document.createElement('button');
     userCopyBtn.className = 'copy-btn';
     userCopyBtn.textContent = 'COPY';
@@ -2006,7 +1381,6 @@ function sendChat() {
     log.appendChild(userDiv);
     input.value = '';
     log.scrollTop = log.scrollHeight;
-
     var aiDiv = document.createElement('div');
     aiDiv.className = 'chat-msg ai';
     var aiHeader = document.createElement('div');
@@ -2020,8 +1394,6 @@ function sendChat() {
     aiBodyDiv.className = 'chat-msg-body';
     aiBodyDiv.id = 'chat-stream-text-' + Date.now();
     aiDiv.appendChild(aiBodyDiv);
-
-    // Copy button at bottom-right of the message body
     var aiCopyBtn = document.createElement('button');
     aiCopyBtn.className = 'copy-btn';
     aiCopyBtn.textContent = 'COPY';
@@ -2033,8 +1405,7 @@ function sendChat() {
     aiDiv.appendChild(aiBodyWrapper);
     log.appendChild(aiDiv);
     log.scrollTop = log.scrollHeight;
-
-    fetch('/api/chats/' + currentChatId + '/messages', {
+    fetch('/api/chats/' + chatId + '/messages', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content: content })
@@ -2072,35 +1443,31 @@ document.addEventListener('keydown', function(e) {
 
 // === Settings ===
 function loadSettingsUI() {
-    fetch('/api/settings')
-        .then(function(r) { return r.json(); })
-        .then(function(settings) {
-            var set = function(id, val) { var el = document.getElementById(id); if (el) el.value = val; };
-            set('set-custom-endpoint-url', settings.custom_endpoint_url || '');
-            set('set-custom-api-key', settings.custom_api_key || '');
-            set('set-custom-model-name', settings.custom_model_name || '');
-            var sslEl = document.getElementById('set-custom-verify-ssl');
-            if (sslEl) sslEl.checked = settings.custom_verify_ssl;
-            set('set-max-steps', settings.max_steps || '50');
-            set('set-timeout', settings.timeout || '3600');
-            set('set-max-context-tokens', settings.max_context_tokens || '0');
-            set('set-max-output-tokens', settings.max_output_tokens || '0');
-            set('set-max-tool-result-length', settings.max_tool_result_length || '10000');
-            set('set-root-dir', settings.root_directory || '');
-            set('set-jd-cli', settings.jd_cli_path || '');
-            set('set-java-home', settings.java_home || '');
-            set('set-dotnet-cli', settings.dotnet_cli_path || '');
-            set('set-shared-tools-dir', settings.shared_tools_dir || '');
-        })
-        .catch(function(err) { console.error('Failed to load settings:', err); });
+    var settings = _uiState.settings || {};
+    var set = function(id, val) { var el = document.getElementById(id); if (el) el.value = val; };
+    set('set-custom-endpoint-url', settings.custom_endpoint_url || '');
+    set('set-custom-api-key', settings.custom_api_key || '');
+    set('set-custom-model-name', settings.custom_model_name || '');
+    var sslEl = document.getElementById('set-custom-verify-ssl');
+    if (sslEl) sslEl.checked = settings.custom_verify_ssl;
+    set('set-max-steps', settings.max_steps || '50');
+    set('set-timeout', settings.timeout || '3600');
+    set('set-max-context-tokens', settings.max_context_tokens || '0');
+    set('set-max-output-tokens', settings.max_output_tokens || '0');
+    set('set-max-tool-result-length', settings.max_tool_result_length || '10000');
+    set('set-root-dir', settings.root_directory || '');
+    set('set-jd-cli', settings.jd_cli_path || '');
+    set('set-java-home', settings.java_home || '');
+    set('set-dotnet-cli', settings.dotnet_cli_path || '');
+    set('set-shared-tools-dir', settings.shared_tools_dir || '');
 }
 
 function reloadSettingsFromDisk() {
     fetch('/api/settings/reload', { method: 'POST' })
         .then(function(r) { return r.json(); })
         .then(function(data) {
-            if (data.status === 'reloaded') { loadSettingsUI(); showNotification('Settings reloaded from disk!', 'info'); }
-            else showNotification('Failed to reload settings: ' + (data.error || 'Unknown error', 'info'));
+            if (data.status === 'reloaded') { fetchState(); showNotification('Settings reloaded from disk!', 'info'); }
+            else showNotification('Failed to reload settings: ' + (data.error || 'Unknown error'), 'info');
         })
         .catch(function(err) { console.error('Failed to reload settings:', err); showNotification('Failed to reload settings.', 'info'); });
 }
@@ -2125,13 +1492,11 @@ function saveSettings() {
     fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(settings) })
         .then(function(r) { return r.json(); })
         .then(function(data) {
-            if (data.status === 'saved') showNotification('Settings saved! Changes will apply on next run.', 'info');
-            else showNotification('Failed to save settings: ' + (data.error || 'Unknown error', 'info'));
+            if (data.status === 'saved') { fetchState(); showNotification('Settings saved! Changes will apply on next run.', 'info'); }
+            else showNotification('Failed to save settings: ' + (data.error || 'Unknown error'), 'info');
         })
         .catch(function(err) { console.error('Failed to save settings:', err); showNotification('Failed to save settings.', 'info'); });
 }
-
-
 
 function closeActionsModal() { document.getElementById('actions-modal').style.display = 'none'; }
 
@@ -2160,16 +1525,12 @@ function showNotificationModal(message, type) {
     var titleEl = document.getElementById('notification-title');
     var bodyEl = document.getElementById('notification-body');
     var modal = document.getElementById('notification-modal');
-
     if (!modal) return;
-
     iconEl.textContent = icons[type] || icons.info;
     iconEl.className = 'notification-icon ' + type;
-
     var titles = { info: 'NOTICE', success: 'SUCCESS', warning: 'WARNING', error: 'ERROR' };
     titleEl.textContent = titles[type] || titles.info;
     bodyEl.textContent = message;
-
     modal.style.display = 'flex';
 }
 
@@ -2179,14 +1540,11 @@ function showNotificationModalDetailed(title, bodyHtml, type) {
     var titleEl = document.getElementById('notification-title');
     var bodyEl = document.getElementById('notification-body');
     var modal = document.getElementById('notification-modal');
-
     if (!modal) return;
-
     iconEl.textContent = icons[type] || icons.info;
     iconEl.className = 'notification-icon ' + type;
     titleEl.textContent = title || 'NOTICE';
     bodyEl.innerHTML = bodyHtml;
-
     modal.style.display = 'flex';
 }
 
@@ -2199,7 +1557,6 @@ function closeNotificationModal() {
     }
 }
 
-// Returns a promise that resolves when the user clicks OK
 function showNotificationModalPromise(message, type) {
     return new Promise(function(resolve) {
         showNotificationModal(message, type);
@@ -2207,197 +1564,71 @@ function showNotificationModalPromise(message, type) {
     });
 }
 
-// Wait for user to click OK before continuing
 async function showNotificationAndWait(message, type) {
     return await showNotificationModalPromise(message, type);
 }
 
-// Close notification modal on Escape key
 document.addEventListener('keydown', function(e) {
     if (e.key === 'Escape') {
         var notifModal = document.getElementById('notification-modal');
-        if (notifModal && notifModal.style.display === 'flex') {
-            closeNotificationModal();
-        }
+        if (notifModal && notifModal.style.display === 'flex') closeNotificationModal();
     }
 });
 
 // === Live View Functions ===
 function showLiveView(project_id) {
-    // Check if there's a running job for this project (queue or SSE)
-    fetch('/api/queue')
-        .then(function(r) { return r.json(); })
-        .then(function(queueData) {
-            // Check queue-based running job
-            if (queueData.running && queueData.running.project_id === project_id) {
-                showLiveViewForJob(queueData.running.job_id);
-                return;
-            }
-            // Check SSE jobs
-            if (queueData.sse_jobs && queueData.sse_jobs.length > 0) {
-                // Check history to find which SSE job belongs to this project
-                return fetch('/api/history')
-                    .then(function(r) { return r.json(); })
-                    .then(function(history) {
-                        var sseJob = queueData.sse_jobs.find(function(s) {
-                            return history.some(function(h) {
-                                return h.job_id === s.job_id && h.project_id === project_id;
-                            });
-                        });
-                        if (sseJob) {
-                            showLiveViewForJob(sseJob.job_id, project_id);
-                            return;
-                        }
-                        // Fall through to check pending jobs
-                        checkPendingJobs(project_id);
-                    });
-            }
-            // No running job found - check for pending jobs
-            checkPendingJobs(project_id);
-        })
-        .catch(function(err) { console.error('Failed to check job status:', err); showNotification('No active job to view', 'warning'); });
-}
-
-function checkPendingJobs(project_id) {
-    fetch('/api/history')
-        .then(function(r) { return r.json(); })
-        .then(function(history) {
-            // First look for pending jobs (approval or user input)
-            var pendingJob = history.find(function(h) {
-                return h.project_id === project_id &&
-                       (h.status === 'pending_approval' || h.status === 'pending_user_input');
-            });
-            if (pendingJob) {
-                showLiveViewForJob(pendingJob.job_id, project_id);
-                return;
-            }
-            // Also allow VIEW LIVE for completed/stopped/error jobs so user can review steps
-            var lastJob = history.find(function(h) { return h.project_id === project_id; });
-            if (lastJob) {
-                showLiveViewForJob(lastJob.job_id, project_id);
-            } else {
-                showNotification('No active job to view', 'warning');
-            }
-        })
-        .catch(function(err) { console.error('Failed to check job history:', err); showNotification('No active job to view', 'warning'); });
+    var activeJob = (_uiState.active_jobs || {})[project_id];
+    if (activeJob) {
+        showLiveViewForJob(activeJob.job_id);
+        return;
+    }
+    var history = _uiState.history || [];
+    var lastJob = history.find(function(h) { return h.project_id === project_id; });
+    if (lastJob) {
+        showLiveViewForJob(lastJob.job_id);
+    } else {
+        showNotification('No active job to view', 'warning');
+    }
 }
 
 function showLiveViewForJob(jobId, projectId) {
     var container = document.getElementById('agent-live-container');
     if (!container) return;
-
-    // Clear any stale state before setting new job
     var agentBox = document.getElementById('agent-live-box');
     if (agentBox) agentBox.innerHTML = '';
     var liveResp = document.getElementById('live-response-container');
     if (liveResp) { liveResp.textContent = ''; liveResp.style.display = 'none'; }
-
-    // Ensure the project-details panel is active so the container is visible
     var detailsPanel = document.getElementById('project-details-panel');
     if (detailsPanel) detailsPanel.classList.add('active');
-
-    // Hide project config section, show agent live view (same as RUN)
     var configSection = document.getElementById('project-config-section');
     if (configSection) configSection.style.display = 'none';
     container.style.display = 'block';
     container.scrollIntoView({ behavior: 'smooth' });
     container.dataset.jobId = jobId;
     container.dataset.projectId = projectId || '';
-
-    // Always clear any stale poll interval and inject state before starting fresh
-    if (_pollInterval) { clearInterval(_pollInterval); _pollInterval = null; }
-
-    // Show refresh button
+    _activeJobId = jobId;
     var refreshBtn = document.getElementById('live-refresh-btn');
     if (refreshBtn) refreshBtn.style.display = 'inline-block';
-
-    // Check if the job is still running/paused in queue OR in history with pending status
+    
+    // Fetch job details
     Promise.all([
         fetch('/api/queue').then(function(r) { return r.json(); }),
-        fetch('/api/history').then(function(r) { return r.json(); })
-    ])
-    .then(function(results) {
+        fetch('/api/history').then(function(r) { return r.json(); }),
+        fetch('/api/job/' + jobId + '/status').catch(function() { return Promise.resolve({}); }),
+        fetch('/api/agent/history/' + jobId).catch(function() { return Promise.resolve({}); }),
+    ]).then(function(results) {
         var queueData = results[0];
         var history = results[1];
+        var statusData = results[2];
+        var historyData = results[3];
         var jobRecord = history.find(function(h) { return h.job_id === jobId; });
-
         var isRunning = queueData.running && queueData.running.job_id === jobId;
-        var isPendingApproval = queueData.running && queueData.running.status === 'pending_approval';
-        var isPendingInput = queueData.running && queueData.running.status === 'pending_user_input';
-
-        // Also check history for pending status (for paused SSE jobs)
-        if (!isRunning && !isPendingApproval && !isPendingInput && jobRecord) {
-            isPendingApproval = jobRecord.status === 'pending_approval';
-            isPendingInput = jobRecord.status === 'pending_user_input';
-        }
-
-        // Resolve the output directory for this job (needed for pending tool checks)
-        var outputDir = null;
-        var resolvedProjectId = null;
-        if (jobRecord && jobRecord.output_dir) {
-            outputDir = jobRecord.output_dir;
-            resolvedProjectId = jobRecord.project_id;
-        } else if (jobRecord && jobRecord.project_id) {
-            // Fallback: get output_dir from the project
-            outputDir = null;
-            resolvedProjectId = jobRecord.project_id;
-            fetch('/api/projects/' + resolvedProjectId)
-                .then(function(r) { return r.json(); })
-                .then(function(proj) {
-                    outputDir = proj.output_dir;
-                    _resolveOutputDirAndContinue(jobId, queueData, history, jobRecord, isRunning, isPendingApproval, isPendingInput, outputDir, resolvedProjectId);
-                })
-                .catch(function() {
-                    _resolveOutputDirAndContinue(jobId, queueData, history, jobRecord, isRunning, isPendingApproval, isPendingInput, null, resolvedProjectId);
-                });
-        } else {
-            _resolveOutputDirAndContinue(jobId, queueData, history, jobRecord, isRunning, isPendingApproval, isPendingInput, null, null);
-        }
-    })
-    .catch(function(err) { console.error('Failed to check job status:', err); });
-}
-
-function _resolveOutputDirAndContinue(jobId, queueData, history, jobRecord, isRunning, isPendingApproval, isPendingInput, outputDir, projectId) {
-    var agentBox = document.getElementById('agent-live-box');
-    var injectInput = document.getElementById('live-inject-input');
-    var injectBtn = document.getElementById('live-inject-btn');
-
-    // CRITICAL FIX: Check status.json directly for real-time pending states.
-    // jobRecord.status is often stale (worker updates it after engine returns).
-    // status.json is the authoritative source for the engine's own state.
-    var statusFileUrl = outputDir ? '/api/job/' + jobId + '/status' : null;
-
-    function checkStatusFileAndProceed() {
-        var finalIsPendingApproval = isPendingApproval;
-        var finalIsPendingInput = isPendingInput;
-
-        if (statusFileUrl) {
-            fetch(statusFileUrl)
-                .then(function(r) { return r.json(); })
-                .then(function(statusData) {
-                    var status = statusData.status || 'running';
-                    if (status === 'pending_approval') {
-                        finalIsPendingApproval = true;
-                    }
-                    if (status === 'pending_user_input') {
-                        finalIsPendingInput = true;
-                    }
-                    // If status.json says running but jobRecord says terminal, trust status.json
-                    if (status === 'running') {
-                        isRunning = true;
-                    }
-                    _doShowLiveView(jobId, queueData, history, jobRecord, isRunning, finalIsPendingApproval, finalIsPendingInput, outputDir, projectId);
-                })
-                .catch(function() {
-                    // If we can't fetch status.json, fall back to what we had
-                    _doShowLiveView(jobId, queueData, history, jobRecord, isRunning, isPendingApproval, isPendingInput, outputDir, projectId);
-                });
-        } else {
-            _doShowLiveView(jobId, queueData, history, jobRecord, isRunning, isPendingApproval, isPendingInput, outputDir, projectId);
-        }
-    }
-
-    checkStatusFileAndProceed();
+        var isPendingApproval = statusData.status === 'pending_approval' || (jobRecord && jobRecord.status === 'pending_approval');
+        var isPendingInput = statusData.status === 'pending_user_input' || (jobRecord && jobRecord.status === 'pending_user_input');
+        var outputDir = jobRecord ? jobRecord.output_dir : (historyData.output_dir || null);
+        var resolvedProjectId = jobRecord ? jobRecord.project_id : projectId;
+        _doShowLiveView(jobId, queueData, history, jobRecord, isRunning, isPendingApproval, isPendingInput, outputDir, resolvedProjectId);
+    }).catch(function(err) { console.error('Failed to check job status:', err); });
 }
 
 function _doShowLiveView(jobId, queueData, history, jobRecord, isRunning, isPendingApproval, isPendingInput, outputDir, projectId) {
@@ -2405,35 +1636,23 @@ function _doShowLiveView(jobId, queueData, history, jobRecord, isRunning, isPend
     var injectInput = document.getElementById('live-inject-input');
     var injectBtn = document.getElementById('live-inject-btn');
     var container = document.getElementById('agent-live-container');
-
+    
     if (isRunning && !isPendingApproval && !isPendingInput) {
-        // Job is actively running (not pending) - show the view and start polling
-        if (projectId) _setProjectState(projectId, { agentRunning: true, liveInjectActive: false });
-        // Show stop button
         var stopBtn = document.getElementById('details-stop-btn');
         if (stopBtn) stopBtn.style.display = 'inline-block';
         var liveStopBtn = document.getElementById('live-stop-btn');
         if (liveStopBtn) liveStopBtn.style.display = 'inline-block';
-        if (agentBox) {
-            agentBox.innerHTML = '<div class="step-entry llm-step">📺 Viewing live feed for running job (LIVE)...</div>';
-        }
+        if (agentBox) agentBox.innerHTML = '<div class="step-entry llm-step">📺 Viewing live feed for running job (LIVE)...</div>';
         var statusText = document.getElementById('agent-status-text');
         if (statusText) { statusText.textContent = 'LIVE'; statusText.style.color = 'var(--success)'; }
         if (injectInput) { injectInput.disabled = false; injectInput.placeholder = 'Type instructions or questions...'; }
         if (injectBtn) { injectBtn.disabled = false; injectBtn.textContent = 'INJECT'; }
-        // Start polling for live updates (faster: every 5s when running)
         _startPolling(jobId, outputDir, agentBox, projectId, true);
     } else {
-        // Job is pending, completed, or stopped - load history and show it
-        // Enable inject immediately so the user can always inject regardless of job state
-        if (projectId) _setProjectState(projectId, { agentRunning: false, liveInjectActive: true });
         var stopBtn = document.getElementById('details-stop-btn');
         if (stopBtn) stopBtn.style.display = 'inline-block';
         if (injectInput) { injectInput.disabled = false; injectInput.placeholder = 'Continue with new instructions...'; }
         if (injectBtn) { injectBtn.disabled = false; injectBtn.textContent = 'INJECT'; }
-
-        // AGGRESSIVE: Immediately fetch the latest job state on arrival
-        // Use a single combined fetch to get steps, status, and response all at once
         Promise.all([
             fetch('/api/job/' + jobId + '/steps').then(function(r) { return r.json(); }),
             fetch('/api/job/' + jobId + '/status').then(function(r) { return r.json(); }),
@@ -2442,143 +1661,39 @@ function _doShowLiveView(jobId, queueData, history, jobRecord, isRunning, isPend
             var stepsData = results[0] || { steps: [], count: 0 };
             var statusData = results[1] || {};
             var responseData = results[2] || {};
-
-            // Render steps immediately
             agentBox.innerHTML = '';
             var steps = stepsData.steps || [];
             var count = stepsData.count || 0;
             for (var i = 0; i < count; i++) {
                 var step = steps[i];
-                if (step) {
-                    _renderStep(step, agentBox);
-                }
+                if (step) _renderStep(step, agentBox);
             }
-
-            // Update live response immediately
             if (responseData.content && responseData.content.trim()) {
                 var liveResp = document.getElementById('live-response-container');
-                if (liveResp) {
-                    liveResp.textContent = responseData.content;
-                    liveResp.style.display = 'block';
-                }
+                if (liveResp) { liveResp.textContent = responseData.content; liveResp.style.display = 'block'; }
             }
-
-            // Set status text
             var statusText = document.getElementById('agent-status-text');
             if (statusText) {
                 var finalStatus = statusData.status || (jobRecord ? jobRecord.status : 'unknown');
-                if (isPendingApproval) {
-                    statusText.textContent = 'PENDING APPROVAL';
-                    statusText.style.color = 'var(--warning)';
-                    statusText.style.fontWeight = 'bold';
-                } else if (isPendingInput) {
-                    statusText.textContent = 'AWAITING INPUT';
-                    statusText.style.color = 'var(--warning)';
-                    statusText.style.fontWeight = 'bold';
-                } else if (finalStatus === 'completed') {
-                    statusText.textContent = 'COMPLETED';
-                    statusText.style.color = 'var(--success)';
-                } else if (finalStatus === 'error') {
-                    statusText.textContent = 'ERROR';
-                    statusText.style.color = 'var(--danger)';
-                } else if (finalStatus === 'stopped') {
-                    statusText.textContent = 'STOPPED';
-                    statusText.style.color = 'var(--text-muted)';
-                } else {
-                    statusText.textContent = finalStatus.toUpperCase();
-                }
+                if (isPendingApproval) { statusText.textContent = 'PENDING APPROVAL'; statusText.style.color = 'var(--warning)'; statusText.style.fontWeight = 'bold'; }
+                else if (isPendingInput) { statusText.textContent = 'AWAITING INPUT'; statusText.style.color = 'var(--warning)'; statusText.style.fontWeight = 'bold'; }
+                else if (finalStatus === 'completed') { statusText.textContent = 'COMPLETED'; statusText.style.color = 'var(--success)'; }
+                else if (finalStatus === 'error') { statusText.textContent = 'ERROR'; statusText.style.color = 'var(--danger)'; }
+                else if (finalStatus === 'stopped') { statusText.textContent = 'STOPPED'; statusText.style.color = 'var(--text-muted)'; }
+                else { statusText.textContent = finalStatus.toUpperCase(); }
             }
-
-            // Store outputDir on container for future polling
             if (container) {
                 if (outputDir) container.dataset.outputDir = outputDir;
                 if (projectId) container.dataset.projectId = projectId;
             }
-
-            // Now start background polling for any updates
             _startPolling(jobId, outputDir, agentBox, projectId, false);
-
-            // Auto-refresh 1s after arrival to ensure fresh data
-            setTimeout(function() {
-                refreshLiveView();
-            }, 1000);
-
-            // Check for pending approval tools in background
-            if (isPendingApproval && outputDir) {
-                _showPendingApproval(jobId, outputDir, agentBox);
-            }
-            if (isPendingInput) {
-                _showPendingUserInput(jobRecord, agentBox);
-            }
+            setTimeout(function() { refreshLiveView(); }, 1000);
+            if (isPendingApproval && outputDir) _showPendingApproval(jobId, outputDir, agentBox);
+            if (isPendingInput) _showPendingUserInput(jobRecord, agentBox);
         }).catch(function(err) {
             console.error('Failed to aggressively fetch live state:', err);
-            // Fallback: still load history and start polling
-            loadJobHistory(jobId, projectId, function() {
-                _startPolling(jobId, outputDir, agentBox, projectId, false);
-            });
         });
     }
-}
-
-function loadJobHistory(jobId, projectId, callback) {
-    var agentBox = document.getElementById('agent-live-box');
-    var statusText = document.getElementById('agent-status-text');
-    var container = document.getElementById('agent-live-container');
-
-    // Try to get step history from the job
-    fetch('/api/agent/history/' + jobId)
-        .then(function(r) { return r.json(); })
-        .then(function(data) {
-            if (data.steps && data.steps.length > 0) {
-                agentBox.innerHTML = '';
-                data.steps.forEach(function(step) {
-                    // Reuse handleAgentStep so all tools render with proper formatting
-                    // (respond_to_user full content, task_completed celebration, etc.)
-                    handleAgentStep(step, agentBox);
-                });
-                if (statusText) { statusText.textContent = 'HISTORY'; statusText.style.color = 'var(--text-muted)'; }
-                // Set per-project state if available in data
-                var projId = data.project_id || projectId;
-                if (projId) {
-                    _setProjectState(projId, { jobId: jobId, outputDir: data.output_dir });
-                }
-                // Store outputDir on the container for polling
-                if (data.output_dir && container) {
-                    container.dataset.outputDir = data.output_dir;
-                }
-                if (callback) callback();
-            } else {
-                // Try to get history from the job history API
-                fetch('/api/history')
-                    .then(function(r) { return r.json(); })
-                    .then(function(history) {
-                        var job = history.find(function(h) { return h.job_id === jobId; });
-                        if (job && job.step_history && job.step_history.length > 0) {
-                            agentBox.innerHTML = '';
-                            job.step_history.forEach(function(step) {
-                                // Reuse handleAgentStep for consistent formatting
-                                handleAgentStep(step, agentBox);
-                            });
-                            if (statusText) { statusText.textContent = 'HISTORY'; statusText.style.color = 'var(--text-muted)'; }
-                            // Store outputDir on the container for polling
-                            if (job.output_dir && container) {
-                                container.dataset.outputDir = job.output_dir;
-                            }
-                            if (callback) callback();
-                        } else {
-                            agentBox.innerHTML = '<div class="step-entry llm-step">No history available for this job.</div>';
-                            if (statusText) { statusText.textContent = 'NO HISTORY'; statusText.style.color = 'var(--text-muted)'; }
-                            if (callback) callback();
-                        }
-                    });
-            }
-        })
-        .catch(function(err) {
-            console.error('Failed to load job history:', err);
-            agentBox.innerHTML = '<div class="step-entry llm-step">Failed to load history.</div>';
-            if (statusText) { statusText.textContent = 'LOAD ERROR'; statusText.style.color = 'var(--danger)'; }
-            if (callback) callback();
-        });
 }
 
 function refreshLiveView() {
@@ -2586,35 +1701,36 @@ function refreshLiveView() {
     if (!container) return;
     var jobId = container.dataset.jobId;
     if (!jobId) {
-        // No job ID — try to find it from the queue
-        fetch('/api/queue')
-            .then(function(r) { return r.json(); })
-            .then(function(qd) {
-                if (qd.running) {
-                    container.dataset.jobId = qd.running.job_id;
-                    refreshLiveView();
-                } else {
-                    showNotification('No active job to refresh.', 'info');
-                }
-            });
+        var qd = _uiState.queue || {};
+        if (qd.running) {
+            container.dataset.jobId = qd.running.job_id;
+            refreshLiveView();
+        } else {
+            showNotification('No active job to refresh.', 'info');
+        }
         return;
     }
     var agentBox = document.getElementById('agent-live-box');
-    if (agentBox) {
-        agentBox.innerHTML = '<div class="step-entry llm-step">🔄 Refreshing...</div>';
-    }
-    loadJobHistory(jobId, function() {
-        var agentBox2 = document.getElementById('agent-live-box');
-        if (agentBox2) {
-            var refreshMsg = document.createElement('div');
-            refreshMsg.className = 'step-entry';
-            refreshMsg.style.borderLeftColor = 'var(--mc-diamond)';
-            refreshMsg.style.background = 'rgba(74, 237, 223, 0.1)';
-            refreshMsg.innerHTML = '<div class="step-tool" style="color:var(--mc-diamond);">✅ Feed refreshed</div>';
-            agentBox2.appendChild(refreshMsg);
-            agentBox2.scrollTop = agentBox2.scrollHeight;
-        }
-    });
+    if (agentBox) agentBox.innerHTML = '<div class="step-entry llm-step">🔄 Refreshing...</div>';
+    fetch('/api/agent/history/' + jobId)
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.steps && data.steps.length > 0) {
+                agentBox.innerHTML = '';
+                data.steps.forEach(function(step) { _renderStep(step, agentBox); });
+            }
+            var agentBox2 = document.getElementById('agent-live-box');
+            if (agentBox2) {
+                var refreshMsg = document.createElement('div');
+                refreshMsg.className = 'step-entry';
+                refreshMsg.style.borderLeftColor = 'var(--mc-diamond)';
+                refreshMsg.style.background = 'rgba(74, 237, 223, 0.1)';
+                refreshMsg.innerHTML = '<div class="step-tool" style="color:var(--mc-diamond);">✅ Feed refreshed</div>';
+                agentBox2.appendChild(refreshMsg);
+                agentBox2.scrollTop = agentBox2.scrollHeight;
+            }
+        })
+        .catch(function(err) { console.error('Failed to refresh:', err); });
 }
 
 // === Inject Live Instruction ===
@@ -2624,26 +1740,11 @@ function injectLiveInstruction() {
     if (!input || !btn) return;
     var instruction = input.value.trim();
     if (!instruction) return;
-
-    // Resolve job ID from container first, then per-project state, then legacy global
-    var container = document.getElementById('agent-live-container');
-    var jobId = container ? container.dataset.jobId : null;
-    if (!jobId) {
-        var activeProjId = _getActiveProjectId();
-        var state = activeProjId ? _runningProjects[activeProjId] : null;
-        jobId = state ? state.jobId : currentRunningJobId;
-    }
-    if (!jobId) {
-        showNotification('No active job to inject into', 'warning');
-        return;
-    }
-
-    // Disable the button while injecting
+    var jobId = _activeJobId;
+    if (!jobId) { showNotification('No active job to inject into', 'warning'); return; }
     btn.disabled = true;
     btn.textContent = 'INJECTING...';
     input.disabled = true;
-
-    // Add visual feedback in the feed immediately
     var agentBox = document.getElementById('agent-live-box');
     if (agentBox) {
         var injectEntry = document.createElement('div');
@@ -2654,11 +1755,6 @@ function injectLiveInstruction() {
         agentBox.appendChild(injectEntry);
         agentBox.scrollTop = agentBox.scrollHeight;
     }
-
-    // Always use the inject endpoint — it handles all job states:
-    //   - Running: appends instruction to conversation via pending_live_instruction
-    //   - Pending user input: clears the pending state and re-invokes the engine
-    //   - Completed: starts a continuation run
     fetch('/api/agent/inject', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
@@ -2668,9 +1764,7 @@ function injectLiveInstruction() {
     .then(function(data) {
         if (data.error) throw new Error(data.error);
         input.value = '';
-
         if (data.continuation) {
-            // A new engine run was started for this completed job.
             var agentBox = document.getElementById('agent-live-box');
             if (agentBox) {
                 var contEntry = document.createElement('div');
@@ -2683,33 +1777,8 @@ function injectLiveInstruction() {
             }
             var statusText = document.getElementById('agent-status-text');
             if (statusText) { statusText.textContent = 'CONTINUING...'; statusText.style.color = 'var(--info)'; }
-
-            // Start polling for the continuation results
-            var container = document.getElementById('agent-live-container');
-            var outputDir = container ? container.dataset.outputDir : null;
-            var injectProjId = null;
-            // Try to find the project ID from the container's dataset or from running projects
-            if (container && container.dataset.projectId) {
-                injectProjId = container.dataset.projectId;
-            } else if (!outputDir && container && container.dataset.jobId) {
-                // Look up project ID from job history
-                fetch('/api/agent/history/' + container.dataset.jobId)
-                    .then(function(r) { return r.json(); })
-                    .then(function(hist) {
-                        injectProjId = hist.project_id;
-                        if (hist.output_dir) outputDir = hist.output_dir;
-                        _startPolling(jobId, outputDir, null, injectProjId);
-                    });
-            }
-            if (injectProjId) {
-                _startPolling(jobId, outputDir, null, injectProjId);
-            } else if (outputDir) {
-                _startPolling(jobId, outputDir, null, null);
-            }
-
             showNotification('Continuation started — engine running', 'success');
         } else if (data.resumed) {
-            // Engine was waiting for user input — cleared and re-invoked
             var agentBox = document.getElementById('agent-live-box');
             if (agentBox) {
                 var contEntry = document.createElement('div');
@@ -2726,8 +1795,7 @@ function injectLiveInstruction() {
         } else {
             showNotification('Instruction injected successfully', 'success');
         }
-
-        // Re-enable after a short delay
+        fetchState();
         setTimeout(function() {
             btn.disabled = false;
             btn.textContent = 'INJECT';
@@ -2743,8 +1811,6 @@ function injectLiveInstruction() {
     });
 }
 
-// === Init ===
-
 // === Bash Tool Management ===
 function toggleBashToolForm() {
     var container = document.getElementById('bash-tool-form-container');
@@ -2752,14 +1818,12 @@ function toggleBashToolForm() {
     var isVisible = container.style.display === 'block';
     container.style.display = isVisible ? 'none' : 'block';
     if (!isVisible) {
-        // Clear form
         var nameEl = document.getElementById('bash-tool-name');
         var descEl = document.getElementById('bash-tool-desc');
         var scriptEl = document.getElementById('bash-tool-script');
         if (nameEl) nameEl.value = '';
         if (descEl) descEl.value = '';
         if (scriptEl) scriptEl.value = '';
-        // Remove edit mode state
         container.removeAttribute('data-editing');
         container.removeAttribute('data-edit-name');
         var createBtn = container.querySelector('.btn-success');
@@ -2830,14 +1894,11 @@ function createBashTool() {
     var name = document.getElementById('bash-tool-name').value.trim();
     var desc = document.getElementById('bash-tool-desc').value.trim();
     var script = document.getElementById('bash-tool-script').value.trim();
-
     if (!name) { showNotification('Tool name is required', 'warning'); return; }
     if (!desc) { showNotification('Description is required', 'warning'); return; }
     if (!script) { showNotification('Script body is required', 'warning'); return; }
-
     var pid = document.getElementById('run-project-id') ? document.getElementById('run-project-id').value : null;
     if (!pid) { showNotification('No project selected', 'warning'); return; }
-
     fetch('/api/projects/' + pid + '/bash-tools', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
@@ -2849,6 +1910,7 @@ function createBashTool() {
             showNotification('Bash tool "' + name + '" created!', 'success');
             toggleBashToolForm();
             loadBashTools(pid);
+            fetchState();
         } else {
             showNotification('Failed: ' + (data.error || 'Unknown error'), 'error');
         }
@@ -2862,36 +1924,27 @@ function createBashTool() {
 function editBashTool(pid, tool) {
     var container = document.getElementById('bash-tool-form-container');
     if (!container) return;
-
-    // Set edit mode
     container.setAttribute('data-editing', 'true');
     container.setAttribute('data-edit-name', tool.name);
-
-    // Populate form
     var nameEl = document.getElementById('bash-tool-name');
     var descEl = document.getElementById('bash-tool-desc');
     var scriptEl = document.getElementById('bash-tool-script');
     if (nameEl) nameEl.value = tool.name;
     if (descEl) descEl.value = tool.description;
     if (scriptEl) scriptEl.value = tool.source || '';
-
-    // Change button to "UPDATE"
     var createBtn = container.querySelector('.btn-success');
     if (createBtn) {
         createBtn.textContent = 'UPDATE';
         createBtn.onclick = function() { updateBashTool(pid, tool.name); };
     }
-
     container.style.display = 'block';
 }
 
 function updateBashTool(pid, oldName) {
     var desc = document.getElementById('bash-tool-desc').value.trim();
     var script = document.getElementById('bash-tool-script').value.trim();
-
     if (!desc) { showNotification('Description is required', 'warning'); return; }
     if (!script) { showNotification('Script body is required', 'warning'); return; }
-
     fetch('/api/projects/' + pid + '/bash-tools/' + encodeURIComponent(oldName), {
         method: 'PUT',
         headers: {'Content-Type': 'application/json'},
@@ -2903,6 +1956,7 @@ function updateBashTool(pid, oldName) {
             showNotification('Bash tool "' + oldName + '" updated!', 'success');
             toggleBashToolForm();
             loadBashTools(pid);
+            fetchState();
         } else {
             showNotification('Failed: ' + (data.error || 'Unknown error'), 'error');
         }
@@ -2923,6 +1977,7 @@ function deleteBashTool(pid, toolName) {
         if (data.status === 'deleted') {
             showNotification('Bash tool "' + toolName + '" deleted.', 'success');
             loadBashTools(pid);
+            fetchState();
         } else {
             showNotification('Failed: ' + (data.error || 'Unknown error'), 'error');
         }
@@ -2933,6 +1988,94 @@ function deleteBashTool(pid, toolName) {
     });
 }
 
+// === Utility Functions ===
+function escapeHtml(str) {
+    if (!str) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+function copyToClipboard(text, buttonEl) {
+    if (!text) return;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(function() {
+            if (buttonEl) {
+                var original = buttonEl.textContent;
+                buttonEl.textContent = 'COPIED!';
+                setTimeout(function() { buttonEl.textContent = original; }, 1500);
+            }
+        }).catch(function(err) { console.error('Copy failed:', err); });
+    } else {
+        var textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        try {
+            document.execCommand('copy');
+            if (buttonEl) {
+                var original = buttonEl.textContent;
+                buttonEl.textContent = 'COPIED!';
+                setTimeout(function() { buttonEl.textContent = original; }, 1500);
+            }
+        } catch (e) { console.error('Copy failed:', e); }
+        document.body.removeChild(textarea);
+    }
+}
+
+function getChatMessageText(msgElement) {
+    var body = msgElement.querySelector('.chat-msg-body');
+    if (!body) return '';
+    return body.textContent || '';
+}
+
+function markdownToHtml(md) {
+    if (!md) return '';
+    var html = md;
+    var codeBlocks = [];
+    html = html.replace(/```([\s\S]*?)```/g, function(match, code) {
+        var uniqueId = 'code-block-' + Math.random().toString(36).substr(2, 9);
+        codeBlocks.push({ id: uniqueId, content: code.trim() });
+        return '%%CODEBLOCK_' + uniqueId + '%%';
+    });
+    html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+    html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    html = html.replace(/\b\*(.+?)\*\b/g, '<em>$1</em>');
+    html = html.replace(/^- (.+)$/gm, '<div style="margin-left:12px;">• $1</div>');
+    html = html.replace(/\n\n/g, '<br><br>');
+    html = html.replace(/\n/g, '<br>');
+    codeBlocks.forEach(function(block) {
+        var escaped = block.content.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        var btnStyle = 'position:absolute;bottom:4px;right:4px;background:var(--wood);border:1px solid #000;padding:3px 8px;cursor:pointer;font-size:8px;color:#fff;z-index:10;border-radius:3px;font-family:\'Press Start 2P\',monospace;';
+        html = html.replace('%%CODEBLOCK_' + block.id + '%%',
+            '<div class="code-block-wrapper" data-code-id="' + block.id + '" style="position:relative;margin:4px 0;"><button class="pre-copy-btn" style="' + btnStyle + '">COPY</button><pre style="background:#111;padding:8px;border-radius:4px;overflow-x:auto;margin:0;"><code id="' + block.id + '" style="white-space:pre-wrap;">' + escaped + '</code></pre></div>');
+    });
+    return html;
+}
+
+// Event delegation for code block copy buttons
+document.addEventListener('click', function(e) {
+    var btn = e.target.closest('.pre-copy-btn');
+    if (!btn) return;
+    var wrapper = btn.closest('.code-block-wrapper');
+    if (!wrapper) return;
+    var codeId = wrapper.getAttribute('data-code-id');
+    var el = document.getElementById(codeId);
+    if (!el) return;
+    var text = el.textContent || el.innerText || '';
+    var decoded = text.replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+    var firstLineEnd = decoded.indexOf('\n');
+    if (firstLineEnd !== -1) {
+        decoded = decoded.substring(firstLineEnd + 1);
+    }
+    copyToClipboard(decoded, btn);
+});
+
+// === DOM Ready — Initialize UI ===
 document.addEventListener('DOMContentLoaded', function() {
     // Fade out loading screen after 2.5s
     var loadingScreen = document.getElementById('loading-screen');
@@ -2957,7 +2100,6 @@ document.addEventListener('DOMContentLoaded', function() {
         form.addEventListener('submit', function(e) {
             e.preventDefault();
             var formData = new FormData(this);
-            // Collect disabled_tools from the tool selector checkboxes
             var checkboxes = document.querySelectorAll('#add-tool-selector input[type="checkbox"]');
             var disabledTools = [];
             checkboxes.forEach(function(cb) {
@@ -2971,7 +2113,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 .then(function(data) {
                     if (data.error) { showNotification('Error: ' + data.error, 'error'); }
                     else {
-                        // Save disabled_tools via dedicated endpoint
                         var pid = data.id;
                         if (pid && disabledTools.length > 0) {
                             fetch('/api/projects/' + pid + '/tools', {
@@ -2980,17 +2121,14 @@ document.addEventListener('DOMContentLoaded', function() {
                                 body: JSON.stringify({disabled_tools: disabledTools})
                             }).catch(function(err) { console.error('Failed to save disabled tools:', err); });
                         }
-                        loadProjects(); formRef.reset(); toggleCreateForm();
+                        fetchState();
+                        formRef.reset();
+                        toggleCreateForm();
                     }
                 })
                 .catch(function(err) { console.error('Failed to create project:', err); });
         });
     }
-
-    // Load initial data
-    loadProjectsCached();
-    loadJobs();
-    loadChats();
 
     // Keyboard navigation for sidebar
     var sidebarNav = document.querySelector('.sidebar-nav');
@@ -3033,4 +2171,7 @@ document.addEventListener('DOMContentLoaded', function() {
             else { if (document.activeElement === last) { e.preventDefault(); first.focus(); } }
         });
     });
+
+    // === INIT: Load everything from backend ===
+    initUI();
 });

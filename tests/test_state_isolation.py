@@ -109,9 +109,6 @@ class TestBashToolLoader(unittest.TestCase):
         result = self.loader.create_bash_tool(
             name="test_tool",
             description="A test bash tool",
-            params=[
-                {"name": "path", "type": "string", "required": True},
-            ],
             script_content='echo "Processing $TOOL_PATH"'
         )
         self.assertEqual(result["status"], "created")
@@ -126,7 +123,6 @@ class TestBashToolLoader(unittest.TestCase):
         self.loader.create_bash_tool(
             name="deleteme",
             description="To be deleted",
-            params=[],
             script_content="echo hello"
         )
         result = self.loader.delete_bash_tool("deleteme")
@@ -139,7 +135,6 @@ class TestBashToolLoader(unittest.TestCase):
         self.loader.create_bash_tool(
             name="disabled_tool",
             description="Should be disabled",
-            params=[],
             script_content="echo hello"
         )
         # Create a new loader with the tool disabled
@@ -187,7 +182,6 @@ class TestBashToolInRegistry(unittest.TestCase):
         """Bash tools appear in the registry's list_tools output."""
         self.registry.create_project_bash_tool(
             self.output_dir, "test_tool", "A test",
-            [{"name": "x", "type": "string", "required": True}],
             'echo "hello"'
         )
         defs = self.registry.list_tools(self.output_dir)
@@ -198,7 +192,7 @@ class TestBashToolInRegistry(unittest.TestCase):
         """Bash tool names appear in tool_names()."""
         self.registry.create_project_bash_tool(
             self.output_dir, "my_bash", "desc",
-            [], 'echo hi'
+            'echo hi'
         )
         names = self.registry.tool_names()
         self.assertIn("my_bash", names)
@@ -207,7 +201,7 @@ class TestBashToolInRegistry(unittest.TestCase):
         """Bash tools can be executed through the registry."""
         self.registry.create_project_bash_tool(
             self.output_dir, "registry_test", "test",
-            [], 'echo "registry works"'
+            'echo "registry works"'
         )
         result = self.registry.execute(
             "registry_test", {},
@@ -251,11 +245,10 @@ class TestPerProjectStateIsolation(unittest.TestCase):
         )
         with open(js_path, 'r') as f:
             js_content = f.read()
-        # Verify per-project state map exists
-        self.assertIn('_runningProjects', js_content)
-        self.assertIn('_getProjectState', js_content)
-        self.assertIn('_setProjectState', js_content)
-        self.assertIn('_clearProjectState', js_content)
+        # Verify stateless UI: no per-project state maps (all state from backend)
+        self.assertNotIn('_runningProjects', js_content)
+        self.assertIn('fetchState', js_content)
+        self.assertIn('initUI', js_content)
 
     def test_view_live_checks_status_json(self):
         """VIEW LIVE checks status.json for pending states."""
@@ -265,11 +258,10 @@ class TestPerProjectStateIsolation(unittest.TestCase):
         )
         with open(js_path, 'r') as f:
             js_content = f.read()
-        # Verify the status.json check exists in _resolveOutputDirAndContinue
-        self.assertIn('checkStatusFileAndProceed', js_content)
-        self.assertIn('status.json', js_content)
+        # Verify live view still handles pending states via polling
         self.assertIn('pending_approval', js_content)
         self.assertIn('pending_user_input', js_content)
+        self.assertIn('_pollOnce', js_content)
 
 
 class TestBashToolEndpoints(unittest.TestCase):

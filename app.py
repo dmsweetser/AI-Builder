@@ -75,7 +75,7 @@ SETTINGS_FILE = os.path.join(_AIB_INSTANCE, "settings.json")
 job_queue = []
 running_jobs: Dict[str, Dict[str, Any]] = {}  # job_id -> job_info (replaces single running_job)
 job_history = []
-job_queue_lock = threading.Lock()
+job_queue_lock = threading.RLock()
 stop_event = threading.Event()
 worker_threads: list = []  # List of worker threads
 _max_workers = int(os.environ.get('AIB_MAX_WORKERS', '10'))  # Default: 3 parallel workers
@@ -2602,9 +2602,123 @@ def api_get_tool_status():
     return jsonify(registry.get_tool_status())
 
 
+# === Comprehensive UI State Endpoint ===
+@app.route("/api/state", methods=["GET"])
+def api_get_state():
+    """Return the complete UI state payload — everything the UI needs in one call.
+    
+    This endpoint serves as the single source of truth for the UI.
+    The UI should fetch from here on load and periodically thereafter,
+    rather than maintaining its own state or calling individual endpoints.
+    """
+    show_archived = request.args.get('archived', 'false').lower() == 'true'
+    
+    # 1. Projects (with embedded running status)
+    projects = load_projects()
+    
+    # Acquire lock once and read all queue data
+    with job_queue_lock:
+        running_jobs_snapshot = dict(running_jobs)
+        job_queue_snapshot = list(job_queue)
+    
+    # Enrich projects with status
+    for p in projects:
+        p["status"] = "idle"
+        p["job_id"] = None
+        for jid, jinfo in running_jobs_snapshot.items():
+            if jinfo.get("project_id") == p["id"]:
+                p["status"] = "running"
+                p["job_id"] = jid
+                break
+        else:
+            for qj in job_queue_snapshot:
+                if qj.get("project_id") == p["id"]:
+                    p["status"] = "queued"
+                    p["job_id"] = qj.get("job_id")
+                    break
+    
+    # Filter archived if requested
+    if not show_archived:
+        projects = [p for p in projects if not p.get("isArchived")]
+    
+    # 2. Job Queue (running + queued)
+    running_job = None
+    for jid, jinfo in running_jobs_snapshot.items():
+        proj_name = "Unknown"
+        for p in projects:
+            if p["id"] == jinfo.get("project_id"):
+                proj_name = p["name"]
+                break
+        running_job = {
+            "job_id": jid,
+            "project_id": jinfo.get("project_id"),
+            "project_name": proj_name,
+            "status": "running",
+            "step": jinfo.get("step", 0),
+            "output_dir": jinfo.get("output_dir"),
+        }
+    
+    queued_jobs = []
+    for qj in job_queue_snapshot:
+        proj_name = "Unknown"
+        for p in projects:
+            if p["id"] == qj.get("project_id"):
+                proj_name = p["name"]
+                break
+        queued_jobs.append({
+            "job_id": qj.get("job_id"),
+            "project_id": qj.get("project_id"),
+            "project_name": proj_name,
+            "status": "queued",
+        })
+    
+    # 3. Job History
+    history = load_job_history()
+    
+    # 4. Settings
+    settings = get_settings()
+    
+    # 5. Active jobs per project (for live view tracking)
+    active_jobs = {}
+    for jid, jinfo in running_jobs_snapshot.items():
+        pid = jinfo.get("project_id")
+        if pid:
+            active_jobs[pid] = {
+                "job_id": jid,
+                "output_dir": jinfo.get("output_dir"),
+                "step": jinfo.get("step", 0),
+                "status": "running",
+            }
+    
+    # 6. Chats count
+    try:
+        chat_count = len([f for f in os.listdir(CHATS_DIR) if f.endswith('.json')]) if os.path.isdir(CHATS_DIR) else 0
+    except Exception:
+        chat_count = 0
+    
+    # 7. Worker status
+    worker_info = {
+        "max_workers": _max_workers,
+        "active_workers": len([t for t in worker_threads if t.is_alive()]),
+        "queue_length": len(job_queue_snapshot),
+    }
+    
+    return jsonify({
+        "projects": projects,
+        "queue": {"running": running_job, "queued": queued_jobs},
+        "history": history,
+        "settings": settings,
+        "active_jobs": active_jobs,
+        "chat_count": chat_count,
+        "workers": worker_info,
+        "timestamp": datetime.now().isoformat(),
+    })
+
+
 # --- App System Log ---
 _app_log = []
 _app_log_lock = threading.Lock()
+
 
 def _log_app_event(message):
     """Log a system-level event (not product logs)."""

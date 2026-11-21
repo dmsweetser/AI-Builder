@@ -2698,12 +2698,12 @@ class TestToolStartShowsDetails(unittest.TestCase):
     def test_handle_tool_start_shows_rationale(self):
         with open(os.path.join(os.path.dirname(__file__), '..', 'static', 'site.js')) as f:
             content = f.read()
-        self.assertIn('data.rationale', content)
+        self.assertIn('s.rationale', content)
 
     def test_handle_tool_start_shows_params(self):
         with open(os.path.join(os.path.dirname(__file__), '..', 'static', 'site.js')) as f:
             content = f.read()
-        self.assertIn('data.params && Object.keys(data.params).length', content)
+        self.assertIn('s.params && Object.keys(s.params).length', content)
 
     def test_polling_replaces_sse(self):
         with open(os.path.join(os.path.dirname(__file__), '..', 'static', 'site.js')) as f:
