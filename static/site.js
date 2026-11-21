@@ -445,18 +445,14 @@ function _renderStep(step, agentBox) {
         hintDiv.textContent = '👉 The agent is waiting for your response. Type instructions below and click INJECT or RUN to continue';
         entry.appendChild(hintDiv);
     } else if (step.tool === 'llm_call') {
-        var msgCount = step.params ? step.params.messages : 0;
         entry.classList.add('llm-step');
-        var rawReq = step.raw_request || '';
-        var rawResp = step.raw_response || '';
-        var hasRaw = rawReq.length > 0 || rawResp.length > 0;
         var toolDiv3 = document.createElement('div');
         toolDiv3.className = 'step-tool';
-        toolDiv3.textContent = '🤔 Thinking...';
+        toolDiv3.textContent = '🤔 AI Generating...';
         entry.appendChild(toolDiv3);
         var resultDiv3 = document.createElement('div');
         resultDiv3.className = 'step-result';
-        resultDiv3.textContent = '...';
+        resultDiv3.textContent = 'Generating...';
         entry.appendChild(resultDiv3);
         // Fetch the live response from current_response.txt
         (function fetchLiveResponse(container, jobId, resultEl) {
@@ -503,45 +499,6 @@ function _renderStep(step, agentBox) {
                 })
                 .catch(function() { resultEl.textContent = 'Response unavailable'; });
         })(entry, _activeJobId || '', resultDiv3);
-        if (hasRaw) {
-            var rawDiv = document.createElement('div');
-            rawDiv.style.cssText = 'margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;';
-            if (rawReq.length > 0) {
-                var details1 = document.createElement('details');
-                details1.className = 'raw-data-block';
-                var summary1 = document.createElement('summary');
-                summary1.className = 'raw-summary';
-                summary1.textContent = '📤 Raw Request (' + rawReq.length + ' chars)';
-                details1.appendChild(summary1);
-                var contentDiv1 = document.createElement('div');
-                contentDiv1.className = 'raw-content';
-                var pre1 = document.createElement('pre');
-                var code1 = document.createElement('code');
-                code1.textContent = rawReq;
-                pre1.appendChild(code1);
-                contentDiv1.appendChild(pre1);
-                details1.appendChild(contentDiv1);
-                rawDiv.appendChild(details1);
-            }
-            if (rawResp.length > 0) {
-                var details2 = document.createElement('details');
-                details2.className = 'raw-data-block';
-                var summary2 = document.createElement('summary');
-                summary2.className = 'raw-summary';
-                summary2.textContent = '📥 Raw Response (' + rawResp.length + ' chars)';
-                details2.appendChild(summary2);
-                var contentDiv2 = document.createElement('div');
-                contentDiv2.className = 'raw-content';
-                var pre2 = document.createElement('pre');
-                var code2 = document.createElement('code');
-                code2.textContent = rawResp;
-                pre2.appendChild(code2);
-                contentDiv2.appendChild(pre2);
-                details2.appendChild(contentDiv2);
-                rawDiv.appendChild(details2);
-            }
-            entry.appendChild(rawDiv);
-        }
     } else if (step.tool === 'format_retry') {
         entry.classList.add('llm-step');
         var toolDiv4 = document.createElement('div');
@@ -1768,22 +1725,16 @@ function _doShowLiveView(jobId, queueData, history, jobRecord, isRunning, isPend
 
         Promise.all([
             stepsPromise,
-            fetch('/api/job/' + jobId + '/status').then(function(r) { return r.json(); }),
-            fetch('/api/agent/response/' + jobId).then(function(r) { return r.json(); })
+            fetch('/api/job/' + jobId + '/status').then(function(r) { return r.json(); })
         ]).then(function(results) {
             var stepsData = results[0] || { steps: [], count: 0 };
             var statusData = results[1] || {};
-            var responseData = results[2] || {};
             agentBox.innerHTML = '';
             var allSteps = stepsData.steps || [];
             var count = stepsData.count || 0;
             for (var i = 0; i < count; i++) {
                 var step = allSteps[i];
                 if (step) _renderStep(step, agentBox);
-            }
-            if (responseData.content && responseData.content.trim()) {
-                var liveResp = document.getElementById('live-response-container');
-                if (liveResp) { liveResp.textContent = responseData.content; liveResp.style.display = 'block'; }
             }
             var statusText = document.getElementById('agent-status-text');
             if (statusText) {
@@ -1874,15 +1825,6 @@ function refreshLiveView() {
                     refreshMsg.innerHTML = '<div class="step-tool" style="color:var(--mc-diamond);">✅ Feed refreshed</div>';
                     ab.appendChild(refreshMsg);
                     ab.scrollTop = ab.scrollHeight;
-                }
-
-                // Show current response if available
-                if (respData && respData.content && respData.content.trim()) {
-                    var liveResp = document.getElementById('live-response-container');
-                    if (liveResp) {
-                        liveResp.textContent = respData.content;
-                        liveResp.style.display = 'block';
-                    }
                 }
             })
             .catch(function(err) { console.error('Failed to refresh:', err); });
