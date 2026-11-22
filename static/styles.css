@@ -86,8 +86,8 @@ body {
     pointer-events: none;
 }
 
-/* === Minecraft Camel Loading Animation — Blocky Pixel Edition === */
-.camel-container {
+/* === Minecraft Moose Loading Animation — Blocky Pixel Edition === */
+.moose-container {
     position: relative;
     width: 200px;
     height: 180px;
@@ -97,8 +97,8 @@ body {
     image-rendering: pixelated;
 }
 
-/* Camel body — blocky rectangle */
-.camel-body {
+/* Moose body — blocky rectangle */
+.moose-body {
     position: absolute;
     width: 110px;
     height: 44px;
@@ -108,12 +108,12 @@ body {
     transform: translateX(-50%);
     border: 3px solid #8B6914;
     border-radius: 0;
-    animation: camel-bounce 0.6s ease-in-out infinite;
+    animation: moose-bounce 0.6s ease-in-out infinite;
     box-shadow: inset 0 -6px 0 #A08050, inset 0 6px 0 #D4B87C;
 }
 
-/* Camel humps — two blocky bumps on back */
-.camel-humps {
+/* Moose humps — two blocky bumps on back */
+.moose-humps {
     position: absolute;
     top: 28%;
     left: 50%;
@@ -122,7 +122,7 @@ body {
     height: 30px;
 }
 
-.camel-hump {
+.moose-hump {
     position: absolute;
     background: #C4A46C;
     border: 3px solid #8B6914;
@@ -130,7 +130,7 @@ body {
     box-shadow: inset 0 -4px 0 #A08050, inset 0 4px 0 #D4B87C;
 }
 
-.camel-hump-1 {
+.moose-hump-1 {
     width: 32px;
     height: 28px;
     top: 0;
@@ -138,7 +138,7 @@ body {
     border-radius: 0 0 0 0;
 }
 
-.camel-hump-2 {
+.moose-hump-2 {
     width: 28px;
     height: 24px;
     top: 4px;
@@ -146,8 +146,8 @@ body {
     border-radius: 0 0 0 0;
 }
 
-/* Camel head — blocky rectangle */
-.camel-head {
+/* Moose head — blocky rectangle */
+.moose-head {
     position: absolute;
     width: 36px;
     height: 48px;
@@ -156,13 +156,13 @@ body {
     left: 68%;
     border: 3px solid #8B6914;
     border-radius: 0;
-    animation: camel-head-bob 0.5s ease-in-out infinite;
+    animation: moose-head-bob 0.5s ease-in-out infinite;
     z-index: 2;
     box-shadow: inset 0 -6px 0 #A08050, inset 0 6px 0 #D4B87C;
 }
 
-/* Camel ear — small block */
-.camel-head .camel-ear {
+/* Moose ear — small block */
+.moose-head .moose-ear {
     position: absolute;
     width: 10px;
     height: 16px;
@@ -171,12 +171,12 @@ body {
     left: 6px;
     border: 2px solid #8B6914;
     border-radius: 0;
-    animation: camel-ear-twitch 4s ease-in-out infinite;
+    animation: moose-ear-twitch 4s ease-in-out infinite;
     box-shadow: inset 0 4px 0 #D4B87C;
 }
 
-/* Camel eye — square pixel */
-.camel-head .camel-eye {
+/* Moose eye — square pixel */
+.moose-head .moose-eye {
     position: absolute;
     width: 8px;
     height: 8px;
@@ -184,13 +184,13 @@ body {
     top: 12px;
     left: 22px;
     border-radius: 0;
-    animation: camel-eye-blink 3.5s ease-in-out infinite;
+    animation: moose-eye-blink 3.5s ease-in-out infinite;
     z-index: 3;
     box-shadow: 2px 2px 0 #2A1A0A;
 }
 
-/* Camel eye shine */
-.camel-head .camel-eye::after {
+/* Moose eye shine */
+.moose-head .moose-eye::after {
     content: '';
     position: absolute;
     width: 3px;
@@ -199,11 +199,11 @@ body {
     top: 0;
     left: 1px;
     border-radius: 0;
-    animation: camel-eye-shine 3.5s ease-in-out infinite;
+    animation: moose-eye-shine 3.5s ease-in-out infinite;
 }
 
-/* Camel nostril — small dark square */
-.camel-head .camel-nostril {
+/* Moose nostril — small dark square */
+.moose-head .moose-nostril {
     position: absolute;
     width: 6px;
     height: 6px;
@@ -211,11 +211,11 @@ body {
     top: 32px;
     left: 28px;
     border-radius: 0;
-    animation: camel-nostril-flare 1.5s ease-in-out infinite;
+    animation: moose-nostril-flare 1.5s ease-in-out infinite;
 }
 
-/* Camel tail — blocky pixel strands */
-.camel-tail {
+/* Moose tail — blocky pixel strands */
+.moose-tail {
     position: absolute;
     width: 12px;
     height: 48px;
@@ -223,7 +223,7 @@ body {
     top: 24%;
     left: 6%;
     border-radius: 0;
-    animation: camel-tail-wag 0.6s ease-in-out infinite;
+    animation: moose-tail-wag 0.6s ease-in-out infinite;
     transform-origin: top center;
     z-index: 0;
     border: 2px solid #6B4F10;
@@ -233,8 +233,8 @@ body {
         0 36px 0 #7A5A10;
 }
 
-/* Camel saddle — brown rectangle on back */
-.camel-saddle {
+/* Moose saddle — brown rectangle on back */
+.moose-saddle {
     position: absolute;
     width: 40px;
     height: 20px;
@@ -248,8 +248,8 @@ body {
     box-shadow: inset 0 4px 0 #A0522D, inset 0 -4px 0 #6B3410;
 }
 
-/* Camel legs — blocky rectangles */
-.camel-legs {
+/* Moose legs — blocky rectangles */
+.moose-legs {
     position: absolute;
     bottom: 0;
     left: 50%;
@@ -258,7 +258,7 @@ body {
     height: 52px;
 }
 
-.camel-leg {
+.moose-leg {
     position: absolute;
     width: 14px;
     height: 48px;
@@ -269,8 +269,8 @@ body {
     box-shadow: inset 0 -8px 0 #A08050, inset 0 4px 0 #D4B87C;
 }
 
-/* Camel hoof — dark block at bottom */
-.camel-leg::before {
+/* Moose hoof — dark block at bottom */
+.moose-leg::before {
     content: '';
     position: absolute;
     bottom: -2px;
@@ -282,8 +282,8 @@ body {
     border: 2px solid #0A0000;
 }
 
-/* Camel leg joint line */
-.camel-leg::after {
+/* Moose leg joint line */
+.moose-leg::after {
     content: '';
     position: absolute;
     bottom: 8px;
@@ -294,13 +294,13 @@ body {
     border-radius: 0;
 }
 
-.camel-leg:nth-child(1) { left: 10px; animation: camel-leg-front-1 0.4s ease-in-out infinite; }
-.camel-leg:nth-child(2) { left: 32px; animation: camel-leg-front-2 0.4s ease-in-out infinite 0.1s; }
-.camel-leg:nth-child(3) { left: 76px; animation: camel-leg-back-1 0.4s ease-in-out infinite 0.2s; }
-.camel-leg:nth-child(4) { left: 98px; animation: camel-leg-back-2 0.4s ease-in-out infinite 0.3s; }
+.moose-leg:nth-child(1) { left: 10px; animation: moose-leg-front-1 0.4s ease-in-out infinite; }
+.moose-leg:nth-child(2) { left: 32px; animation: moose-leg-front-2 0.4s ease-in-out infinite 0.1s; }
+.moose-leg:nth-child(3) { left: 76px; animation: moose-leg-back-1 0.4s ease-in-out infinite 0.2s; }
+.moose-leg:nth-child(4) { left: 98px; animation: moose-leg-back-2 0.4s ease-in-out infinite 0.3s; }
 
-/* Camel shadow — blocky, no blur */
-.camel-shadow {
+/* Moose shadow — blocky, no blur */
+.moose-shadow {
     position: absolute;
     bottom: -4px;
     left: 50%;
@@ -309,70 +309,70 @@ body {
     height: 10px;
     background: #1A0A00;
     border-radius: 0;
-    animation: camel-shadow-pulse 0.6s ease-in-out infinite;
+    animation: moose-shadow-pulse 0.6s ease-in-out infinite;
     opacity: 0.3;
 }
 
-/* === Camel Animations === */
-@keyframes camel-bounce {
+/* === Moose Animations === */
+@keyframes moose-bounce {
     0%, 100% { transform: translateX(-50%) translateY(0); }
     50% { transform: translateX(-50%) translateY(-6px); }
 }
 
-@keyframes camel-head-bob {
+@keyframes moose-head-bob {
     0%, 100% { transform: rotate(0deg) translateY(0); }
     50% { transform: rotate(-2deg) translateY(-2px); }
 }
 
-@keyframes camel-ear-twitch {
+@keyframes moose-ear-twitch {
     0%, 70%, 100% { transform: rotate(-5deg); }
     75% { transform: rotate(-20deg); }
     80% { transform: rotate(-5deg); }
 }
 
-@keyframes camel-tail-wag {
+@keyframes moose-tail-wag {
     0%, 100% { transform: rotate(-10deg); }
     50% { transform: rotate(10deg); }
 }
 
-@keyframes camel-leg-front-1 {
+@keyframes moose-leg-front-1 {
     0%, 100% { transform: rotate(-15deg) scaleY(1); }
     50% { transform: rotate(15deg) scaleY(0.92); }
 }
 
-@keyframes camel-leg-front-2 {
+@keyframes moose-leg-front-2 {
     0%, 100% { transform: rotate(15deg) scaleY(0.92); }
     50% { transform: rotate(-15deg) scaleY(1); }
 }
 
-@keyframes camel-leg-back-1 {
+@keyframes moose-leg-back-1 {
     0%, 100% { transform: rotate(15deg) scaleY(0.92); }
     50% { transform: rotate(-15deg) scaleY(1); }
 }
 
-@keyframes camel-leg-back-2 {
+@keyframes moose-leg-back-2 {
     0%, 100% { transform: rotate(-15deg) scaleY(1); }
     50% { transform: rotate(15deg) scaleY(0.92); }
 }
 
-@keyframes camel-shadow-pulse {
+@keyframes moose-shadow-pulse {
     0%, 100% { transform: translateX(-50%) scaleX(1); opacity: 0.5; }
     50% { transform: translateX(-50%) scaleX(0.7); opacity: 0.25; }
 }
 
-@keyframes camel-eye-blink {
+@keyframes moose-eye-blink {
     0%, 80%, 100% { opacity: 1; height: 8px; }
     85% { opacity: 1; height: 1px; }
     87% { opacity: 1; height: 8px; }
 }
 
-@keyframes camel-eye-shine {
+@keyframes moose-eye-shine {
     0%, 80%, 100% { opacity: 1; }
     85% { opacity: 0; }
     87% { opacity: 1; }
 }
 
-@keyframes camel-nostril-flare {
+@keyframes moose-nostril-flare {
     0%, 100% { transform: scale(1); }
     50% { transform: scale(1.3); }
 }
