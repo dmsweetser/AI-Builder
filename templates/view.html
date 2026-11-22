@@ -196,8 +196,53 @@
                 entry.appendChild(toolDiv);
                 const resultDiv = document.createElement('div');
                 resultDiv.className = 'step-result';
-                resultDiv.textContent = step.params ? 'LLM call (' + (step.params.messages || 0) + ' msgs)' : 'LLM call';
+                resultDiv.textContent = 'Generating...';
                 entry.appendChild(resultDiv);
+
+                // Fetch live response from current_response.txt
+                (function fetchLiveResponse(jobId, resultEl) {
+                    fetch('/api/agent/response/' + jobId)
+                        .then(function(r) { return r.json(); })
+                        .then(function(data) {
+                            var content = data.content || '';
+                            if (content.trim()) {
+                                // Check if it contains a complete tool call block
+                                var toolStart = content.indexOf('[TOOL_START]');
+                                var toolEnd = content.indexOf('[TOOL_END]');
+                                if (toolStart !== -1 && toolEnd !== -1 && toolEnd > toolStart) {
+                                    // Valid tool call — parse and display it
+                                    var toolBlock = content.substring(toolStart, toolEnd + '[TOOL_END]'.length);
+                                    var beforeTool = content.substring(0, toolStart).trim();
+                                    var parsed = parseToolCall(toolBlock);
+                                    resultEl.innerHTML = '';
+                                    if (beforeTool) {
+                                        var prefix = document.createElement('div');
+                                        prefix.style.cssText = 'color:var(--mc-text-dim);font-size:8px;margin-bottom:4px;font-style:italic;';
+                                        prefix.textContent = beforeTool.substring(0, 300) + (beforeTool.length > 300 ? '...' : '');
+                                        resultEl.appendChild(prefix);
+                                    }
+                                    if (parsed) {
+                                        var toolLabel = document.createElement('div');
+                                        toolLabel.style.cssText = 'color:var(--mc-gold);font-weight:bold;margin-bottom:2px;';
+                                        toolLabel.textContent = '⚙️ ' + (parsed.name || 'unknown') + '(' + (JSON.stringify(parsed.params || {}).substring(0, 120)) + (parsed.params ? (JSON.stringify(parsed.params).length > 120 ? '...' : '') : '') + ')';
+                                        resultEl.appendChild(toolLabel);
+                                        if (parsed.code) {
+                                            var codePre = document.createElement('pre');
+                                            codePre.style.cssText = 'background:var(--mc-bg);padding:6px;border:1px solid var(--mc-border);font-size:8px;max-height:100px;overflow:auto;margin-top:2px;white-space:pre-wrap;';
+                                            codePre.textContent = parsed.code.substring(0, 500) + (parsed.code.length > 500 ? '...' : '');
+                                            resultEl.appendChild(codePre);
+                                        }
+                                    }
+                                } else {
+                                    // Not a valid tool call yet — show raw streaming text
+                                    resultEl.textContent = content;
+                                }
+                            } else {
+                                resultEl.textContent = 'Waiting for response...';
+                            }
+                        })
+                        .catch(function() { resultEl.textContent = 'Response unavailable'; });
+                })(_viewJobId, resultDiv);
             } else if (step.tool === 'respond_to_user') {
                 entry.classList.add('llm-step');
                 const toolDiv = document.createElement('div');
@@ -291,6 +336,54 @@
                 badge.textContent = 'STOPPED';
             } else {
                 badge.textContent = status.toUpperCase();
+            }
+        }
+
+        // Parse a tool call block
+        function parseToolCall(block) {
+            try {
+                var lines = block.split('\n');
+                var name = '';
+                var params = {};
+                var code = '';
+                var inParams = false;
+                var inCode = false;
+                var currentKey = '';
+
+                for (var i = 0; i < lines.length; i++) {
+                    var line = lines[i].trim();
+                    if (line === '[TOOL_NAME]') {
+                        inParams = true;
+                        continue;
+                    }
+                    if (line === '[PARAM_NAME]') {
+                        inParams = true;
+                        continue;
+                    }
+                    if (line === '[PARAM_VALUE]') {
+                        inCode = true;
+                        currentKey = '';
+                        continue;
+                    }
+                    if (line === '[TOOL_END]') {
+                        break;
+                    }
+                    if (inParams && !inCode) {
+                        if (!currentKey) {
+                            currentKey = line;
+                        } else {
+                            params[currentKey] = line;
+                            currentKey = '';
+                        }
+                    } else if (inCode) {
+                        if (currentKey) {
+                            code += line + '\n';
+                        }
+                    }
+                }
+                return { name: name, params: params, code: code };
+            } catch(e) {
+                return null;
             }
         }
 

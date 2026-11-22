@@ -161,6 +161,37 @@ body {
     box-shadow: inset 0 -6px 0 #A08050, inset 0 6px 0 #D4B87C;
 }
 
+/* Moose antlers */
+.moose-antlers {
+    position: absolute;
+    width: 60px;
+    height: 40px;
+    top: -30px;
+    left: -10px;
+    z-index: 1;
+}
+
+.moose-antler {
+    position: absolute;
+    width: 12px;
+    height: 35px;
+    background: #8B6914;
+    border: 2px solid #5D4037;
+    border-radius: 0;
+}
+
+.moose-antler-1 {
+    transform: rotate(-20deg);
+    left: 5px;
+    top: 0;
+}
+
+.moose-antler-2 {
+    transform: rotate(20deg);
+    right: 5px;
+    top: 0;
+}
+
 /* Moose ear — small block */
 .moose-head .moose-ear {
     position: absolute;
@@ -237,145 +268,88 @@ body {
 .moose-saddle {
     position: absolute;
     width: 40px;
-    height: 20px;
-    background: #8B4513;
-    top: 30%;
-    left: 48%;
-    transform: translateX(-50%);
-    border: 2px solid #5A2D0C;
+    height: 15px;
+    background: #5D4037;
+    top: 35%;
+    left: 40%;
+    border: 2px solid #3E2723;
     border-radius: 0;
     z-index: 1;
-    box-shadow: inset 0 4px 0 #A0522D, inset 0 -4px 0 #6B3410;
 }
 
-/* Moose legs — blocky rectangles */
+/* Moose legs */
 .moose-legs {
     position: absolute;
+    width: 80px;
+    height: 40px;
     bottom: 0;
     left: 50%;
     transform: translateX(-50%);
-    width: 130px;
-    height: 52px;
 }
 
 .moose-leg {
     position: absolute;
-    width: 14px;
-    height: 48px;
+    width: 10px;
+    height: 30px;
     background: #C4A46C;
     border: 2px solid #8B6914;
-    border-radius: 0;
-    transform-origin: top center;
-    box-shadow: inset 0 -8px 0 #A08050, inset 0 4px 0 #D4B87C;
+    bottom: 0;
 }
 
-/* Moose hoof — dark block at bottom */
-.moose-leg::before {
-    content: '';
-    position: absolute;
-    bottom: -2px;
-    left: -1px;
-    width: 16px;
-    height: 10px;
-    background: #2A1A0A;
-    border-radius: 0;
-    border: 2px solid #0A0000;
-}
+.moose-leg:nth-child(1) { left: 10px; }
+.moose-leg:nth-child(2) { left: 25px; }
+.moose-leg:nth-child(3) { right: 25px; }
+.moose-leg:nth-child(4) { right: 10px; }
 
-/* Moose leg joint line */
-.moose-leg::after {
-    content: '';
-    position: absolute;
-    bottom: 8px;
-    left: 0;
-    width: 100%;
-    height: 3px;
-    background: #8B6914;
-    border-radius: 0;
-}
-
-.moose-leg:nth-child(1) { left: 10px; animation: moose-leg-front-1 0.4s ease-in-out infinite; }
-.moose-leg:nth-child(2) { left: 32px; animation: moose-leg-front-2 0.4s ease-in-out infinite 0.1s; }
-.moose-leg:nth-child(3) { left: 76px; animation: moose-leg-back-1 0.4s ease-in-out infinite 0.2s; }
-.moose-leg:nth-child(4) { left: 98px; animation: moose-leg-back-2 0.4s ease-in-out infinite 0.3s; }
-
-/* Moose shadow — blocky, no blur */
+/* Moose shadow */
 .moose-shadow {
     position: absolute;
-    bottom: -4px;
+    width: 120px;
+    height: 15px;
+    background: rgba(0, 0, 0, 0.2);
+    bottom: -10px;
     left: 50%;
     transform: translateX(-50%);
-    width: 130px;
-    height: 10px;
-    background: #1A0A00;
-    border-radius: 0;
-    animation: moose-shadow-pulse 0.6s ease-in-out infinite;
-    opacity: 0.3;
+    border-radius: 50%;
+    z-index: -1;
 }
 
-/* === Moose Animations === */
+/* Animations */
 @keyframes moose-bounce {
     0%, 100% { transform: translateX(-50%) translateY(0); }
-    50% { transform: translateX(-50%) translateY(-6px); }
+    50% { transform: translateX(-50%) translateY(-10px); }
 }
 
 @keyframes moose-head-bob {
-    0%, 100% { transform: rotate(0deg) translateY(0); }
-    50% { transform: rotate(-2deg) translateY(-2px); }
+    0%, 100% { transform: translateY(0) rotate(0deg); }
+    50% { transform: translateY(5px) rotate(2deg); }
 }
 
 @keyframes moose-ear-twitch {
-    0%, 70%, 100% { transform: rotate(-5deg); }
-    75% { transform: rotate(-20deg); }
-    80% { transform: rotate(-5deg); }
-}
-
-@keyframes moose-tail-wag {
-    0%, 100% { transform: rotate(-10deg); }
-    50% { transform: rotate(10deg); }
-}
-
-@keyframes moose-leg-front-1 {
-    0%, 100% { transform: rotate(-15deg) scaleY(1); }
-    50% { transform: rotate(15deg) scaleY(0.92); }
-}
-
-@keyframes moose-leg-front-2 {
-    0%, 100% { transform: rotate(15deg) scaleY(0.92); }
-    50% { transform: rotate(-15deg) scaleY(1); }
-}
-
-@keyframes moose-leg-back-1 {
-    0%, 100% { transform: rotate(15deg) scaleY(0.92); }
-    50% { transform: rotate(-15deg) scaleY(1); }
-}
-
-@keyframes moose-leg-back-2 {
-    0%, 100% { transform: rotate(-15deg) scaleY(1); }
-    50% { transform: rotate(15deg) scaleY(0.92); }
-}
-
-@keyframes moose-shadow-pulse {
-    0%, 100% { transform: translateX(-50%) scaleX(1); opacity: 0.5; }
-    50% { transform: translateX(-50%) scaleX(0.7); opacity: 0.25; }
+    0%, 90%, 100% { transform: rotate(0deg); }
+    95% { transform: rotate(15deg); }
 }
 
 @keyframes moose-eye-blink {
-    0%, 80%, 100% { opacity: 1; height: 8px; }
-    85% { opacity: 1; height: 1px; }
-    87% { opacity: 1; height: 8px; }
+    0%, 90%, 100% { height: 8px; }
+    95% { height: 1px; }
 }
 
 @keyframes moose-eye-shine {
-    0%, 80%, 100% { opacity: 1; }
-    85% { opacity: 0; }
-    87% { opacity: 1; }
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
 }
 
 @keyframes moose-nostril-flare {
     0%, 100% { transform: scale(1); }
-    50% { transform: scale(1.3); }
+    50% { transform: scale(1.2); }
 }
+
+@keyframes moose-tail-wag {
+    0%, 100% { transform: rotate(0deg); }
+    50% { transform: rotate(20deg); }
+}
+
 
 @keyframes dust-1 {
     0% { transform: translate(0, 0) scale(1); opacity: 0.7; }
