@@ -745,9 +745,8 @@ def _kill_job_for_project(pid):
     with job_queue_lock:
         # Remove from queue
         job_queue[:] = [j for j in job_queue if j["project_id"] != pid]
-        # Stop running job if it's for this project
-        if any(j.get("project_id") == pid for j in running_jobs.values()):
-            running_jobs.clear()
+        # Remove running job only for this project
+        running_jobs = {k: v for k, v in running_jobs.items() if v.get("project_id") != pid}
     # Also clear the engine-active tracking so a new run can start
     _mark_engine_stop(pid)
     start_worker()
@@ -990,8 +989,7 @@ def api_delete_project(pid):
     global running_jobs
     with job_queue_lock:
         job_queue[:] = [j for j in job_queue if j["project_id"] != pid]
-        if any(j.get("project_id") == pid for j in running_jobs.values()):
-            running_jobs.clear()
+        running_jobs = {k: v for k, v in running_jobs.items() if v.get("project_id") != pid}
     # Also clear the engine-active tracking
     _mark_engine_stop(pid)
     start_worker()
