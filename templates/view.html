@@ -115,8 +115,20 @@
             _viewProjectId = pathParts[pathParts.length - 1];
             const params = new URLSearchParams(window.location.search);
             _viewJobId = params.get('job') || null;
-            document.getElementById('view-title').textContent = 'Project: ' + _viewProjectId + (_viewJobId ? ' — Job: ' + _viewJobId.substring(0,8) : '');
+            document.getElementById('view-title').textContent = 'Loading project ' + _viewProjectId.substring(0,8) + '...';
         })();
+
+        // Fetch project name
+        async function resolveProjectName() {
+            try {
+                const resp = await fetch('/api/projects/' + _viewProjectId);
+                if (resp.ok) {
+                    const project = await resp.json();
+                    return project.name || _viewProjectId.substring(0,8);
+                }
+            } catch(e) {}
+            return _viewProjectId.substring(0,8);
+        }
 
         // Fetch project info to get latest job if none specified
         async function resolveJobId() {
@@ -564,16 +576,20 @@
         (async function init() {
             const container = document.getElementById('view-steps');
 
+            // Fetch project name for the title
+            const projectName = await resolveProjectName();
+
             // Resolve job ID (use latest if none specified)
             const resolvedJobId = await resolveJobId();
             if (!resolvedJobId) {
                 container.innerHTML = '<div class="no-jobs-msg"><span class="big">📋</span>No job to view yet.<br>Run the project first to see results here.</div>';
                 document.getElementById('view-status').className = 'status-badge stopped';
                 document.getElementById('view-status').textContent = 'NO JOB';
+                document.getElementById('view-title').textContent = 'Project: ' + projectName;
                 return;
             }
             _viewJobId = resolvedJobId;
-            document.getElementById('view-title').textContent = 'Project: ' + _viewProjectId + ' — Job: ' + _viewJobId.substring(0,8);
+            document.getElementById('view-title').textContent = 'Project: ' + projectName + ' — Job: ' + _viewJobId.substring(0,8);
 
             // Resolve output directory first, so both step and status fetches use the same dir
             _viewOutputDir = await resolveOutputDir();
