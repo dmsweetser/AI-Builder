@@ -163,7 +163,7 @@
 
                         <div class="form-actions">
                             <button type="button" class="btn btn-primary run-btn" id="details-run-btn" onclick="runProject(currentProjectId)">RUN AI BUILDER</button>
-                            <button type="button" class="btn btn-info" id="details-live-btn" onclick="openViewInNewTab(currentProjectId)" style="display:none;">👁 VIEW</button>
+                            <button type="button" class="btn btn-info" id="details-live-btn" onclick="openViewInNewTabForCurrentProject()" style="display:none;">👁 VIEW</button>
                             <button type="button" class="btn btn-danger" id="details-stop-btn" onclick="stopProject(currentProjectId)" style="display:none;">STOP</button>
                             <button type="button" class="btn btn-secondary" onclick="resetProject(currentProjectId)">RESET</button>
                             <button type="button" class="btn btn-danger" onclick="deleteProject(currentProjectId)">DELETE</button>
@@ -179,7 +179,7 @@
                             <span id="agent-step-count" class="status-text"></span>
                         </h3>
                         <div style="display:flex;gap:6px;align-items:center;">
-                            <button type="button" class="btn btn-secondary btn-sm" id="live-refresh-btn" onclick="openViewInNewTab(currentProjectId)" style="display:none;">👁 VIEW</button>
+                            <button type="button" class="btn btn-secondary btn-sm" id="live-refresh-btn" onclick="openViewInNewTabForCurrentProject()" style="display:none;">👁 VIEW</button>
                             <button type="button" class="btn btn-danger btn-sm" id="live-stop-btn" onclick="stopCurrentJob()" style="display:none;">⏹ STOP</button>
                         </div>
                     </div>

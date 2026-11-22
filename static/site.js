@@ -162,7 +162,13 @@ function renderProjects() {
         var viewBtn = document.createElement('button');
         viewBtn.className = 'btn btn-sm btn-info';
         viewBtn.textContent = '👁 VIEW';
-        viewBtn.onclick = function(e) { e.stopPropagation(); openViewInNewTab(project.id, project.last_job_id); };
+        viewBtn.onclick = function(e) {
+            e.stopPropagation();
+            var activeJobs = _uiState.active_jobs || {};
+            var activeJob = activeJobs[project.id];
+            var activeJobId = activeJob ? activeJob.job_id : null;
+            openViewInNewTab(project.id, activeJobId || project.last_job_id);
+        };
         var runBtn = document.createElement('button');
         runBtn.className = 'btn btn-sm btn-primary';
         runBtn.textContent = 'RUN';
@@ -1647,6 +1653,14 @@ function deleteBashTool(pid, toolName) {
 function openViewInNewTab(projectId, jobId) {
     var url = '/view/' + projectId + (jobId ? '?job=' + jobId : '');
     window.open(url, '_blank', 'width=900,height=700');
+}
+
+// === Open View for current project (checks active job first) ===
+function openViewInNewTabForCurrentProject() {
+    var activeJobs = _uiState.active_jobs || {};
+    var activeJob = activeJobs[currentProjectId];
+    var activeJobId = activeJob ? activeJob.job_id : null;
+    openViewInNewTab(currentProjectId, activeJobId);
 }
 
 // === Utility Functions ===
