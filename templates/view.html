@@ -122,7 +122,19 @@
         async function resolveJobId() {
             if (_viewJobId) return _viewJobId;
             try {
-                // Just use the project's last_job_id - fast and reliable
+                // Check job history for the most recent job for this project
+                const histResp = await fetch('/api/history');
+                if (histResp.ok) {
+                    const history = await histResp.json();
+                    const projectHistory = history.filter(function(h) {
+                        return h.project_id === _viewProjectId;
+                    });
+                    // Return the most recent job (history is sorted descending)
+                    if (projectHistory.length > 0) {
+                        return projectHistory[0].job_id;
+                    }
+                }
+                // Fallback: use project's last_job_id
                 const projResp = await fetch('/api/projects/' + _viewProjectId);
                 if (projResp.ok) {
                     const project = await projResp.json();
@@ -161,6 +173,43 @@
                 }
             } catch(e) {}
             return '';
+        }
+
+        // Format raw step content for display
+        function formatStepContent(content) {
+            if (!content) return '';
+            var formatted = content;
+            // Preserve code blocks
+            var codeBlocks = [];
+            formatted = formatted.replace(/```([\s\S]*?)```/g, function(match, code) {
+                var uniqueId = 'code-' + Math.random().toString(36).substr(2, 9);
+                codeBlocks.push({ id: uniqueId, content: code.trim() });
+                return '%%CODEBLOCK_' + uniqueId + '%%';
+            });
+            // Preserve inline code
+            formatted = formatted.replace(/`([^`]+)`/g, '<code>$1</code>');
+            // Preserve headers
+            formatted = formatted.replace(/^### (.+)$/gm, '<strong style="font-size:11px;">$1</strong>');
+            formatted = formatted.replace(/^## (.+)$/gm, '<strong style="font-size:12px;">$1</strong>');
+            formatted = formatted.replace(/^# (.+)$/gm, '<strong style="font-size:13px;">$1</strong>');
+            // Preserve bold/italic
+            formatted = formatted.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+            formatted = formatted.replace(/\*(.+?)\*/g, '<em>$1</em>');
+            // Preserve lists
+            formatted = formatted.replace(/^- (.+)$/gm, '<div style="margin-left:8px;">• $1</div>');
+            formatted = formatted.replace(/^[0-9]+\. (.+)$/gm, '<div style="margin-left:8px;">$1</div>');
+            // Preserve horizontal rules
+            formatted = formatted.replace(/^---$/gm, '<hr style="border:none;border-top:1px solid var(--mc-border);margin:8px 0;">');
+            // Preserve newlines
+            formatted = formatted.replace(/\n\n/g, '<br><br>');
+            formatted = formatted.replace(/\n/g, '<br>');
+            // Restore code blocks
+            codeBlocks.forEach(function(block) {
+                var escaped = block.content.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                formatted = formatted.replace('%%CODEBLOCK_' + block.id + '%%',
+                    '<pre style="background:var(--mc-bg);padding:8px;border:1px solid var(--mc-border);font-size:9px;max-height:200px;overflow:auto;margin:4px 0;white-space:pre-wrap;">' + escaped + '</pre>');
+            });
+            return formatted;
         }
 
         // Render a single step
@@ -252,7 +301,12 @@
                 entry.appendChild(toolDiv);
                 const resultDiv = document.createElement('div');
                 resultDiv.className = 'step-result';
-                resultDiv.textContent = step.result ? (step.result.content || '') : '';
+                const respContent = step.result ? (step.result.content || '') : '';
+                if (respContent) {
+                    resultDiv.innerHTML = formatStepContent(respContent);
+                } else {
+                    resultDiv.textContent = '(no response)';
+                }
                 entry.appendChild(resultDiv);
             } else if (step.tool === 'request_user_input') {
                 entry.classList.add('pending-approval');
@@ -264,7 +318,12 @@
                 const resultDiv = document.createElement('div');
                 resultDiv.className = 'step-result';
                 resultDiv.style.cssText = 'color:var(--mc-gold);white-space:pre-wrap;';
-                resultDiv.textContent = step.result ? (step.result.content || 'Waiting for input...') : 'Waiting for input...';
+                const userInputContent = step.result ? (step.result.content || 'Waiting for input...') : 'Waiting for input...';
+                if (userInputContent !== 'Waiting for input...') {
+                    resultDiv.innerHTML = formatStepContent(userInputContent);
+                } else {
+                    resultDiv.textContent = 'Waiting for input...';
+                }
                 entry.appendChild(resultDiv);
             } else if (step.tool === 'format_retry') {
                 entry.classList.add('llm-step');
@@ -276,7 +335,12 @@
                 const resultDiv = document.createElement('div');
                 resultDiv.className = 'step-result';
                 resultDiv.style.color = 'var(--mc-gold)';
-                resultDiv.textContent = step.result ? step.result.content : '';
+                const fmtContent = step.result ? step.result.content : '';
+                if (fmtContent) {
+                    resultDiv.innerHTML = formatStepContent(fmtContent);
+                } else {
+                    resultDiv.textContent = '';
+                }
                 entry.appendChild(resultDiv);
             } else {
                 const ok = step.result && step.result.success !== false;
@@ -309,7 +373,7 @@
                 if (resultPreview) {
                     const resultDiv = document.createElement('div');
                     resultDiv.className = 'step-result';
-                    resultDiv.textContent = resultPreview;
+                    resultDiv.innerHTML = formatStepContent(resultPreview);
                     entry.appendChild(resultDiv);
                 }
             }

@@ -138,6 +138,24 @@ function renderProjects() {
         nameSpan.className = 'project-item-name';
         nameSpan.textContent = project.name || 'Untitled';
         header.appendChild(nameSpan);
+        // Status badge
+        var statusBadge = document.createElement('span');
+        var status = project.status || 'idle';
+        statusBadge.className = 'project-item-status';
+        if (status === 'running') {
+            statusBadge.classList.add('running');
+            statusBadge.textContent = 'RUNNING';
+        } else if (status === 'queued') {
+            statusBadge.classList.add('queued');
+            statusBadge.textContent = 'QUEUED';
+        } else if (project.run_number > 0) {
+            statusBadge.classList.add('completed');
+            statusBadge.textContent = 'COMPLETED';
+        } else {
+            statusBadge.classList.add('stopped');
+            statusBadge.textContent = 'IDLE';
+        }
+        header.appendChild(statusBadge);
         if (project.run_number > 0) {
             var runSpan = document.createElement('span');
             runSpan.style.cssText = 'color:var(--text-muted);font-size:11px;';
@@ -172,6 +190,13 @@ function renderProjects() {
         var runBtn = document.createElement('button');
         runBtn.className = 'btn btn-sm btn-primary';
         runBtn.textContent = 'RUN';
+        // Disable run button when project is running or queued
+        if (status === 'running' || status === 'queued') {
+            runBtn.disabled = true;
+            runBtn.style.opacity = '0.4';
+            runBtn.style.cursor = 'not-allowed';
+            runBtn.textContent = 'RUNNING';
+        }
         runBtn.onclick = function(e) { e.stopPropagation(); runProjectFromList(project); };
         var stopBtn = document.createElement('button');
         stopBtn.className = 'btn btn-sm btn-danger';
@@ -1052,7 +1077,7 @@ function deleteBashTool(pid, toolName) {
 // === Open View in New Tab ===
 function openViewInNewTab(projectId, jobId) {
     var url = '/view/' + projectId + (jobId ? '?job=' + jobId : '');
-    window.open(url, '_blank', 'width=900,height=700');
+    window.open(url, '_blank');
 }
 
 // === Open View for current project (checks active job first) ===
