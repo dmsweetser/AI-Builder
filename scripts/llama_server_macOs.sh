@@ -227,10 +227,11 @@ log()  { printf "\033[1;34m[llama_server]\033[0m %s\n" "$*"; }
 warn() { printf "\033[1;33m[warn] \033[0m %s\n" "$*"; }
 die()  { printf "\033[1;31m[error]\033[0m %s\n" "$*" >&2; exit 1; }
 
-# TLS bypass: run with INSECURE_TLS=1 to skip certificate verification
+# TLS bypass: certificate verification is DISABLED by default.
+# Set INSECURE_TLS=0 to re-enable certificate verification.
 CURL_EXTRA=()
-if [[ "${INSECURE_TLS:-0}" == "1" ]]; then
-  warn "INSECURE_TLS=1 — certificate verification is DISABLED."
+if [[ "${INSECURE_TLS:-1}" != "0" ]]; then
+  log "INSECURE_TLS=1 — certificate verification is DISABLED."
   CURL_EXTRA+=(-k)
 fi
 fetch() { curl -fSL ${CURL_EXTRA[@]+"${CURL_EXTRA[@]}"} "$@"; }

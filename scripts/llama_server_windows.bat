@@ -171,11 +171,14 @@ REM ===========================================================================
   set "_val=%%MODEL_%_attr%%<%~1%%"
   goto :eof
 
-REM TLS bypass: set INSECURE_TLS=1 before running to skip certificate
-REM verification (e.g. behind a corporate SSL-inspecting proxy).
+REM TLS bypass: certificate verification is DISABLED by default.
+REM Set INSECURE_TLS=0 to re-enable certificate verification.
 set "CURL_TLS_ARGS="
-if "%INSECURE_TLS%"=="1" (
-  echo [warn]    INSECURE_TLS=1 - certificate verification is DISABLED.
+if "%INSECURE_TLS%"=="0" (
+  echo [info]    Certificate verification is ENABLED.
+  set "CURL_TLS_ARGS="
+) else (
+  echo [info]    INSECURE_TLS=1 - certificate verification is DISABLED.
   set "CURL_TLS_ARGS=-k"
 )
 
@@ -530,13 +533,14 @@ REM ===========================================================================
     echo [llama_server] Invalid choice.
     goto :show_menu
   )
-  exit /b 0
+  goto :main
 
 REM ===========================================================================
 REM Main
 REM ===========================================================================
 :main
-set "selected=%~1"
+REM Only set selected from command-line argument if not already set (e.g., by show_menu)
+if not defined selected set "selected=%~1"
 
 if "%selected%"=="" (
   call :show_menu

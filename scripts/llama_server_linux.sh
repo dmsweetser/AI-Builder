@@ -226,10 +226,11 @@ backend_label() {
   [[ "$HAS_CUDA_GPU" == true ]] && echo "CUDA" || echo "CPU"
 }
 
-# TLS bypass: run with INSECURE_TLS=1 to skip certificate verification
+# TLS bypass: certificate verification is DISABLED by default.
+# Set INSECURE_TLS=0 to re-enable certificate verification.
 CURL_EXTRA=()
-if [[ "${INSECURE_TLS:-0}" == "1" ]]; then
-  warn "INSECURE_TLS=1 — certificate verification is DISABLED."
+if [[ "${INSECURE_TLS:-1}" != "0" ]]; then
+  log "INSECURE_TLS=1 — certificate verification is DISABLED."
   CURL_EXTRA+=(-k)
 fi
 fetch() { curl -fSL "${CURL_EXTRA[@]}" "$@"; }
