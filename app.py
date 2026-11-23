@@ -551,13 +551,6 @@ def get_project(pid):
     projects = load_projects()
     return next((p for p in projects if p["id"] == pid), None), projects
 
-def is_project_running(pid):
-    with job_queue_lock:
-        if any(j.get("project_id") == pid for j in running_jobs.values()):
-            return True
-        return any(job["project_id"] == pid for job in job_queue)
-
-
 def get_concurrent_job_info(pid):
     """Return (is_running, is_queued, existing_job_id) for a project."""
     with job_queue_lock:
@@ -2855,19 +2848,6 @@ def _log_app_event(message):
         while len(_app_log) > 500:
             _app_log.pop(0)
 
-
-def sanitize_output_dir_name(project_name):
-    """Create a file-safe directory name from a project name."""
-    if not project_name:
-        return "project"
-    # Replace spaces and problematic chars with underscores
-    name = re.sub(r'[^a-zA-Z0-9\s-]', '', project_name)
-    name = re.sub(r'\s+', '_', name).strip()
-    name = name.strip('_')
-    if not name:
-        return "project"
-    # Truncate to 100 chars
-    return name[:100]
 
 def _find_available_port(start_port=5056, max_attempts=50):
     """Find next available port starting from start_port."""
