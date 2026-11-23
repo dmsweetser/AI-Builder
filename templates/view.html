@@ -89,7 +89,10 @@
     <div class="view-layout">
         <div class="view-header">
             <h2 id="view-title">Loading...</h2>
-            <span id="view-status" class="status-badge"></span>
+            <div style="display:flex;gap:6px;align-items:center;">
+                <button class="btn" id="view-refresh-btn" onclick="viewRefresh()" title="Refresh" style="font-size:9px;padding:4px 10px;">⟳</button>
+                <span id="view-status" class="status-badge"></span>
+            </div>
         </div>
         <div class="view-body">
             <div id="view-steps" class="view-steps">
@@ -525,6 +528,60 @@
                     return;
                 }
             }
+        }
+
+        // Refresh the view (reload steps and status)
+        function viewRefresh() {
+            const btn = document.getElementById('view-refresh-btn');
+            btn.textContent = '⟳';
+            btn.disabled = true;
+
+            // Clear existing steps
+            const container = document.getElementById('view-steps');
+            container.innerHTML = '<div class="no-jobs-msg">⟳ Refreshing...</div>';
+            _viewPrevStepCount = 0;
+
+            // Re-fetch project and job info
+            resolveProjectName().then(function(projectName) {
+                resolveJobId().then(function(resolvedJobId) {
+                    if (!resolvedJobId) {
+                        container.innerHTML = '<div class="no-jobs-msg"><span class="big">📋</span>No job to view.</div>';
+                        document.getElementById('view-status').className = 'status-badge stopped';
+                        document.getElementById('view-status').textContent = 'NO JOB';
+                        document.getElementById('view-title').textContent = 'Project: ' + projectName;
+                        btn.disabled = false;
+                        return;
+                    }
+                    _viewJobId = resolvedJobId;
+                    document.getElementById('view-title').textContent = 'Project: ' + projectName + ' — Job: ' + _viewJobId.substring(0,8);
+
+                    // Re-fetch steps and status
+                    Promise.all([fetchJobSteps(), fetchJobStatus()]).then(function([stepsData, statusData]) {
+                        const steps = stepsData.steps || [];
+                        const count = stepsData.count || 0;
+
+                        if (statusData) {
+                            updateStatus(statusData.status);
+                            _viewOutputDir = statusData.output_dir || _viewOutputDir;
+                        }
+
+                        if (count === 0) {
+                            container.innerHTML = '<div class="no-jobs-msg"><span class="big">⏳</span>No steps recorded yet.</div>';
+                        } else {
+                            container.innerHTML = '';
+                            for (let i = 0; i < count; i++) {
+                                if (steps[i]) renderStep(steps[i]);
+                            }
+                            _viewPrevStepCount = count;
+                        }
+
+                        // Restart polling
+                        if (_viewPollInterval) clearInterval(_viewPollInterval);
+                        _viewPollInterval = setInterval(pollView, 3000);
+                        btn.disabled = false;
+                    });
+                });
+            });
         }
 
         // Inject instruction

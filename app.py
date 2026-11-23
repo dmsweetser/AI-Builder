@@ -2431,6 +2431,7 @@ def api_job_status_by_id(job_id):
 
 # --- View Page Route ---
 @app.route("/view/<project_id>", methods=["GET"])
+@app.route("/view/<project_id>/", methods=["GET"])
 def view_project(project_id):
     """Serve the standalone view page for a project."""
     project, _ = get_project(project_id)
