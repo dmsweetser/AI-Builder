@@ -168,7 +168,9 @@ REM   e.g. call :get_model_attr gemma4 MODEL_FILE result  -> sets %result%
 REM ===========================================================================
 :get_model_attr
   set "_attr=%~2"
-  set "_val=%%MODEL_%_attr%%<%~1%%"
+  set "_key=%~1"
+  set "_res_var=%~3"
+  for /f "tokens=2 delims==" %%A in ('set MODEL_%_attr%_%_key% 2^>nul') do set "%%_res_var%%=%%A"
   goto :eof
 
 REM TLS bypass: certificate verification is DISABLED by default.
