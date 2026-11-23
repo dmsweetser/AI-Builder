@@ -1815,16 +1815,17 @@ def api_agent_inject():
                                 "content": f"[TOOL RESULT for {tool_name}]\n{result_display}\n[END TOOL RESULT]\n\nNow continue with your next action."
                             })
 
-                    # Append the injected instruction as a new user message
+                    # Append the user's answer as a user response message (not a new instruction).
+                    # This matches the /api/agent/resume endpoint so the LLM recognizes
+                    # the answer and can continue instead of calling request_user_input again.
                     reconstructed_messages.append({
                         "role": "user",
                         "content": (
-                            f"========== NEW USER INSTRUCTION ==========\n"
+                            f"========== USER RESPONSE ==========\n"
                             f"{instruction}\n"
-                            "========== END NEW INSTRUCTION ==========\n\n"
-                            "Review what was already done, then take the next appropriate action "
-                            "to continue working on the project with these new instructions.\n\n"
-                            "Respond with EXACTLY ONE tool call."
+                            "========== END USER RESPONSE ==========\n\n"
+                            "Use this response to continue your task. "
+                            "Review what was already done, then take the next appropriate action."
                         )
                     })
 
