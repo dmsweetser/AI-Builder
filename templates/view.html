@@ -619,6 +619,10 @@
                     const badge = document.getElementById('view-status');
                     badge.className = 'status-badge pending';
                     badge.textContent = 'CONTINUING...';
+                    // Restart polling so the View page picks up the new continuation's LLM calls.
+                    // Without this, the poll interval was stopped by the previous terminal state.
+                    if (_viewPollInterval) clearInterval(_viewPollInterval);
+                    _viewPollInterval = setInterval(pollView, 3000);
                 } else {
                     const container = document.getElementById('view-steps');
                     const entry = document.createElement('div');
