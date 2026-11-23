@@ -13,7 +13,6 @@ let AVAILABLE_TOOLS = [];  // All tool names (loaded from backend)
 
 // === Live View Scroll Tracking ===
 let _liveViewPrevStepCount = 0;  // Last rendered step count for incremental updates
-let _liveViewScrolledToBottom = true; // Whether user was at bottom before last render
 
 // === Core State Fetch ===
 async function fetchState() {
@@ -110,10 +109,6 @@ function toggleCreateForm() {
 }
 
 // === Project Management (stateless) ===
-function loadProjects() {
-    renderProjects();
-}
-
 function renderProjects() {
     var projectList = document.getElementById('project-list');
     if (!projectList) return;
@@ -232,10 +227,6 @@ function renderProjects() {
         projectItem.appendChild(meta);
         projectList.appendChild(projectItem);
     });
-}
-
-function runAgenticProject() {
-    runProject.apply(null, arguments);
 }
 
 function runProject(projectId) {
@@ -580,10 +571,6 @@ function buildToolSelectorForElement(elementId, disabledTools, customTools) {
     container.innerHTML = html;
 }
 
-function getEnabledTools() {
-    return (AVAILABLE_TOOLS && AVAILABLE_TOOLS.length > 0) ? AVAILABLE_TOOLS.slice() : [];
-}
-
 // === Chat ===
 function loadChats() {
     // Reload state from the consolidated endpoint first
@@ -853,20 +840,6 @@ function showNotificationModal(message, type) {
     modal.style.display = 'flex';
 }
 
-function showNotificationModalDetailed(title, bodyHtml, type) {
-    var icons = { info: '💬', success: '✅', warning: '⚠️', error: '❌' };
-    var iconEl = document.getElementById('notification-icon');
-    var titleEl = document.getElementById('notification-title');
-    var bodyEl = document.getElementById('notification-body');
-    var modal = document.getElementById('notification-modal');
-    if (!modal) return;
-    iconEl.textContent = icons[type] || icons.info;
-    iconEl.className = 'notification-icon ' + type;
-    titleEl.textContent = title || 'NOTICE';
-    bodyEl.innerHTML = bodyHtml;
-    modal.style.display = 'flex';
-}
-
 function closeNotificationModal() {
     var modal = document.getElementById('notification-modal');
     if (modal) modal.style.display = 'none';
@@ -881,10 +854,6 @@ function showNotificationModalPromise(message, type) {
         showNotificationModal(message, type);
         _notificationResolve = resolve;
     });
-}
-
-async function showNotificationAndWait(message, type) {
-    return await showNotificationModalPromise(message, type);
 }
 
 document.addEventListener('keydown', function(e) {
@@ -1078,14 +1047,6 @@ function deleteBashTool(pid, toolName) {
 function openViewInNewTab(projectId, jobId) {
     var url = '/view/' + projectId + (jobId ? '?job=' + jobId : '');
     window.open(url, '_blank');
-}
-
-// === Open View for current project (checks active job first) ===
-function openViewInNewTabForCurrentProject() {
-    var activeJobs = _uiState.active_jobs || {};
-    var activeJob = activeJobs[currentProjectId];
-    var activeJobId = activeJob ? activeJob.job_id : null;
-    openViewInNewTab(currentProjectId, activeJobId);
 }
 
 // === Utility Functions ===

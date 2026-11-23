@@ -1727,6 +1727,22 @@ def api_agent_inject():
         continue_thread = threading.Thread(target=_continue_engine, daemon=True)
         continue_thread.start()
 
+        # Update status.json to "running" so the VIEW page polling picks up
+        # the continuation immediately instead of still seeing "completed".
+        try:
+            with open(status_file, 'r', encoding='utf-8') as f:
+                _st = json.load(f)
+            _st["status"] = "running"
+            _st["timestamp"] = time.time()
+            _tmp = status_file + ".tmp"
+            with open(_tmp, 'w', encoding='utf-8') as f:
+                json.dump(_st, f, indent=2, ensure_ascii=False)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(_tmp, status_file)
+        except Exception:
+            logging.error(f"Failed to update status.json for continuation of job {job_id}", exc_info=True)
+
         _log_app_event(f"Continuation started for completed job {job_id}")
         return jsonify({"status": "injected", "continuation": True})
 
