@@ -133,24 +133,26 @@
         // Fetch project info to get latest job if none specified
         async function resolveJobId() {
             if (_viewJobId) return _viewJobId;
+            // Try project's last_job_id first — it's fast and reliable
             try {
-                // Check job history for the most recent job for this project
+                const projResp = await fetch('/api/projects/' + _viewProjectId);
+                if (projResp.ok) {
+                    const project = await projResp.json();
+                    const lj = project.last_job_id;
+                    if (lj) return lj;
+                }
+            } catch(e) {}
+            // Fallback: check job history for the most recent job for this project
+            try {
                 const histResp = await fetch('/api/history');
                 if (histResp.ok) {
                     const history = await histResp.json();
                     const projectHistory = history.filter(function(h) {
                         return h.project_id === _viewProjectId;
                     });
-                    // Return the most recent job (history is sorted descending)
                     if (projectHistory.length > 0) {
                         return projectHistory[0].job_id;
                     }
-                }
-                // Fallback: use project's last_job_id
-                const projResp = await fetch('/api/projects/' + _viewProjectId);
-                if (projResp.ok) {
-                    const project = await projResp.json();
-                    return project.last_job_id || null;
                 }
             } catch(e) {}
             return null;
@@ -222,6 +224,19 @@
                     '<pre style="background:var(--mc-bg);padding:8px;border:1px solid var(--mc-border);font-size:9px;max-height:200px;overflow:auto;margin:4px 0;white-space:pre-wrap;">' + escaped + '</pre>');
             });
             return formatted;
+        }
+
+        // Format a Unix timestamp to a human-readable relative/absolute time
+        function formatTime(ts) {
+            if (!ts) return '';
+            var d = new Date(ts * 1000);
+            var now = new Date();
+            var diff = Math.floor((now - d) / 1000);
+            var timeStr = d.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit', second: '2-digit'});
+            if (diff < 60) return timeStr + ' (now)';
+            if (diff < 3600) return timeStr + ' (' + Math.floor(diff/60) + 'm ago)';
+            if (diff < 86400) return timeStr + ' (' + Math.floor(diff/3600) + 'h ago)';
+            return d.toLocaleDateString() + ' ' + timeStr;
         }
 
         // Render a single step
@@ -389,6 +404,13 @@
                     entry.appendChild(resultDiv);
                 }
             }
+            // Add timestamp to every step entry
+            if (step.timestamp) {
+                const tsDiv = document.createElement('div');
+                tsDiv.style.cssText = 'color:var(--mc-text-dim);font-size:7px;margin-top:4px;';
+                tsDiv.textContent = formatTime(step.timestamp);
+                entry.appendChild(tsDiv);
+            }
             container.appendChild(entry);
             container.scrollTop = container.scrollHeight;
         }
@@ -531,7 +553,10 @@
                     entry.className = 'step-entry';
                     entry.style.borderLeftColor = 'var(--mc-diamond)';
                     entry.style.background = 'rgba(74,237,223,0.1)';
-                    entry.innerHTML = '<div class="step-tool" style="color:var(--mc-diamond);">🔄 CONTINUING WITH NEW INSTRUCTIONS...</div>';
+                    const msg = data.interrupted
+                        ? '🔄 INTERRUPTED — CONTINUING WITH NEW INSTRUCTIONS...'
+                        : '🔄 CONTINUING WITH NEW INSTRUCTIONS...';
+                    entry.innerHTML = '<div class="step-tool" style="color:var(--mc-diamond);">' + msg + '</div>';
                     container.appendChild(entry);
                     container.scrollTop = container.scrollHeight;
                     const badge = document.getElementById('view-status');

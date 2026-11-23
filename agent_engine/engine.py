@@ -903,7 +903,8 @@ class AgentEngine:
     """
 
     def __init__(self, project_config: Dict[str, Any], output_dir: Optional[str] = None,
-                 step_callback=None, stop_event: Optional[_threading.Event] = None):
+                 step_callback=None, stop_event: Optional[_threading.Event] = None,
+                 terminated: Optional[_threading.Event] = None):
         self.project_config = project_config
         self.root_dir = project_config.get("rootDirectory", EngineConfig.get_root_directory())
         self.instructions = project_config.get("instructions", "")
@@ -999,6 +1000,14 @@ class AgentEngine:
 
         # Stop signal from the UI (set by /api/queue/running/stop)
         self._stop_event = stop_event
+
+        # Termination signal: shared event set by inject handler to interrupt
+        # a running engine mid-execution. Distinct from _stop_event because it
+        # is shared across engine restarts (old engine + new engine share the
+        # same Event object). The inject handler sets it, the old engine sees
+        # it and stops, the handler clears it, then starts a new engine with
+        # the same event so future injects can still interrupt.
+        self._terminated = terminated
 
         # Allow user to continue after max_steps
         self._continue_requested = False
@@ -1160,6 +1169,40 @@ class AgentEngine:
             "content": reminder,
         })
 
+    def _execute_tool_interruptible(self, tool_name: str, params: Dict, root_dir: str,
+                                     output_dir: str, disabled_tools: set, job_id: str) -> Any:
+        """Execute a tool in a background thread so the stop_event can interrupt it.
+
+        Returns the ToolResult on success, or None if the tool was interrupted
+        (stop_event was set during execution).
+        """
+        result_holder = [None]  # mutable container for thread closure
+        interrupted = [False]
+
+        def _run():
+            try:
+                result_holder[0] = self.tools.execute(
+                    tool_name, params, root_dir, output_dir, disabled_tools, job_id=job_id
+                )
+            except Exception as e:
+                result_holder[0] = ToolResult(False, "", error=str(e))
+
+        thread = _threading.Thread(target=_run, daemon=True)
+        thread.start()
+
+        # Wait for the tool to finish, but check stop_event periodically
+        while thread.is_alive():
+            if self._stop_event and self._stop_event.is_set():
+                interrupted[0] = True
+                break
+            thread.join(timeout=0.1)
+
+        if interrupted[0]:
+            self.logger.info(f"Tool '{tool_name}' interrupted by stop signal")
+            return None  # signal caller to abort
+
+        return result_holder[0]
+
     def _persist_step(self, step_num: int, step_data: Dict[str, Any]) -> None:
         """Write a step record to disk (file-based persistence) AND emit via callback."""
         # Write to persistent file
@@ -1211,6 +1254,18 @@ class AgentEngine:
                 # Check if the user requested a stop
                 if self._stop_event and self._stop_event.is_set():
                     self.logger.info("Engine stop requested by user.")
+                    self._update_status("stopped")
+                    return {
+                        "status": "stopped",
+                        "steps": self.step_count,
+                        "summary": final_summary,
+                        "max_steps": self.max_steps,
+                        "step_history": self.step_history,
+                    }
+                # Check for termination signal (set by inject to interrupt
+                # a running engine mid-execution).
+                if self._terminated and self._terminated.is_set():
+                    self.logger.info("Engine terminated by inject — stopping.")
                     self._update_status("stopped")
                     return {
                         "status": "stopped",
@@ -1328,6 +1383,7 @@ class AgentEngine:
                         "tool": "llm_call",
                         "params": {"messages": len(self.messages), "msg_summary": msg_summary},
                         "result": {"content": "", "success": True},
+                        "timestamp": time.time(),
                     }
                     self.step_history.append(llm_entry)
                     # Persist the LLM call step to disk
@@ -1407,6 +1463,7 @@ class AgentEngine:
                             "step": self.step_count,
                             "tool": "task_completed",
                             "params": tool_calls[0][1],
+                            "timestamp": time.time(),
                         }
                         if tool_calls[0][2]:
                             step_entry["rationale"] = tool_calls[0][2]
@@ -1475,6 +1532,7 @@ class AgentEngine:
                         "step": self.step_count,
                         "tool": tool_name,
                         "params": params,
+                        "timestamp": time.time(),
                     }
                     if rationale:
                         step_entry["rationale"] = rationale
@@ -1490,31 +1548,44 @@ class AgentEngine:
                                 })
                             except Exception:
                                 pass
-                        result = self.tools.execute(tool_name, params, self.root_dir, self.output_dir, set(self.project_config.get("disabled_tools", [])), job_id=self.job_id)
-                        result_dict = result.to_dict()
+                        result = self._execute_tool_interruptible(
+                            tool_name, params, self.root_dir, self.output_dir,
+                            set(self.project_config.get("disabled_tools", [])),
+                            job_id=self.job_id,
+                        )
+                        # Check if tool was interrupted by stop/terminate signal
+                        if result is None:
+                            self.logger.warning(f"Tool '{tool_name}' was interrupted")
+                            step_entry["result"] = {
+                                "success": False,
+                                "content": "",
+                                "error": "Interrupted by user — new instruction received",
+                            }
+                        else:
+                            result_dict = result.to_dict()
 
-                        # Truncate tool result content to prevent context overflow.
-                        # The LLM can only see the first N characters; if the
-                        # result is longer, it gets a notice and guidance on
-                        # how to request a narrower query.
-                        # NOTE: respond_to_user and request_user_input are NOT
-                        # truncated - the user must see the full message.
-                        raw_content = result_dict.get("content", "")
-                        if (raw_content
-                                and self.max_tool_result_length > 0
-                                and tool_name not in ("respond_to_user", "request_user_input", "read_full_file")):
-                            truncated, was_truncated = truncate_tool_result(
-                                raw_content, self.max_tool_result_length, tool_name
-                            )
-                            result_dict["content"] = truncated
-                            result_dict["truncated"] = was_truncated
-                            if was_truncated:
-                                self.logger.info(
-                                    f"  Truncated tool '{tool_name}' result: "
-                                    f"{len(raw_content)} -> {len(truncated)} chars "
-                                    f"(limit: {self.max_tool_result_length})"
+                            # Truncate tool result content to prevent context overflow.
+                            # The LLM can only see the first N characters; if the
+                            # result is longer, it gets a notice and guidance on
+                            # how to request a narrower query.
+                            # NOTE: respond_to_user and request_user_input are NOT
+                            # truncated - the user must see the full message.
+                            raw_content = result_dict.get("content", "")
+                            if (raw_content
+                                    and self.max_tool_result_length > 0
+                                    and tool_name not in ("respond_to_user", "request_user_input", "read_full_file")):
+                                truncated, was_truncated = truncate_tool_result(
+                                    raw_content, self.max_tool_result_length, tool_name
                                 )
-                        step_entry["result"] = result_dict
+                                result_dict["content"] = truncated
+                                result_dict["truncated"] = was_truncated
+                                if was_truncated:
+                                    self.logger.info(
+                                        f"  Truncated tool '{tool_name}' result: "
+                                        f"{len(raw_content)} -> {len(truncated)} chars "
+                                        f"(limit: {self.max_tool_result_length})"
+                                    )
+                            step_entry["result"] = result_dict
                     except SecurityError as e:
                         step_entry["result"] = ToolResult(False, "", error=f"SECURITY: {e}").to_dict()
                         self.logger.warning(f"Security violation: {e}")
@@ -1746,6 +1817,7 @@ class AgentEngine:
                     "tool": "llm_response",
                     "params": {},
                     "result": {"content": response, "success": False, "error": "no_tool_call"},
+                    "timestamp": time.time(),
                 })
                 # Persist the failed step to disk
                 self._persist_step(self.step_count, self.step_history[-1])

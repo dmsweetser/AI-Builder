@@ -100,6 +100,12 @@ _inject_locks: Dict[str, threading.Lock] = {}
 _inject_locks_lock = threading.Lock()
 _inject_cooldown: Dict[str, float] = {}  # project_id → last_inject_timestamp
 
+# Shared termination events per project — set by inject to interrupt a running
+# engine mid-execution. The same Event is shared across old and new engine
+# instances so future injects can still interrupt.
+_terminated_events: Dict[str, threading.Event] = {}
+_terminated_events_lock = threading.Lock()
+
 
 def _get_inject_lock(project_id: str) -> threading.Lock:
     """Return a per-project lock for serializing inject calls."""
@@ -1878,29 +1884,197 @@ def api_agent_inject():
         _log_app_event(f"Pending user input cleared and engine re-invoked — job_id={job_id}")
         return jsonify({"status": "injected", "resumed": True})
 
-    # Job is still running — inject into status.json
-    os.makedirs(output_dir, exist_ok=True)
-    _log_app_event(f"Live instruction injected — job_id={job_id}")
-    try:
-        status_file = os.path.join(output_dir, "status.json")
-        try:
-            with open(status_file, 'r', encoding='utf-8') as f:
-                status = json.load(f)
-        except Exception:
-            status = {}
+    # Job is still running — interrupt it and start a new engine with the
+    # injected instruction as a continuation.
+    _pid = project_config.get("id") if project_config else None
+    prev_step_history = job_record.get("step_history", []) if job_record else []
 
-        # Write live instruction
-        status["pending_live_instruction"] = instruction
-        tmp_file = status_file + ".tmp"
-        with open(tmp_file, 'w', encoding='utf-8') as f:
-            json.dump(status, f, indent=2, ensure_ascii=False)
+    # Get or create a shared termination event for this project
+    terminated_event = None
+    if _pid:
+        with _terminated_events_lock:
+            if _pid not in _terminated_events:
+                _terminated_events[_pid] = threading.Event()
+            terminated_event = _terminated_events[_pid]
+
+    # Set termination signal so the running engine stops immediately
+    if terminated_event:
+        terminated_event.set()
+    # Also set the global stop event to interrupt any in-flight LLM call
+    stop_event.set()
+
+    # Serialize inject threads per project — prevents double-click
+    inject_lock = _get_inject_lock(_pid) if _pid else None
+    if inject_lock:
+        inject_lock.acquire()
+
+    _log_app_event(f"Inject interrupting running job {job_id} — job_id={job_id}")
+
+    def _continue_engine():
+        try:
+            if _pid:
+                _mark_engine_start(_pid)
+            try:
+                os.makedirs(output_dir, exist_ok=True)
+
+                # Build a project config that includes the continuation instruction
+                cont_config = dict(project_config)
+                cont_config["instructions"] = instruction
+                cont_config["output_dir"] = output_dir
+
+                # Reconstruct conversation from step history so the LLM knows
+                # what was already done, then append the new instruction.
+                from agent_engine import AgentEngine
+                engine = AgentEngine(cont_config, output_dir=output_dir,
+                                     terminated=terminated_event)
+                engine.step_history = prev_step_history
+                engine.step_count = len(prev_step_history)
+
+                # Reconstruct conversation history from step history
+                reconstructed_messages = [engine.messages[0]]  # system prompt
+
+                # Add the initial user prompt so the LLM knows the original task.
+                if project_config and project_config.get("instructions"):
+                    from agent_engine.engine import build_user_prompt
+                    reconstructed_messages.append({
+                        "role": "user",
+                        "content": build_user_prompt(
+                            project_config["instructions"],
+                            instance_prefix=engine.instance_prefix,
+                        ),
+                    })
+
+                # Add tool results from step_history
+                all_tool_names = engine.tools.tool_names()
+                for h in prev_step_history:
+                    if h.get("tool") in all_tool_names:
+                        res = h.get("result", {})
+                        content = res.get("content", "")
+                        error = res.get("error", "")
+                        summary = res.get("summary", "")
+                        if error:
+                            result_display = f"Error: {error}"
+                        elif summary:
+                            result_display = summary
+                            if content:
+                                result_display += f"\n\nOutput:\n{content}\n"
+                        elif content:
+                            result_display = content
+                        else:
+                            result_display = "(no output)"
+                        tool_name = h.get("tool", "unknown")
+                        reconstructed_messages.append({
+                            "role": "user",
+                            "content": f"[TOOL RESULT for {tool_name}]\n{result_display}\n[END TOOL RESULT]\n\nNow continue with your next action."
+                        })
+
+                # Add the continuation message with the new instruction.
+                # Use instance-specific markers so the format reminder matches
+                # what the system prompt expects (not the generic [TOOL_START]).
+                from agent_engine.engine import _marker as _eng_marker
+                m_start = _eng_marker(engine.instance_prefix, "TOOL_START")
+                m_end = _eng_marker(engine.instance_prefix, "TOOL_END")
+                m_name = _eng_marker(engine.instance_prefix, "TOOL_NAME")
+                m_pname = _eng_marker(engine.instance_prefix, "PARAM_NAME")
+                m_pval = _eng_marker(engine.instance_prefix, "PARAM_VALUE")
+                continuation_msg = (
+                    f"[CONTINUATION] Your previous run was interrupted. "
+                    f"The user has new instructions for you. "
+                    f"Please continue working on the project with these new instructions:\n\n"
+                    f"{instruction}\n\n"
+                    f"Review what was already done, then take the next appropriate action.\n\n"
+                    f"TOOL FORMAT REMINDER\n"
+                    f"=====================\n\n"
+                    f"Your ENTIRE response must be EXACTLY ONE of the following:\n\n"
+                    f"  OPTION 1 — A tool call:\n"
+                    f"    {m_start}\n"
+                    f"    {m_name}\n"
+                    f"    <tool_name>\n"
+                    f"    {m_pname}\n"
+                    f"    <param_key_1>\n"
+                    f"    {m_pval}\n"
+                    f"    <param_value_1>\n"
+                    f"    {m_pname}\n"
+                    f"    <param_key_2>\n"
+                    f"    {m_pval}\n"
+                    f"    <param_value_2>\n"
+                    f"    {m_end}\n\n"
+                    f"  OPTION 2 — Signal completion:\n"
+                    f"    Use the task_completed tool with a summary:\n"
+                    f"    {m_start}\n"
+                    f"    {m_name}\n"
+                    f"    task_completed\n"
+                    f"    {m_pname}\n"
+                    f"    summary\n"
+                    f"    {m_pval}\n"
+                    f"    <your summary here>\n"
+                    f"    {m_end}\n\n"
+                    f"IMPORTANT RULES:\n"
+                    f"  • Do NOT write any other text.\n"
+                    f"  • Do NOT explain what you will do — just act.\n"
+                    f"  • Make EXACTLY ONE tool call per response.\n"
+                    f"  • If you include more than one {m_start}...{m_end} block,\n"
+                    f"    only the FIRST one will be executed."
+                )
+                reconstructed_messages.append({
+                    "role": "user",
+                    "content": continuation_msg
+                })
+                engine.messages = reconstructed_messages
+
+                # Run the engine (close log on exit to free handles)
+                try:
+                    result = engine.run()
+                finally:
+                    engine.close()
+
+                # Persist conversation history
+                messages_file = os.path.join(output_dir, "conversation_history.json")
+                try:
+                    with open(messages_file, 'w', encoding='utf-8') as f:
+                        json.dump(engine.messages, f, indent=2, ensure_ascii=False)
+                except Exception:
+                    pass
+
+                # Update the job history entry with the new run's step history
+                if result.get("step_history"):
+                    job_record["step_history"] = result["step_history"]
+                    job_record["status"] = result.get("status", "completed")
+                    job_record["summary"] = result.get("summary", "")
+                    job_record["steps"] = result.get("steps", 0)
+                    save_job_history()
+
+                logging.info(f"Engine continuation completed: {result.get('status', 'unknown')}")
+            except Exception as e:
+                logging.error(f"Engine continuation failed: {e}", exc_info=True)
+        finally:
+            if _pid:
+                _mark_engine_stop(_pid)
+            # Release the inject lock so the next inject can proceed
+            if inject_lock:
+                inject_lock.release()
+
+    continue_thread = threading.Thread(target=_continue_engine, daemon=True)
+    continue_thread.start()
+
+    # Update status.json to "running" so the VIEW page polling picks up
+    # the continuation immediately instead of still seeing the old status.
+    try:
+        with open(status_file, 'r', encoding='utf-8') as f:
+            _st = json.load(f)
+        _st["status"] = "running"
+        _st["timestamp"] = time.time()
+        _tmp = status_file + ".tmp"
+        with open(_tmp, 'w', encoding='utf-8') as f:
+            json.dump(_st, f, indent=2, ensure_ascii=False)
             f.flush()
             os.fsync(f.fileno())
-        os.replace(tmp_file, status_file)
+        os.replace(_tmp, status_file)
+    except Exception:
+        logging.error(f"Failed to update status.json for injection of job {job_id}", exc_info=True)
 
-        return jsonify({"status": "injected"})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    _log_app_event(f"Inject — interrupted running job {job_id} and started continuation")
+    return jsonify({"status": "injected", "continuation": True, "interrupted": True})
 
 
 @app.route("/api/agent/permission", methods=["POST"])
@@ -2295,6 +2469,9 @@ def api_job_steps(job_id):
                 try:
                     with open(fpath, 'r', encoding='utf-8') as f:
                         step_data = json.load(f)
+                    # Add timestamp if missing (backward compat with old steps)
+                    if "timestamp" not in step_data:
+                        step_data["timestamp"] = time.time()
                     steps.append(step_data)
                 except Exception:
                     pass
@@ -2310,6 +2487,9 @@ def api_job_steps(job_id):
                 if line:
                     try:
                         step_data = json.loads(line)
+                        # Add timestamp if missing (backward compat)
+                        if "timestamp" not in step_data:
+                            step_data["timestamp"] = time.time()
                         steps.append(step_data)
                     except json.JSONDecodeError:
                         pass
@@ -2318,7 +2498,12 @@ def api_job_steps(job_id):
     # Fallback: try step_history in job_history
     for h in job_history:
         if h.get("job_id") == job_id and h.get("step_history"):
-            return jsonify({"job_id": job_id, "steps": h["step_history"], "count": len(h["step_history"])})
+            steps = h["step_history"]
+            # Add timestamps to steps that don't have them
+            for s in steps:
+                if "timestamp" not in s:
+                    s["timestamp"] = time.time()
+            return jsonify({"job_id": job_id, "steps": steps, "count": len(steps)})
 
     return jsonify({"job_id": job_id, "steps": [], "count": 0})
 
