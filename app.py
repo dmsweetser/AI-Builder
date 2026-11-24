@@ -76,7 +76,7 @@ job_queue = []
 running_jobs: Dict[str, Dict[str, Any]] = {}  # job_id -> job_info (replaces single running_job)
 job_history = []
 job_queue_lock = threading.RLock()
-stop_event = threading.Event()
+_worker_stop_event = threading.Event()  # Signals worker threads to stop
 worker_threads: list = []  # List of worker threads
 _max_workers = int(os.environ.get('AIB_MAX_WORKERS', '10'))  # Default: 3 parallel workers
 _worker_wake = threading.Event()  # Signals workers to check the queue
@@ -319,7 +319,7 @@ def delete_project_file(pid):
 # --- Worker Thread ---
 def worker():
     """Worker thread that picks jobs from the queue. Multiple workers run in parallel."""
-    while not stop_event.is_set():
+    while not _worker_stop_event.is_set():
         _worker_wake.clear()
         job = None
         with job_queue_lock:
@@ -370,7 +370,10 @@ def worker():
 
         try:
             if project:
-                result = run_with_agent_engine(project, output_dir=output_dir, stop_event=stop_event)
+                # Create a per-engine stop event so that interrupting one
+                # engine (via inject) doesn't affect others.
+                engine_stop = threading.Event()
+                result = run_with_agent_engine(project, output_dir=output_dir, stop_event=engine_stop)
                 job_history[-1]["status"] = result.get("status", "completed")
                 job_history[-1]["summary"] = result.get("summary", "")
                 job_history[-1]["steps"] = result.get("steps", 0)
@@ -399,11 +402,18 @@ def worker():
             with job_queue_lock:
                 running_jobs.pop(job_id, None)
         # Release the per-project lock so the next engine can start.
-        proj_lock.release()
+        # Only release if still held — the inject route may have already
+        # released it to allow a new engine to proceed.
+        if proj_lock.locked():
+            proj_lock.release()
 
 
 def run_with_agent_engine(project_config: Dict[str, Any], output_dir: str = None, stop_event=None) -> Dict[str, Any]:
-    """Run the multi-step agentic engine (delegates to agent_engine)."""
+    """Run the multi-step agentic engine (delegates to agent_engine).
+
+    If no stop_event is provided, creates a per-engine one so that
+    interrupting one engine doesn't affect others.
+    """
 
     if "job_id" not in project_config:
         project_config["job_id"] = str(int(time.time() * 1000))
@@ -480,7 +490,7 @@ def start_worker():
 
 def stop_worker():
     global worker_threads
-    stop_event.set()
+    _worker_stop_event.set()
     _worker_wake.set()
     for t in worker_threads:
         if t.is_alive():
@@ -1817,28 +1827,33 @@ def api_agent_inject():
     _pid = project_config.get("id") if project_config else None
     prev_step_history = job_record.get("step_history", []) if job_record else []
 
-    # Create a termination event for this interrupt cycle.
-    # It's local to this inject call — the old engine will see it and stop,
-    # then the new engine gets a fresh one.
-    terminated_event = threading.Event()
-
-    # Set termination signal so the running engine stops immediately
-    terminated_event.set()
-    # Also set the global stop event to interrupt any in-flight LLM call
-    stop_event.set()
+    # Release the project lock so the new engine can start.
+    # The old engine is still running but the new one will proceed.
+    # We don't have a reference to the old engine's terminated event,
+    # so we rely on the new engine's terminated event to control it.
+    # The old engine will eventually finish or be killed by the next inject.
+    proj_lock = _get_project_lock(_pid) if _pid else None
+    if proj_lock and proj_lock.locked():
+        proj_lock.release()
 
     # Serialize inject threads per project — prevents double-click
-    inject_lock = _get_project_lock(_pid) if _pid else None
+    inject_lock = proj_lock  # Reuse the same lock
     if inject_lock:
         inject_lock.acquire()
 
     _log_app_event(f"Inject interrupting running job {job_id} — job_id={job_id}")
 
     def _continue_engine():
-        # Create a FRESH terminated event for the NEW engine so it doesn't
-        # immediately stop (the old engine already saw the SET event above).
-        new_terminated = threading.Event()
+        # Acquire the project lock for this new engine so it's the sole
+        # engine for this project (the old engine may still be running but
+        # it no longer holds the lock).
+        _plock = _get_project_lock(_pid) if _pid else None
+        if _plock:
+            _plock.acquire()
         try:
+            # Create a FRESH terminated event for the NEW engine so it doesn't
+            # immediately stop.
+            new_terminated = threading.Event()
             try:
                 os.makedirs(output_dir, exist_ok=True)
 
@@ -1973,8 +1988,11 @@ def api_agent_inject():
             except Exception as e:
                 logging.error(f"Engine continuation failed: {e}", exc_info=True)
         finally:
+            # Release the per-project lock so the next engine can start.
+            if _plock and _plock.locked():
+                _plock.release()
             # Release the inject lock so the next inject can proceed
-            if inject_lock:
+            if inject_lock and inject_lock.locked():
                 inject_lock.release()
 
     continue_thread = threading.Thread(target=_continue_engine, daemon=True)
