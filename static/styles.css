@@ -86,639 +86,507 @@ body {
     pointer-events: none;
 }
 
-/* === Minecraft Moose Loading Animation — Blocky Pixel Edition === */
+/* === Minecraft Moose Loading Animation — Clean Side-Profile === */
 .moose-container {
     position: relative;
-    width: 280px;
-    height: 240px;
+    width: 320px;
+    height: 260px;
     margin-bottom: 48px;
     z-index: 1;
-    filter: drop-shadow(6px 6px 0 rgba(0, 0, 0, 0.4));
-    image-rendering: pixelated;
+    filter: drop-shadow(4px 4px 0 rgba(0, 0, 0, 0.3));
 }
 
-/* === MOOSE BODY — larger, heavier build === */
+/* ---- Body ---- */
 .moose-body {
     position: absolute;
-    width: 160px;
-    height: 64px;
-    background: linear-gradient(180deg, #9B7A4A 0%, #8B6A3A 50%, #7A5A2A 100%);
-    top: 38%;
-    left: 52%;
-    transform: translateX(-50%);
-    border: 3px solid #5A3A1A;
-    border-radius: 4px;
-    animation: moose-breathe 2s ease-in-out infinite;
-    box-shadow: inset 0 -14px 0 #6A4A1A, inset 0 14px 0 #A88A5A;
+    width: 140px;
+    height: 52px;
+    background: linear-gradient(180deg, #8B6A3A 0%, #6B4A1A 100%);
+    border: 2px solid #3E2723;
+    border-radius: 12px 16px 4px 4px;
+    top: 90px;
+    left: 100px;
 }
 
-/* Body belly — darker underside */
+/* Shoulder hump (bull moose) */
+.moose-body::before {
+    content: '';
+    position: absolute;
+    width: 50px;
+    height: 30px;
+    background: linear-gradient(180deg, #8B6A3A 0%, #7B5A2A 100%);
+    border: 2px solid #3E2723;
+    border-radius: 10px 10px 0 0;
+    top: -28px;
+    left: 10px;
+}
+
+/* Belly shadow */
 .moose-body::after {
     content: '';
     position: absolute;
-    width: 150px;
-    height: 18px;
-    background: #6A4A1A;
-    bottom: -3px;
-    left: 5px;
-    border-top: 2px solid #5A3A1A;
+    width: 120px;
+    height: 14px;
+    background: #5A3A1A;
+    bottom: -2px;
+    left: 10px;
     border-radius: 0 0 4px 4px;
 }
 
-/* === MOOSE HUMPS — prominent shoulder hump (bull moose) === */
-.moose-humps {
-    position: absolute;
-    top: 24%;
-    left: 44%;
-    transform: translateX(-50%);
-    width: 120px;
-    height: 44px;
-}
-
-.moose-hump {
-    position: absolute;
-    background: linear-gradient(180deg, #9B7A4A 0%, #8B6A3A 100%);
-    border: 3px solid #5A3A1A;
-    border-radius: 4px;
-    box-shadow: inset 0 -4px 0 #7A5A2A, inset 0 4px 0 #A88A5A;
-}
-
-.moose-hump-1 {
-    width: 44px;
-    height: 40px;
-    top: 0;
-    left: 8px;
-}
-
-.moose-hump-2 {
-    width: 38px;
-    height: 34px;
-    top: 8px;
-    left: 52px;
-}
-
-/* === MOOSE NECK — long, thick, with dewlap === */
+/* ---- Neck ---- */
 .moose-neck {
     position: absolute;
-    width: 28px;
-    height: 60px;
-    background: linear-gradient(90deg, #7A5A2A 0%, #8B6A3A 50%, #9B7A4A 100%);
-    top: 28%;
-    left: 72%;
-    border: 3px solid #5A3A1A;
-    border-radius: 4px 4px 0 0;
-    z-index: 1;
+    width: 32px;
+    height: 56px;
+    background: linear-gradient(90deg, #7B5A2A, #8B6A3A);
+    border: 2px solid #3E2723;
+    border-radius: 6px 6px 0 0;
+    top: 40px;
+    left: 200px;
+    transform: rotate(-5deg);
+    transform-origin: bottom center;
 }
 
-/* Dewlap — the distinctive moose bell fold */
+/* Dewlap (throat fold) */
 .moose-dewlap {
     position: absolute;
-    width: 24px;
-    height: 20px;
-    background: #6A4A1A;
-    top: 52%;
-    left: 68%;
-    border: 2px solid #5A3A1A;
-    border-radius: 0 0 8px 8px;
-    z-index: 2;
-    animation: moose-dewlap-sway 3s ease-in-out infinite;
-}
-
-/* === MOOSE LEGS — walking animation === */
-.moose-legs {
-    position: absolute;
-    width: 130px;
-    height: 56px;
-    bottom: 8px;
-    left: 52%;
-    transform: translateX(-50%);
-}
-
-.moose-leg {
-    position: absolute;
-    width: 16px;
-    height: 50px;
-    background: linear-gradient(180deg, #8B6A3A 0%, #7A5A2A 100%);
-    border: 2px solid #5A3A1A;
-    bottom: 0;
-    border-radius: 2px;
-}
-
-/* Hooves */
-.moose-leg::after {
-    content: '';
-    position: absolute;
-    width: 18px;
-    height: 10px;
-    background: #3E2723;
-    bottom: -2px;
-    left: -2px;
-    border-top: 2px solid #2A1A0A;
-    border-radius: 0 0 3px 3px;
-}
-
-.moose-leg:nth-child(1) {
-    left: 8px;
-    animation: moose-leg-walk 0.8s ease-in-out infinite;
-    transform-origin: top center;
-}
-.moose-leg:nth-child(2) {
-    left: 36px;
-    animation: moose-leg-walk 0.8s ease-in-out infinite 0.4s;
-    transform-origin: top center;
-}
-.moose-leg:nth-child(3) {
-    right: 36px;
-    animation: moose-leg-walk 0.8s ease-in-out infinite 0.2s;
-    transform-origin: top center;
-}
-.moose-leg:nth-child(4) {
-    right: 8px;
-    animation: moose-leg-walk 0.8s ease-in-out infinite 0.6s;
+    width: 22px;
+    height: 28px;
+    background: #5A3A1A;
+    border: 2px solid #3E2723;
+    border-radius: 0 0 10px 10px;
+    top: 56px;
+    left: 206px;
+    animation: dewlap-sway 3s ease-in-out infinite;
     transform-origin: top center;
 }
 
-/* === MOOSE HEAD — larger, more expressive, better proportions === */
+/* ---- Head ---- */
 .moose-head {
     position: absolute;
-    width: 56px;
-    height: 52px;
-    background: linear-gradient(180deg, #8B6A3A 0%, #9B7A4A 60%, #A88A5A 100%);
-    top: 18%;
-    left: 76%;
-    border: 3px solid #5A3A1A;
-    border-radius: 6px;
-    animation: moose-head-bob 0.8s ease-in-out infinite;
-    z-index: 3;
-    box-shadow: inset 0 -8px 0 #7A5A2A, inset 0 8px 0 #B89A5A;
+    width: 44px;
+    height: 42px;
+    background: linear-gradient(180deg, #8B6A3A 0%, #9B7A4A 100%);
+    border: 2px solid #3E2723;
+    border-radius: 8px 10px 6px 6px;
+    top: 12px;
+    left: 210px;
+    animation: head-bob 2s ease-in-out infinite;
+    transform-origin: bottom left;
 }
 
-/* Moose snout — wider, darker, more distinctive */
+/* Snout */
 .moose-snout {
     position: absolute;
-    width: 36px;
-    height: 28px;
-    background: linear-gradient(180deg, #6A4A1A 0%, #5A3A1A 100%);
-    bottom: -18px;
-    left: 10px;
-    border: 3px solid #3E2723;
-    border-radius: 4px 4px 8px 8px;
-    z-index: 4;
+    width: 30px;
+    height: 22px;
+    background: linear-gradient(180deg, #5A3A1A, #4A2A0A);
+    border: 2px solid #2A1A0A;
+    border-radius: 6px 6px 10px 10px;
+    top: 22px;
+    left: 14px;
 }
 
 /* Snout highlight */
 .moose-snout::before {
     content: '';
     position: absolute;
-    width: 28px;
-    height: 6px;
-    background: #7A5A2A;
+    width: 20px;
+    height: 4px;
+    background: #6A4A1A;
     top: 2px;
     left: 4px;
     border-radius: 2px;
 }
 
-/* === MOOSE ANTLERS — majestic palmate (flat, wide) branching === */
+/* Nostrils */
+.moose-nostril-left,
+.moose-nostril-right {
+    position: absolute;
+    width: 6px;
+    height: 5px;
+    background: #2A1A0A;
+    border-radius: 50%;
+    top: 10px;
+    animation: nostril-flare 2s ease-in-out infinite;
+}
+
+.moose-nostril-left { left: 6px; }
+.moose-nostril-right { left: 16px; }
+
+/* Eye */
+.moose-eye {
+    position: absolute;
+    width: 10px;
+    height: 10px;
+    background: #1A0A00;
+    border-radius: 50%;
+    top: 10px;
+    left: 26px;
+    animation: eye-blink 4s ease-in-out infinite;
+}
+
+/* Eye shine */
+.moose-eye::after {
+    content: '';
+    position: absolute;
+    width: 4px;
+    height: 4px;
+    background: #FFFFFF;
+    border-radius: 50%;
+    top: 1px;
+    left: 2px;
+}
+
+/* Ear */
+.moose-ear {
+    position: absolute;
+    width: 14px;
+    height: 18px;
+    background: #8B6A3A;
+    border: 2px solid #3E2723;
+    border-radius: 4px 4px 0 0;
+    top: -14px;
+    left: 6px;
+    animation: ear-twitch 5s ease-in-out infinite;
+}
+
+.moose-ear::after {
+    content: '';
+    position: absolute;
+    width: 6px;
+    height: 10px;
+    background: #C49080;
+    top: 2px;
+    left: 4px;
+    border-radius: 3px;
+}
+
+/* ---- Antlers (palmate / flat-branched) ---- */
 .moose-antlers {
     position: absolute;
-    width: 120px;
-    height: 70px;
+    width: 80px;
+    height: 60px;
     top: -52px;
-    left: -20px;
-    z-index: 1;
+    left: 0;
     pointer-events: none;
 }
 
 .moose-antler {
     position: absolute;
-    width: 14px;
-    height: 52px;
-    background: linear-gradient(90deg, #6A4A1A 0%, #8B6A3A 50%, #7A5A2A 100%);
+    width: 10px;
+    height: 44px;
+    background: linear-gradient(90deg, #6A4A1A, #7B5A2A);
     border: 2px solid #3E2723;
-    border-radius: 2px;
+    border-radius: 3px;
 }
 
-/* Left antler — palmate (flat, wide) */
 .moose-antler-1 {
-    transform: rotate(-25deg);
-    left: 12px;
+    left: 14px;
     top: 0;
+    transform: rotate(-15deg);
 }
 
-.moose-antler-1::before {
-    content: '';
-    position: absolute;
-    width: 30px;
-    height: 14px;
-    background: #8B6A3A;
-    border: 2px solid #3E2723;
-    top: 10px;
-    left: -22px;
-    border-radius: 2px;
-}
-
+.moose-antler-1::before,
 .moose-antler-1::after {
     content: '';
     position: absolute;
-    width: 28px;
-    height: 12px;
-    background: #8B6A3A;
+    background: #7B5A2A;
     border: 2px solid #3E2723;
-    top: 26px;
+    border-radius: 2px;
+}
+
+.moose-antler-1::before {
+    width: 24px;
+    height: 10px;
+    top: 8px;
     left: -20px;
-    border-radius: 2px;
 }
 
-/* Right antler — palmate (flat, wide) */
+.moose-antler-1::after {
+    width: 22px;
+    height: 10px;
+    top: 22px;
+    left: -18px;
+}
+
 .moose-antler-2 {
-    transform: rotate(25deg);
-    right: 12px;
+    right: 14px;
     top: 0;
+    transform: rotate(15deg);
 }
 
-.moose-antler-2::before {
-    content: '';
-    position: absolute;
-    width: 30px;
-    height: 14px;
-    background: #8B6A3A;
-    border: 2px solid #3E2723;
-    top: 10px;
-    right: -22px;
-    border-radius: 2px;
-}
-
+.moose-antler-2::before,
 .moose-antler-2::after {
     content: '';
     position: absolute;
-    width: 28px;
-    height: 12px;
-    background: #8B6A3A;
+    background: #7B5A2A;
     border: 2px solid #3E2723;
-    top: 26px;
-    right: -20px;
     border-radius: 2px;
 }
 
-/* === MOOSE EAR === */
-.moose-head .moose-ear {
+.moose-antler-2::before {
+    width: 24px;
+    height: 10px;
+    top: 8px;
+    right: -20px;
+}
+
+.moose-antler-2::after {
+    width: 22px;
+    height: 10px;
+    top: 22px;
+    right: -18px;
+}
+
+/* ---- Legs ---- */
+.moose-legs {
+    position: absolute;
+    width: 120px;
+    height: 50px;
+    top: 140px;
+    left: 100px;
+}
+
+.moose-leg {
+    position: absolute;
+    width: 14px;
+    height: 46px;
+    background: linear-gradient(180deg, #7B5A2A, #6B4A1A);
+    border: 2px solid #3E2723;
+    border-radius: 2px 2px 0 0;
+    bottom: 0;
+}
+
+/* Hooves */
+.moose-leg::after {
+    content: '';
     position: absolute;
     width: 16px;
-    height: 22px;
-    background: #8B6A3A;
-    top: -16px;
-    left: 8px;
-    border: 2px solid #5A3A1A;
-    border-radius: 4px 4px 0 0;
-    animation: moose-ear-twitch 4s ease-in-out infinite;
-    box-shadow: inset 0 4px 0 #A88A5A;
-}
-
-/* Inner ear */
-.moose-head .moose-ear::after {
-    content: '';
-    position: absolute;
-    width: 8px;
-    height: 14px;
-    background: #C49080;
-    top: 3px;
-    left: 4px;
-    border-radius: 4px;
-}
-
-/* === MOOSE EYE — big, expressive, pixel-perfect === */
-.moose-head .moose-eye {
-    position: absolute;
-    width: 12px;
-    height: 12px;
-    background: #1A0A00;
-    top: 14px;
-    left: 34px;
-    border-radius: 50%;
-    animation: moose-eye-blink 3s ease-in-out infinite;
-    z-index: 5;
-    box-shadow: 2px 2px 0 #2A1A0A;
-}
-
-/* Eye shine */
-.moose-head .moose-eye::after {
-    content: '';
-    position: absolute;
-    width: 5px;
-    height: 5px;
-    background: #FFFFFF;
-    top: 1px;
-    left: 2px;
-    border-radius: 50%;
-    animation: moose-eye-shine 3s ease-in-out infinite;
-}
-
-/* === MOOSE BLUSH — cute pink cheeks === */
-.moose-head .moose-blush {
-    position: absolute;
-    width: 12px;
     height: 8px;
-    background: rgba(220, 130, 120, 0.5);
-    top: 28px;
-    left: 26px;
-    border-radius: 50%;
-    animation: moose-blush 2s ease-in-out infinite;
-}
-
-/* === MOOSE TEETH — two little blocky teeth === */
-.moose-head .moose-teeth {
-    position: absolute;
-    width: 18px;
-    height: 10px;
-    top: 32px;
-    left: 24px;
-    z-index: 5;
-}
-
-.moose-head .moose-teeth::before {
-    content: '';
-    position: absolute;
-    width: 7px;
-    height: 10px;
-    background: #FFFFFF;
-    left: 0;
-    border: 1px solid #E0E0E0;
-    border-radius: 0 0 2px 2px;
-}
-
-.moose-head .moose-teeth::after {
-    content: '';
-    position: absolute;
-    width: 7px;
-    height: 10px;
-    background: #FFFFFF;
-    left: 9px;
-    border: 1px solid #E0E0E0;
-    border-radius: 0 0 2px 2px;
-}
-
-/* === MOOSE NOSTRILS — pair, breathing === */
-.moose-head .moose-nostril {
-    position: absolute;
-    width: 8px;
-    height: 6px;
     background: #3E2723;
-    top: 18px;
-    border-radius: 50%;
-    animation: moose-nostril-flare 1.5s ease-in-out infinite;
-    z-index: 5;
+    bottom: -2px;
+    left: -2px;
+    border-radius: 0 0 3px 3px;
+    border-top: 2px solid #2A1A0A;
 }
 
-.moose-head .moose-nostril-left {
-    left: 14px;
+.moose-leg:nth-child(1) {
+    left: 6px;
+    animation: leg-walk 1.2s ease-in-out infinite;
+    transform-origin: top center;
 }
 
-.moose-head .moose-nostril-right {
-    left: 26px;
+.moose-leg:nth-child(2) {
+    left: 30px;
+    animation: leg-walk 1.2s ease-in-out infinite 0.6s;
+    transform-origin: top center;
 }
 
-/* === MOOSE TAIL — bushy, wagging === */
+.moose-leg:nth-child(3) {
+    right: 30px;
+    animation: leg-walk 1.2s ease-in-out infinite 0.3s;
+    transform-origin: top center;
+}
+
+.moose-leg:nth-child(4) {
+    right: 6px;
+    animation: leg-walk 1.2s ease-in-out infinite 0.9s;
+    transform-origin: top center;
+}
+
+/* ---- Tail ---- */
 .moose-tail {
     position: absolute;
-    width: 18px;
-    height: 60px;
-    background: #7A5A2A;
-    top: 22%;
-    left: 2%;
+    width: 12px;
+    height: 40px;
+    background: #6B4A1A;
+    border: 2px solid #3E2723;
     border-radius: 4px;
-    animation: moose-tail-wag 0.6s ease-in-out infinite;
+    top: 80px;
+    left: 78px;
     transform-origin: top center;
-    z-index: 0;
-    border: 2px solid #5A3A1A;
-    box-shadow:
-        0 18px 0 #6A4A1A,
-        0 36px 0 #7A5A2A,
-        0 54px 0 #6A4A1A;
+    animation: tail-wag 1s ease-in-out infinite;
 }
 
 /* Tail tuft */
 .moose-tail::after {
     content: '';
     position: absolute;
-    width: 22px;
-    height: 14px;
-    background: #5A3A1A;
-    bottom: -6px;
+    width: 16px;
+    height: 10px;
+    background: #4A2A0A;
+    bottom: -4px;
     left: -4px;
     border: 2px solid #3E2723;
     border-radius: 4px;
 }
 
-/* === MOOSE BELL — hanging from neck === */
+/* ---- Bell ---- */
 .moose-bell {
     position: absolute;
-    width: 20px;
-    height: 22px;
-    background: linear-gradient(180deg, #FCDB05 0%, #E0B800 100%);
-    top: 44%;
-    left: 74%;
+    width: 16px;
+    height: 18px;
+    background: linear-gradient(180deg, #FCDB05, #D4A800);
     border: 2px solid #8B6914;
-    border-radius: 0 0 6px 6px;
-    z-index: 4;
-    animation: moose-bell-swing 1.2s ease-in-out infinite;
+    border-radius: 0 0 5px 5px;
+    top: 72px;
+    left: 210px;
+    animation: bell-swing 1.5s ease-in-out infinite;
+    transform-origin: top center;
 }
 
-/* Bell clapper line */
+/* Bell clapper */
 .moose-bell::before {
     content: '';
     position: absolute;
     width: 2px;
-    height: 8px;
+    height: 6px;
     background: #5A3A1A;
-    top: 10px;
-    left: 9px;
-}
-
-/* Bell bottom hole */
-.moose-bell::after {
-    content: '';
-    position: absolute;
-    width: 6px;
-    height: 4px;
-    background: #3E2723;
-    bottom: 2px;
+    top: 8px;
     left: 7px;
-    border-radius: 50%;
 }
 
-/* === MOOSE SADDLE — with colorful blanket === */
-.moose-saddle-blanket {
+/* ---- Shadow ---- */
+.moose-shadow {
     position: absolute;
-    width: 60px;
-    height: 22px;
-    background: #B71C1C;
-    top: 32%;
-    left: 38%;
-    border: 2px solid #7F0000;
-    border-radius: 2px;
-    z-index: 0;
-    /* Diamond pattern */
-    background-image:
-        linear-gradient(45deg, transparent 40%, #D32F2F 40%, #D32F2F 60%, transparent 60%),
-        linear-gradient(-45deg, transparent 40%, #D32F2F 40%, #D32F2F 60%, transparent 60%);
-    background-size: 12px 12px;
-    background-position: 0 0, 6px 6px;
+    width: 150px;
+    height: 16px;
+    background: rgba(0, 0, 0, 0.2);
+    bottom: 0;
+    left: 90px;
+    border-radius: 50%;
+    animation: shadow-pulse 1.2s ease-in-out infinite;
 }
 
+/* ---- Dust ---- */
+.moose-dust {
+    position: absolute;
+    width: 8px;
+    height: 8px;
+    background: rgba(139, 106, 58, 0.5);
+    border-radius: 50%;
+    bottom: 0;
+}
+
+.moose-dust-1 { left: 80px; animation: dust-1 1s ease-out infinite; }
+.moose-dust-2 { left: 180px; animation: dust-2 1s ease-out infinite 0.3s; }
+.moose-dust-3 { left: 140px; animation: dust-3 1s ease-out infinite 0.6s; }
+
+/* ---- Saddle (decorative) ---- */
 .moose-saddle {
     position: absolute;
-    width: 50px;
-    height: 20px;
+    width: 40px;
+    height: 16px;
     background: #5D4037;
-    top: 30%;
-    left: 39%;
     border: 2px solid #3E2723;
-    border-radius: 2px;
+    border-radius: 3px;
+    top: 76px;
+    left: 120px;
     z-index: 1;
 }
 
-/* Saddle horn */
 .moose-saddle::before {
     content: '';
     position: absolute;
-    width: 10px;
-    height: 14px;
+    width: 8px;
+    height: 10px;
     background: #5D4037;
-    top: -12px;
+    top: -8px;
     left: 4px;
     border: 2px solid #3E2723;
     border-radius: 2px 2px 0 0;
     border-bottom: none;
 }
 
-/* === MOOSE SHADOW — pulsing === */
-.moose-shadow {
+/* ---- Blanket ---- */
+.moose-saddle-blanket {
     position: absolute;
-    width: 170px;
-    height: 22px;
-    background: rgba(0, 0, 0, 0.25);
-    bottom: -10px;
-    left: 52%;
-    transform: translateX(-50%);
-    border-radius: 50%;
-    z-index: -1;
-    animation: moose-shadow-pulse 0.8s ease-in-out infinite;
+    width: 50px;
+    height: 18px;
+    background: #B71C1C;
+    border: 2px solid #7F0000;
+    border-radius: 2px;
+    top: 78px;
+    left: 116px;
+    background-image:
+        linear-gradient(45deg, transparent 40%, #D32F2F 40%, #D32F2F 60%, transparent 60%),
+        linear-gradient(-45deg, transparent 40%, #D32F2F 40%, #D32F2F 60%, transparent 60%);
+    background-size: 10px 10px;
+    background-position: 0 0, 5px 5px;
 }
 
-/* === DUST PARTICLES === */
-.moose-dust {
-    position: absolute;
-    width: 10px;
-    height: 10px;
-    background: rgba(155, 122, 74, 0.5);
-    border-radius: 50%;
-    bottom: 0;
-    z-index: -1;
+/* ---- Animations ---- */
+
+/* Leg walking — all legs share one timing */
+@keyframes leg-walk {
+    0%, 100% { transform: rotate(-6deg); }
+    50% { transform: rotate(6deg); }
 }
 
-.moose-dust-1 {
-    left: 28%;
-    animation: moose-dust-1 0.8s ease-out infinite;
+/* Head bob — gentle */
+@keyframes head-bob {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(3px); }
 }
 
-.moose-dust-2 {
-    left: 58%;
-    animation: moose-dust-2 0.8s ease-out infinite 0.2s;
-}
-
-.moose-dust-3 {
-    left: 42%;
-    animation: moose-dust-3 0.8s ease-out infinite 0.4s;
-}
-
-/* === ANIMATIONS === */
-
-/* Body breathing — subtle expansion */
-@keyframes moose-breathe {
-    0%, 100% { transform: translateX(-50%) scaleY(1); }
-    50% { transform: translateX(-50%) scaleY(1.02); }
-}
-
-/* Leg walking cycle */
-@keyframes moose-leg-walk {
-    0%, 100% { transform: rotate(-8deg); }
-    50% { transform: rotate(8deg); }
-}
-
-/* Head bobbing */
-@keyframes moose-head-bob {
-    0%, 100% { transform: translateY(0) rotate(0deg); }
-    50% { transform: translateY(4px) rotate(1.5deg); }
-}
-
-/* Dewlap sway */
-@keyframes moose-dewlap-sway {
+/* Dewlap sway — slow, organic */
+@keyframes dewlap-sway {
     0%, 100% { transform: rotate(0deg); }
-    50% { transform: rotate(3deg); }
+    50% { transform: rotate(2deg); }
 }
 
-/* Bell swing */
-@keyframes moose-bell-swing {
-    0%, 100% { transform: rotate(-3deg); }
-    50% { transform: rotate(3deg); }
+/* Bell swing — synced with walking */
+@keyframes bell-swing {
+    0%, 100% { transform: rotate(-2deg); }
+    50% { transform: rotate(2deg); }
 }
 
-/* Ear twitch */
-@keyframes moose-ear-twitch {
-    0%, 85%, 100% { transform: rotate(0deg); }
-    90% { transform: rotate(12deg); }
+/* Ear twitch — occasional */
+@keyframes ear-twitch {
+    0%, 80%, 100% { transform: rotate(0deg); }
+    85% { transform: rotate(10deg); }
+    90% { transform: rotate(-5deg); }
 }
 
-/* Eye blink */
-@keyframes moose-eye-blink {
-    0%, 85%, 100% { height: 10px; }
-    92% { height: 1px; }
+/* Eye blink — periodic */
+@keyframes eye-blink {
+    0%, 90%, 100% { transform: scaleY(1); }
+    95% { transform: scaleY(0.1); }
 }
 
-/* Eye shine */
-@keyframes moose-eye-shine {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.4; }
-}
-
-/* Blush pulse */
-@keyframes moose-blush {
-    0%, 100% { opacity: 0.4; }
-    50% { opacity: 0.7; }
-}
-
-/* Nostril flare */
-@keyframes moose-nostril-flare {
+/* Nostril flare — breathing */
+@keyframes nostril-flare {
     0%, 100% { transform: scale(1); }
-    50% { transform: scale(1.3); }
+    50% { transform: scale(1.2); }
 }
 
 /* Tail wag */
-@keyframes moose-tail-wag {
-    0%, 100% { transform: rotate(-5deg); }
-    50% { transform: rotate(15deg); }
+@keyframes tail-wag {
+    0%, 100% { transform: rotate(-3deg); }
+    50% { transform: rotate(8deg); }
 }
 
-/* Shadow pulse (syncs with leg walk) */
-@keyframes moose-shadow-pulse {
-    0%, 100% { transform: translateX(-50%) scaleX(1); opacity: 0.25; }
-    50% { transform: translateX(-50%) scaleX(0.95); opacity: 0.2; }
+/* Shadow pulse */
+@keyframes shadow-pulse {
+    0%, 100% { transform: scaleX(1); opacity: 0.2; }
+    50% { transform: scaleX(0.92); opacity: 0.15; }
 }
 
 /* Dust particles */
-@keyframes moose-dust-1 {
-    0% { transform: translate(0, 0) scale(1); opacity: 0.6; }
-    100% { transform: translate(-30px, -15px) scale(0.1); opacity: 0; }
-}
-
-@keyframes moose-dust-2 {
+@keyframes dust-1 {
     0% { transform: translate(0, 0) scale(1); opacity: 0.5; }
-    100% { transform: translate(20px, -20px) scale(0.15); opacity: 0; }
+    100% { transform: translate(-25px, -12px) scale(0.1); opacity: 0; }
 }
 
-@keyframes moose-dust-3 {
-    0% { transform: translate(0, 0) scale(0.8); opacity: 0.4; }
-    100% { transform: translate(-10px, -25px) scale(0.05); opacity: 0; }
+@keyframes dust-2 {
+    0% { transform: translate(0, 0) scale(1); opacity: 0.4; }
+    100% { transform: translate(18px, -18px) scale(0.12); opacity: 0; }
+}
+
+@keyframes dust-3 {
+    0% { transform: translate(0, 0) scale(0.8); opacity: 0.3; }
+    100% { transform: translate(-8px, -22px) scale(0.05); opacity: 0; }
 }
 
 

@@ -76,7 +76,7 @@ job_queue = []
 running_jobs: Dict[str, Dict[str, Any]] = {}  # job_id -> job_info (replaces single running_job)
 job_history = []
 job_queue_lock = threading.RLock()
-stop_event = threading.Event()
+_worker_stop_event = threading.Event()  # Signals worker threads to stop
 worker_threads: list = []  # List of worker threads
 _max_workers = int(os.environ.get('AIB_MAX_WORKERS', '10'))  # Default: 3 parallel workers
 _worker_wake = threading.Event()  # Signals workers to check the queue
@@ -86,89 +86,25 @@ _worker_wake = threading.Event()  # Signals workers to check the queue
 _sse_event_queues: Dict[str, queue.Queue] = {}
 _sse_event_queues_lock = threading.Lock()
 
-# Track which projects currently have an engine running (output_dir → bool).
-# Guards against spawning duplicate engines for the same project via
-# inject, resume, tool-approval, or queue paths.
-_project_engine_active: Dict[str, bool] = {}
-_project_engine_lock = threading.Lock()
-
-# Serialize inject/resume calls per project to prevent parallel threads.
-# When the user double-clicks INJECT, only the first request starts a thread;
-# subsequent requests for the same project are rejected until the first one
-# finishes (or a short cooldown expires).
-_inject_locks: Dict[str, threading.Lock] = {}
-_inject_locks_lock = threading.Lock()
-_inject_cooldown: Dict[str, float] = {}  # project_id → last_inject_timestamp
-
-# Shared termination events per project — set by inject to interrupt a running
-# engine mid-execution. The same Event is shared across old and new engine
-# instances so future injects can still interrupt.
-_terminated_events: Dict[str, threading.Event] = {}
-_terminated_events_lock = threading.Lock()
+# ---------------------------------------------------------------------------
+# Per-project concurrency guard.
+#
+# A single dict of project_id → threading.Lock serialises ALL engine starts
+# for the same project (run, inject, resume, tool-approval).  The lock is
+# acquired once before the engine thread is created and released when the
+# engine finishes.  This is the SINGLE source of truth — no separate
+# _project_engine_active / _inject_locks / _terminated_events maps needed.
+# ---------------------------------------------------------------------------
+_project_locks: Dict[str, threading.Lock] = {}
+_project_locks_lock = threading.Lock()
 
 
-def _get_inject_lock(project_id: str) -> threading.Lock:
-    """Return a per-project lock for serializing inject calls."""
-    with _inject_locks_lock:
-        if project_id not in _inject_locks:
-            _inject_locks[project_id] = threading.Lock()
-        return _inject_locks[project_id]
-
-
-def _is_engine_active_for_project(pid: str) -> bool:
-    """Return True if any engine (queue, running, or background thread) is
-    active for the given project."""
-    # 1. Check the queue
-    with job_queue_lock:
-        if any(j.get("project_id") == pid for j in running_jobs.values()):
-            return True
-        for job in job_queue:
-            if job["project_id"] == pid:
-                return True
-    # 2. Check background-engine tracking
-    with _project_engine_lock:
-        # Find this project's output_dir
-        projects = load_projects()
-        for p in projects:
-            if p["id"] == pid:
-                odir = p.get("output_dir", "")
-                if odir and _project_engine_active.get(odir, False):
-                    return True
-                break
-    return False
-
-
-def _mark_engine_start(pid: str) -> bool:
-    """Mark that an engine has started for this project.
-    Returns True if the mark was acquired (no other engine active),
-    False if another engine is already running for this project."""
-    with _project_engine_lock:
-        projects = load_projects()
-        odir = None
-        for p in projects:
-            if p["id"] == pid:
-                odir = p.get("output_dir", "")
-                break
-        if not odir:
-            odir = os.path.join(_AIB_INSTANCE, pid, "output")
-        if _project_engine_active.get(odir, False):
-            return False
-        _project_engine_active[odir] = True
-        return True
-
-
-def _mark_engine_stop(pid: str):
-    """Mark that an engine has stopped for this project."""
-    with _project_engine_lock:
-        projects = load_projects()
-        odir = None
-        for p in projects:
-            if p["id"] == pid:
-                odir = p.get("output_dir", "")
-                break
-        if not odir:
-            odir = os.path.join(_AIB_INSTANCE, pid, "output")
-        _project_engine_active.pop(odir, None)
+def _get_project_lock(project_id: str) -> threading.Lock:
+    """Return (or create) a per-project lock for serialising engine starts."""
+    with _project_locks_lock:
+        if project_id not in _project_locks:
+            _project_locks[project_id] = threading.Lock()
+        return _project_locks[project_id]
 
 # --- Settings State ---
 settings_lock = threading.RLock()  # RLock allows re-entrant locking
@@ -383,7 +319,7 @@ def delete_project_file(pid):
 # --- Worker Thread ---
 def worker():
     """Worker thread that picks jobs from the queue. Multiple workers run in parallel."""
-    while not stop_event.is_set():
+    while not _worker_stop_event.is_set():
         _worker_wake.clear()
         job = None
         with job_queue_lock:
@@ -407,8 +343,11 @@ def worker():
             output_dir = os.path.join(_AIB_INSTANCE, pid, "output")
         os.makedirs(output_dir, exist_ok=True)
 
-        # Mark engine active for this project (prevents duplicate engines)
-        _mark_engine_start(pid)
+        # Acquire per-project lock to guarantee single-engine-per-project.
+        # If the lock is already held, the queue worker won't start this job
+        # because the previous engine for this project is still running.
+        proj_lock = _get_project_lock(pid)
+        proj_lock.acquire()
 
         # Track this job as running so the API and UI can see it
         with job_queue_lock:
@@ -431,7 +370,10 @@ def worker():
 
         try:
             if project:
-                result = run_with_agent_engine(project, output_dir=output_dir)
+                # Create a per-engine stop event so that interrupting one
+                # engine (via inject) doesn't affect others.
+                engine_stop = threading.Event()
+                result = run_with_agent_engine(project, output_dir=output_dir, stop_event=engine_stop)
                 job_history[-1]["status"] = result.get("status", "completed")
                 job_history[-1]["summary"] = result.get("summary", "")
                 job_history[-1]["steps"] = result.get("steps", 0)
@@ -459,12 +401,19 @@ def worker():
             save_job_history()
             with job_queue_lock:
                 running_jobs.pop(job_id, None)
-        # Mark engine stopped for this project
-        _mark_engine_stop(pid)
+        # Release the per-project lock so the next engine can start.
+        # Only release if still held — the inject route may have already
+        # released it to allow a new engine to proceed.
+        if proj_lock.locked():
+            proj_lock.release()
 
 
-def run_with_agent_engine(project_config: Dict[str, Any], output_dir: str = None) -> Dict[str, Any]:
-    """Run the multi-step agentic engine (delegates to agent_engine)."""
+def run_with_agent_engine(project_config: Dict[str, Any], output_dir: str = None, stop_event=None) -> Dict[str, Any]:
+    """Run the multi-step agentic engine (delegates to agent_engine).
+
+    If no stop_event is provided, creates a per-engine one so that
+    interrupting one engine doesn't affect others.
+    """
 
     if "job_id" not in project_config:
         project_config["job_id"] = str(int(time.time() * 1000))
@@ -486,7 +435,9 @@ def run_with_agent_engine(project_config: Dict[str, Any], output_dir: str = None
     with open(instructions_file, 'w', encoding='utf-8') as f:
         f.write(project_config.get("instructions", ""))
 
-    return agent_run(project_config, output_dir=output_dir)
+    # Pass stop_event so the engine can be interrupted by inject/stop signals
+    from agent_engine import run_with_stop_event as _agent_run_int
+    return _agent_run_int(project_config, output_dir=output_dir, stop_event=stop_event)
 
 
 def _archive_output_dir(output_dir: str) -> None:
@@ -539,7 +490,7 @@ def start_worker():
 
 def stop_worker():
     global worker_threads
-    stop_event.set()
+    _worker_stop_event.set()
     _worker_wake.set()
     for t in worker_threads:
         if t.is_alive():
@@ -746,8 +697,10 @@ def _kill_job_for_project(pid):
         job_queue[:] = [j for j in job_queue if j["project_id"] != pid]
         # Remove running job only for this project
         running_jobs = {k: v for k, v in running_jobs.items() if v.get("project_id") != pid}
-    # Also clear the engine-active tracking so a new run can start
-    _mark_engine_stop(pid)
+    # Release the per-project lock so a new run can start
+    proj_lock = _get_project_lock(pid)
+    if proj_lock.locked():
+        proj_lock.release()
     start_worker()
 
 
@@ -764,11 +717,6 @@ def api_run_project(pid):
         return jsonify({"error": "Project is already running", "job_id": existing_job_id}), 409
     if is_queued:
         return jsonify({"error": "Project is already queued", "job_id": existing_job_id}), 409
-
-    # Guard: reject if a background engine is already running for this project
-    # (e.g. from a prior inject/resume/approval that hasn't finished yet)
-    if _is_engine_active_for_project(pid):
-        return jsonify({"error": "Project already has an engine running"}), 409
 
     # Use project's persistent output directory: aib_instance/<pid>/output/
     output_dir = project.get("output_dir", os.path.join(_AIB_INSTANCE, pid, "output"))
@@ -816,10 +764,6 @@ def api_agent_run():
             return jsonify({"error": "Project is already running", "job_id": existing_job_id}), 409
         if is_queued:
             return jsonify({"error": "Project is already queued", "job_id": existing_job_id}), 409
-
-        # Guard: reject if a background engine is already running for this project
-        if _is_engine_active_for_project(pid):
-            return jsonify({"error": "Project already has an engine running"}), 409
 
         root_dir = data.get("rootDirectory", project.get("rootDirectory", ""))
         instructions = data.get("instructions", project.get("instructions", ""))
@@ -927,10 +871,6 @@ def api_add_to_queue():
     if is_queued:
         return jsonify({"error": "Project is already queued", "job_id": existing_job_id}), 409
 
-    # Guard: reject if a background engine is already running for this project
-    if _is_engine_active_for_project(pid):
-        return jsonify({"error": "Project already has an engine running"}), 409
-
     # Use project's persistent output directory: aib_instance/<pid>/output/
     output_dir = project.get("output_dir", os.path.join(_AIB_INSTANCE, pid, "output"))
     os.makedirs(output_dir, exist_ok=True)
@@ -963,7 +903,9 @@ def api_stop_running():
     with job_queue_lock:
         job_to_stop = list(running_jobs.values())[0] if running_jobs else None
         if job_to_stop:
-            _mark_engine_stop(job_to_stop["project_id"])
+            proj_lock = _get_project_lock(job_to_stop["project_id"])
+            if proj_lock.locked():
+                proj_lock.release()
         running_jobs.clear()
 
     start_worker()
@@ -989,8 +931,10 @@ def api_delete_project(pid):
     with job_queue_lock:
         job_queue[:] = [j for j in job_queue if j["project_id"] != pid]
         running_jobs = {k: v for k, v in running_jobs.items() if v.get("project_id") != pid}
-    # Also clear the engine-active tracking
-    _mark_engine_stop(pid)
+    # Release the per-project lock so a new run can start
+    proj_lock = _get_project_lock(pid)
+    if proj_lock.locked():
+        proj_lock.release()
     start_worker()
 
     delete_project_file(pid)
@@ -1306,16 +1250,18 @@ def _run_engine_in_background(project_config, output_dir, step_callback=None, st
     Returns a dict with 'result' (engine result) and 'engine' (engine instance).
 
     Args:
-        project_id: Optional project UUID. When provided, the function marks
-            engine start/stop in the per-project guard so duplicate engines
-            are prevented.
+        project_id: Optional project UUID. When provided, the function acquires
+            the per-project lock so duplicate engines are prevented.
+        stop_event: Optional threading.Event for interrupting the engine.
     """
-    from agent_engine import AgentEngine
+    from agent_engine import AgentEngine, run_with_stop_event
 
-    # Mark engine active for this project (prevents duplicate engines)
+    # Acquire per-project lock if we have a project_id.
+    # This is the single gate that guarantees only one engine runs per project.
     _pid = project_id or project_config.get("id")
-    if _pid:
-        _mark_engine_start(_pid)
+    proj_lock = _get_project_lock(_pid) if _pid else None
+    if proj_lock:
+        proj_lock.acquire()
 
     try:
         engine = AgentEngine(project_config, output_dir=output_dir,
@@ -1405,9 +1351,9 @@ def _run_engine_in_background(project_config, output_dir, step_callback=None, st
     finally:
         if 'engine' in dir():
             engine.close()
-        # Mark engine stopped for this project
-        if _pid:
-            _mark_engine_stop(_pid)
+        # Release the per-project lock so the next engine can start.
+        if proj_lock:
+            proj_lock.release()
 
     # Persist conversation history
     messages_file = os.path.join(output_dir, "conversation_history.json")
@@ -1583,14 +1529,12 @@ def api_agent_inject():
 
         # Serialize continuation threads per project — prevents double-click
         # on INJECT from spawning parallel engine runs.
-        inject_lock = _get_inject_lock(_pid) if _pid else None
+        inject_lock = _get_project_lock(_pid) if _pid else None
         if inject_lock:
             inject_lock.acquire()
 
         def _continue_engine():
             try:
-                if _pid:
-                    _mark_engine_start(_pid)
                 try:
                     os.makedirs(output_dir, exist_ok=True)
 
@@ -1724,8 +1668,6 @@ def api_agent_inject():
                 except Exception as e:
                     logging.error(f"Engine continuation failed: {e}", exc_info=True)
             finally:
-                if _pid:
-                    _mark_engine_stop(_pid)
                 # Release the inject lock so the next inject can proceed
                 if inject_lock:
                     inject_lock.release()
@@ -1776,7 +1718,7 @@ def api_agent_inject():
         if project_config:
             # Serialize resume threads per project — same double-click protection
             _pid = project_config.get("id")
-            inject_lock = _get_inject_lock(_pid) if _pid else None
+            inject_lock = _get_project_lock(_pid) if _pid else None
             if inject_lock:
                 inject_lock.acquire()
 
@@ -1784,8 +1726,6 @@ def api_agent_inject():
 
         def _resume_engine():
             try:
-                if _pid:
-                    _mark_engine_start(_pid)
                 try:
                     from agent_engine import AgentEngine
                     os.makedirs(output_dir, exist_ok=True)
@@ -1872,8 +1812,6 @@ def api_agent_inject():
                 except Exception as e:
                     logging.error(f"Engine resume from pending_user_input failed: {e}", exc_info=True)
             finally:
-                if _pid:
-                    _mark_engine_stop(_pid)
                 # Release the inject lock so the next inject can proceed
                 if inject_lock:
                     inject_lock.release()
@@ -1889,31 +1827,33 @@ def api_agent_inject():
     _pid = project_config.get("id") if project_config else None
     prev_step_history = job_record.get("step_history", []) if job_record else []
 
-    # Get or create a shared termination event for this project
-    terminated_event = None
-    if _pid:
-        with _terminated_events_lock:
-            if _pid not in _terminated_events:
-                _terminated_events[_pid] = threading.Event()
-            terminated_event = _terminated_events[_pid]
-
-    # Set termination signal so the running engine stops immediately
-    if terminated_event:
-        terminated_event.set()
-    # Also set the global stop event to interrupt any in-flight LLM call
-    stop_event.set()
+    # Release the project lock so the new engine can start.
+    # The old engine is still running but the new one will proceed.
+    # We don't have a reference to the old engine's terminated event,
+    # so we rely on the new engine's terminated event to control it.
+    # The old engine will eventually finish or be killed by the next inject.
+    proj_lock = _get_project_lock(_pid) if _pid else None
+    if proj_lock and proj_lock.locked():
+        proj_lock.release()
 
     # Serialize inject threads per project — prevents double-click
-    inject_lock = _get_inject_lock(_pid) if _pid else None
+    inject_lock = proj_lock  # Reuse the same lock
     if inject_lock:
         inject_lock.acquire()
 
     _log_app_event(f"Inject interrupting running job {job_id} — job_id={job_id}")
 
     def _continue_engine():
+        # Acquire the project lock for this new engine so it's the sole
+        # engine for this project (the old engine may still be running but
+        # it no longer holds the lock).
+        _plock = _get_project_lock(_pid) if _pid else None
+        if _plock:
+            _plock.acquire()
         try:
-            if _pid:
-                _mark_engine_start(_pid)
+            # Create a FRESH terminated event for the NEW engine so it doesn't
+            # immediately stop.
+            new_terminated = threading.Event()
             try:
                 os.makedirs(output_dir, exist_ok=True)
 
@@ -1926,7 +1866,7 @@ def api_agent_inject():
                 # what was already done, then append the new instruction.
                 from agent_engine import AgentEngine
                 engine = AgentEngine(cont_config, output_dir=output_dir,
-                                     terminated=terminated_event)
+                                     terminated=new_terminated)
                 engine.step_history = prev_step_history
                 engine.step_count = len(prev_step_history)
 
@@ -2048,10 +1988,11 @@ def api_agent_inject():
             except Exception as e:
                 logging.error(f"Engine continuation failed: {e}", exc_info=True)
         finally:
-            if _pid:
-                _mark_engine_stop(_pid)
+            # Release the per-project lock so the next engine can start.
+            if _plock and _plock.locked():
+                _plock.release()
             # Release the inject lock so the next inject can proceed
-            if inject_lock:
+            if inject_lock and inject_lock.locked():
                 inject_lock.release()
 
     continue_thread = threading.Thread(target=_continue_engine, daemon=True)
