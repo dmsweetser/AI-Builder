@@ -1182,7 +1182,9 @@ document.addEventListener('DOMContentLoaded', function() {
                                 body: JSON.stringify({disabled_tools: disabledTools})
                             }).catch(function(err) { console.error('Failed to save disabled tools:', err); });
                         }
-                        fetchState();
+                        fetchState().then(function() {
+                            renderProjects();
+                        });
                         formRef.reset();
                         toggleCreateForm();
                     }

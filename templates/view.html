@@ -518,13 +518,14 @@
                 _viewPrevStepCount = count;
             }
 
-            // Check if job is complete
+            // Check if job is complete — stop polling for terminal states
             if (statusData && statusData.status && statusData.status !== 'running' && statusData.status !== 'pending_approval' && statusData.status !== 'pending_user_input') {
-                // Stop polling for terminal states, but keep polling for pending states
-                if (statusData.status !== 'completed' && statusData.status !== 'error' && statusData.status !== 'stopped' && statusData.status !== 'max_steps_reached') {
-                    // Still pending, keep polling
-                } else {
-                    // Terminal state — do one final render then stop polling
+                if (statusData.status === 'completed' || statusData.status === 'error' || statusData.status === 'stopped' || statusData.status === 'max_steps_reached') {
+                    // Terminal state — stop polling
+                    if (_viewPollInterval) {
+                        clearInterval(_viewPollInterval);
+                        _viewPollInterval = null;
+                    }
                     return;
                 }
             }
@@ -619,8 +620,12 @@
                     const badge = document.getElementById('view-status');
                     badge.className = 'status-badge pending';
                     badge.textContent = 'CONTINUING...';
-                    // Restart polling so the View page picks up the new continuation's LLM calls.
-                    // Without this, the poll interval was stopped by the previous terminal state.
+                    // Reset step tracking so the View page picks up all new steps
+                    // from this continuation (previous _viewPrevStepCount may be
+                    // out of sync if the poll interval was left running during a
+                    // terminal state).
+                    _viewPrevStepCount = 0;
+                    // Always restart polling when a continuation starts.
                     if (_viewPollInterval) clearInterval(_viewPollInterval);
                     _viewPollInterval = setInterval(pollView, 3000);
                 } else {
@@ -632,6 +637,9 @@
                     entry.innerHTML = '<div class="step-tool" style="color:var(--mc-diamond);">📥 INJECTION SENT</div>';
                     container.appendChild(entry);
                     container.scrollTop = container.scrollHeight;
+                    // Ensure polling is active even for non-continuation injects
+                    if (_viewPollInterval) clearInterval(_viewPollInterval);
+                    _viewPollInterval = setInterval(pollView, 3000);
                 }
                 setTimeout(function() {
                     btn.disabled = false;
