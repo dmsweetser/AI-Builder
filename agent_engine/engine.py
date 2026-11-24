@@ -98,6 +98,20 @@ def _init_status_file(output_dir: str) -> None:
         })
 
 
+# ---------------------------------------------------------------------------
+# Global: disable thinking/reasoning on every LLM call.
+# ---------------------------------------------------------------------------
+_DISABLE_THINKING = True
+
+# ---------------------------------------------------------------------------
+# Runaway-token guard: if the LLM produces more than this many chars without
+# emitting a tool-call marker, the response is truncated and the engine will
+# retry on the next loop iteration (the format reminder will be re-sent).
+# ---------------------------------------------------------------------------
+# ~2000 chars ≈ 500 tokens — enough room for a complete tool call block.
+_RUNAWAY_CHAR_THRESHOLD = 2000
+
+
 class LLMClient:
     """Interface for calling the LLM (OpenAI-compatible endpoint)."""
 
@@ -197,6 +211,10 @@ class LLMClient:
             "messages": openai_messages,
             "stream": True,
         }
+        # Disable thinking/reasoning — we only want direct tool-call output.
+        if _DISABLE_THINKING:
+            payload["store"] = False
+            payload["metadata"] = {"thinking": "disabled"}
         # Stop the model from generating after a complete tool call block.
         # The LLM is told in the system prompt it will be cut off after
         # [TOOL_END], so it should produce exactly one tool call and stop.
@@ -230,12 +248,15 @@ class LLMClient:
         content = ""
         reasoning = ""
         call_start = time.time()
+        _chars_since_marker = 0  # chars since last TOOL_START/TOOL_END marker
+        _in_tool_block = False   # True once we've seen [TOOL_START]
+        _tool_block_chars = 0    # chars accumulated inside the current tool block
         try:
             with urllib.request.urlopen(req, context=context, timeout=timeout) as response:
                 for line in response:
                     # Check for hard timeout
                     if time.time() - call_start > self.MAX_CALL_TIME:
-                        self.logger.warning(
+                        logging.warning(
                             f"LLM call timed out after {self.MAX_CALL_TIME}s "
                             f"(step {step})"
                         )
@@ -265,6 +286,35 @@ class LLMClient:
                             # response and will be stopped by the `stop` parameter.
                             if '[TOOL_START]' in content and '[TOOL_END]' in content:
                                 break
+                            # Runaway guard: only reset the counter when we see a
+                            # tool-call marker.  If the LLM produces too many chars
+                            # without emitting a tool call, truncate and stop so the
+                            # engine retries on the next iteration.
+                            if _RUNAWAY_CHAR_THRESHOLD > 0:
+                                # Check for tool call markers
+                                if '[TOOL_START]' in c:
+                                    _in_tool_block = True
+                                    _chars_since_marker = 0
+                                elif '[TOOL_END]' in c:
+                                    _in_tool_block = False
+                                    _chars_since_marker = 0
+                                elif _in_tool_block:
+                                    # Inside a tool block — accumulate but don't
+                                    # count toward runaway (tool bodies can be long)
+                                    pass
+                                else:
+                                    # Outside any tool block — count chars
+                                    _chars_since_marker += len(c)
+                                    if _chars_since_marker > _RUNAWAY_CHAR_THRESHOLD:
+                                        # Truncate to force a retry — the LLM produced
+                                        # text without a tool call within the budget
+                                        logging.warning(
+                                            f"Runaway response truncated at {_RUNAWAY_CHAR_THRESHOLD} chars "
+                                            f"with no tool call (step {step}). "
+                                            f"Response length: {len(content)} chars."
+                                        )
+                                        content = content[:_RUNAWAY_CHAR_THRESHOLD]
+                                        break
                         # Collect reasoning as fallback (only when content is empty)
                         r = delta.get('reasoning_content')
                         if r:
