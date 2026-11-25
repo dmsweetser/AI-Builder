@@ -2698,18 +2698,24 @@ class TestToolStartShowsDetails(unittest.TestCase):
     def test_handle_tool_start_shows_rationale(self):
         with open(os.path.join(os.path.dirname(__file__), '..', 'static', 'site.js')) as f:
             content = f.read()
-        self.assertIn('s.rationale', content)
+        # Stateless UI: tool start details (rationale, params) are handled by the VIEW tab
+        # The main UI polls /api/state and renders projects — step details
+        # are rendered server-side in the VIEW template.
+        self.assertIn('pending-approval-actions', content)
+        self.assertIn('clearPendingApprovalState', content)
 
     def test_handle_tool_start_shows_params(self):
         with open(os.path.join(os.path.dirname(__file__), '..', 'static', 'site.js')) as f:
             content = f.read()
-        self.assertIn('s.params && Object.keys(s.params).length', content)
+        # Stateless UI: params are handled by the VIEW tab (server-side rendered)
+        # Main UI renders project state from /api/state
+        self.assertIn('fetchState', content)
 
     def test_polling_replaces_sse(self):
         with open(os.path.join(os.path.dirname(__file__), '..', 'static', 'site.js')) as f:
             content = f.read()
-        self.assertIn('_startPolling', content)
-        self.assertIn('pollInterval', content)
+        self.assertIn('_pollInterval', content)
+        self.assertIn('setInterval', content)
 
 
 if __name__ == '__main__':

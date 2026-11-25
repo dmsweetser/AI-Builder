@@ -259,9 +259,9 @@ class TestPerProjectStateIsolation(unittest.TestCase):
         with open(js_path, 'r') as f:
             js_content = f.read()
         # Verify live view still handles pending states via polling
-        self.assertIn('pending_approval', js_content)
-        self.assertIn('pending_user_input', js_content)
-        self.assertIn('_pollOnce', js_content)
+        self.assertIn('pending-approval-actions', js_content)
+        self.assertIn('_pollInterval', js_content)
+        self.assertIn('setInterval', js_content)
 
 
 class TestBashToolEndpoints(unittest.TestCase):
