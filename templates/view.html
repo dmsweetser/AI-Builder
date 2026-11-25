@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,90 +8,187 @@
     <link rel="stylesheet" href="/static/styles.css">
     <link rel="icon" href="/static/favicon.png" type="image/png">
     <style>
-        body { margin: 0; padding: 0; }
-        .view-layout { display: flex; flex-direction: column; height: 100vh; }
+        body {
+            margin: 0;
+            padding: 0;
+        }
+
+        .view-layout {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+
         .view-header {
-            display: flex; align-items: center; justify-content: space-between;
-            padding: 12px 20px; background: var(--mc-stone-dark);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px 20px;
+            background: var(--mc-stone-dark);
             border-bottom: 3px solid #000;
         }
+
         .view-header h2 {
-            font-size: 12px; color: var(--mc-gold);
-            text-shadow: 1px 1px 0 #000; margin: 0;
+            font-size: 12px;
+            color: var(--mc-gold);
+            text-shadow: 1px 1px 0 #000;
+            margin: 0;
         }
+
         .view-header .status-badge {
-            font-size: 9px; padding: 4px 10px; border: 2px solid #000;
-            font-weight: bold; text-transform: uppercase;
+            font-size: 9px;
+            padding: 4px 10px;
+            border: 2px solid #000;
+            font-weight: bold;
+            text-transform: uppercase;
         }
-        .status-badge.running { background: var(--mc-emerald); color: #000; }
-        .status-badge.completed { background: var(--mc-diamond); color: #000; }
-        .status-badge.error { background: var(--mc-nether); color: #fff; }
-        .status-badge.stopped { background: var(--mc-stone); color: #fff; }
-        .status-badge.pending { background: var(--mc-gold); color: #000; }
-        .view-body { display: flex; flex: 1; overflow: hidden; }
+
+        .status-badge.running {
+            background: var(--mc-emerald);
+            color: #000;
+        }
+
+        .status-badge.completed {
+            background: var(--mc-diamond);
+            color: #000;
+        }
+
+        .status-badge.error {
+            background: var(--mc-nether);
+            color: #fff;
+        }
+
+        .status-badge.stopped {
+            background: var(--mc-stone);
+            color: #fff;
+        }
+
+        .status-badge.pending {
+            background: var(--mc-gold);
+            color: #000;
+        }
+
+        .view-body {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+
         .view-steps {
-            flex: 1; overflow-y: auto; padding: 16px;
+            flex: 1;
+            overflow-y: auto;
+            padding: 16px;
             background: var(--mc-bg);
         }
+
         .view-steps .step-entry {
-            margin-bottom: 8px; padding: 10px 12px;
+            margin-bottom: 8px;
+            padding: 10px 12px;
             border-left: 3px solid var(--mc-border);
             background: var(--mc-bg-card);
             border-radius: 0;
         }
-        .view-steps .step-entry.success { border-left-color: var(--mc-emerald); }
-        .view-steps .step-entry.error { border-left-color: var(--mc-nether); background: rgba(139,0,0,0.1); }
-        .view-steps .step-entry.llm-step { border-left-color: var(--mc-stone); color: var(--mc-text-dim); }
+
+        .view-steps .step-entry.success {
+            border-left-color: var(--mc-emerald);
+        }
+
+        .view-steps .step-entry.error {
+            border-left-color: var(--mc-nether);
+            background: rgba(139, 0, 0, 0.1);
+        }
+
+        .view-steps .step-entry.llm-step {
+            border-left-color: var(--mc-stone);
+            color: var(--mc-text-dim);
+        }
+
         .view-steps .step-entry.pending-approval {
             border-left-color: var(--mc-gold);
-            background: rgba(252,219,5,0.1);
+            background: rgba(252, 219, 5, 0.1);
         }
+
         .view-steps .step-entry.tool-running {
             border-left-color: var(--mc-gold);
-            background: rgba(252,219,5,0.08);
+            background: rgba(252, 219, 5, 0.08);
         }
+
         .view-steps .step-tool {
-            font-weight: bold; color: var(--mc-diamond);
-            margin-bottom: 4px; text-shadow: 1px 1px 0 #000;
+            font-weight: bold;
+            color: var(--mc-diamond);
+            margin-bottom: 4px;
+            text-shadow: 1px 1px 0 #000;
         }
+
         .view-steps .step-result {
-            color: var(--mc-text-dim); font-size: 9px;
-            white-space: pre-wrap; word-break: break-word; line-height: 1.5;
+            color: var(--mc-text-dim);
+            font-size: 9px;
+            white-space: pre-wrap;
+            word-break: break-word;
+            line-height: 1.5;
         }
+
         .view-steps .step-rationale {
-            color: var(--mc-gold); font-size: 8px; margin-top: 4px;
-            font-style: italic; padding-left: 8px;
+            color: var(--mc-gold);
+            font-size: 8px;
+            margin-top: 4px;
+            font-style: italic;
+            padding-left: 8px;
             border-left: 2px solid var(--mc-gold);
         }
+
         .view-steps .step-params {
-            color: var(--mc-text-dim); font-size: 7px; margin-top: 2px;
+            color: var(--mc-text-dim);
+            font-size: 7px;
+            margin-top: 2px;
         }
+
         .view-inject {
-            display: flex; gap: 8px; padding: 12px 16px;
-            background: var(--mc-bg-card); border-top: 3px solid var(--mc-border);
+            display: flex;
+            gap: 8px;
+            padding: 12px 16px;
+            background: var(--mc-bg-card);
+            border-top: 3px solid var(--mc-border);
         }
+
         .view-inject input {
-            flex: 1; padding: 10px 12px;
-            background: var(--mc-bg); color: var(--mc-text);
-            border: 3px solid var(--mc-border); border-radius: 0;
-            font-family: 'Press Start 2P', monospace; font-size: 9px;
+            flex: 1;
+            padding: 10px 12px;
+            background: var(--mc-bg);
+            color: var(--mc-text);
+            border: 3px solid var(--mc-border);
+            border-radius: 0;
+            font-family: 'Press Start 2P', monospace;
+            font-size: 9px;
         }
+
         .view-inject input:focus {
-            outline: none; border-color: var(--mc-diamond);
+            outline: none;
+            border-color: var(--mc-diamond);
         }
+
         .no-jobs-msg {
-            text-align: center; padding: 40px; color: var(--mc-text-dim);
+            text-align: center;
+            padding: 40px;
+            color: var(--mc-text-dim);
             font-size: 11px;
         }
-        .no-jobs-msg .big { font-size: 32px; margin-bottom: 12px; display: block; }
+
+        .no-jobs-msg .big {
+            font-size: 32px;
+            margin-bottom: 12px;
+            display: block;
+        }
     </style>
 </head>
+
 <body>
     <div class="view-layout">
         <div class="view-header">
             <h2 id="view-title">Loading...</h2>
             <div style="display:flex;gap:6px;align-items:center;">
-                <button class="btn" id="view-refresh-btn" onclick="viewRefresh()" title="Refresh" style="font-size:9px;padding:4px 10px;">⟳</button>
+                <button class="btn" id="view-refresh-btn" onclick="viewRefresh()" title="Refresh"
+                    style="font-size:9px;padding:4px 10px;">⟳</button>
                 <span id="view-status" class="status-badge"></span>
             </div>
         </div>
@@ -113,12 +211,12 @@
         let _viewPrevStepCount = 0;
 
         // Parse URL params
-        (function() {
+        (function () {
             const pathParts = window.location.pathname.split('/');
             _viewProjectId = pathParts[pathParts.length - 1];
             const params = new URLSearchParams(window.location.search);
             _viewJobId = params.get('job') || null;
-            document.getElementById('view-title').textContent = 'Loading project ' + _viewProjectId.substring(0,8) + '...';
+            document.getElementById('view-title').textContent = 'Loading project ' + _viewProjectId.substring(0, 8) + '...';
         })();
 
         // Fetch project name
@@ -127,10 +225,10 @@
                 const resp = await fetch('/api/projects/' + _viewProjectId);
                 if (resp.ok) {
                     const project = await resp.json();
-                    return project.name || _viewProjectId.substring(0,8);
+                    return project.name || _viewProjectId.substring(0, 8);
                 }
-            } catch(e) {}
-            return _viewProjectId.substring(0,8);
+            } catch (e) { }
+            return _viewProjectId.substring(0, 8);
         }
 
         // Fetch project info to get latest job if none specified
@@ -144,20 +242,20 @@
                     const lj = project.last_job_id;
                     if (lj) return lj;
                 }
-            } catch(e) {}
+            } catch (e) { }
             // Fallback: check job history for the most recent job for this project
             try {
                 const histResp = await fetch('/api/history');
                 if (histResp.ok) {
                     const history = await histResp.json();
-                    const projectHistory = history.filter(function(h) {
+                    const projectHistory = history.filter(function (h) {
                         return h.project_id === _viewProjectId;
                     });
                     if (projectHistory.length > 0) {
                         return projectHistory[0].job_id;
                     }
                 }
-            } catch(e) {}
+            } catch (e) { }
             return null;
         }
 
@@ -166,7 +264,7 @@
             try {
                 const resp = await fetch('/api/job/' + _viewJobId + '/steps');
                 if (resp.ok) return await resp.json();
-            } catch(e) {}
+            } catch (e) { }
             return { steps: [], count: 0 };
         }
 
@@ -176,7 +274,7 @@
                 // Use the fast /api/job/<job_id>/status endpoint instead of /api/view/<project_id>/status/<job_id>
                 const resp = await fetch('/api/job/' + _viewJobId + '/status');
                 if (resp.ok) return await resp.json();
-            } catch(e) {}
+            } catch (e) { }
             return null;
         }
 
@@ -188,7 +286,7 @@
                     const project = await resp.json();
                     return project.output_dir || '';
                 }
-            } catch(e) {}
+            } catch (e) { }
             return '';
         }
 
@@ -198,7 +296,7 @@
             var formatted = content;
             // Preserve code blocks
             var codeBlocks = [];
-            formatted = formatted.replace(/```([\s\S]*?)```/g, function(match, code) {
+            formatted = formatted.replace(/```([\s\S]*?)```/g, function (match, code) {
                 var uniqueId = 'code-' + Math.random().toString(36).substr(2, 9);
                 codeBlocks.push({ id: uniqueId, content: code.trim() });
                 return '%%CODEBLOCK_' + uniqueId + '%%';
@@ -221,7 +319,7 @@
             formatted = formatted.replace(/\n\n/g, '<br><br>');
             formatted = formatted.replace(/\n/g, '<br>');
             // Restore code blocks
-            codeBlocks.forEach(function(block) {
+            codeBlocks.forEach(function (block) {
                 var escaped = block.content.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
                 formatted = formatted.replace('%%CODEBLOCK_' + block.id + '%%',
                     '<pre style="background:var(--mc-bg);padding:8px;border:1px solid var(--mc-border);font-size:9px;max-height:200px;overflow:auto;margin:4px 0;white-space:pre-wrap;">' + escaped + '</pre>');
@@ -235,10 +333,10 @@
             var d = new Date(ts * 1000);
             var now = new Date();
             var diff = Math.floor((now - d) / 1000);
-            var timeStr = d.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit', second: '2-digit'});
+            var timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
             if (diff < 60) return timeStr + ' (now)';
-            if (diff < 3600) return timeStr + ' (' + Math.floor(diff/60) + 'm ago)';
-            if (diff < 86400) return timeStr + ' (' + Math.floor(diff/3600) + 'h ago)';
+            if (diff < 3600) return timeStr + ' (' + Math.floor(diff / 60) + 'm ago)';
+            if (diff < 86400) return timeStr + ' (' + Math.floor(diff / 3600) + 'h ago)';
             return d.toLocaleDateString() + ' ' + timeStr;
         }
 
@@ -281,8 +379,8 @@
                 // Fetch live response from current_response.txt
                 (function fetchLiveResponse(jobId, resultEl) {
                     fetch('/api/agent/response/' + jobId)
-                        .then(function(r) { return r.json(); })
-                        .then(function(data) {
+                        .then(function (r) { return r.json(); })
+                        .then(function (data) {
                             var content = data.content || '';
                             if (content.trim()) {
                                 // Check if it contains a complete tool call block
@@ -320,7 +418,7 @@
                                 resultEl.textContent = 'Waiting for response...';
                             }
                         })
-                        .catch(function() { resultEl.textContent = 'Response unavailable'; });
+                        .catch(function () { resultEl.textContent = 'Response unavailable'; });
                 })(_viewJobId, resultDiv);
             } else if (step.tool === 'respond_to_user') {
                 entry.classList.add('llm-step');
@@ -483,7 +581,7 @@
                     }
                 }
                 return { name: name, params: params, code: code };
-            } catch(e) {
+            } catch (e) {
                 return null;
             }
         }
@@ -543,8 +641,8 @@
             _viewPrevStepCount = 0;
 
             // Re-fetch project and job info
-            resolveProjectName().then(function(projectName) {
-                resolveJobId().then(function(resolvedJobId) {
+            resolveProjectName().then(function (projectName) {
+                resolveJobId().then(function (resolvedJobId) {
                     if (!resolvedJobId) {
                         container.innerHTML = '<div class="no-jobs-msg"><span class="big">📋</span>No job to view.</div>';
                         document.getElementById('view-status').className = 'status-badge stopped';
@@ -554,10 +652,10 @@
                         return;
                     }
                     _viewJobId = resolvedJobId;
-                    document.getElementById('view-title').textContent = 'Project: ' + projectName + ' — Job: ' + _viewJobId.substring(0,8);
+                    document.getElementById('view-title').textContent = 'Project: ' + projectName + ' — Job: ' + _viewJobId.substring(0, 8);
 
                     // Re-fetch steps and status
-                    Promise.all([fetchJobSteps(), fetchJobStatus()]).then(function([stepsData, statusData]) {
+                    Promise.all([fetchJobSteps(), fetchJobStatus()]).then(function ([stepsData, statusData]) {
                         const steps = stepsData.steps || [];
                         const count = stepsData.count || 0;
 
@@ -598,65 +696,65 @@
 
             fetch('/api/agent/inject', {
                 method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({job_id: _viewJobId, instruction: instruction})
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ job_id: _viewJobId, instruction: instruction })
             })
-            .then(function(r) { return r.json(); })
-            .then(function(data) {
-                if (data.error) throw new Error(data.error);
-                input.value = '';
-                if (data.continuation) {
-                    const container = document.getElementById('view-steps');
-                    const entry = document.createElement('div');
-                    entry.className = 'step-entry';
-                    entry.style.borderLeftColor = 'var(--mc-diamond)';
-                    entry.style.background = 'rgba(74,237,223,0.1)';
-                    const msg = data.interrupted
-                        ? '🔄 INTERRUPTED — CONTINUING WITH NEW INSTRUCTIONS...'
-                        : '🔄 CONTINUING WITH NEW INSTRUCTIONS...';
-                    entry.innerHTML = '<div class="step-tool" style="color:var(--mc-diamond);">' + msg + '</div>';
-                    container.appendChild(entry);
-                    container.scrollTop = container.scrollHeight;
-                    const badge = document.getElementById('view-status');
-                    badge.className = 'status-badge pending';
-                    badge.textContent = 'CONTINUING...';
-                    // Reset step tracking so the View page picks up all new steps
-                    // from this continuation (previous _viewPrevStepCount may be
-                    // out of sync if the poll interval was left running during a
-                    // terminal state).
-                    _viewPrevStepCount = 0;
-                    // Always restart polling when a continuation starts.
-                    if (_viewPollInterval) clearInterval(_viewPollInterval);
-                    _viewPollInterval = setInterval(pollView, 3000);
-                } else {
-                    const container = document.getElementById('view-steps');
-                    const entry = document.createElement('div');
-                    entry.className = 'step-entry';
-                    entry.style.borderLeftColor = 'var(--mc-diamond)';
-                    entry.style.background = 'rgba(74,237,223,0.1)';
-                    entry.innerHTML = '<div class="step-tool" style="color:var(--mc-diamond);">📥 INJECTION SENT</div>';
-                    container.appendChild(entry);
-                    container.scrollTop = container.scrollHeight;
-                    // Ensure polling is active even for non-continuation injects
-                    if (_viewPollInterval) clearInterval(_viewPollInterval);
-                    _viewPollInterval = setInterval(pollView, 3000);
-                }
-                setTimeout(function() {
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    if (data.error) throw new Error(data.error);
+                    input.value = '';
+                    if (data.continuation) {
+                        const container = document.getElementById('view-steps');
+                        const entry = document.createElement('div');
+                        entry.className = 'step-entry';
+                        entry.style.borderLeftColor = 'var(--mc-diamond)';
+                        entry.style.background = 'rgba(74,237,223,0.1)';
+                        const msg = data.interrupted
+                            ? '🔄 INTERRUPTED — CONTINUING WITH NEW INSTRUCTIONS...'
+                            : '🔄 CONTINUING WITH NEW INSTRUCTIONS...';
+                        entry.innerHTML = '<div class="step-tool" style="color:var(--mc-diamond);">' + msg + '</div>';
+                        container.appendChild(entry);
+                        container.scrollTop = container.scrollHeight;
+                        const badge = document.getElementById('view-status');
+                        badge.className = 'status-badge pending';
+                        badge.textContent = 'CONTINUING...';
+                        // Reset step tracking so the View page picks up all new steps
+                        // from this continuation (previous _viewPrevStepCount may be
+                        // out of sync if the poll interval was left running during a
+                        // terminal state).
+                        _viewPrevStepCount = 0;
+                        // Always restart polling when a continuation starts.
+                        if (_viewPollInterval) clearInterval(_viewPollInterval);
+                        _viewPollInterval = setInterval(pollView, 3000);
+                    } else {
+                        const container = document.getElementById('view-steps');
+                        const entry = document.createElement('div');
+                        entry.className = 'step-entry';
+                        entry.style.borderLeftColor = 'var(--mc-diamond)';
+                        entry.style.background = 'rgba(74,237,223,0.1)';
+                        entry.innerHTML = '<div class="step-tool" style="color:var(--mc-diamond);">📥 INJECTION SENT</div>';
+                        container.appendChild(entry);
+                        container.scrollTop = container.scrollHeight;
+                        // Ensure polling is active even for non-continuation injects
+                        if (_viewPollInterval) clearInterval(_viewPollInterval);
+                        _viewPollInterval = setInterval(pollView, 3000);
+                    }
+                    setTimeout(function () {
+                        btn.disabled = false;
+                        btn.textContent = 'INJECT';
+                        input.disabled = false;
+                    }, 1000);
+                })
+                .catch(function (err) {
+                    console.error('Inject failed:', err);
                     btn.disabled = false;
                     btn.textContent = 'INJECT';
                     input.disabled = false;
-                }, 1000);
-            })
-            .catch(function(err) {
-                console.error('Inject failed:', err);
-                btn.disabled = false;
-                btn.textContent = 'INJECT';
-                input.disabled = false;
-            });
+                });
         }
 
         // Enter key handler
-        document.addEventListener('keydown', function(e) {
+        document.addEventListener('keydown', function (e) {
             if (e.key === 'Enter' && !e.shiftKey) {
                 const input = document.getElementById('view-inject-input');
                 if (input && document.activeElement === input) {
@@ -683,7 +781,7 @@
                 return;
             }
             _viewJobId = resolvedJobId;
-            document.getElementById('view-title').textContent = 'Project: ' + projectName + ' — Job: ' + _viewJobId.substring(0,8);
+            document.getElementById('view-title').textContent = 'Project: ' + projectName + ' — Job: ' + _viewJobId.substring(0, 8);
 
             // Resolve output directory first, so both step and status fetches use the same dir
             _viewOutputDir = await resolveOutputDir();
@@ -715,9 +813,21 @@
         })();
 
         // Cleanup on page unload
-        window.addEventListener('beforeunload', function() {
+        window.addEventListener('beforeunload', function () {
             if (_viewPollInterval) clearInterval(_viewPollInterval);
+        });
+
+        document.addEventListener('DOMContentLoaded', function () {
+            // Fade out loading screen after 2.5s
+            var loadingScreen = document.getElementById('loading-screen');
+            if (loadingScreen) {
+                setTimeout(function () {
+                    loadingScreen.classList.add('fade-out');
+                    setTimeout(function () { loadingScreen.style.display = 'none'; }, 600);
+                }, 2500);
+            }
         });
     </script>
 </body>
+
 </html>
